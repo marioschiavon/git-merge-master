@@ -82,6 +82,157 @@ export type Database = {
           },
         ]
       }
+      integrations: {
+        Row: {
+          api_domain: string | null
+          api_token: string
+          company_id: string
+          created_at: string
+          id: string
+          last_synced_at: string | null
+          provider: Database["public"]["Enums"]["integration_provider"]
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          api_domain?: string | null
+          api_token: string
+          company_id: string
+          created_at?: string
+          id?: string
+          last_synced_at?: string | null
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          api_domain?: string | null
+          api_token?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          last_synced_at?: string | null
+          provider?: Database["public"]["Enums"]["integration_provider"]
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "integrations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_activities: {
+        Row: {
+          company_id: string
+          created_at: string
+          description: string | null
+          id: string
+          lead_id: string
+          metadata: Json | null
+          type: Database["public"]["Enums"]["activity_type"]
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          lead_id: string
+          metadata?: Json | null
+          type: Database["public"]["Enums"]["activity_type"]
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          lead_id?: string
+          metadata?: Json | null
+          type?: Database["public"]["Enums"]["activity_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_activities_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_activities_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          company_id: string
+          company_name: string | null
+          created_at: string
+          email: string | null
+          id: string
+          last_synced_at: string | null
+          name: string
+          phone: string | null
+          pipedrive_data: Json | null
+          pipedrive_id: number | null
+          score: number | null
+          source: string | null
+          status: Database["public"]["Enums"]["lead_status"]
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          company_name?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_synced_at?: string | null
+          name: string
+          phone?: string | null
+          pipedrive_data?: Json | null
+          pipedrive_id?: number | null
+          score?: number | null
+          source?: string | null
+          status?: Database["public"]["Enums"]["lead_status"]
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          company_name?: string | null
+          created_at?: string
+          email?: string | null
+          id?: string
+          last_synced_at?: string | null
+          name?: string
+          phone?: string | null
+          pipedrive_data?: Json | null
+          pipedrive_id?: number | null
+          score?: number | null
+          source?: string | null
+          status?: Database["public"]["Enums"]["lead_status"]
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -142,8 +293,22 @@ export type Database = {
       }
     }
     Enums: {
+      activity_type:
+        | "email"
+        | "call"
+        | "whatsapp"
+        | "linkedin"
+        | "note"
+        | "meeting"
       app_role: "master_admin" | "company_admin" | "user"
       company_status: "active" | "inactive" | "trial"
+      integration_provider: "pipedrive"
+      lead_status:
+        | "new"
+        | "contacted"
+        | "qualified"
+        | "unqualified"
+        | "converted"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -271,8 +436,24 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      activity_type: [
+        "email",
+        "call",
+        "whatsapp",
+        "linkedin",
+        "note",
+        "meeting",
+      ],
       app_role: ["master_admin", "company_admin", "user"],
       company_status: ["active", "inactive", "trial"],
+      integration_provider: ["pipedrive"],
+      lead_status: [
+        "new",
+        "contacted",
+        "qualified",
+        "unqualified",
+        "converted",
+      ],
     },
   },
 } as const
