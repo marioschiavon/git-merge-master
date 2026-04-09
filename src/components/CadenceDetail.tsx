@@ -1,29 +1,13 @@
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads } from "@/hooks/useCadences";
 import { useLeads } from "@/hooks/usePipedrive";
-import { Plus, Trash2, Users, ListOrdered, Mail, MessageCircle, Linkedin } from "lucide-react";
-
-const channelIcons: Record<string, any> = {
-  email: Mail,
-  whatsapp: MessageCircle,
-  linkedin: Linkedin,
-};
-
-const channelLabels: Record<string, string> = {
-  email: "E-mail",
-  whatsapp: "WhatsApp",
-  linkedin: "LinkedIn",
-  multi_channel: "Multi-canal",
-};
+import { CadenceStepCard } from "@/components/CadenceStepCard";
+import { Plus, Users, ListOrdered } from "lucide-react";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
