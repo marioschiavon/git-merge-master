@@ -3,7 +3,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
-export function useIntegration(provider: string) {
+type IntegrationProvider = "pipedrive";
+type LeadStatus = "new" | "contacted" | "qualified" | "unqualified" | "converted";
+
+export function useIntegration(provider: IntegrationProvider) {
   const { companyId } = useAuth();
 
   return useQuery({
@@ -87,7 +90,7 @@ export function useLeads(filters?: { status?: string; search?: string }) {
         .order("created_at", { ascending: false });
 
       if (filters?.status && filters.status !== "all") {
-        query = query.eq("status", filters.status);
+        query = query.eq("status", filters.status as LeadStatus);
       }
       if (filters?.search) {
         query = query.or(
