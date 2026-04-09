@@ -1,31 +1,22 @@
 
 
-# Integrar Scripts com Cadências + Criar Scripts Manuais
+# Adicionar Edição de Scripts
 
 ## O que será feito
 
-### 1. Botão "Criar Script Manual" na página Scripts
-- Adicionar botão "Novo Script" ao lado do "Gerar com IA"
-- Dialog com formulário manual: nome, segmento, canal, tom e texto do script
-- Salva com `is_ai_generated: false`
+### 1. Hook `useUpdateScript` em `src/hooks/useScripts.ts`
+- Nova mutation que faz `update` na tabela `script_templates` por `id`
+- Permite alterar: `name`, `segment`, `channel`, `tone`, `base_script`
 
-### 2. Botão "Usar em Cadência" nos cards de script
-- Cada card de script ganha um botão "Usar em Cadência"
-- Ao clicar, abre um seletor com as cadências existentes
-- Usuário escolhe a cadência e o step recebe o script como template
-
-### 3. Botão "Preencher com IA" nos steps da Cadência (CadenceDetail)
-- No template de cada step, adicionar botão com ícone de IA
-- Ao clicar, abre um dialog com duas opções:
-  - **Escolher da biblioteca** — lista scripts salvos filtrados pelo canal do step
-  - **Gerar na hora** — mini-wizard inline (segmento + tom) que chama a edge function
-- O texto selecionado/gerado preenche o campo template do step
+### 2. Botão "Editar" nos cards de script em `src/pages/Scripts.tsx`
+- Ícone de edição (Pencil) ao lado dos botões existentes
+- Ao clicar, abre o mesmo dialog de criação manual, porém pré-preenchido com os dados do script
+- Botão muda para "Salvar Alterações" e chama `useUpdateScript` em vez de `useCreateScript`
+- Reutiliza os mesmos states do dialog manual (`manualOpen`, `manualName`, etc.) + um `editingScriptId` para distinguir criação de edição
 
 ### Arquivos modificados
-- `src/pages/Scripts.tsx` — dialog de criação manual + botão "Usar em Cadência"
-- `src/components/CadenceDetail.tsx` — botão "Preencher com IA" / "Escolher Script" em cada step
-- `src/hooks/useScripts.ts` — sem alterações (já tem `useCreateScript` e `useGenerateScript`)
-- `src/hooks/useCadences.ts` — sem alterações (já tem `useUpsertStep`)
+- `src/hooks/useScripts.ts` — adicionar `useUpdateScript`
+- `src/pages/Scripts.tsx` — botão Editar + lógica de pré-preenchimento do dialog
 
-Sem alterações de banco de dados necessárias.
+Sem alterações de banco (RLS já permite UPDATE via policy ALL).
 
