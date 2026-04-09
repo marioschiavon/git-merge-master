@@ -1,40 +1,34 @@
 
 
-# Próximos Passos — Fase 3
+# Próximo Passo — Opção B: Dashboard com Métricas Reais
 
-Com a integração Pipedrive funcionando, a prioridade natural é dar vida às **Cadências de Outreach** e ao **Dashboard com dados reais**.
+A Opção A (Cadências) está implementada. Seguindo a ordem recomendada, o próximo passo é o **Dashboard com dados reais**.
 
 ---
 
-## Opção A: Cadências de Outreach (maior impacto)
+## O que será feito
 
-Transformar a página vazia de Cadências em um sistema funcional:
+### Dashboard.tsx — reescrever com dados do banco
+- **Cards KPI** com queries reais:
+  - Total de leads (count na tabela `leads`)
+  - Leads novos nos últimos 7 dias
+  - Leads por status (new/contacted/qualified/converted)
+  - Taxa de conversão (converted / total)
+- **Gráfico de leads** importados por semana (últimas 8 semanas) usando Recharts
+- **Cadências ativas** — lista das cadências com status `active` e contagem de enrollments
+- **Atividade recente** — últimas 10 entradas de `lead_activities`
+- **Status da integração Pipedrive** — conexão ativa/inativa e último sync
 
-- **Tabela `cadences`**: nome, tipo (email/whatsapp/linkedin/multi-channel), status (draft/active/paused), company_id
-- **Tabela `cadence_steps`**: cadence_id, step_order, channel, template, delay_days
-- **Tabela `cadence_enrollments`**: lead_id, cadence_id, current_step, status (active/completed/replied/bounced)
-- UI para criar cadência com steps arrastáveis
-- Associar leads a cadências
-- Visualizar progresso dos leads em cada cadência
+### Hook useStats
+- `useDashboardStats()` — busca counts agregados das tabelas `leads`, `cadences`, `cadence_enrollments`, `integrations`
 
-## Opção B: Dashboard com Métricas Reais
+### Dependências
+- Recharts (já disponível no projeto via shadcn charts)
 
-- Cards com: total leads, leads novos (7d), por status, taxa de conversão
-- Gráfico de leads importados por dia/semana
-- Últimas atividades
-- Status da integração Pipedrive
+---
 
-## Opção C: Ações nos Leads
-
-- Alterar status do lead manualmente
-- Adicionar notas e atividades
+## Opção C (seguinte): Ações nos Leads
+- Alterar status manualmente
+- Adicionar notas/atividades
 - Atribuir lead a membro da equipe
-
----
-
-## Recomendação
-
-Implementar na ordem **A → B → C** para entregar valor rapidamente: as cadências são o core do produto SDR.
-
-Qual opção deseja implementar primeiro?
 
