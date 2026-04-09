@@ -180,13 +180,13 @@ export default function Scripts() {
           <p className="text-muted-foreground">Biblioteca de scripts de abordagem por segmento</p>
         </div>
         <div className="flex gap-2">
-          <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+          <Dialog open={manualOpen} onOpenChange={(open) => { setManualOpen(open); if (!open) setEditingScriptId(null); }}>
             <DialogTrigger asChild>
-              <Button variant="outline"><Plus className="mr-2 h-4 w-4" />Novo Script</Button>
+              <Button variant="outline" onClick={() => { setEditingScriptId(null); setManualName(""); setManualSegment("geral"); setManualChannel("email"); setManualTone("consultivo"); setManualScript(""); }}><Plus className="mr-2 h-4 w-4" />Novo Script</Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg">
               <DialogHeader>
-                <DialogTitle>Criar Script Manual</DialogTitle>
+                <DialogTitle>{editingScriptId ? "Editar Script" : "Criar Script Manual"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-1">
@@ -225,9 +225,9 @@ export default function Scripts() {
                     onChange={e => setManualScript(e.target.value)}
                   />
                 </div>
-                <Button onClick={handleManualSave} disabled={createScript.isPending} className="w-full">
-                  {createScript.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                  Salvar Script
+                <Button onClick={handleManualSave} disabled={createScript.isPending || updateScript.isPending} className="w-full">
+                  {(createScript.isPending || updateScript.isPending) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingScriptId ? <Pencil className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+                  {editingScriptId ? "Salvar Alterações" : "Salvar Script"}
                 </Button>
               </div>
             </DialogContent>
