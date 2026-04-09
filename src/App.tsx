@@ -9,6 +9,8 @@ import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import Cadences from "@/pages/Cadences";
+import Scripts from "@/pages/Scripts";
+import Conversations from "@/pages/Conversations";
 import Reports from "@/pages/Reports";
 import MasterDashboard from "@/pages/master/MasterDashboard";
 import Companies from "@/pages/master/Companies";
