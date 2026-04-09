@@ -9,6 +9,8 @@ import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import Cadences from "@/pages/Cadences";
+import Scripts from "@/pages/Scripts";
+import Conversations from "@/pages/Conversations";
 import Reports from "@/pages/Reports";
 import MasterDashboard from "@/pages/master/MasterDashboard";
 import Companies from "@/pages/master/Companies";
@@ -33,6 +35,8 @@ const App = () => (
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/leads" element={<Leads />} />
               <Route path="/cadences" element={<Cadences />} />
+              <Route path="/scripts" element={<Scripts />} />
+              <Route path="/conversations" element={<Conversations />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/master" element={<MasterDashboard />} />
               <Route path="/master/companies" element={<Companies />} />

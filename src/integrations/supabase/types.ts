@@ -228,6 +228,55 @@ export type Database = {
           },
         ]
       }
+      conversations: {
+        Row: {
+          cadence_enrollment_id: string | null
+          channel: Database["public"]["Enums"]["cadence_type"]
+          company_id: string
+          created_at: string
+          id: string
+          lead_id: string
+        }
+        Insert: {
+          cadence_enrollment_id?: string | null
+          channel?: Database["public"]["Enums"]["cadence_type"]
+          company_id: string
+          created_at?: string
+          id?: string
+          lead_id: string
+        }
+        Update: {
+          cadence_enrollment_id?: string | null
+          channel?: Database["public"]["Enums"]["cadence_type"]
+          company_id?: string
+          created_at?: string
+          id?: string
+          lead_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversations_cadence_enrollment_id_fkey"
+            columns: ["cadence_enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "conversations_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integrations: {
         Row: {
           api_domain: string | null
@@ -379,6 +428,44 @@ export type Database = {
           },
         ]
       }
+      messages: {
+        Row: {
+          ai_suggested: boolean
+          content: string
+          conversation_id: string
+          direction: string
+          id: string
+          metadata: Json | null
+          sent_at: string
+        }
+        Insert: {
+          ai_suggested?: boolean
+          content?: string
+          conversation_id: string
+          direction?: string
+          id?: string
+          metadata?: Json | null
+          sent_at?: string
+        }
+        Update: {
+          ai_suggested?: boolean
+          content?: string
+          conversation_id?: string
+          direction?: string
+          id?: string
+          metadata?: Json | null
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "messages_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -405,6 +492,88 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      script_templates: {
+        Row: {
+          base_script: string
+          channel: Database["public"]["Enums"]["cadence_type"]
+          company_id: string
+          created_at: string
+          created_by: string
+          id: string
+          is_ai_generated: boolean
+          name: string
+          segment: string
+          tone: string
+          updated_at: string
+        }
+        Insert: {
+          base_script?: string
+          channel?: Database["public"]["Enums"]["cadence_type"]
+          company_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          is_ai_generated?: boolean
+          name: string
+          segment?: string
+          tone?: string
+          updated_at?: string
+        }
+        Update: {
+          base_script?: string
+          channel?: Database["public"]["Enums"]["cadence_type"]
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          is_ai_generated?: boolean
+          name?: string
+          segment?: string
+          tone?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_templates_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      script_variations: {
+        Row: {
+          created_at: string
+          id: string
+          template_id: string
+          tone: string
+          variation_text: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          template_id: string
+          tone?: string
+          variation_text?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          template_id?: string
+          tone?: string
+          variation_text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "script_variations_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "script_templates"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {

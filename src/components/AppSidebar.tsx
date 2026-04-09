@@ -1,4 +1,6 @@
 import {
+  FileText,
+  Inbox,
   LayoutDashboard,
   Building2,
   Users,
@@ -38,6 +40,8 @@ const companyItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Leads", url: "/leads", icon: Target },
   { title: "Cadências", url: "/cadences", icon: MessageSquare },
+  { title: "Scripts IA", url: "/scripts", icon: FileText },
+  { title: "Conversas", url: "/conversations", icon: Inbox },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
 ];
 
