@@ -1,4 +1,6 @@
 import {
+  FileText,
+  Inbox,
   LayoutDashboard,
   Building2,
   Users,
