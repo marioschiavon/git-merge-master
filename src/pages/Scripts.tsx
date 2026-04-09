@@ -7,9 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { useScriptTemplates, useCreateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
+import { useScriptTemplates, useCreateScript, useUpdateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
 import { useCadences, useCadenceSteps, useUpsertStep } from "@/hooks/useCadences";
-import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send } from "lucide-react";
+import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const segments = [
@@ -41,6 +41,7 @@ const channels = [
 export default function Scripts() {
   const { data: scripts = [], isLoading } = useScriptTemplates();
   const createScript = useCreateScript();
+  const updateScript = useUpdateScript();
   const deleteScript = useDeleteScript();
   const generateScript = useGenerateScript();
   const generateVariations = useGenerateVariations();
@@ -61,6 +62,7 @@ export default function Scripts() {
   const [manualChannel, setManualChannel] = useState("email");
   const [manualTone, setManualTone] = useState("consultivo");
   const [manualScript, setManualScript] = useState("");
+  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
 
   // Variations dialog
   const [variationsOpen, setVariationsOpen] = useState(false);
@@ -104,17 +106,39 @@ export default function Scripts() {
       toast.error("Preencha nome e texto do script");
       return;
     }
-    await createScript.mutateAsync({
-      name: manualName,
-      segment: manualSegment,
-      channel: manualChannel,
-      tone: manualTone,
-      base_script: manualScript,
-      is_ai_generated: false,
-    });
+    if (editingScriptId) {
+      await updateScript.mutateAsync({
+        id: editingScriptId,
+        name: manualName,
+        segment: manualSegment,
+        channel: manualChannel,
+        tone: manualTone,
+        base_script: manualScript,
+      });
+    } else {
+      await createScript.mutateAsync({
+        name: manualName,
+        segment: manualSegment,
+        channel: manualChannel,
+        tone: manualTone,
+        base_script: manualScript,
+        is_ai_generated: false,
+      });
+    }
     setManualName("");
     setManualScript("");
+    setEditingScriptId(null);
     setManualOpen(false);
+  };
+
+  const handleEdit = (script: any) => {
+    setEditingScriptId(script.id);
+    setManualName(script.name);
+    setManualSegment(script.segment);
+    setManualChannel(script.channel);
+    setManualTone(script.tone);
+    setManualScript(script.base_script);
+    setManualOpen(true);
   };
 
   const handleGenerateVariations = async () => {
@@ -156,13 +180,13 @@ export default function Scripts() {
           <p className="text-muted-foreground">Biblioteca de scripts de abordagem por segmento</p>
         </div>
         <div className="flex gap-2">
-          <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+          <Dialog open={manualOpen} onOpenChange={(open) => { setManualOpen(open); if (!open) setEditingScriptId(null); }}>
             <DialogTrigger asChild>
-              <Button variant="outline"><Plus className="mr-2 h-4 w-4" />Novo Script</Button>
+              <Button variant="outline" onClick={() => { setEditingScriptId(null); setManualName(""); setManualSegment("geral"); setManualChannel("email"); setManualTone("consultivo"); setManualScript(""); }}><Plus className="mr-2 h-4 w-4" />Novo Script</Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg">
               <DialogHeader>
-                <DialogTitle>Criar Script Manual</DialogTitle>
+                <DialogTitle>{editingScriptId ? "Editar Script" : "Criar Script Manual"}</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
                 <div className="space-y-1">
@@ -201,9 +225,9 @@ export default function Scripts() {
                     onChange={e => setManualScript(e.target.value)}
                   />
                 </div>
-                <Button onClick={handleManualSave} disabled={createScript.isPending} className="w-full">
-                  {createScript.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                  Salvar Script
+                <Button onClick={handleManualSave} disabled={createScript.isPending || updateScript.isPending} className="w-full">
+                  {(createScript.isPending || updateScript.isPending) ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : editingScriptId ? <Pencil className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
+                  {editingScriptId ? "Salvar Alterações" : "Salvar Script"}
                 </Button>
               </div>
             </DialogContent>
@@ -322,6 +346,9 @@ export default function Scripts() {
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(script.base_script); toast.success("Copiado!"); }}>
                     <Copy className="mr-1 h-3 w-3" />Copiar
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => handleEdit(script)}>
+                    <Pencil className="mr-1 h-3 w-3" />Editar
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => deleteScript.mutate(script.id)}>
                     <Trash2 className="h-3 w-3 text-destructive" />
