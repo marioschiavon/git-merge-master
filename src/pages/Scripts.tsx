@@ -347,6 +347,9 @@ export default function Scripts() {
                   <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(script.base_script); toast.success("Copiado!"); }}>
                     <Copy className="mr-1 h-3 w-3" />Copiar
                   </Button>
+                  <Button size="sm" variant="outline" onClick={() => handleEdit(script)}>
+                    <Pencil className="mr-1 h-3 w-3" />Editar
+                  </Button>
                   <Button size="sm" variant="ghost" onClick={() => deleteScript.mutate(script.id)}>
                     <Trash2 className="h-3 w-3 text-destructive" />
                   </Button>
