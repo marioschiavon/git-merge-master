@@ -41,6 +41,7 @@ const channels = [
 export default function Scripts() {
   const { data: scripts = [], isLoading } = useScriptTemplates();
   const createScript = useCreateScript();
+  const updateScript = useUpdateScript();
   const deleteScript = useDeleteScript();
   const generateScript = useGenerateScript();
   const generateVariations = useGenerateVariations();
@@ -61,6 +62,7 @@ export default function Scripts() {
   const [manualChannel, setManualChannel] = useState("email");
   const [manualTone, setManualTone] = useState("consultivo");
   const [manualScript, setManualScript] = useState("");
+  const [editingScriptId, setEditingScriptId] = useState<string | null>(null);
 
   // Variations dialog
   const [variationsOpen, setVariationsOpen] = useState(false);
@@ -104,17 +106,39 @@ export default function Scripts() {
       toast.error("Preencha nome e texto do script");
       return;
     }
-    await createScript.mutateAsync({
-      name: manualName,
-      segment: manualSegment,
-      channel: manualChannel,
-      tone: manualTone,
-      base_script: manualScript,
-      is_ai_generated: false,
-    });
+    if (editingScriptId) {
+      await updateScript.mutateAsync({
+        id: editingScriptId,
+        name: manualName,
+        segment: manualSegment,
+        channel: manualChannel,
+        tone: manualTone,
+        base_script: manualScript,
+      });
+    } else {
+      await createScript.mutateAsync({
+        name: manualName,
+        segment: manualSegment,
+        channel: manualChannel,
+        tone: manualTone,
+        base_script: manualScript,
+        is_ai_generated: false,
+      });
+    }
     setManualName("");
     setManualScript("");
+    setEditingScriptId(null);
     setManualOpen(false);
+  };
+
+  const handleEdit = (script: any) => {
+    setEditingScriptId(script.id);
+    setManualName(script.name);
+    setManualSegment(script.segment);
+    setManualChannel(script.channel);
+    setManualTone(script.tone);
+    setManualScript(script.base_script);
+    setManualOpen(true);
   };
 
   const handleGenerateVariations = async () => {
