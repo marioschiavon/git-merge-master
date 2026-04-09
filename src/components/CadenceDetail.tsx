@@ -1,29 +1,13 @@
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads } from "@/hooks/useCadences";
 import { useLeads } from "@/hooks/usePipedrive";
-import { Plus, Trash2, Users, ListOrdered, Mail, MessageCircle, Linkedin } from "lucide-react";
-
-const channelIcons: Record<string, any> = {
-  email: Mail,
-  whatsapp: MessageCircle,
-  linkedin: Linkedin,
-};
-
-const channelLabels: Record<string, string> = {
-  email: "E-mail",
-  whatsapp: "WhatsApp",
-  linkedin: "LinkedIn",
-  multi_channel: "Multi-canal",
-};
+import { CadenceStepCard } from "@/components/CadenceStepCard";
+import { Plus, Users, ListOrdered } from "lucide-react";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -95,91 +79,15 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
           </TabsList>
 
           <TabsContent value="steps" className="space-y-4 mt-4">
-            {steps.map((step: any, idx: number) => {
-              const Icon = channelIcons[step.channel] || Mail;
-              return (
-                <Card key={step.id}>
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="font-mono">#{step.step_order}</Badge>
-                        <Icon className="h-4 w-4 text-muted-foreground" />
-                        <span className="text-sm font-medium">{channelLabels[step.channel]}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-muted-foreground">
-                          {step.delay_days === 0 ? "Imediato" : `+${step.delay_days} dia(s)`}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => deleteStep.mutate({ id: step.id, cadenceId: cadenceId! })}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div className="space-y-1">
-                        <Label className="text-xs">Canal</Label>
-                        <Select
-                          value={step.channel}
-                          onValueChange={(v) =>
-                            upsertStep.mutate({ ...step, channel: v })
-                          }
-                        >
-                          <SelectTrigger className="h-8 text-xs">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="email">E-mail</SelectItem>
-                            <SelectItem value="whatsapp">WhatsApp</SelectItem>
-                            <SelectItem value="linkedin">LinkedIn</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Delay (dias)</Label>
-                        <Input
-                          type="number"
-                          min={0}
-                          className="h-8 text-xs"
-                          value={step.delay_days}
-                          onChange={(e) =>
-                            upsertStep.mutate({ ...step, delay_days: parseInt(e.target.value) || 0 })
-                          }
-                        />
-                      </div>
-                    </div>
-                    {step.channel === "email" && (
-                      <div className="space-y-1">
-                        <Label className="text-xs">Assunto</Label>
-                        <Input
-                          className="h-8 text-xs"
-                          placeholder="Assunto do e-mail..."
-                          value={step.subject || ""}
-                          onBlur={(e) =>
-                            upsertStep.mutate({ ...step, subject: e.target.value })
-                          }
-                          defaultValue={step.subject || ""}
-                        />
-                      </div>
-                    )}
-                    <div className="space-y-1">
-                      <Label className="text-xs">Template da mensagem</Label>
-                      <Textarea
-                        className="text-xs min-h-[60px]"
-                        placeholder="Olá {{nome}}, ..."
-                        defaultValue={step.template}
-                        onBlur={(e) =>
-                          upsertStep.mutate({ ...step, template: e.target.value })
-                        }
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {steps.map((step: any) => (
+              <CadenceStepCard
+                key={step.id}
+                step={step}
+                cadenceId={cadenceId!}
+                onUpsert={(s) => upsertStep.mutate(s)}
+                onDelete={(p) => deleteStep.mutate(p)}
+              />
+            ))}
             <Button variant="outline" className="w-full" onClick={handleAddStep}>
               <Plus className="mr-2 h-4 w-4" />Adicionar Step
             </Button>

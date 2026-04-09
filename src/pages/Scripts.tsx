@@ -7,8 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { useScriptTemplates, useCreateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations, useScriptVariations } from "@/hooks/useScripts";
-import { Sparkles, Plus, Trash2, Copy, Loader2, FileText } from "lucide-react";
+import { useScriptTemplates, useCreateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
+import { useCadences, useCadenceSteps, useUpsertStep } from "@/hooks/useCadences";
+import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send } from "lucide-react";
 import { toast } from "sonner";
 
 const segments = [
@@ -45,6 +46,7 @@ export default function Scripts() {
   const generateVariations = useGenerateVariations();
   const saveVariations = useSaveVariations();
 
+  // AI generate dialog
   const [generateOpen, setGenerateOpen] = useState(false);
   const [segment, setSegment] = useState("geral");
   const [channel, setChannel] = useState("email");
@@ -52,10 +54,29 @@ export default function Scripts() {
   const [companyContext, setCompanyContext] = useState("");
   const [generatedScript, setGeneratedScript] = useState<{ name: string; subject: string | null; script: string } | null>(null);
 
+  // Manual create dialog
+  const [manualOpen, setManualOpen] = useState(false);
+  const [manualName, setManualName] = useState("");
+  const [manualSegment, setManualSegment] = useState("geral");
+  const [manualChannel, setManualChannel] = useState("email");
+  const [manualTone, setManualTone] = useState("consultivo");
+  const [manualScript, setManualScript] = useState("");
+
+  // Variations dialog
   const [variationsOpen, setVariationsOpen] = useState(false);
   const [variationsTemplateId, setVariationsTemplateId] = useState<string | null>(null);
   const [variationsBase, setVariationsBase] = useState("");
   const [generatedVariations, setGeneratedVariations] = useState<{ tone: string; text: string }[]>([]);
+
+  // Use in cadence dialog
+  const [cadenceDialogOpen, setCadenceDialogOpen] = useState(false);
+  const [cadenceScriptText, setCadenceScriptText] = useState("");
+  const [cadenceScriptChannel, setCadenceScriptChannel] = useState("");
+  const [selectedCadenceId, setSelectedCadenceId] = useState<string | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const { data: cadences = [] } = useCadences();
+  const { data: cadenceSteps = [] } = useCadenceSteps(selectedCadenceId);
+  const upsertStep = useUpsertStep();
 
   const [filterSegment, setFilterSegment] = useState("all");
 
@@ -78,13 +99,26 @@ export default function Scripts() {
     setGenerateOpen(false);
   };
 
-  const handleGenerateVariations = async () => {
-    const result = await generateVariations.mutateAsync({
-      baseScript: variationsBase,
-      count: 3,
-      segment: undefined,
-      channel: undefined,
+  const handleManualSave = async () => {
+    if (!manualName || !manualScript) {
+      toast.error("Preencha nome e texto do script");
+      return;
+    }
+    await createScript.mutateAsync({
+      name: manualName,
+      segment: manualSegment,
+      channel: manualChannel,
+      tone: manualTone,
+      base_script: manualScript,
+      is_ai_generated: false,
     });
+    setManualName("");
+    setManualScript("");
+    setManualOpen(false);
+  };
+
+  const handleGenerateVariations = async () => {
+    const result = await generateVariations.mutateAsync({ baseScript: variationsBase, count: 3 });
     setGeneratedVariations(result.variations);
   };
 
@@ -93,6 +127,23 @@ export default function Scripts() {
     await saveVariations.mutateAsync({ templateId: variationsTemplateId, variations: generatedVariations });
     setGeneratedVariations([]);
     setVariationsOpen(false);
+  };
+
+  const handleUseCadence = (scriptText: string, scriptChannel: string) => {
+    setCadenceScriptText(scriptText);
+    setCadenceScriptChannel(scriptChannel);
+    setSelectedCadenceId(null);
+    setSelectedStepId(null);
+    setCadenceDialogOpen(true);
+  };
+
+  const handleApplyToStep = async () => {
+    if (!selectedStepId || !selectedCadenceId) return;
+    const step = cadenceSteps.find((s) => s.id === selectedStepId);
+    if (!step) return;
+    await upsertStep.mutateAsync({ ...step, template: cadenceScriptText });
+    toast.success("Script aplicado ao step!");
+    setCadenceDialogOpen(false);
   };
 
   const filtered = filterSegment === "all" ? scripts : scripts.filter((s: any) => s.segment === filterSegment);
@@ -104,65 +155,119 @@ export default function Scripts() {
           <h1 className="text-2xl font-bold text-foreground">Scripts IA</h1>
           <p className="text-muted-foreground">Biblioteca de scripts de abordagem por segmento</p>
         </div>
-        <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
-          <DialogTrigger asChild>
-            <Button><Sparkles className="mr-2 h-4 w-4" />Gerar com IA</Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-lg">
-            <DialogHeader>
-              <DialogTitle>Gerar Script com IA</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3">
+        <div className="flex gap-2">
+          <Dialog open={manualOpen} onOpenChange={setManualOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline"><Plus className="mr-2 h-4 w-4" />Novo Script</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Criar Script Manual</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
                 <div className="space-y-1">
-                  <Label className="text-xs">Segmento</Label>
-                  <Select value={segment} onValueChange={setSegment}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{segments.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Label className="text-xs">Nome</Label>
+                  <Input placeholder="Ex: Advocacia - Primeiro contato" value={manualName} onChange={e => setManualName(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Segmento</Label>
+                    <Select value={manualSegment} onValueChange={setManualSegment}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{segments.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Canal</Label>
+                    <Select value={manualChannel} onValueChange={setManualChannel}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{channels.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tom</Label>
+                    <Select value={manualTone} onValueChange={setManualTone}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{tones.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
                 </div>
                 <div className="space-y-1">
-                  <Label className="text-xs">Canal</Label>
-                  <Select value={channel} onValueChange={setChannel}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{channels.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
-                  </Select>
+                  <Label className="text-xs">Texto do Script</Label>
+                  <Textarea
+                    placeholder="Olá {{nome}}, tudo bem? Sou da {{empresa}}..."
+                    className="min-h-[120px]"
+                    value={manualScript}
+                    onChange={e => setManualScript(e.target.value)}
+                  />
                 </div>
-                <div className="space-y-1">
-                  <Label className="text-xs">Tom</Label>
-                  <Select value={tone} onValueChange={setTone}>
-                    <SelectTrigger><SelectValue /></SelectTrigger>
-                    <SelectContent>{tones.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
-                  </Select>
-                </div>
+                <Button onClick={handleManualSave} disabled={createScript.isPending} className="w-full">
+                  {createScript.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                  Salvar Script
+                </Button>
               </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Contexto adicional (opcional)</Label>
-                <Input placeholder="Ex: empresa de software para clínicas..." value={companyContext} onChange={e => setCompanyContext(e.target.value)} />
+            </DialogContent>
+          </Dialog>
+          <Dialog open={generateOpen} onOpenChange={setGenerateOpen}>
+            <DialogTrigger asChild>
+              <Button><Sparkles className="mr-2 h-4 w-4" />Gerar com IA</Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>Gerar Script com IA</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Segmento</Label>
+                    <Select value={segment} onValueChange={setSegment}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{segments.map(s => <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Canal</Label>
+                    <Select value={channel} onValueChange={setChannel}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{channels.map(c => <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tom</Label>
+                    <Select value={tone} onValueChange={setTone}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>{tones.map(t => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Contexto adicional (opcional)</Label>
+                  <Input placeholder="Ex: empresa de software para clínicas..." value={companyContext} onChange={e => setCompanyContext(e.target.value)} />
+                </div>
+                <Button onClick={handleGenerate} disabled={generateScript.isPending} className="w-full">
+                  {generateScript.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Gerando...</> : <><Sparkles className="mr-2 h-4 w-4" />Gerar Script</>}
+                </Button>
+                {generatedScript && (
+                  <Card>
+                    <CardContent className="p-4 space-y-2">
+                      <p className="text-sm font-medium">{generatedScript.name}</p>
+                      {generatedScript.subject && <p className="text-xs text-muted-foreground">Assunto: {generatedScript.subject}</p>}
+                      <pre className="text-xs whitespace-pre-wrap bg-muted p-3 rounded-md max-h-48 overflow-y-auto">{generatedScript.script}</pre>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={handleSaveGenerated} disabled={createScript.isPending}>
+                          <Plus className="mr-1 h-3 w-3" />Salvar na Biblioteca
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(generatedScript.script); toast.success("Copiado!"); }}>
+                          <Copy className="mr-1 h-3 w-3" />Copiar
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
               </div>
-              <Button onClick={handleGenerate} disabled={generateScript.isPending} className="w-full">
-                {generateScript.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Gerando...</> : <><Sparkles className="mr-2 h-4 w-4" />Gerar Script</>}
-              </Button>
-              {generatedScript && (
-                <Card>
-                  <CardContent className="p-4 space-y-2">
-                    <p className="text-sm font-medium">{generatedScript.name}</p>
-                    {generatedScript.subject && <p className="text-xs text-muted-foreground">Assunto: {generatedScript.subject}</p>}
-                    <pre className="text-xs whitespace-pre-wrap bg-muted p-3 rounded-md max-h-48 overflow-y-auto">{generatedScript.script}</pre>
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={handleSaveGenerated} disabled={createScript.isPending}>
-                        <Plus className="mr-1 h-3 w-3" />Salvar na Biblioteca
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(generatedScript.script); toast.success("Copiado!"); }}>
-                        <Copy className="mr-1 h-3 w-3" />Copiar
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <div className="flex gap-2 flex-wrap">
@@ -180,7 +285,7 @@ export default function Scripts() {
         <Card>
           <CardContent className="py-12 text-center">
             <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
-            <p className="text-muted-foreground">Nenhum script encontrado. Use "Gerar com IA" para criar seu primeiro!</p>
+            <p className="text-muted-foreground">Nenhum script encontrado. Use "Gerar com IA" ou "Novo Script" para criar!</p>
           </CardContent>
         </Card>
       ) : (
@@ -203,7 +308,10 @@ export default function Scripts() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <pre className="text-xs whitespace-pre-wrap bg-muted p-2 rounded max-h-32 overflow-y-auto">{script.base_script}</pre>
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap">
+                  <Button size="sm" variant="outline" onClick={() => handleUseCadence(script.base_script, script.channel)}>
+                    <Send className="mr-1 h-3 w-3" />Usar em Cadência
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => {
                     setVariationsTemplateId(script.id);
                     setVariationsBase(script.base_script);
@@ -225,6 +333,7 @@ export default function Scripts() {
         </div>
       )}
 
+      {/* Variations Dialog */}
       <Dialog open={variationsOpen} onOpenChange={setVariationsOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -250,6 +359,52 @@ export default function Scripts() {
                 </Button>
               </div>
             )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Use in Cadence Dialog */}
+      <Dialog open={cadenceDialogOpen} onOpenChange={setCadenceDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Usar Script em Cadência</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <pre className="text-xs whitespace-pre-wrap bg-muted p-3 rounded-md max-h-24 overflow-y-auto">{cadenceScriptText.slice(0, 200)}...</pre>
+            <div className="space-y-1">
+              <Label className="text-xs">Cadência</Label>
+              <Select value={selectedCadenceId || ""} onValueChange={(v) => { setSelectedCadenceId(v); setSelectedStepId(null); }}>
+                <SelectTrigger><SelectValue placeholder="Selecione uma cadência" /></SelectTrigger>
+                <SelectContent>
+                  {cadences.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {selectedCadenceId && (
+              <div className="space-y-1">
+                <Label className="text-xs">Step</Label>
+                {cadenceSteps.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">Nenhum step nesta cadência.</p>
+                ) : (
+                  <Select value={selectedStepId || ""} onValueChange={setSelectedStepId}>
+                    <SelectTrigger><SelectValue placeholder="Selecione o step" /></SelectTrigger>
+                    <SelectContent>
+                      {cadenceSteps.map((s: any) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          #{s.step_order} — {s.channel}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              </div>
+            )}
+            <Button onClick={handleApplyToStep} disabled={!selectedStepId || upsertStep.isPending} className="w-full">
+              {upsertStep.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+              Aplicar ao Step
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
