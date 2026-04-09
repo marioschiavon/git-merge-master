@@ -1,22 +1,160 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Target } from "lucide-react";
+import { useState } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { useLeads, useSyncLeads, useIntegration } from "@/hooks/usePipedrive";
+import { LeadDetail } from "@/components/LeadDetail";
+import { RefreshCw, Target, Search } from "lucide-react";
+
+const statusColors: Record<string, string> = {
+  new: "bg-blue-100 text-blue-800",
+  contacted: "bg-yellow-100 text-yellow-800",
+  qualified: "bg-green-100 text-green-800",
+  unqualified: "bg-red-100 text-red-800",
+  converted: "bg-purple-100 text-purple-800",
+};
+
+const statusLabels: Record<string, string> = {
+  new: "Novo",
+  contacted: "Contatado",
+  qualified: "Qualificado",
+  unqualified: "Desqualificado",
+  converted: "Convertido",
+};
 
 export default function Leads() {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [selectedLead, setSelectedLead] = useState<any>(null);
+
+  const { data: leads = [], isLoading } = useLeads({ status: statusFilter, search });
+  const syncMutation = useSyncLeads();
+  const { data: integration } = useIntegration("pipedrive");
+  const isConnected = integration?.status === "active";
+
+  if (!isConnected && leads.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
+          <p className="text-muted-foreground">Gerencie seus leads importados do Pipedrive</p>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Target className="mb-4 h-12 w-12 text-muted-foreground" />
+            <h3 className="text-lg font-medium">Nenhum lead importado</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Conecte seu Pipedrive em Configurações → Integrações para importar leads.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
-        <p className="text-muted-foreground">Gerencie seus leads importados do Pipedrive</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
+          <p className="text-muted-foreground">{leads.length} leads encontrados</p>
+        </div>
+        {isConnected && (
+          <Button
+            variant="outline"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+            {syncMutation.isPending ? "Sincronizando..." : "Sincronizar"}
+          </Button>
+        )}
       </div>
+
+      {/* Filters */}
+      <div className="flex gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por nome, email ou empresa..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <Select value={statusFilter} onValueChange={setStatusFilter}>
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filtrar status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos os status</SelectItem>
+            <SelectItem value="new">Novo</SelectItem>
+            <SelectItem value="contacted">Contatado</SelectItem>
+            <SelectItem value="qualified">Qualificado</SelectItem>
+            <SelectItem value="unqualified">Desqualificado</SelectItem>
+            <SelectItem value="converted">Convertido</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {/* Table */}
       <Card>
-        <CardContent className="flex flex-col items-center justify-center py-12">
-          <Target className="mb-4 h-12 w-12 text-muted-foreground" />
-          <h3 className="text-lg font-medium">Nenhum lead importado</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Conecte seu Pipedrive em Configurações → Integrações para importar leads.
-          </p>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Empresa</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Origem</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    Carregando...
+                  </TableCell>
+                </TableRow>
+              ) : leads.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                    Nenhum lead encontrado.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                leads.map((lead: any) => (
+                  <TableRow
+                    key={lead.id}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedLead(lead)}
+                  >
+                    <TableCell className="font-medium">{lead.name}</TableCell>
+                    <TableCell>{lead.email || "—"}</TableCell>
+                    <TableCell>{lead.company_name || "—"}</TableCell>
+                    <TableCell>
+                      <Badge className={statusColors[lead.status] || ""} variant="secondary">
+                        {statusLabels[lead.status] || lead.status}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>{lead.source || "—"}</TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
+
+      <LeadDetail
+        lead={selectedLead}
+        open={!!selectedLead}
+        onOpenChange={(open) => !open && setSelectedLead(null)}
+      />
     </div>
   );
 }
