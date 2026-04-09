@@ -1,132 +1,77 @@
 
-# SDR Automation SaaS — Plano Completo
 
-## Visão Geral
-SaaS B2B multi-tenant que automatiza prospecção, follow-up e agendamento de reuniões, substituindo SDRs humanos. Design light/clean estilo HubSpot. Integração real com Pipedrive, WhatsApp, LinkedIn, Email e Telefonia.
+# Fase 2 — Integração Pipedrive (via API Token)
 
----
-
-## Fase 1 — Fundação (Multi-tenant + Auth + Layout)
-
-### 1.1 Design System
-- Theme claro e limpo (estilo HubSpot/Pipedrive)
-- Cores primárias em azul profissional, tipografia clean (Inter)
-- Sidebar de navegação + top bar com contexto da empresa
-
-### 1.2 Autenticação e Multi-tenancy
-- Lovable Cloud (Supabase) para auth com email/senha
-- Tabela `companies` (tenants) com isolamento total via RLS
-- Tabela `user_roles` com enum: `master_admin`, `company_admin`, `user`
-- Tabela `company_members` ligando usuários a empresas
-- RLS em todas as tabelas filtrando por `company_id`
-
-### 1.3 Painel Master Admin
-- Lista de empresas (criar, ativar, desativar)
-- Métricas gerais da plataforma
-- Gestão de planos/limites por empresa
-
-### 1.4 Painel da Empresa
-- Dashboard com KPIs (leads ativos, mensagens enviadas, reuniões agendadas)
-- Gestão de usuários da empresa
-- Configurações e integrações
+## Mudança principal
+Em vez de OAuth (complexo), cada empresa informa seu **API Token pessoal** do Pipedrive nas configurações de integração. O token é armazenado de forma segura na tabela `integrations`.
 
 ---
 
-## Fase 2 — Integração Pipedrive
+## 1. Banco de Dados (Migration)
 
-### 2.1 Conexão OAuth
-- Cada empresa conecta sua conta Pipedrive
-- Armazena tokens por empresa (tabela `integrations`)
-- Edge Function para OAuth flow e refresh de tokens
+### Novas tabelas
 
-### 2.2 Sincronização de Leads
-- Importa leads/deals do Pipedrive
-- Tabela `leads` com dados sincronizados
-- Sync periódico via Edge Function + cron
-- Atualiza status e atividades de volta no Pipedrive
+**`integrations`** — conexões por empresa
+- `id`, `company_id`, `provider` (enum: pipedrive), `api_token` (text, encrypted), `api_domain` (text), `status` (active/inactive/error), `last_synced_at`, `created_at`, `updated_at`
+- RLS: company_admin pode gerenciar; membros podem ler; master_admin acesso total
 
-### 2.3 Visualização de Leads
-- Lista de leads com filtros (status, origem, score)
-- Detalhe do lead com histórico de interações
+**`leads`** — leads importados
+- `id`, `company_id`, `pipedrive_id` (integer, unique per company), `name`, `email`, `phone`, `company_name`, `title`, `source`, `status` (enum: new/contacted/qualified/unqualified/converted), `score`, `pipedrive_data` (jsonb), `last_synced_at`, `created_at`, `updated_at`
+- RLS: isolamento por `company_id`
+
+**`lead_activities`** — timeline de interações
+- `id`, `lead_id`, `company_id`, `type` (enum: email/call/whatsapp/linkedin/note/meeting), `description`, `metadata` (jsonb), `created_at`
+- RLS: isolamento por `company_id`
+
+---
+
+## 2. Edge Functions (2 funções)
+
+### `pipedrive-connect`
+- POST: Recebe `api_token` + `company_id`, valida o token chamando `/users/me` na API do Pipedrive, e salva na tabela `integrations`
+- Retorna status de conexão e nome do usuário Pipedrive
+
+### `pipedrive-sync`
+- POST: Busca leads da API do Pipedrive usando o token salvo
+- Endpoints: `/persons` e `/deals` com paginação
+- Faz upsert na tabela `leads` por `pipedrive_id`
+- Atualiza `last_synced_at`
+
+---
+
+## 3. Frontend
+
+### Integrations.tsx (atualizar)
+- Card do Pipedrive com campo para colar o API Token
+- Botão "Conectar" que valida e salva
+- Status da conexão (Conectado/Desconectado)
+- Botão "Sincronizar Agora" quando conectado
+
+### Leads.tsx (reescrever)
+- Tabela paginada com leads importados
+- Filtros: status, busca por nome/email
+- Badge de status com cores
+- Botão "Sincronizar com Pipedrive"
+
+### LeadDetail.tsx (novo)
+- Drawer com dados completos do lead
 - Timeline de atividades
+- Dados do Pipedrive (jsonb formatado)
 
 ---
 
-## Fase 3 — Motor de Cadência
-
-### 3.1 Configuração de Cadências
-- Tabela `cadences` com passos sequenciais
-- Cada passo define: canal, delay, template de mensagem
-- Canais: LinkedIn, WhatsApp, Email, Ligação
-- Interface drag-and-drop para montar sequência
-
-### 3.2 Execução Automática
-- Tabela `lead_cadence_executions` (status de cada lead em cada passo)
-- Edge Function scheduler que processa filas
-- Envia mensagens no canal correto
-- Registra cada interação na timeline do lead
-
-### 3.3 Templates de Mensagem
-- Biblioteca de templates por canal
-- Variáveis dinâmicas (nome, empresa, cargo)
-- Suporte a testes A/B
+## 4. Hooks React Query
+- `useIntegration(provider)` — busca integração da empresa
+- `useLeads(filters)` — lista leads com filtros
+- `useSyncLeads()` — mutation para sync manual
+- `useConnectPipedrive()` — mutation para salvar token
 
 ---
 
-## Fase 4 — Integrações de Canais
+## Ordem de execução
+1. Criar migration (tabelas + RLS)
+2. Criar edge functions (`pipedrive-connect`, `pipedrive-sync`)
+3. Atualizar Integrations.tsx com formulário de token
+4. Reescrever Leads.tsx com tabela real
+5. Criar LeadDetail.tsx e hooks
 
-### 4.1 Email
-- Integração via SMTP ou API (configurável por empresa)
-- Tracking de abertura e cliques
-- Templates HTML responsivos
-
-### 4.2 WhatsApp
-- Integração via WhatsApp Business API (Meta Cloud API)
-- Edge Function para envio e recebimento
-- Templates aprovados pelo WhatsApp
-
-### 4.3 LinkedIn
-- Automação via API/extensão
-- Envio de convites e mensagens InMail
-- Tracking de aceitação
-
-### 4.4 Ligação
-- Integração com provedor VoIP (Twilio)
-- Click-to-call e registro automático
-- Gravação opcional
-
----
-
-## Fase 5 — Respostas e Agendamento
-
-### 5.1 Detecção de Respostas
-- Webhook/polling para capturar respostas por canal
-- Classificação automática via AI (interessado, neutro, negativo)
-- Pausa automática da cadência quando há resposta
-
-### 5.2 Agendamento de Reuniões
-- Integração com Google Calendar / Outlook
-- Link de agendamento automático nas mensagens
-- Confirmação e lembretes automáticos
-- Registra reunião no Pipedrive
-
----
-
-## Fase 6 — Inteligência e Otimização
-
-### 6.1 Testes A/B
-- Variações de mensagens por passo da cadência
-- Métricas por variante (resposta, conversão)
-- Seleção automática do melhor performer
-
-### 6.2 Relatórios e Analytics
-- Dashboard de performance por cadência
-- Métricas por canal (taxa de resposta, conversão)
-- Relatórios por período, usuário, tipo de lead
-- Exportação de dados
-
----
-
-## Início da Implementação
-
-Começarei pela **Fase 1** — montando o design system, autenticação multi-tenant com perfis de acesso, layout principal com sidebar, e os painéis Master Admin e da Empresa com dados iniciais. Isso cria a base sólida sobre a qual todo o resto será construído.
