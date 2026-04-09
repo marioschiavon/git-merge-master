@@ -14,6 +14,152 @@ export type Database = {
   }
   public: {
     Tables: {
+      cadence_enrollments: {
+        Row: {
+          cadence_id: string
+          company_id: string
+          completed_at: string | null
+          current_step: number
+          enrolled_at: string
+          id: string
+          lead_id: string
+          status: Database["public"]["Enums"]["enrollment_status"]
+          updated_at: string
+        }
+        Insert: {
+          cadence_id: string
+          company_id: string
+          completed_at?: string | null
+          current_step?: number
+          enrolled_at?: string
+          id?: string
+          lead_id: string
+          status?: Database["public"]["Enums"]["enrollment_status"]
+          updated_at?: string
+        }
+        Update: {
+          cadence_id?: string
+          company_id?: string
+          completed_at?: string | null
+          current_step?: number
+          enrolled_at?: string
+          id?: string
+          lead_id?: string
+          status?: Database["public"]["Enums"]["enrollment_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cadence_enrollments_cadence_id_fkey"
+            columns: ["cadence_id"]
+            isOneToOne: false
+            referencedRelation: "cadences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_enrollments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_enrollments_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cadence_steps: {
+        Row: {
+          cadence_id: string
+          channel: Database["public"]["Enums"]["cadence_type"]
+          created_at: string
+          delay_days: number
+          id: string
+          step_order: number
+          subject: string | null
+          template: string
+          updated_at: string
+        }
+        Insert: {
+          cadence_id: string
+          channel?: Database["public"]["Enums"]["cadence_type"]
+          created_at?: string
+          delay_days?: number
+          id?: string
+          step_order?: number
+          subject?: string | null
+          template?: string
+          updated_at?: string
+        }
+        Update: {
+          cadence_id?: string
+          channel?: Database["public"]["Enums"]["cadence_type"]
+          created_at?: string
+          delay_days?: number
+          id?: string
+          step_order?: number
+          subject?: string | null
+          template?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cadence_steps_cadence_id_fkey"
+            columns: ["cadence_id"]
+            isOneToOne: false
+            referencedRelation: "cadences"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      cadences: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string
+          description: string | null
+          id: string
+          name: string
+          status: Database["public"]["Enums"]["cadence_status"]
+          type: Database["public"]["Enums"]["cadence_type"]
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by: string
+          description?: string | null
+          id?: string
+          name: string
+          status?: Database["public"]["Enums"]["cadence_status"]
+          type?: Database["public"]["Enums"]["cadence_type"]
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string
+          description?: string | null
+          id?: string
+          name?: string
+          status?: Database["public"]["Enums"]["cadence_status"]
+          type?: Database["public"]["Enums"]["cadence_type"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cadences_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           created_at: string
@@ -301,7 +447,15 @@ export type Database = {
         | "note"
         | "meeting"
       app_role: "master_admin" | "company_admin" | "user"
+      cadence_status: "draft" | "active" | "paused" | "archived"
+      cadence_type: "email" | "whatsapp" | "linkedin" | "multi_channel"
       company_status: "active" | "inactive" | "trial"
+      enrollment_status:
+        | "active"
+        | "completed"
+        | "replied"
+        | "bounced"
+        | "paused"
       integration_provider: "pipedrive"
       lead_status:
         | "new"
@@ -445,7 +599,16 @@ export const Constants = {
         "meeting",
       ],
       app_role: ["master_admin", "company_admin", "user"],
+      cadence_status: ["draft", "active", "paused", "archived"],
+      cadence_type: ["email", "whatsapp", "linkedin", "multi_channel"],
       company_status: ["active", "inactive", "trial"],
+      enrollment_status: [
+        "active",
+        "completed",
+        "replied",
+        "bounced",
+        "paused",
+      ],
       integration_provider: ["pipedrive"],
       lead_status: [
         "new",
