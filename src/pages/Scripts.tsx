@@ -7,9 +7,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { useScriptTemplates, useCreateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
+import { useScriptTemplates, useCreateScript, useUpdateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
 import { useCadences, useCadenceSteps, useUpsertStep } from "@/hooks/useCadences";
-import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send } from "lucide-react";
+import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const segments = [

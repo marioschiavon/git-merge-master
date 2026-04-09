@@ -76,6 +76,37 @@ export function useCreateScript() {
   });
 }
 
+export function useUpdateScript() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...values }: {
+      id: string;
+      name: string;
+      segment: string;
+      channel: string;
+      tone: string;
+      base_script: string;
+    }) => {
+      const { error } = await supabase
+        .from("script_templates")
+        .update({
+          name: values.name,
+          segment: values.segment,
+          channel: values.channel as any,
+          tone: values.tone,
+          base_script: values.base_script,
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["script_templates"] });
+      toast.success("Script atualizado!");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}
+
 export function useDeleteScript() {
   const qc = useQueryClient();
   return useMutation({
