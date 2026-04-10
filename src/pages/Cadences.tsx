@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCadences, useCreateCadence, useDeleteCadence, useUpdateCadence } from "@/hooks/useCadences";
 import { CadenceDetail } from "@/components/CadenceDetail";
-import { MessageSquare, Plus, Trash2, Play, Pause, Zap } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Pause, Zap } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
