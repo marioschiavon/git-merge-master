@@ -93,21 +93,33 @@ export default function CadencesDashboard() {
             Acompanhamento de Cadências
           </h1>
         </div>
-        <Select
-          value={cadenceId || ""}
-          onValueChange={(v) => setSelectedId(v)}
-        >
-          <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Selecione uma cadência" />
-          </SelectTrigger>
-          <SelectContent>
-            {cadences?.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select
+            value={cadenceId || ""}
+            onValueChange={(v) => setSelectedId(v)}
+          >
+            <SelectTrigger className="w-[280px]">
+              <SelectValue placeholder="Selecione uma cadência" />
+            </SelectTrigger>
+            <SelectContent>
+              {cadences?.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {cadenceId && (
+            <Button
+              size="sm"
+              onClick={() => executeCadence.mutate()}
+              disabled={executeCadence.isPending}
+            >
+              <Play className="h-4 w-4 mr-1" />
+              {executeCadence.isPending ? "Executando..." : "Executar Agora"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {!cadenceId && (
