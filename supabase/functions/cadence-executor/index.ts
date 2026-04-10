@@ -14,6 +14,7 @@ serve(async (req) => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const anonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
@@ -151,27 +152,20 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         // === CHANNEL-SPECIFIC SENDING ===
         if (currentStep.channel === "email" && lead.email) {
           try {
-            const sendRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${serviceKey}`,
-                "apikey": serviceKey,
-              },
-              body: JSON.stringify({
+            const { error: sendError } = await supabase.functions.invoke("send-transactional-email", {
+              body: {
                 templateName: "cadence-outreach",
                 recipientEmail: lead.email,
-                idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}`,
+                idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}-${Date.now()}`,
                 templateData: {
                   leadName: lead.name,
                   subject: parsed.subject || `Mensagem para ${lead.name}`,
                   messageBody: parsed.message,
                 },
-              }),
+              },
             });
-            if (!sendRes.ok) {
-              const errText = await sendRes.text();
-              console.error(`Email send error for enrollment ${enrollment.id}:`, errText);
+            if (sendError) {
+              console.error(`Email send error for enrollment ${enrollment.id}:`, sendError);
               sendAction = "failed";
             }
           } catch (emailErr) {
