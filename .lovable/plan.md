@@ -1,31 +1,33 @@
 
+Objetivo
 
-## Plano: Permitir re-teste de envio de email na cadência
+Resolver o travamento do `Verify Domain` e destravar a ativação do domínio de envio sem refazer o DNS à toa.
 
-### Problema
-O enrollment do lead está com status `completed` e não pode ser re-executado. Além disso, o domínio de email ainda está pendente de verificação DNS.
+Achados até agora
 
-### Solução
-Adicionar um botão "Reenviar / Re-testar" no dashboard de acompanhamento que reseta o enrollment para re-execução, e criar uma forma rápida de re-testar.
+- O domínio acompanhado continua como `notify.internetsegura.com.br` com status pendente.
+- Pelo que você mostrou no Cloudflare, os registros esperados já estão presentes, então o problema provavelmente não é mais configuração DNS básica.
+- O projeto já está apontando para o subdomínio correto no envio de emails:
+  - `SENDER_DOMAIN = "notify.internetsegura.com.br"`
+  - `FROM_DOMAIN = "internetsegura.com.br"`
+- Não apareceu replay, log de console nem request capturado do clique em `Verify Domain`, então ainda falta confirmar se a tela:
+  - não dispara a ação,
+  - dispara e fica pendurada,
+  - ou recebe erro silencioso.
 
-### Alterações
+Plano
 
-**1. Novo hook `useResetEnrollment` em `src/hooks/useCadences.ts`**
-- Mutation que atualiza o enrollment: `status = 'active'`, `current_step = 1`, `next_execution_at = now()`, `completed_at = null`
-- Invalida queries de enrollments após sucesso
+1. Reproduzir o clique em `Verify Domain` com inspeção de rede/logs para descobrir exatamente onde ele trava.
+2. Se o problema for da tela de gerenciamento, tentar a rota de recuperação do setup de email no backend/reseleção do domínio já existente, sem mexer no DNS.
+3. Revalidar o status do domínio depois da reconciliação.
+4. Assim que o domínio ficar ativo, validar ponta a ponta o envio real da cadência:
+   - resetar o enrollment,
+   - executar a cadência,
+   - conferir registro de envio e inbox.
+5. Se a verificação continuar travando mesmo com DNS correto e domínio certo no projeto, tratar como problema da plataforma e reunir evidências do request travado para escalonamento.
 
-**2. Botão "Re-testar" no Dashboard (`src/pages/CadencesDashboard.tsx`)**
-- Na aba "Leads", adicionar botão ao lado de cada lead com status `completed` ou `failed`
-- Ao clicar: reseta o enrollment e mostra toast "Enrollment resetado, clique Executar Agora"
+Detalhes técnicos
 
-**3. Verificação de domínio antes de executar**
-- No botão "Executar Agora", mostrar aviso se o domínio de email ainda estiver pendente
-- Informar que a mensagem será gerada e logada, mas o email só será entregue após verificação do domínio
-
-### Sobre o domínio
-O domínio `notify.internetsegura.com.br` ainda está **Pendente**. A propagação DNS pode levar até 72h. Você pode acompanhar em **Cloud → Emails**. Enquanto isso, o executor vai gerar a mensagem e logar, mas o email não chegará na caixa de entrada.
-
-### Arquivos modificados
-1. `src/hooks/useCadences.ts` — novo mutation `useResetEnrollment`
-2. `src/pages/CadencesDashboard.tsx` — botão re-testar + aviso de domínio pendente
-
+- Revisei a configuração de envio em `supabase/functions/send-transactional-email/index.ts`.
+- Neste momento, não parece ser um bug do código da aplicação nem um domínio errado configurado no app.
+- O foco da correção deve ser o fluxo de verificação do domínio no Cloud e a reconciliação do setup de email.
