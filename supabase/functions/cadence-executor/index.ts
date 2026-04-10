@@ -205,15 +205,6 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           } else {
             // Twilio not configured — register as manual task
             sendAction = "pending_manual";
-            if (cadence.company_id && lead.id) {
-              await supabase.from("lead_activities").insert({
-                company_id: cadence.company_id,
-                lead_id: lead.id,
-                type: "whatsapp",
-                description: `📱 WhatsApp pendente (Twilio não configurado): ${parsed.message.substring(0, 200)}`,
-                metadata: { step_order: currentStep.step_order, cadence_id: cadence.id, manual_task: true },
-              });
-            }
           }
         } else if (currentStep.channel === "linkedin") {
           // LinkedIn has no API — register as manual task
