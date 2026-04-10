@@ -68,6 +68,9 @@ export default function CadencesDashboard() {
 
   const cadenceId = selectedId || cadences?.[0]?.id || null;
 
+  const resetEnrollment = useResetEnrollment();
+  const executeCadence = useExecuteCadenceNow();
+
   const { data: steps } = useCadenceSteps(cadenceId);
   const { data: enrollments } = useCadenceDashboardEnrollments(cadenceId);
   const { data: logs } = useCadenceDashboardLogs(cadenceId);
