@@ -43,11 +43,12 @@ serve(async (req) => {
     let convId = conversation_id;
     let leadData: any = null;
     let companyId: string | null = null;
+    let convChannel: string | null = channel || null;
 
     if (!convId && lead_id) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, company_name, segment)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, segment)")
         .eq("lead_id", lead_id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -55,16 +56,18 @@ serve(async (req) => {
       if (conv) {
         convId = conv.id;
         companyId = conv.company_id;
+        convChannel = conv.channel;
         leadData = (conv as any).leads;
       }
     } else if (convId) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, company_name, segment)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, segment)")
         .eq("id", convId)
         .maybeSingle();
       if (conv) {
         companyId = conv.company_id;
+        convChannel = conv.channel;
         leadData = (conv as any).leads;
       }
     }
@@ -161,7 +164,7 @@ Analise e decida a ação.`,
     // Find active enrollment for this lead
     const { data: enrollment } = await supabase
       .from("cadence_enrollments")
-      .select("id")
+      .select("id, cadence_id")
       .eq("lead_id", leadData?.id)
       .eq("status", "active")
       .maybeSingle();
@@ -191,6 +194,7 @@ Analise e decida a ação.`,
 
     // Send auto-reply if needed
     if (parsed.reply_message) {
+      // Save reply message in conversation
       await supabase.from("messages").insert({
         conversation_id: convId,
         content: parsed.reply_message,
@@ -204,16 +208,55 @@ Analise e decida a ação.`,
         },
       });
 
-      // TODO: Send via actual channel (Twilio/Resend) when configured
+      // Send reply via the same channel
+      const replyChannel = convChannel || channel || "email";
+
+      if (replyChannel === "email" && leadData?.email) {
+        // Send via transactional email system
+        await supabase.functions.invoke("send-transactional-email", {
+          body: {
+            templateName: "cadence-outreach",
+            recipientEmail: leadData.email,
+            idempotencyKey: `auto-reply-${convId}-${Date.now()}`,
+            templateData: {
+              leadName: leadData.name,
+              subject: `Re: ${leadData.company_name || leadData.name}`,
+              messageBody: parsed.reply_message,
+            },
+          },
+        });
+      } else if (replyChannel === "whatsapp" && leadData?.phone) {
+        // Send via Twilio WhatsApp if configured
+        const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
+        const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
+        if (LOVABLE_API_KEY && TWILIO_API_KEY && TWILIO_PHONE) {
+          try {
+            await fetch("https://connector-gateway.lovable.dev/twilio/Messages.json", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                "X-Connection-Api-Key": TWILIO_API_KEY,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                To: `whatsapp:${leadData.phone}`,
+                From: `whatsapp:${TWILIO_PHONE}`,
+                Body: parsed.reply_message,
+              }),
+            });
+          } catch (e) {
+            console.error("Twilio WhatsApp send error:", e);
+          }
+        }
+      }
     }
 
-    // Log
+    // Log execution
     if (enrollment && leadData && companyId) {
-      // Find latest step
       const { data: steps } = await supabase
         .from("cadence_steps")
         .select("id")
-        .eq("cadence_id", enrollment.id)
+        .eq("cadence_id", enrollment.cadence_id)
         .limit(1);
 
       if (steps && steps.length > 0) {
@@ -222,7 +265,7 @@ Analise e decida a ação.`,
           enrollment_id: enrollment.id,
           step_id: steps[0].id,
           lead_id: leadData.id,
-          channel: channel || "whatsapp",
+          channel: channel || "email",
           action: parsed.action === "schedule" ? "scheduled" : parsed.action === "pause" ? "paused" : "replied",
           message_content: parsed.reply_message || content,
           ai_context: parsed,

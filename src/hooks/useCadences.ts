@@ -225,3 +225,43 @@ export function useExecutionLogs(enrollmentId: string | null) {
     enabled: !!enrollmentId,
   });
 }
+
+export function useExecuteCadenceNow() {
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("cadence-executor");
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: (data: any) => {
+      toast.success(`Executado! ${data?.processed || 0} enrollment(s) processados.`);
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}
+
+export function useGenerateCadenceSteps() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (cadenceId: string) => {
+      const steps = [
+        { cadence_id: cadenceId, step_order: 1, channel: "email" as const, template: "Primeiro contato por email. Apresente brevemente a solução e proponha uma conversa.", delay_days: 0, subject: "Apresentação" },
+        { cadence_id: cadenceId, step_order: 2, channel: "email" as const, template: "Follow-up do primeiro email. Reforce o valor e pergunte se faz sentido conversar.", delay_days: 3, subject: "Follow-up" },
+        { cadence_id: cadenceId, step_order: 3, channel: "whatsapp" as const, template: "Mensagem curta e informal no WhatsApp. Mencione que enviou email e pergunte se viu.", delay_days: 5 },
+        { cadence_id: cadenceId, step_order: 4, channel: "email" as const, template: "Último email. Use urgência sutil, ofereça horários específicos para reunião.", delay_days: 7, subject: "Última tentativa" },
+        { cadence_id: cadenceId, step_order: 5, channel: "linkedin" as const, template: "Conexão no LinkedIn. Mensagem profissional mencionando os contatos anteriores.", delay_days: 10 },
+      ];
+
+      // Delete existing steps first
+      await supabase.from("cadence_steps").delete().eq("cadence_id", cadenceId);
+
+      const { error } = await supabase.from("cadence_steps").insert(steps);
+      if (error) throw error;
+    },
+    onSuccess: (_, cadenceId) => {
+      qc.invalidateQueries({ queryKey: ["cadence_steps", cadenceId] });
+      toast.success("5 steps multi-canal gerados com sucesso!");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}

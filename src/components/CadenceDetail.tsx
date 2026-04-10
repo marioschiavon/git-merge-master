@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads } from "@/hooks/useCadences";
+import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads, useExecuteCadenceNow, useGenerateCadenceSteps } from "@/hooks/useCadences";
 import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
-import { Plus, Users, ListOrdered } from "lucide-react";
+import { Plus, Users, ListOrdered, Wand2, Play, Loader2 } from "lucide-react";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -15,6 +15,13 @@ const enrollmentStatusLabels: Record<string, string> = {
   replied: "Respondeu",
   bounced: "Bounce",
   paused: "Pausado",
+};
+
+const channelIcons: Record<string, string> = {
+  email: "📧",
+  whatsapp: "📱",
+  linkedin: "💼",
+  multi_channel: "🔀",
 };
 
 interface CadenceDetailProps {
@@ -30,6 +37,8 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const upsertStep = useUpsertStep();
   const deleteStep = useDeleteStep();
   const enrollLeads = useEnrollLeads();
+  const executeCadence = useExecuteCadenceNow();
+  const generateSteps = useGenerateCadenceSteps();
   const { data: allLeads = [] } = useLeads({ status: "all", search: "" });
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -79,24 +88,77 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
           </TabsList>
 
           <TabsContent value="steps" className="space-y-4 mt-4">
+            {steps.length === 0 && (
+              <div className="text-center py-6 space-y-3">
+                <p className="text-sm text-muted-foreground">Nenhum step configurado.</p>
+                <Button
+                  variant="default"
+                  onClick={() => cadenceId && generateSteps.mutate(cadenceId)}
+                  disabled={generateSteps.isPending}
+                >
+                  {generateSteps.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="mr-2 h-4 w-4" />
+                  )}
+                  Gerar Cadência Multi-canal com IA
+                </Button>
+              </div>
+            )}
+
             {steps.map((step: any) => (
-              <CadenceStepCard
-                key={step.id}
-                step={step}
-                cadenceId={cadenceId!}
-                onUpsert={(s) => upsertStep.mutate(s)}
-                onDelete={(p) => deleteStep.mutate(p)}
-              />
+              <div key={step.id} className="relative">
+                <span className="absolute -left-2 top-2 text-xs">{channelIcons[step.channel] || "📧"}</span>
+                <CadenceStepCard
+                  step={step}
+                  cadenceId={cadenceId!}
+                  onUpsert={(s) => upsertStep.mutate(s)}
+                  onDelete={(p) => deleteStep.mutate(p)}
+                />
+              </div>
             ))}
-            <Button variant="outline" className="w-full" onClick={handleAddStep}>
-              <Plus className="mr-2 h-4 w-4" />Adicionar Step
-            </Button>
+
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" onClick={handleAddStep}>
+                <Plus className="mr-2 h-4 w-4" />Adicionar Step
+              </Button>
+              {steps.length > 0 && (
+                <Button
+                  variant="outline"
+                  onClick={() => cadenceId && generateSteps.mutate(cadenceId)}
+                  disabled={generateSteps.isPending}
+                  title="Substituir steps por cadência multi-canal gerada com IA"
+                >
+                  {generateSteps.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Wand2 className="h-4 w-4" />
+                  )}
+                </Button>
+              )}
+            </div>
           </TabsContent>
 
           <TabsContent value="leads" className="space-y-4 mt-4">
-            <Button variant="outline" onClick={() => setEnrollDialogOpen(!enrollDialogOpen)}>
-              <Plus className="mr-2 h-4 w-4" />Associar Leads
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setEnrollDialogOpen(!enrollDialogOpen)}>
+                <Plus className="mr-2 h-4 w-4" />Associar Leads
+              </Button>
+              {enrollments.length > 0 && (
+                <Button
+                  variant="default"
+                  onClick={() => executeCadence.mutate()}
+                  disabled={executeCadence.isPending}
+                >
+                  {executeCadence.isPending ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Play className="mr-2 h-4 w-4" />
+                  )}
+                  Executar Agora
+                </Button>
+              )}
+            </div>
 
             {enrollDialogOpen && (
               <Card>
