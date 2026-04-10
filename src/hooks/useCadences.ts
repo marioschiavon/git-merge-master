@@ -226,6 +226,30 @@ export function useExecutionLogs(enrollmentId: string | null) {
   });
 }
 
+export function useResetEnrollment() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (enrollmentId: string) => {
+      const { error } = await supabase
+        .from("cadence_enrollments")
+        .update({
+          status: "active" as any,
+          current_step: 1,
+          next_execution_at: new Date().toISOString(),
+          completed_at: null,
+          last_executed_at: null,
+        })
+        .eq("id", enrollmentId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cadence_enrollments"] });
+      toast.success("Enrollment resetado! Clique 'Executar Agora' para re-testar.");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}
+
 export function useExecuteCadenceNow() {
   return useMutation({
     mutationFn: async () => {
