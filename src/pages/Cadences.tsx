@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCadences, useCreateCadence, useDeleteCadence, useUpdateCadence } from "@/hooks/useCadences";
 import { CadenceDetail } from "@/components/CadenceDetail";
-import { MessageSquare, Plus, Trash2, Play, Pause } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Pause, Zap } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -130,12 +130,23 @@ export default function Cadences() {
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
                         <Button
-                          variant="ghost"
-                          size="icon"
+                          variant={c.status === "active" ? "default" : "outline"}
+                          size="sm"
                           onClick={() => toggleStatus(c)}
-                          title={c.status === "active" ? "Pausar" : "Ativar"}
+                          title={c.status === "active" ? "Pausar Automação" : "Ativar Automação"}
+                          className="gap-1"
                         >
-                          {c.status === "active" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                          {c.status === "active" ? (
+                            <>
+                              <Pause className="h-3 w-3" />
+                              <span className="hidden sm:inline">Pausar</span>
+                            </>
+                          ) : (
+                            <>
+                              <Zap className="h-3 w-3" />
+                              <span className="hidden sm:inline">Ativar</span>
+                            </>
+                          )}
                         </Button>
                         <Button
                           variant="ghost"

@@ -141,10 +141,18 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                         <p className="text-xs text-muted-foreground">{e.leads?.email || ""}</p>
                       </div>
                       <div className="flex items-center gap-2">
+                        {e.meeting_scheduled && (
+                          <Badge className="bg-green-100 text-green-800 text-xs">📅 Reunião</Badge>
+                        )}
                         <Badge variant="outline" className="text-xs">Step {e.current_step}</Badge>
                         <Badge variant="secondary" className="text-xs">
                           {enrollmentStatusLabels[e.status] || e.status}
                         </Badge>
+                        {e.next_execution_at && e.status === "active" && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Próx: {new Date(e.next_execution_at).toLocaleDateString("pt-BR")}
+                          </span>
+                        )}
                       </div>
                     </CardContent>
                   </Card>
