@@ -6,6 +6,7 @@ import { TEMPLATES } from '../_shared/transactional-email-templates/registry.ts'
 // Configuration baked in at scaffold time — do NOT change these manually.
 // To update, re-run the email domain setup flow.
 const SITE_NAME = "Lead Automate"
+const REPLY_TO_EMAIL = "sdr@internetsegura.com.br"
 // SENDER_DOMAIN is the verified sender subdomain FQDN (e.g., "notify.example.com").
 // It MUST match the subdomain delegated to Lovable's nameservers — never the root domain.
 // The email API looks up this exact domain; a mismatch causes "No email domain record found".
@@ -314,6 +315,7 @@ Deno.serve(async (req) => {
       message_id: messageId,
       to: effectiveRecipient,
       from: `${SITE_NAME} <noreply@${FROM_DOMAIN}>`,
+      reply_to: REPLY_TO_EMAIL,
       sender_domain: SENDER_DOMAIN,
       subject: resolvedSubject,
       html,
