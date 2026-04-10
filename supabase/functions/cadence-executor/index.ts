@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const TWILIO_GATEWAY_URL = "https://connector-gateway.lovable.dev/twilio";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -56,7 +58,6 @@ serve(async (req) => {
 
         const currentStep = steps.find((s: any) => s.step_order === enrollment.current_step);
         if (!currentStep) {
-          // All steps done
           await supabase
             .from("cadence_enrollments")
             .update({ status: "completed", completed_at: new Date().toISOString() })
@@ -145,7 +146,9 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           parsed = { subject: null, message: aiContent };
         }
 
-        // Send email via transactional email system
+        let sendAction = "sent";
+
+        // === CHANNEL-SPECIFIC SENDING ===
         if (currentStep.channel === "email" && lead.email) {
           const { error: sendError } = await supabase.functions.invoke("send-transactional-email", {
             body: {
@@ -161,6 +164,61 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           });
           if (sendError) {
             console.error(`Email send error for enrollment ${enrollment.id}:`, sendError);
+          }
+        } else if (currentStep.channel === "whatsapp" && lead.phone) {
+          // Send via Twilio WhatsApp Gateway
+          const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
+          const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
+
+          if (TWILIO_API_KEY && TWILIO_PHONE) {
+            try {
+              const twilioRes = await fetch(`${TWILIO_GATEWAY_URL}/Messages.json`, {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${LOVABLE_API_KEY}`,
+                  "X-Connection-Api-Key": TWILIO_API_KEY,
+                  "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({
+                  To: `whatsapp:${lead.phone}`,
+                  From: `whatsapp:${TWILIO_PHONE}`,
+                  Body: parsed.message,
+                }),
+              });
+
+              if (!twilioRes.ok) {
+                const errData = await twilioRes.text();
+                console.error(`Twilio WhatsApp error for ${enrollment.id}:`, errData);
+                sendAction = "failed";
+              }
+            } catch (e) {
+              console.error(`Twilio WhatsApp exception for ${enrollment.id}:`, e);
+              sendAction = "failed";
+            }
+          } else {
+            // Twilio not configured — register as manual task
+            sendAction = "pending_manual";
+            if (cadence.company_id && lead.id) {
+              await supabase.from("lead_activities").insert({
+                company_id: cadence.company_id,
+                lead_id: lead.id,
+                type: "whatsapp",
+                description: `📱 WhatsApp pendente (Twilio não configurado): ${parsed.message.substring(0, 200)}`,
+                metadata: { step_order: currentStep.step_order, cadence_id: cadence.id, manual_task: true },
+              });
+            }
+          }
+        } else if (currentStep.channel === "linkedin") {
+          // LinkedIn has no API — register as manual task
+          sendAction = "pending_manual";
+          if (cadence.company_id && lead.id) {
+            await supabase.from("lead_activities").insert({
+              company_id: cadence.company_id,
+              lead_id: lead.id,
+              type: "linkedin",
+              description: `💼 LinkedIn (tarefa manual): ${parsed.message.substring(0, 200)}`,
+              metadata: { step_order: currentStep.step_order, cadence_id: cadence.id, manual_task: true, full_message: parsed.message },
+            });
           }
         }
 
@@ -187,13 +245,12 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         }
 
         if (conversation) {
-          // Save message
           await supabase.from("messages").insert({
             conversation_id: conversation.id,
             content: parsed.message,
             direction: "outbound",
             ai_suggested: true,
-            metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true },
+            metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true, channel: currentStep.channel },
           });
         }
 
@@ -204,7 +261,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           step_id: currentStep.id,
           lead_id: lead.id,
           channel: currentStep.channel,
-          action: "sent",
+          action: sendAction,
           message_content: parsed.message,
           ai_context: { subject: parsed.subject, step_order: currentStep.step_order },
         });
