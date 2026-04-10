@@ -1,30 +1,36 @@
 
 
-## Fix: Inbound Email Reply Processing
+## Fix: Decode Base64/MIME Email Body in Inbound Webhook
 
 ### Problem
-Two bugs prevent the email reply loop from working:
+The Cloudflare Worker forwards the raw email body which contains MIME multipart boundaries and base64-encoded content. The `inbound-email-webhook` stores this raw content as-is, making messages unreadable in the Conversations page.
 
-1. **`inbound-webhook/index.ts`** — The Supabase query joins `leads` and selects a `segment` column that doesn't exist in the `leads` table. This causes the query to fail silently, no conversation is found, and the function returns 404.
+Example of what's stored:
+```
+--000000000000c72967064f11f580
+Content-Type: text/plain; charset="UTF-8"
+Content-Transfer-Encoding: base64
 
-2. **`inbound-email-webhook/index.ts`** — When the forwarding to `inbound-webhook` fails, it returns HTTP 500 to Cloudflare. Cloudflare interprets any non-2xx as a permanent failure and marks the email as "blocked" (555 5.7.1). The webhook should always return 200 to Cloudflare to prevent email rejection.
+T2xhLCB0dWRvIGJlbT8NCkdvc3RhcmlhIG11aXRvIGRlIGVudGVuZGVyIGNvbW8gaXNzbyBmdW5j...
+```
 
-### Changes
+### Fix
 
-**File 1: `supabase/functions/inbound-webhook/index.ts`**
-- Remove `segment` from the `leads(...)` select in both conversation lookup queries (2 occurrences)
-- Change from: `leads(id, name, email, company_name, segment)` 
-- Change to: `leads(id, name, email, company_name)`
+**File: `supabase/functions/inbound-email-webhook/index.ts`**
 
-**File 2: `supabase/functions/inbound-email-webhook/index.ts`**
-- Change the error response when forwarding fails from `status: 500` to `status: 200` (return success to Cloudflare to prevent message blocking)
-- Also change the missing sender/body validation error and the generic catch to return 200
+Add a helper function that:
+1. Detects if the body contains MIME multipart boundaries
+2. Extracts the `text/plain` part
+3. Checks if `Content-Transfer-Encoding` is `base64` and decodes it
+4. Falls back to the raw text if no MIME structure is detected
 
-**Deploy both functions** after changes.
+Apply this parsing to `textBody` before forwarding to `inbound-webhook` (line 69).
 
-### Expected Result
-After deploying, resend the test email reply. The flow will be:
-1. Cloudflare Worker forwards to `inbound-email-webhook` → returns 200 (no more blocking)
-2. `inbound-email-webhook` finds the lead and forwards to `inbound-webhook`
-3. `inbound-webhook` finds the conversation, processes with AI, sends auto-reply
+Also fix the existing corrupted message in the database — update the stored content for the affected inbound message to the decoded text.
+
+### Steps
+1. Add MIME/base64 parsing function to `inbound-email-webhook/index.ts`
+2. Apply it to `textBody` before forwarding
+3. Deploy `inbound-email-webhook`
+4. Update the existing corrupted message in the database with decoded content
 
