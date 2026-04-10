@@ -218,15 +218,30 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         } else if (currentStep.channel === "linkedin") {
           // LinkedIn has no API — register as manual task
           sendAction = "pending_manual";
-          if (cadence.company_id && lead.id) {
-            await supabase.from("lead_activities").insert({
-              company_id: cadence.company_id,
-              lead_id: lead.id,
-              type: "linkedin",
-              description: `💼 LinkedIn (tarefa manual): ${parsed.message.substring(0, 200)}`,
-              metadata: { step_order: currentStep.step_order, cadence_id: cadence.id, manual_task: true, full_message: parsed.message },
-            });
-          }
+        }
+
+        // Always log activity for every channel
+        if (cadence.company_id && lead.id) {
+          const channelEmoji = currentStep.channel === "email" ? "📧" : currentStep.channel === "whatsapp" ? "📱" : "💼";
+          const statusLabel = sendAction === "sent" ? "enviado" : sendAction === "failed" ? "falhou" : "tarefa manual";
+          const descParts = [`${channelEmoji} ${currentStep.channel.charAt(0).toUpperCase() + currentStep.channel.slice(1)} ${statusLabel} - Step ${currentStep.step_order}`];
+          if (parsed.subject) descParts.push(`: ${parsed.subject}`);
+          else descParts.push(`: ${parsed.message.substring(0, 100)}`);
+
+          await supabase.from("lead_activities").insert({
+            company_id: cadence.company_id,
+            lead_id: lead.id,
+            type: currentStep.channel === "multi_channel" ? "email" : currentStep.channel,
+            description: descParts.join(""),
+            metadata: {
+              step_order: currentStep.step_order,
+              cadence_id: cadence.id,
+              action: sendAction,
+              subject: parsed.subject,
+              manual_task: sendAction === "pending_manual",
+              ...(sendAction === "pending_manual" ? { full_message: parsed.message } : {}),
+            },
+          });
         }
 
         // Create or get conversation
