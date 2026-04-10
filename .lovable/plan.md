@@ -1,40 +1,30 @@
 
 
-## Plano: Configurar recebimento de respostas de email para o SDR autônomo
+## Fix: Inbound Email Reply Processing
 
-### Problema atual
-Os emails são enviados com remetente `noreply@internetsegura.com.br`. Quando o prospect responde, essa resposta não chega em lugar nenhum — não há servidor de email recebendo mensagens nesse endereço e encaminhando para o webhook `inbound-email-webhook`.
+### Problem
+Two bugs prevent the email reply loop from working:
 
-### Solução
+1. **`inbound-webhook/index.ts`** — The Supabase query joins `leads` and selects a `segment` column that doesn't exist in the `leads` table. This causes the query to fail silently, no conversation is found, and the function returns 404.
 
-Para fechar o loop de conversação por email, precisamos de **2 coisas**:
+2. **`inbound-email-webhook/index.ts`** — When the forwarding to `inbound-webhook` fails, it returns HTTP 500 to Cloudflare. Cloudflare interprets any non-2xx as a permanent failure and marks the email as "blocked" (555 5.7.1). The webhook should always return 200 to Cloudflare to prevent email rejection.
 
-**1. Mudar o remetente para um endereço com Reply-To funcional**
-- Alterar de `noreply@internetsegura.com.br` para algo como `sdr@internetsegura.com.br` ou `contato@internetsegura.com.br`
-- Ou adicionar um header `Reply-To` apontando para um endereço que encaminhe para o webhook
+### Changes
 
-**2. Configurar recebimento de email inbound**
-O sistema de email do Lovable Cloud só envia emails — não recebe. Para receber respostas, precisamos de um serviço externo de inbound email routing. Opções:
+**File 1: `supabase/functions/inbound-webhook/index.ts`**
+- Remove `segment` from the `leads(...)` select in both conversation lookup queries (2 occurrences)
+- Change from: `leads(id, name, email, company_name, segment)` 
+- Change to: `leads(id, name, email, company_name)`
 
-- **Mailgun Inbound Routes** — Configura uma rota que encaminha emails recebidos em um endereço para a URL do webhook `inbound-email-webhook`
-- **SendGrid Inbound Parse** — Similar ao Mailgun
-- **Cloudflare Email Routing** — Pode encaminhar emails do domínio `internetsegura.com.br` para um webhook (gratuito, já que você usa Cloudflare)
+**File 2: `supabase/functions/inbound-email-webhook/index.ts`**
+- Change the error response when forwarding fails from `status: 500` to `status: 200` (return success to Cloudflare to prevent message blocking)
+- Also change the missing sender/body validation error and the generic catch to return 200
 
-### Recomendação: Cloudflare Email Routing + Email Workers
+**Deploy both functions** after changes.
 
-Como você já usa Cloudflare para o domínio `internetsegura.com.br`:
-
-1. **Criar um Email Worker no Cloudflare** que recebe emails em `sdr@internetsegura.com.br` e faz POST do conteúdo para a edge function `inbound-email-webhook`
-2. **Alterar o `send-transactional-email`** para usar `Reply-To: sdr@internetsegura.com.br` no lugar de `noreply`
-3. **Configurar MX records** no Cloudflare para email routing (se ainda não existir)
-
-### Ações técnicas
-
-1. Atualizar `send-transactional-email/index.ts` — adicionar header `Reply-To` com endereço funcional no payload do email enqueued
-2. Atualizar o template de email para não mostrar "noreply" ao prospect
-3. Documentar a configuração necessária no Cloudflare (Email Routing + Worker)
-4. Testar o fluxo completo: envio → resposta → webhook → IA → resposta automática
-
-### Pergunta necessária
-Qual serviço de inbound email você prefere usar? Cloudflare Email Routing (grátis, já usa Cloudflare), Mailgun, ou outro?
+### Expected Result
+After deploying, resend the test email reply. The flow will be:
+1. Cloudflare Worker forwards to `inbound-email-webhook` → returns 200 (no more blocking)
+2. `inbound-email-webhook` finds the lead and forwards to `inbound-webhook`
+3. `inbound-webhook` finds the conversation, processes with AI, sends auto-reply
 
