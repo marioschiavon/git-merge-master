@@ -87,6 +87,19 @@ serve(async (req) => {
       ai_suggested: false,
     });
 
+    // Log inbound activity
+    if (companyId && leadData?.id) {
+      const channelLabel = convChannel || channel || "email";
+      const channelEmoji = channelLabel === "whatsapp" ? "📱" : channelLabel === "linkedin" ? "💼" : "📧";
+      await supabase.from("lead_activities").insert({
+        company_id: companyId,
+        lead_id: leadData.id,
+        type: channelLabel === "multi_channel" ? "email" : channelLabel,
+        description: `${channelEmoji} Resposta recebida: ${content.substring(0, 150)}`,
+        metadata: { direction: "inbound", channel: channelLabel },
+      });
+    }
+
     // Get conversation history
     const { data: messages } = await supabase
       .from("messages")
