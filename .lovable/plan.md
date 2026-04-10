@@ -1,36 +1,25 @@
 
 
-## Fix: Decode Base64/MIME Email Body in Inbound Webhook
+## Registrar Atividades para Todos os Canais
 
-### Problem
-The Cloudflare Worker forwards the raw email body which contains MIME multipart boundaries and base64-encoded content. The `inbound-email-webhook` stores this raw content as-is, making messages unreadable in the Conversations page.
+### Problema
+A seção "Atividades" no detalhe do lead consulta a tabela `lead_activities`, que está vazia porque o `cadence-executor` só insere atividades para WhatsApp (sem Twilio) e LinkedIn. Emails enviados e recebidos não geram registros de atividade.
 
-Example of what's stored:
-```
---000000000000c72967064f11f580
-Content-Type: text/plain; charset="UTF-8"
-Content-Transfer-Encoding: base64
+### Solução
 
-T2xhLCB0dWRvIGJlbT8NCkdvc3RhcmlhIG11aXRvIGRlIGVudGVuZGVyIGNvbW8gaXNzbyBmdW5j...
-```
+**1. `supabase/functions/cadence-executor/index.ts`**
+- Após cada execução de step (email, whatsapp, linkedin), sempre inserir um registro em `lead_activities` com:
+  - `type`: canal usado (email, whatsapp, linkedin)
+  - `description`: resumo da ação (ex: "Email enviado - Step 2: [assunto]")
+  - `metadata`: step_order, cadence_id, action (sent/failed/pending_manual), subject
+- Isso garante que toda interação da cadência aparece como atividade do lead
 
-### Fix
+**2. `supabase/functions/inbound-webhook/index.ts`**
+- Quando uma resposta inbound é processada, inserir atividade do tipo correspondente ao canal (ex: "Email recebido: [trecho da mensagem]")
 
-**File: `supabase/functions/inbound-email-webhook/index.ts`**
+**3. Backfill de dados existentes**
+- Criar registros em `lead_activities` a partir dos `execution_logs` e `messages` já existentes no banco, para que o histórico atual apareça
 
-Add a helper function that:
-1. Detects if the body contains MIME multipart boundaries
-2. Extracts the `text/plain` part
-3. Checks if `Content-Transfer-Encoding` is `base64` and decodes it
-4. Falls back to the raw text if no MIME structure is detected
-
-Apply this parsing to `textBody` before forwarding to `inbound-webhook` (line 69).
-
-Also fix the existing corrupted message in the database — update the stored content for the affected inbound message to the decoded text.
-
-### Steps
-1. Add MIME/base64 parsing function to `inbound-email-webhook/index.ts`
-2. Apply it to `textBody` before forwarding
-3. Deploy `inbound-email-webhook`
-4. Update the existing corrupted message in the database with decoded content
+### Resultado
+A seção "Atividades" no detalhe do lead mostrará todo o histórico: emails enviados pela cadência, respostas recebidas, e ações em outros canais.
 
