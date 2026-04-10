@@ -152,25 +152,19 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         // === CHANNEL-SPECIFIC SENDING ===
         if (currentStep.channel === "email" && lead.email) {
           try {
-            const sendRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${serviceKey}`,
-                "apikey": anonKey,
-              },
-              body: JSON.stringify({
+            const { error: sendError } = await supabase.functions.invoke("send-transactional-email", {
+              body: {
                 templateName: "cadence-outreach",
                 recipientEmail: lead.email,
-                idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}`,
+                idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}-${Date.now()}`,
                 templateData: {
                   leadName: lead.name,
                   subject: parsed.subject || `Mensagem para ${lead.name}`,
                   messageBody: parsed.message,
                 },
-              }),
+              },
             });
-            if (!sendRes.ok) {
+            if (sendError) {
               const errText = await sendRes.text();
               console.error(`Email send error for enrollment ${enrollment.id}:`, errText);
               sendAction = "failed";
