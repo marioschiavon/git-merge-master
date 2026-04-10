@@ -22,7 +22,10 @@ export type Database = {
           current_step: number
           enrolled_at: string
           id: string
+          last_executed_at: string | null
           lead_id: string
+          meeting_scheduled: boolean
+          next_execution_at: string | null
           status: Database["public"]["Enums"]["enrollment_status"]
           updated_at: string
         }
@@ -33,7 +36,10 @@ export type Database = {
           current_step?: number
           enrolled_at?: string
           id?: string
+          last_executed_at?: string | null
           lead_id: string
+          meeting_scheduled?: boolean
+          next_execution_at?: string | null
           status?: Database["public"]["Enums"]["enrollment_status"]
           updated_at?: string
         }
@@ -44,7 +50,10 @@ export type Database = {
           current_step?: number
           enrolled_at?: string
           id?: string
+          last_executed_at?: string | null
           lead_id?: string
+          meeting_scheduled?: boolean
+          next_execution_at?: string | null
           status?: Database["public"]["Enums"]["enrollment_status"]
           updated_at?: string
         }
@@ -196,6 +205,50 @@ export type Database = {
         }
         Relationships: []
       }
+      company_knowledge: {
+        Row: {
+          company_id: string
+          content: string
+          created_at: string
+          file_path: string | null
+          id: string
+          source_url: string | null
+          title: string
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          content?: string
+          created_at?: string
+          file_path?: string | null
+          id?: string
+          source_url?: string | null
+          title: string
+          type?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          content?: string
+          created_at?: string
+          file_path?: string | null
+          id?: string
+          source_url?: string | null
+          title?: string
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_knowledge_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_members: {
         Row: {
           company_id: string
@@ -273,6 +326,74 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      execution_logs: {
+        Row: {
+          action: string
+          ai_context: Json | null
+          channel: string
+          company_id: string
+          created_at: string
+          enrollment_id: string
+          id: string
+          lead_id: string
+          message_content: string
+          step_id: string
+        }
+        Insert: {
+          action?: string
+          ai_context?: Json | null
+          channel?: string
+          company_id: string
+          created_at?: string
+          enrollment_id: string
+          id?: string
+          lead_id: string
+          message_content?: string
+          step_id: string
+        }
+        Update: {
+          action?: string
+          ai_context?: Json | null
+          channel?: string
+          company_id?: string
+          created_at?: string
+          enrollment_id?: string
+          id?: string
+          lead_id?: string
+          message_content?: string
+          step_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "execution_logs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "execution_logs_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "execution_logs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "execution_logs_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_steps"
             referencedColumns: ["id"]
           },
         ]
