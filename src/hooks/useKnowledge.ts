@@ -94,7 +94,10 @@ export function useUploadKnowledgeDoc() {
   return useMutation({
     mutationFn: async (file: File) => {
       if (!companyId) throw new Error("Sem empresa vinculada");
-      const filePath = `${companyId}/${Date.now()}_${file.name}`;
+      const safeName = file.name
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `${companyId}/${Date.now()}_${safeName}`;
       const { error: uploadError } = await supabase.storage
         .from("knowledge-docs")
         .upload(filePath, file);
