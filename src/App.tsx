@@ -9,6 +9,7 @@ import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import Cadences from "@/pages/Cadences";
+import CadencesDashboard from "@/pages/CadencesDashboard";
 import Scripts from "@/pages/Scripts";
 import Conversations from "@/pages/Conversations";
 import Reports from "@/pages/Reports";
@@ -38,6 +39,7 @@ const App = () => (
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/leads" element={<Leads />} />
               <Route path="/cadences" element={<Cadences />} />
+              <Route path="/cadences/dashboard" element={<CadencesDashboard />} />
               <Route path="/scripts" element={<Scripts />} />
               <Route path="/conversations" element={<Conversations />} />
               <Route path="/reports" element={<Reports />} />
