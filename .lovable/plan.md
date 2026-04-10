@@ -1,50 +1,31 @@
 
 
-## Plano: Corrigir envio de email no cadence-executor
+## Plano: Permitir re-teste de envio de email na cadência
 
 ### Problema
-O `cadence-executor` chama `send-transactional-email` via `supabase.functions.invoke()` usando o service role client, mas `send-transactional-email` está configurado com `verify_jwt = true` no `config.toml`. O client criado no executor usa o service role key, que deveria funcionar — porém a chamada `supabase.functions.invoke()` feita server-side entre Edge Functions precisa passar o Authorization header explicitamente.
+O enrollment do lead está com status `completed` e não pode ser re-executado. Além disso, o domínio de email ainda está pendente de verificação DNS.
 
 ### Solução
-Modificar o `cadence-executor/index.ts` para chamar `send-transactional-email` via `fetch` direto com o service role key no header Authorization, em vez de usar `supabase.functions.invoke()` que pode não estar passando o JWT corretamente no contexto server-to-server.
+Adicionar um botão "Reenviar / Re-testar" no dashboard de acompanhamento que reseta o enrollment para re-execução, e criar uma forma rápida de re-testar.
 
-### Alteração
+### Alterações
 
-**Arquivo: `supabase/functions/cadence-executor/index.ts`**
+**1. Novo hook `useResetEnrollment` em `src/hooks/useCadences.ts`**
+- Mutation que atualiza o enrollment: `status = 'active'`, `current_step = 1`, `next_execution_at = now()`, `completed_at = null`
+- Invalida queries de enrollments após sucesso
 
-Substituir o bloco que faz:
-```ts
-const { error: sendError } = await supabase.functions.invoke("send-transactional-email", { body: {...} });
-```
+**2. Botão "Re-testar" no Dashboard (`src/pages/CadencesDashboard.tsx`)**
+- Na aba "Leads", adicionar botão ao lado de cada lead com status `completed` ou `failed`
+- Ao clicar: reseta o enrollment e mostra toast "Enrollment resetado, clique Executar Agora"
 
-Por uma chamada `fetch` direta:
-```ts
-const sendRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${serviceKey}`,
-    "apikey": serviceKey,
-  },
-  body: JSON.stringify({
-    templateName: "cadence-outreach",
-    recipientEmail: lead.email,
-    idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}`,
-    templateData: {
-      leadName: lead.name,
-      subject: parsed.subject || `Mensagem para ${lead.name}`,
-      messageBody: parsed.message,
-    },
-  }),
-});
-if (!sendRes.ok) {
-  const errText = await sendRes.text();
-  console.error(`Email send error for enrollment ${enrollment.id}:`, errText);
-}
-```
+**3. Verificação de domínio antes de executar**
+- No botão "Executar Agora", mostrar aviso se o domínio de email ainda estiver pendente
+- Informar que a mensagem será gerada e logada, mas o email só será entregue após verificação do domínio
 
-Também corrigir o log de `action` para registrar `"failed"` quando o envio falhar (atualmente registra `"sent"` mesmo com erro).
+### Sobre o domínio
+O domínio `notify.internetsegura.com.br` ainda está **Pendente**. A propagação DNS pode levar até 72h. Você pode acompanhar em **Cloud → Emails**. Enquanto isso, o executor vai gerar a mensagem e logar, mas o email não chegará na caixa de entrada.
 
-### Deploy
-Redeployar `cadence-executor` após a alteração.
+### Arquivos modificados
+1. `src/hooks/useCadences.ts` — novo mutation `useResetEnrollment`
+2. `src/pages/CadencesDashboard.tsx` — botão re-testar + aviso de domínio pendente
 
