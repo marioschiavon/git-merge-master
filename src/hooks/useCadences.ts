@@ -179,10 +179,24 @@ export function useEnrollLeads() {
   return useMutation({
     mutationFn: async ({ cadenceId, leadIds }: { cadenceId: string; leadIds: string[] }) => {
       if (!companyId) throw new Error("Sem empresa vinculada");
+
+      // Get first step delay
+      const { data: steps } = await supabase
+        .from("cadence_steps")
+        .select("delay_days")
+        .eq("cadence_id", cadenceId)
+        .order("step_order", { ascending: true })
+        .limit(1);
+
+      const firstDelay = steps?.[0]?.delay_days ?? 0;
+      const nextExec = new Date();
+      nextExec.setDate(nextExec.getDate() + firstDelay);
+
       const rows = leadIds.map((lead_id) => ({
         cadence_id: cadenceId,
         lead_id,
         company_id: companyId,
+        next_execution_at: nextExec.toISOString(),
       }));
       const { error } = await supabase.from("cadence_enrollments").upsert(rows, { onConflict: "cadence_id,lead_id" });
       if (error) throw error;
@@ -192,5 +206,22 @@ export function useEnrollLeads() {
       toast.success("Leads associados à cadência!");
     },
     onError: (e: any) => toast.error(e.message),
+  });
+}
+
+export function useExecutionLogs(enrollmentId: string | null) {
+  return useQuery({
+    queryKey: ["execution_logs", enrollmentId],
+    queryFn: async () => {
+      if (!enrollmentId) return [];
+      const { data, error } = await supabase
+        .from("execution_logs")
+        .select("*")
+        .eq("enrollment_id", enrollmentId)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!enrollmentId,
   });
 }
