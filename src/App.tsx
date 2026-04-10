@@ -18,6 +18,7 @@ import Companies from "@/pages/master/Companies";
 import Team from "@/pages/settings/Team";
 import Integrations from "@/pages/settings/Integrations";
 import SettingsPage from "@/pages/settings/Settings";
+import Unsubscribe from "@/pages/Unsubscribe";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -31,6 +32,7 @@ const App = () => (
         <AuthProvider>
           <Routes>
             <Route path="/auth" element={<Auth />} />
+            <Route path="/unsubscribe" element={<Unsubscribe />} />
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />
