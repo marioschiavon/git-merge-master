@@ -150,20 +150,33 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
 
         // === CHANNEL-SPECIFIC SENDING ===
         if (currentStep.channel === "email" && lead.email) {
-          const { error: sendError } = await supabase.functions.invoke("send-transactional-email", {
-            body: {
-              templateName: "cadence-outreach",
-              recipientEmail: lead.email,
-              idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}`,
-              templateData: {
-                leadName: lead.name,
-                subject: parsed.subject || `Mensagem para ${lead.name}`,
-                messageBody: parsed.message,
+          try {
+            const sendRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${serviceKey}`,
+                "apikey": serviceKey,
               },
-            },
-          });
-          if (sendError) {
-            console.error(`Email send error for enrollment ${enrollment.id}:`, sendError);
+              body: JSON.stringify({
+                templateName: "cadence-outreach",
+                recipientEmail: lead.email,
+                idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}`,
+                templateData: {
+                  leadName: lead.name,
+                  subject: parsed.subject || `Mensagem para ${lead.name}`,
+                  messageBody: parsed.message,
+                },
+              }),
+            });
+            if (!sendRes.ok) {
+              const errText = await sendRes.text();
+              console.error(`Email send error for enrollment ${enrollment.id}:`, errText);
+              sendAction = "failed";
+            }
+          } catch (emailErr) {
+            console.error(`Email send exception for enrollment ${enrollment.id}:`, emailErr);
+            sendAction = "failed";
           }
         } else if (currentStep.channel === "whatsapp" && lead.phone) {
           // Send via Twilio WhatsApp Gateway
