@@ -242,12 +242,13 @@ export default function CadencesDashboard() {
                       <TableHead>Próx. Execução</TableHead>
                       <TableHead>Última Execução</TableHead>
                       <TableHead>Ações</TableHead>
+                    </TableRow>
                   </TableHeader>
                   <TableBody>
                     {!filteredEnrollments?.length ? (
                       <TableRow>
                         <TableCell
-                          colSpan={6}
+                          colSpan={7}
                           className="text-center text-muted-foreground"
                         >
                           Nenhum lead encontrado.
@@ -272,6 +273,19 @@ export default function CadencesDashboard() {
                           </TableCell>
                           <TableCell>{fmt(e.next_execution_at)}</TableCell>
                           <TableCell>{fmt(e.last_executed_at)}</TableCell>
+                          <TableCell>
+                            {(e.status === "completed" || e.status === "bounced" || e.status === "paused") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => resetEnrollment.mutate(e.id)}
+                                disabled={resetEnrollment.isPending}
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" />
+                                Re-testar
+                              </Button>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))
                     )}
