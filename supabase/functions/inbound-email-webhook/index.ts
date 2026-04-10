@@ -42,7 +42,7 @@ serve(async (req) => {
 
     if (!senderEmail || !textBody) {
       return new Response(JSON.stringify({ error: "sender and body are required" }), {
-        status: 400,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -74,7 +74,7 @@ serve(async (req) => {
     if (error) {
       console.error("Error forwarding to inbound-webhook:", error);
       return new Response(JSON.stringify({ error: "Failed to process reply" }), {
-        status: 500,
+        status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -85,7 +85,7 @@ serve(async (req) => {
   } catch (e) {
     console.error("inbound-email-webhook error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
+      status: 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
