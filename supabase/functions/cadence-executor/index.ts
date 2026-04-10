@@ -157,7 +157,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
               headers: {
                 "Content-Type": "application/json",
                 "Authorization": `Bearer ${serviceKey}`,
-                "apikey": serviceKey,
+                "apikey": anonKey,
               },
               body: JSON.stringify({
                 templateName: "cadence-outreach",
