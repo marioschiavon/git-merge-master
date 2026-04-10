@@ -165,8 +165,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
               },
             });
             if (sendError) {
-              const errText = await sendRes.text();
-              console.error(`Email send error for enrollment ${enrollment.id}:`, errText);
+              console.error(`Email send error for enrollment ${enrollment.id}:`, sendError);
               sendAction = "failed";
             }
           } catch (emailErr) {
