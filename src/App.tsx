@@ -12,6 +12,7 @@ import Cadences from "@/pages/Cadences";
 import Scripts from "@/pages/Scripts";
 import Conversations from "@/pages/Conversations";
 import Reports from "@/pages/Reports";
+import Knowledge from "@/pages/Knowledge";
 import MasterDashboard from "@/pages/master/MasterDashboard";
 import Companies from "@/pages/master/Companies";
 import Team from "@/pages/settings/Team";
@@ -38,6 +39,7 @@ const App = () => (
               <Route path="/scripts" element={<Scripts />} />
               <Route path="/conversations" element={<Conversations />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/knowledge" element={<Knowledge />} />
               <Route path="/master" element={<MasterDashboard />} />
               <Route path="/master/companies" element={<Companies />} />
               <Route path="/settings" element={<SettingsPage />} />

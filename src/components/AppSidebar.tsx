@@ -11,6 +11,7 @@ import {
   BarChart3,
   Link,
   LogOut,
+  BookOpen,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -41,6 +42,7 @@ const companyItems = [
   { title: "Leads", url: "/leads", icon: Target },
   { title: "Cadências", url: "/cadences", icon: MessageSquare },
   { title: "Scripts IA", url: "/scripts", icon: FileText },
+  { title: "Base de Conhecimento", url: "/knowledge", icon: BookOpen },
   { title: "Conversas", url: "/conversations", icon: Inbox },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
 ];
