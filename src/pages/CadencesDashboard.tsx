@@ -241,7 +241,7 @@ export default function CadencesDashboard() {
                       <TableHead>Status</TableHead>
                       <TableHead>Próx. Execução</TableHead>
                       <TableHead>Última Execução</TableHead>
-                    </TableRow>
+                      <TableHead>Ações</TableHead>
                   </TableHeader>
                   <TableBody>
                     {!filteredEnrollments?.length ? (
