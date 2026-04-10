@@ -36,7 +36,10 @@ import {
   Layers,
   ChevronDown,
   Activity,
+  RotateCcw,
+  Play,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
