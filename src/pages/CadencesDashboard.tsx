@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useCadences, useCadenceSteps } from "@/hooks/useCadences";
+import { useCadences, useCadenceSteps, useResetEnrollment, useExecuteCadenceNow } from "@/hooks/useCadences";
 import {
   useCadenceDashboardEnrollments,
   useCadenceDashboardLogs,
@@ -36,7 +36,10 @@ import {
   Layers,
   ChevronDown,
   Activity,
+  RotateCcw,
+  Play,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -65,6 +68,9 @@ export default function CadencesDashboard() {
 
   const cadenceId = selectedId || cadences?.[0]?.id || null;
 
+  const resetEnrollment = useResetEnrollment();
+  const executeCadence = useExecuteCadenceNow();
+
   const { data: steps } = useCadenceSteps(cadenceId);
   const { data: enrollments } = useCadenceDashboardEnrollments(cadenceId);
   const { data: logs } = useCadenceDashboardLogs(cadenceId);
@@ -87,21 +93,33 @@ export default function CadencesDashboard() {
             Acompanhamento de Cadências
           </h1>
         </div>
-        <Select
-          value={cadenceId || ""}
-          onValueChange={(v) => setSelectedId(v)}
-        >
-          <SelectTrigger className="w-[280px]">
-            <SelectValue placeholder="Selecione uma cadência" />
-          </SelectTrigger>
-          <SelectContent>
-            {cadences?.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2">
+          <Select
+            value={cadenceId || ""}
+            onValueChange={(v) => setSelectedId(v)}
+          >
+            <SelectTrigger className="w-[280px]">
+              <SelectValue placeholder="Selecione uma cadência" />
+            </SelectTrigger>
+            <SelectContent>
+              {cadences?.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {cadenceId && (
+            <Button
+              size="sm"
+              onClick={() => executeCadence.mutate()}
+              disabled={executeCadence.isPending}
+            >
+              <Play className="h-4 w-4 mr-1" />
+              {executeCadence.isPending ? "Executando..." : "Executar Agora"}
+            </Button>
+          )}
+        </div>
       </div>
 
       {!cadenceId && (
@@ -223,13 +241,14 @@ export default function CadencesDashboard() {
                       <TableHead>Status</TableHead>
                       <TableHead>Próx. Execução</TableHead>
                       <TableHead>Última Execução</TableHead>
+                      <TableHead>Ações</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {!filteredEnrollments?.length ? (
                       <TableRow>
                         <TableCell
-                          colSpan={6}
+                          colSpan={7}
                           className="text-center text-muted-foreground"
                         >
                           Nenhum lead encontrado.
@@ -254,6 +273,19 @@ export default function CadencesDashboard() {
                           </TableCell>
                           <TableCell>{fmt(e.next_execution_at)}</TableCell>
                           <TableCell>{fmt(e.last_executed_at)}</TableCell>
+                          <TableCell>
+                            {(e.status === "completed" || e.status === "bounced" || e.status === "paused") && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => resetEnrollment.mutate(e.id)}
+                                disabled={resetEnrollment.isPending}
+                              >
+                                <RotateCcw className="h-3 w-3 mr-1" />
+                                Re-testar
+                              </Button>
+                            )}
+                          </TableCell>
                         </TableRow>
                       ))
                     )}
