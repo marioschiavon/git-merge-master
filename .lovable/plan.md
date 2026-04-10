@@ -1,56 +1,50 @@
 
 
-## Plano: Dashboard de Acompanhamento de Cadências
+## Plano: Corrigir envio de email no cadence-executor
 
-### Visão Geral
-Criar uma nova página `/cadences/dashboard` com visão detalhada de cada cadência: timeline visual dos steps, status de execução por lead, e log de mensagens enviadas.
+### Problema
+O `cadence-executor` chama `send-transactional-email` via `supabase.functions.invoke()` usando o service role client, mas `send-transactional-email` está configurado com `verify_jwt = true` no `config.toml`. O client criado no executor usa o service role key, que deveria funcionar — porém a chamada `supabase.functions.invoke()` feita server-side entre Edge Functions precisa passar o Authorization header explicitamente.
 
-### Componentes a Criar
+### Solução
+Modificar o `cadence-executor/index.ts` para chamar `send-transactional-email` via `fetch` direto com o service role key no header Authorization, em vez de usar `supabase.functions.invoke()` que pode não estar passando o JWT corretamente no contexto server-to-server.
 
-**1. Nova página `src/pages/CadencesDashboard.tsx`**
-- Seletor de cadência no topo (dropdown com todas as cadências da empresa)
-- Três seções principais: Timeline, Leads/Status, Log de Mensagens
+### Alteração
 
-**2. Seção Timeline Visual**
-- Timeline horizontal/vertical mostrando cada step da cadência selecionada
-- Cada nó mostra: canal (emoji/ícone), assunto, delay em dias
-- Indicador visual de quantos leads já passaram por cada step (barra de progresso ou contagem)
-- Steps já executados em verde, step atual em azul, futuros em cinza
+**Arquivo: `supabase/functions/cadence-executor/index.ts`**
 
-**3. Seção Status por Lead**
-- Tabela com todos os leads enrolled na cadência
-- Colunas: Nome, Email, Step Atual, Status (badge colorido), Próxima Execução, Última Execução
-- Filtro por status (ativo, concluído, respondeu, bounce, pausado)
+Substituir o bloco que faz:
+```ts
+const { error: sendError } = await supabase.functions.invoke("send-transactional-email", { body: {...} });
+```
 
-**4. Seção Log de Mensagens**
-- Lista de mensagens enviadas (da tabela `execution_logs`)
-- Cada entrada mostra: lead, canal, step, conteúdo da mensagem (expandível), data/hora, ação (sent/reply/etc)
-- Dados vindos de `execution_logs` com join em `leads` e `cadence_steps`
+Por uma chamada `fetch` direta:
+```ts
+const sendRes = await fetch(`${supabaseUrl}/functions/v1/send-transactional-email`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${serviceKey}`,
+    "apikey": serviceKey,
+  },
+  body: JSON.stringify({
+    templateName: "cadence-outreach",
+    recipientEmail: lead.email,
+    idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}`,
+    templateData: {
+      leadName: lead.name,
+      subject: parsed.subject || `Mensagem para ${lead.name}`,
+      messageBody: parsed.message,
+    },
+  }),
+});
+if (!sendRes.ok) {
+  const errText = await sendRes.text();
+  console.error(`Email send error for enrollment ${enrollment.id}:`, errText);
+}
+```
 
-### Dados Utilizados (já existentes no banco)
-- `cadences` — lista de cadências
-- `cadence_steps` — steps de cada cadência
-- `cadence_enrollments` (join com `leads`) — leads e seu progresso
-- `execution_logs` — log de cada mensagem enviada por step/lead
+Também corrigir o log de `action` para registrar `"failed"` quando o envio falhar (atualmente registra `"sent"` mesmo com erro).
 
-### Hook `src/hooks/useCadenceDashboard.ts`
-- Query para buscar enrollments com progresso agregado por step
-- Query para buscar execution_logs com dados do lead e step
-- Filtros por cadência selecionada
-
-### Rota e Navegação
-- Adicionar rota `/cadences/dashboard` em `App.tsx`
-- Adicionar link "Acompanhamento" no sidebar dentro do grupo Operação (abaixo de Cadências) com ícone `Activity`
-
-### Detalhes Técnicos
-- Usa queries existentes do Supabase (RLS por `company_id` já configurado)
-- `execution_logs` tem policy SELECT para authenticated via `get_user_company_id`
-- Componentes: Card, Badge, Table, Tabs, Progress, Select do shadcn/ui
-- Recharts para timeline visual (ou CSS puro com flexbox)
-
-### Arquivos Modificados
-1. `src/pages/CadencesDashboard.tsx` — nova página
-2. `src/hooks/useCadenceDashboard.ts` — novo hook
-3. `src/App.tsx` — adicionar rota
-4. `src/components/AppSidebar.tsx` — adicionar link na navegação
+### Deploy
+Redeployar `cadence-executor` após a alteração.
 
