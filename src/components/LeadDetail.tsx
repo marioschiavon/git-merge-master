@@ -2,7 +2,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useLeadActivities } from "@/hooks/usePipedrive";
-import { Mail, Phone, Building2, User, Calendar } from "lucide-react";
+import { Mail, Phone, Building2, User, Calendar, Globe, MapPin } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -36,6 +36,8 @@ interface Lead {
   phone: string | null;
   company_name: string | null;
   title: string | null;
+  website: string | null;
+  address: string | null;
   status: string;
   score: number | null;
   source: string | null;
@@ -92,6 +94,18 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
               <div className="flex items-center gap-2 text-sm">
                 <User className="h-4 w-4 text-muted-foreground" />
                 <span>{lead.title}</span>
+              </div>
+            )}
+            {lead.website && (
+              <div className="flex items-center gap-2 text-sm">
+                <Globe className="h-4 w-4 text-muted-foreground" />
+                <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{lead.website.replace(/^https?:\/\//, "")}</a>
+              </div>
+            )}
+            {lead.address && (
+              <div className="flex items-center gap-2 text-sm">
+                <MapPin className="h-4 w-4 text-muted-foreground" />
+                <span>{lead.address}</span>
               </div>
             )}
           </div>
