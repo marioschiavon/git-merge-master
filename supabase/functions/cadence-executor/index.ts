@@ -115,6 +115,7 @@ serve(async (req) => {
 
 CONTEXTO DA EMPRESA (produto/serviço que você vende):
 ${knowledgeContext || "Sem informações adicionais do produto."}
+${insightsContext}
 
 TEMPLATE BASE DO STEP:
 ${currentStep.template || "Sem template definido."}
