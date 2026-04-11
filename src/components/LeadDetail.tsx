@@ -1,8 +1,10 @@
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import { useLeadActivities } from "@/hooks/usePipedrive";
-import { Mail, Phone, Building2, User, Calendar, Globe, MapPin } from "lucide-react";
+import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
+import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2 } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -54,8 +56,12 @@ interface LeadDetailProps {
 
 export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
   const { data: activities = [] } = useLeadActivities(lead?.id ?? null);
+  const { data: insightData, isLoading: insightsLoading } = useLeadInsights(lead?.id ?? null);
+  const analyzeWebsite = useAnalyzeWebsite();
 
   if (!lead) return null;
+
+  const insights = insightData?.insights as any;
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -132,6 +138,131 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
                 {lead.last_synced_at ? new Date(lead.last_synced_at).toLocaleDateString("pt-BR") : "—"}
               </p>
             </div>
+          </div>
+
+          <Separator />
+
+          {/* Insights Section */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold flex items-center gap-1.5">
+                <Lightbulb className="h-4 w-4" />
+                Insights do Prospect
+              </h3>
+              {lead.website && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => analyzeWebsite.mutate(lead.id)}
+                  disabled={analyzeWebsite.isPending}
+                >
+                  {analyzeWebsite.isPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+                  ) : (
+                    <Search className="h-3.5 w-3.5 mr-1" />
+                  )}
+                  {insights ? "Reanalisar" : "Analisar Website"}
+                </Button>
+              )}
+            </div>
+
+            {!lead.website && (
+              <p className="text-sm text-muted-foreground">
+                Preencha o website do lead para gerar insights automáticos.
+              </p>
+            )}
+
+            {lead.website && insightsLoading && (
+              <p className="text-sm text-muted-foreground">Carregando insights...</p>
+            )}
+
+            {lead.website && !insightsLoading && !insights && !analyzeWebsite.isPending && (
+              <p className="text-sm text-muted-foreground">
+                Clique em "Analisar Website" para gerar insights sobre este prospect.
+              </p>
+            )}
+
+            {insights && (
+              <div className="space-y-3">
+                {/* Resumo */}
+                {insights.resumo && (
+                  <div className="rounded-md border p-3 bg-muted/30">
+                    <p className="text-sm">{insights.resumo}</p>
+                  </div>
+                )}
+
+                {/* Proposta de valor */}
+                {insights.proposta_valor && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                      <Target className="h-3 w-3" /> Proposta de Valor
+                    </p>
+                    <p className="text-sm">{insights.proposta_valor}</p>
+                  </div>
+                )}
+
+                {/* Produtos */}
+                {insights.produtos?.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                      <Package className="h-3 w-3" /> Produtos/Serviços
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {insights.produtos.map((p: string, i: number) => (
+                        <Badge key={i} variant="secondary" className="text-xs">{p}</Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Diferenciais */}
+                {insights.diferenciais?.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                      <Star className="h-3 w-3" /> Diferenciais
+                    </p>
+                    <ul className="text-sm list-disc list-inside space-y-0.5">
+                      {insights.diferenciais.map((d: string, i: number) => (
+                        <li key={i}>{d}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Pain Points */}
+                {insights.pain_points?.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-muted-foreground">🎯 Possíveis Dores</p>
+                    <ul className="text-sm list-disc list-inside space-y-0.5">
+                      {insights.pain_points.map((p: string, i: number) => (
+                        <li key={i}>{p}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Sugestões de abordagem */}
+                {insights.oportunidades_abordagem?.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+                      <MessageSquare className="h-3 w-3" /> Sugestões de Abordagem
+                    </p>
+                    {insights.oportunidades_abordagem.map((o: any, i: number) => (
+                      <div key={i} className="rounded-md border p-2.5 space-y-1">
+                        <p className="text-xs font-medium text-primary">{o.gancho}</p>
+                        <p className="text-sm text-muted-foreground italic">"{o.mensagem_sugerida}"</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {insightData?.analyzed_at && (
+                  <p className="text-xs text-muted-foreground pt-1">
+                    Analisado em {new Date(insightData.analyzed_at).toLocaleString("pt-BR")}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           <Separator />
