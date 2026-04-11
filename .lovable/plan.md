@@ -1,44 +1,28 @@
 
 
-## Adicionar Website e Endereço aos Leads (Pipedrive)
+## Fix: Buscar Website da Organização no Pipedrive
 
 ### Problema
-A tabela `leads` não possui colunas para website e endereço. O sync do Pipedrive ignora esses campos mesmo quando disponíveis na API.
+O campo `website` no Pipedrive é armazenado no objeto **Organization**, não no objeto **Person**. Quando a API de Persons retorna `person.org_id`, ela inclui apenas dados básicos da organização (nome, endereço, etc.) — **não inclui campos customizados nem o campo `website`** da organização.
+
+O código atual tenta extrair o website de `person.org_id`, mas esse objeto não contém a informação.
 
 ### Solução
 
-**1. Migration — adicionar colunas à tabela `leads`**
-```sql
-ALTER TABLE leads ADD COLUMN website text;
-ALTER TABLE leads ADD COLUMN address text;
-```
+Atualizar `supabase/functions/pipedrive-sync/index.ts`:
 
-**2. Atualizar `pipedrive-sync/index.ts`**
-Extrair do objeto `person` do Pipedrive:
-- `person.org_id?.cc_email` ou dados da org para website (campo customizado ou `person.org?.address`)
-- Pipedrive armazena endereço em `person.postal_address` (ou `person.address`) como string formatada
+1. **Buscar todas as Organizations separadamente** — adicionar função `fetchAllOrganizations(apiToken)` que pagina pela API `/v1/organizations` e retorna todas as orgs
+2. **Criar um mapa de org_id → org data** para lookup rápido
+3. **Para cada person**, buscar a org correspondente no mapa e extrair:
+   - `org.url` (campo nativo de website no Pipedrive) — no Pipedrive a organização tem um campo direto chamado `url` para website
+   - Fallback: buscar em campos customizados por valores que começam com `http://`, `https://`, ou `www.`
+4. **Deploy** da edge function
 
-Adicionar no upsert:
-```ts
-website: person.org?.cc_email || null,  // ou campo custom
-address: person.postal_address || person.address || null,
-```
+### Detalhe técnico
+A API do Pipedrive para Organizations (`/v1/organizations`) retorna campos como:
+- `name`, `address`, `cc_email`
+- Campos customizados com hash keys (ex: `abc123_website`)
+- O campo padrão de website pode variar — geralmente está em um campo custom ou no campo de texto livre
 
-Como o Pipedrive pode armazenar website como campo custom ou na organização, vamos também salvar de `pipedrive_data` e buscar campos comuns.
-
-**3. Atualizar UI — `Leads.tsx`**
-Adicionar coluna "Website" na tabela de leads.
-
-**4. Atualizar UI — `LeadDetail.tsx`**
-Mostrar website (com link clicável) e endereço no painel de detalhes.
-
-**5. Deploy da edge function `pipedrive-sync`**
-
-### Campos do Pipedrive
-Na API de Persons do Pipedrive:
-- **Website**: Não é campo nativo de Person — geralmente está na Organization (`org_id.address`) ou como campo customizado. Vamos buscar primeiro em `person.org_name` related org data. Uma alternativa é buscar o campo da Organization separadamente.
-- **Endereço**: `person.postal_address` (string) disponível na API v1.
-
-### Nota
-Se o website não estiver no objeto `person` direto, precisaremos fazer uma chamada extra à API de Organizations do Pipedrive para buscar o website da empresa vinculada. Isso será avaliado durante a implementação.
+A chamada extra adiciona latência mas é necessária para obter o website.
 
