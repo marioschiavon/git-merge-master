@@ -576,6 +576,7 @@ export type Database = {
       }
       leads: {
         Row: {
+          address: string | null
           company_id: string
           company_name: string | null
           created_at: string
@@ -591,8 +592,10 @@ export type Database = {
           status: Database["public"]["Enums"]["lead_status"]
           title: string | null
           updated_at: string
+          website: string | null
         }
         Insert: {
+          address?: string | null
           company_id: string
           company_name?: string | null
           created_at?: string
@@ -608,8 +611,10 @@ export type Database = {
           status?: Database["public"]["Enums"]["lead_status"]
           title?: string | null
           updated_at?: string
+          website?: string | null
         }
         Update: {
+          address?: string | null
           company_id?: string
           company_name?: string | null
           created_at?: string
@@ -625,6 +630,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["lead_status"]
           title?: string | null
           updated_at?: string
+          website?: string | null
         }
         Relationships: [
           {
