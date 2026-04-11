@@ -5,20 +5,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function fetchAllPersons(apiToken: string) {
-  const persons: any[] = [];
+async function fetchAllPaginated(apiToken: string, endpoint: string) {
+  const items: any[] = [];
   let start = 0;
   const limit = 100;
   let hasMore = true;
 
   while (hasMore) {
     const res = await fetch(
-      `https://api.pipedrive.com/v1/persons?api_token=${apiToken}&start=${start}&limit=${limit}`
+      `https://api.pipedrive.com/v1/${endpoint}?api_token=${apiToken}&start=${start}&limit=${limit}`
     );
     const data = await res.json();
 
     if (data.success && data.data) {
-      persons.push(...data.data);
+      items.push(...data.data);
       hasMore = data.additional_data?.pagination?.more_items_in_collection ?? false;
       start += limit;
     } else {
@@ -26,7 +26,21 @@ async function fetchAllPersons(apiToken: string) {
     }
   }
 
-  return persons;
+  return items;
+}
+
+function extractWebsiteFromOrg(org: any): string | null {
+  if (!org) return null;
+  // Check native url field
+  if (org.url) return org.url;
+  // Scan custom fields for URL values
+  for (const key of Object.keys(org)) {
+    const val = org[key];
+    if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://") || val.startsWith("www."))) {
+      return val;
+    }
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
