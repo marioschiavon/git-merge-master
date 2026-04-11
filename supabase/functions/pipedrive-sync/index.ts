@@ -99,6 +99,33 @@ Deno.serve(async (req) => {
       const email = person.email?.[0]?.value || null;
       const phone = person.phone?.[0]?.value || null;
 
+      // Extract address
+      const postalAddr = person.postal_address;
+      let address: string | null = null;
+      if (postalAddr && typeof postalAddr === "object") {
+        const parts = [postalAddr.street_number, postalAddr.route, postalAddr.sublocality, postalAddr.locality, postalAddr.admin_area_level_1, postalAddr.postal_code, postalAddr.country].filter(Boolean);
+        address = parts.length > 0 ? parts.join(", ") : postalAddr.formatted_address || null;
+      } else if (typeof postalAddr === "string" && postalAddr) {
+        address = postalAddr;
+      }
+
+      // Extract website from org data if available
+      const orgData = person.org_id;
+      let website: string | null = null;
+      if (orgData && typeof orgData === "object") {
+        website = orgData.cc_email || null;
+        // Try common custom field patterns for website
+        if (!website) {
+          for (const key of Object.keys(orgData)) {
+            const val = orgData[key];
+            if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://") || val.startsWith("www."))) {
+              website = val;
+              break;
+            }
+          }
+        }
+      }
+
       const { error } = await supabase.from("leads").upsert(
         {
           company_id,
@@ -111,6 +138,8 @@ Deno.serve(async (req) => {
           source: "pipedrive",
           pipedrive_data: person,
           last_synced_at: new Date().toISOString(),
+          website,
+          address,
         },
         { onConflict: "company_id,pipedrive_id" }
       );

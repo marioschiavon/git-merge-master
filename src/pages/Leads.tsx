@@ -109,6 +109,7 @@ export default function Leads() {
                 <TableHead>Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Empresa</TableHead>
+                <TableHead>Website</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Origem</TableHead>
               </TableRow>
@@ -116,13 +117,13 @@ export default function Leads() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                 <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     Carregando...
                   </TableCell>
                 </TableRow>
               ) : leads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                     Nenhum lead encontrado.
                   </TableCell>
                 </TableRow>
@@ -136,6 +137,13 @@ export default function Leads() {
                     <TableCell className="font-medium">{lead.name}</TableCell>
                     <TableCell>{lead.email || "—"}</TableCell>
                     <TableCell>{lead.company_name || "—"}</TableCell>
+                    <TableCell>
+                      {lead.website ? (
+                        <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate max-w-[150px] inline-block" onClick={(e) => e.stopPropagation()}>
+                          {lead.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      ) : "—"}
+                    </TableCell>
                     <TableCell>
                       <Badge className={statusColors[lead.status] || ""} variant="secondary">
                         {statusLabels[lead.status] || lead.status}
