@@ -616,7 +616,7 @@ export type Database = {
           {
             foreignKeyName: "lead_insights_lead_id_fkey"
             columns: ["lead_id"]
-            isOneToOne: false
+            isOneToOne: true
             referencedRelation: "leads"
             referencedColumns: ["id"]
           },
