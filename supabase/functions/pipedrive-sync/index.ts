@@ -5,20 +5,20 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function fetchAllPersons(apiToken: string) {
-  const persons: any[] = [];
+async function fetchAllPaginated(apiToken: string, endpoint: string) {
+  const items: any[] = [];
   let start = 0;
   const limit = 100;
   let hasMore = true;
 
   while (hasMore) {
     const res = await fetch(
-      `https://api.pipedrive.com/v1/persons?api_token=${apiToken}&start=${start}&limit=${limit}`
+      `https://api.pipedrive.com/v1/${endpoint}?api_token=${apiToken}&start=${start}&limit=${limit}`
     );
     const data = await res.json();
 
     if (data.success && data.data) {
-      persons.push(...data.data);
+      items.push(...data.data);
       hasMore = data.additional_data?.pagination?.more_items_in_collection ?? false;
       start += limit;
     } else {
@@ -26,7 +26,21 @@ async function fetchAllPersons(apiToken: string) {
     }
   }
 
-  return persons;
+  return items;
+}
+
+function extractWebsiteFromOrg(org: any): string | null {
+  if (!org) return null;
+  // Check native url field
+  if (org.url) return org.url;
+  // Scan custom fields for URL values
+  for (const key of Object.keys(org)) {
+    const val = org[key];
+    if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://") || val.startsWith("www."))) {
+      return val;
+    }
+  }
+  return null;
 }
 
 Deno.serve(async (req) => {
@@ -88,8 +102,17 @@ Deno.serve(async (req) => {
       );
     }
 
-    // Fetch persons from Pipedrive
-    const persons = await fetchAllPersons(integration.api_token);
+    // Fetch persons and organizations from Pipedrive
+    const [persons, organizations] = await Promise.all([
+      fetchAllPaginated(integration.api_token, "persons"),
+      fetchAllPaginated(integration.api_token, "organizations"),
+    ]);
+
+    // Build org lookup map
+    const orgMap = new Map<number, any>();
+    for (const org of organizations) {
+      orgMap.set(org.id, org);
+    }
 
     // Upsert leads
     let synced = 0;
@@ -109,22 +132,10 @@ Deno.serve(async (req) => {
         address = postalAddr;
       }
 
-      // Extract website from org data if available
-      const orgData = person.org_id;
-      let website: string | null = null;
-      if (orgData && typeof orgData === "object") {
-        website = orgData.cc_email || null;
-        // Try common custom field patterns for website
-        if (!website) {
-          for (const key of Object.keys(orgData)) {
-            const val = orgData[key];
-            if (typeof val === "string" && (val.startsWith("http://") || val.startsWith("https://") || val.startsWith("www."))) {
-              website = val;
-              break;
-            }
-          }
-        }
-      }
+      // Extract website from full organization data
+      const personOrgId = typeof person.org_id === "object" ? person.org_id?.value : person.org_id;
+      const fullOrg = personOrgId ? orgMap.get(personOrgId) : null;
+      const website = extractWebsiteFromOrg(fullOrg);
 
       const { error } = await supabase.from("leads").upsert(
         {
