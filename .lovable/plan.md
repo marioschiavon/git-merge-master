@@ -1,51 +1,35 @@
 
 
-## Scraping de Website do Prospect com Insights para SDR
+## Personalizar Mensagens da Cadência com Lead Insights
 
-### Conceito
-Adicionar um botão "Analisar Website" no detalhe do lead que, quando o lead tem website preenchido, faz scraping do site e gera insights de vendas usando IA. Os insights ficam salvos no banco para consulta futura e são usados automaticamente pelo `cadence-executor` na personalização das mensagens.
+### Problema
+O `cadence-executor` gera mensagens usando apenas nome, email, empresa e knowledge base da empresa vendedora. Os insights do prospect (obtidos pelo scraping) não são incluídos no contexto da IA, resultando em mensagens genéricas.
 
-### Implementação
+### Solução
 
-**1. Migration — tabela `lead_insights`**
-```sql
-CREATE TABLE lead_insights (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  lead_id uuid REFERENCES leads(id) ON DELETE CASCADE NOT NULL,
-  company_id uuid REFERENCES companies(id) ON DELETE CASCADE NOT NULL,
-  website_url text,
-  insights jsonb NOT NULL DEFAULT '{}',
-  raw_summary text,
-  analyzed_at timestamptz DEFAULT now(),
-  created_at timestamptz DEFAULT now()
-);
-ALTER TABLE lead_insights ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Company members can manage lead_insights"
-  ON lead_insights FOR ALL TO authenticated
-  USING (company_id = get_user_company_id(auth.uid()));
+**Alterar `supabase/functions/cadence-executor/index.ts`:**
+
+1. **Buscar `lead_insights`** antes de gerar a mensagem — query na tabela `lead_insights` filtrando por `lead_id`
+2. **Incluir insights no prompt da IA** — adicionar uma seção "INSIGHTS DO PROSPECT" no system prompt com: proposta de valor, produtos, diferenciais, pain points e sugestões de abordagem
+3. **Atualizar as regras do prompt** — instruir a IA a usar os insights para personalizar a abordagem (ex: mencionar um produto específico do prospect, referenciar um diferencial, conectar a dor do prospect com a solução)
+
+O bloco adicionado ao prompt ficaria algo como:
+
+```text
+INSIGHTS DO PROSPECT (obtidos do website do lead):
+- Proposta de valor: ...
+- Produtos/Serviços: ...
+- Diferenciais: ...
+- Pain points: ...
+- Sugestões de abordagem: ...
+
+Use esses insights para personalizar a mensagem. Mencione algo específico do negócio do prospect.
 ```
 
-O JSON `insights` terá estrutura: `{ proposta_valor, produtos, diferenciais, publico_alvo, cases, pain_points, oportunidades_abordagem }`.
-
-**2. Edge Function `analyze-lead-website`**
-- Recebe `lead_id`, busca o lead e seu website
-- Faz fetch do HTML do site (reaproveitando a lógica do `extract-knowledge`)
-- Envia para IA com prompt específico de SDR: extrair proposta de valor, dores que resolve, diferenciais, e gerar 3 sugestões de abordagem personalizada
-- Salva resultado na tabela `lead_insights`
-- Retorna os insights
-
-**3. Hook `useLeadInsights`**
-- `useLeadInsights(leadId)` — busca insights existentes
-- `useAnalyzeWebsite()` — mutation que chama a edge function
-
-**4. UI — Seção "Insights" no `LeadDetail.tsx`**
-- Se o lead tem website: botão "Analisar Website" com ícone de lupa
-- Se já tem insights salvos: exibe resumo da empresa, diferenciais, e sugestões de abordagem em cards organizados
-- Se não tem website: mensagem indicando que precisa preencher o website primeiro
-
-**5. Integração com `cadence-executor`**
-- Ao gerar mensagem personalizada, buscar `lead_insights` do lead e incluir no contexto da IA, permitindo mensagens muito mais assertivas no primeiro contato
+### Escopo
+- 1 arquivo alterado: `supabase/functions/cadence-executor/index.ts`
+- Redeploy da edge function
 
 ### Resultado
-O SDR poderá, com um clique, obter uma análise completa do prospect antes de iniciar contato. As cadências automáticas também usarão esses insights para personalizar mensagens.
+Quando o lead tem insights salvos (via "Analisar Website"), as mensagens geradas pela cadência serão altamente personalizadas, mencionando detalhes reais do negócio do prospect.
 
