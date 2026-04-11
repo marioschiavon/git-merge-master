@@ -574,6 +574,54 @@ export type Database = {
           },
         ]
       }
+      lead_insights: {
+        Row: {
+          analyzed_at: string | null
+          company_id: string
+          created_at: string | null
+          id: string
+          insights: Json
+          lead_id: string
+          raw_summary: string | null
+          website_url: string | null
+        }
+        Insert: {
+          analyzed_at?: string | null
+          company_id: string
+          created_at?: string | null
+          id?: string
+          insights?: Json
+          lead_id: string
+          raw_summary?: string | null
+          website_url?: string | null
+        }
+        Update: {
+          analyzed_at?: string | null
+          company_id?: string
+          created_at?: string | null
+          id?: string
+          insights?: Json
+          lead_id?: string
+          raw_summary?: string | null
+          website_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_insights_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_insights_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leads: {
         Row: {
           address: string | null
