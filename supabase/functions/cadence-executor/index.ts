@@ -136,7 +136,13 @@ REGRAS DE PERSONALIZAÇÃO (OBRIGATÓRIAS quando há insights do prospect):
 REGRAS GERAIS:
 - Mantenha o tom profissional mas humano
 - ${currentStep.channel === "whatsapp" ? "WhatsApp: mensagem curta, até 80 palavras, informal" : ""}
-- ${currentStep.channel === "email" ? "Email: até 150 palavras, profissional, inclua subject" : ""}
+- ${currentStep.channel === "email" ? `Email: MÁXIMO 80 palavras. Estrutura obrigatória:
+  1. HOOK (1 frase): Comece com algo específico do prospect (do insight do website) que chame atenção — ex: "Vi que a [empresa] está focada em [X]..."
+  2. CONEXÃO (1-2 frases): Ligue o hook diretamente a 1 benefício concreto do seu produto/serviço
+  3. CTA (1 frase): Pergunta direta para agendar reunião de 15min — ex: "Faz sentido conversarmos essa semana?"
+  - Subject: máximo 6 palavras, curioso, referenciando o negócio do prospect. NUNCA genérico.
+  - PROIBIDO: "Meu nome é...", "Somos uma empresa...", "Gostaria de me apresentar...", introduções longas, parágrafos descritivos sobre você
+  - Tom: direto, confiante, como se já conhecesse o mercado do prospect` : ""}
 - ${currentStep.channel === "linkedin" ? "LinkedIn: até 100 palavras, profissional" : ""}
 - Se for o primeiro contato, seja mais introdutório
 - Se for follow-up (step > 1), referencie contato anterior
