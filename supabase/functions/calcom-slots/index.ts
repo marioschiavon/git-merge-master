@@ -6,7 +6,39 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CALCOM_API_VERSION = "2024-09-04";
+const CALCOM_SLOTS_API_VERSION = "2024-09-04";
+const CALCOM_EVENT_TYPES_API_VERSION = "2024-06-14";
+
+async function resolveEventTypeId(apiKey: string): Promise<number> {
+  const manualId = Deno.env.get("CALCOM_EVENT_TYPE_ID");
+  if (manualId && !isNaN(Number(manualId))) {
+    console.log(`Using manually configured event type ID: ${manualId}`);
+    return Number(manualId);
+  }
+
+  console.log("CALCOM_EVENT_TYPE_ID not set or non-numeric, fetching from API...");
+  const res = await fetch("https://api.cal.com/v2/event-types", {
+    headers: {
+      "Authorization": `Bearer ${apiKey}`,
+      "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
+    },
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    console.error("Failed to fetch event types:", errText);
+    throw new Error(`Failed to fetch event types from Cal.com: ${res.status}`);
+  }
+
+  const json = await res.json();
+  const eventTypes = json.data?.eventTypes || json.data || [];
+  if (!eventTypes.length) {
+    throw new Error("No event types found in your Cal.com account");
+  }
+
+  console.log(`Auto-detected event type: ${eventTypes[0].id} (${eventTypes[0].title || eventTypes[0].slug})`);
+  return eventTypes[0].id;
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -17,10 +49,11 @@ serve(async (req) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
-    const CALCOM_EVENT_TYPE_ID = Deno.env.get("CALCOM_EVENT_TYPE_ID");
-    if (!CALCOM_API_KEY || !CALCOM_EVENT_TYPE_ID) {
-      throw new Error("Cal.com secrets not configured (CALCOM_API_KEY, CALCOM_EVENT_TYPE_ID)");
+    if (!CALCOM_API_KEY) {
+      throw new Error("Cal.com secret not configured (CALCOM_API_KEY)");
     }
+
+    const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY);
 
     const body = await req.json();
     const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel } = body;
@@ -38,7 +71,7 @@ serve(async (req) => {
     endDate.setDate(endDate.getDate() + 7);
 
     const slotsUrl = new URL("https://api.cal.com/v2/slots");
-    slotsUrl.searchParams.set("eventTypeId", CALCOM_EVENT_TYPE_ID);
+    slotsUrl.searchParams.set("eventTypeId", String(eventTypeId));
     slotsUrl.searchParams.set("start", startDate.toISOString());
     slotsUrl.searchParams.set("end", endDate.toISOString());
 
@@ -46,7 +79,7 @@ serve(async (req) => {
       method: "GET",
       headers: {
         "Authorization": `Bearer ${CALCOM_API_KEY}`,
-        "cal-api-version": CALCOM_API_VERSION,
+        "cal-api-version": CALCOM_SLOTS_API_VERSION,
       },
     });
 
@@ -91,11 +124,11 @@ serve(async (req) => {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${CALCOM_API_KEY}`,
-            "cal-api-version": CALCOM_API_VERSION,
+            "cal-api-version": CALCOM_SLOTS_API_VERSION,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            eventTypeId: Number(CALCOM_EVENT_TYPE_ID),
+            eventTypeId: eventTypeId,
             slotStart: slot.start,
             slotEnd: undefined, // Cal.com calculates based on event type duration
             reservationDuration: 120, // 2 hours hold

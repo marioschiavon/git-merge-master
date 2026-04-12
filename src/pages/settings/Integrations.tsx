@@ -46,8 +46,8 @@ const CalComCard = () => {
         </p>
         <div className="bg-muted rounded p-3 text-xs space-y-1">
           <p>✅ <strong>CALCOM_API_KEY</strong> — Sua API Key do Cal.com</p>
-          <p>✅ <strong>CALCOM_EVENT_TYPE_ID</strong> — ID do tipo de evento</p>
           <p>✅ <strong>CALCOM_BOOKING_LINK</strong> — Link público de agendamento</p>
+          <p>ℹ️ <strong>CALCOM_EVENT_TYPE_ID</strong> — <em>Opcional.</em> Detectado automaticamente via API. Configure apenas para forçar um tipo específico.</p>
         </div>
       </CardContent>
     </Card>
