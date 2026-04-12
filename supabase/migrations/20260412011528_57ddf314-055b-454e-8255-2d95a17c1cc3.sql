@@ -1,0 +1,1 @@
+ALTER TABLE public.cadence_steps ADD COLUMN smart_customization boolean NOT NULL DEFAULT true;
