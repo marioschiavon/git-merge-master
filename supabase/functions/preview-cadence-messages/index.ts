@@ -81,15 +81,20 @@ serve(async (req) => {
       });
     }
 
-    // Fetch knowledge and insights in parallel
-    const [knowledgeRes, insightRes] = await Promise.all([
-      supabase.from("company_knowledge").select("title, content").eq("company_id", cadence.company_id).limit(10),
+    // Fetch knowledge, highlights, and insights in parallel
+    const [knowledgeRes, highlightsRes, insightRes] = await Promise.all([
+      supabase.from("company_knowledge").select("title, content").eq("company_id", cadence.company_id).neq("type", "highlights").limit(10),
+      supabase.from("company_knowledge").select("content").eq("company_id", cadence.company_id).eq("type", "highlights").maybeSingle(),
       supabase.from("lead_insights").select("insights, raw_summary").eq("lead_id", lead_id).maybeSingle(),
     ]);
 
     const knowledgeContext = (knowledgeRes.data || [])
       .map((k: any) => `## ${k.title}\n${k.content}`)
       .join("\n\n");
+
+    const highlightsContext = highlightsRes.data?.content
+      ? `\n\n=== DESTAQUES IMPORTANTES DA EMPRESA (use como argumentos de autoridade) ===\n${highlightsRes.data.content}\n\nOBRIGATÓRIO: Mencione pelo menos 1 destaque da empresa acima como argumento de credibilidade na mensagem.`
+      : "";
 
     let insightsContext = "";
     if (insightRes.data?.insights) {
@@ -156,6 +161,7 @@ serve(async (req) => {
 
 === SEU PRODUTO/SERVIÇO (o que você vende) ===
 ${knowledgeContext || "Sem informações adicionais do produto."}
+${highlightsContext}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${stepInsights || "Sem diferenciais disponíveis do prospect."}

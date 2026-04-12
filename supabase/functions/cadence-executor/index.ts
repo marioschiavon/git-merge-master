@@ -147,16 +147,19 @@ serve(async (req) => {
           continue; // Skip AI generation below
         }
 
-        // Get company knowledge for context
-        const { data: knowledge } = await supabase
-          .from("company_knowledge")
-          .select("title, content")
-          .eq("company_id", cadence.company_id)
-          .limit(10);
+        // Get company knowledge and highlights in parallel
+        const [knowledgeRes, highlightsRes] = await Promise.all([
+          supabase.from("company_knowledge").select("title, content").eq("company_id", cadence.company_id).neq("type", "highlights").limit(10),
+          supabase.from("company_knowledge").select("content").eq("company_id", cadence.company_id).eq("type", "highlights").maybeSingle(),
+        ]);
 
-        const knowledgeContext = (knowledge || [])
+        const knowledgeContext = (knowledgeRes.data || [])
           .map((k: any) => `## ${k.title}\n${k.content}`)
           .join("\n\n");
+
+        const highlightsContext = highlightsRes.data?.content
+          ? `\n\n=== DESTAQUES IMPORTANTES DA EMPRESA (use como argumentos de autoridade) ===\n${highlightsRes.data.content}\n\nOBRIGATÓRIO: Mencione pelo menos 1 destaque da empresa acima como argumento de credibilidade na mensagem.`
+          : "";
 
         // Get lead insights from website analysis (only if smart_customization is enabled for this step)
         let insightsContext = "";
@@ -191,6 +194,7 @@ serve(async (req) => {
 
 === SEU PRODUTO/SERVIÇO (o que você vende) ===
 ${knowledgeContext || "Sem informações adicionais do produto."}
+${highlightsContext}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${insightsContext || "Sem diferenciais disponíveis do prospect."}

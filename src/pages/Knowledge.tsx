@@ -13,6 +13,8 @@ import {
   useUpdateKnowledge,
   useExtractUrl,
   useUploadKnowledgeDoc,
+  useHighlights,
+  useSaveHighlights,
 } from "@/hooks/useKnowledge";
 import {
   BookOpen,
@@ -24,6 +26,7 @@ import {
   Loader2,
   Save,
   Pencil,
+  Star,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
@@ -45,6 +48,18 @@ export default function Knowledge() {
   const updateKnowledge = useUpdateKnowledge();
   const extractUrl = useExtractUrl();
   const uploadDoc = useUploadKnowledgeDoc();
+  const { data: highlightsItem } = useHighlights();
+  const saveHighlights = useSaveHighlights();
+
+  // Highlights state
+  const [highlightsText, setHighlightsText] = useState("");
+  const [highlightsLoaded, setHighlightsLoaded] = useState(false);
+
+  // Load highlights when data arrives
+  if (highlightsItem && !highlightsLoaded) {
+    setHighlightsText(highlightsItem.content || "");
+    setHighlightsLoaded(true);
+  }
 
   // Text form
   const [textTitle, setTextTitle] = useState("");
@@ -110,9 +125,17 @@ export default function Knowledge() {
     setEditingId(null);
   };
 
-  const textItems = items.filter((i: any) => i.type === "text");
-  const docItems = items.filter((i: any) => i.type === "document");
-  const urlItems = items.filter((i: any) => i.type === "url");
+  const nonHighlightItems = items.filter((i: any) => i.type !== "highlights");
+  const textItems = nonHighlightItems.filter((i: any) => i.type === "text");
+  const docItems = nonHighlightItems.filter((i: any) => i.type === "document");
+  const urlItems = nonHighlightItems.filter((i: any) => i.type === "url");
+
+  const handleSaveHighlights = async () => {
+    await saveHighlights.mutateAsync({
+      content: highlightsText,
+      existingId: highlightsItem?.id,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -122,6 +145,39 @@ export default function Knowledge() {
           Treine a IA com informações do seu produto para gerar mensagens personalizadas
         </p>
       </div>
+
+      {/* Highlights Card */}
+      <Card className="border-primary/20 bg-primary/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Star className="h-4 w-4 text-primary" />
+            Destaques para Prospecção
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Informações-chave que a IA usará como argumentos de autoridade nos emails (matérias de jornal, patentes, prêmios, origem da empresa...)
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder="Ex: Empresa de origem americana, possuidora de patente mundial. Matéria no Jornal X: https://link.com. Prêmio Y recebido em 2024..."
+            value={highlightsText}
+            onChange={(e) => setHighlightsText(e.target.value)}
+            rows={4}
+          />
+          <Button
+            onClick={handleSaveHighlights}
+            disabled={saveHighlights.isPending || !highlightsText.trim()}
+            size="sm"
+          >
+            {saveHighlights.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Salvar Destaques
+          </Button>
+        </CardContent>
+      </Card>
 
       <Tabs defaultValue="text">
         <TabsList>
