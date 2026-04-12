@@ -88,15 +88,8 @@ serve(async (req) => {
 
           if (leadInsight?.insights) {
             const ins = leadInsight.insights as any;
-            const parts = [];
-            if (ins.proposta_valor) parts.push(`- Proposta de valor: ${ins.proposta_valor}`);
-            if (ins.produtos?.length) parts.push(`- Produtos/Serviços: ${ins.produtos.join(", ")}`);
-            if (ins.diferenciais?.length) parts.push(`- Diferenciais: ${ins.diferenciais.join(", ")}`);
-            if (ins.pain_points?.length) parts.push(`- Pain points: ${ins.pain_points.join(", ")}`);
-            if (ins.publico_alvo) parts.push(`- Público-alvo: ${ins.publico_alvo}`);
-            if (ins.oportunidades_abordagem?.length) parts.push(`- Sugestões de abordagem: ${ins.oportunidades_abordagem.join("; ")}`);
-            if (parts.length > 0) {
-              insightsContext = `\n\nINSIGHTS DO PROSPECT (obtidos do website do lead):\n${parts.join("\n")}\n\nUse esses insights para personalizar a mensagem. Mencione algo específico do negócio do prospect para mostrar que você pesquisou sobre a empresa dele.`;
+            if (ins.diferenciais?.length) {
+              insightsContext = `\n\nDIFERENCIAIS DO PROSPECT (obtidos do website do lead):\n${ins.diferenciais.join(", ")}\n\nUse esses diferenciais para criar um gancho direto entre o que o prospect faz de melhor e como seu produto/serviço potencializa isso.`;
             }
           }
         }
@@ -118,8 +111,8 @@ serve(async (req) => {
 === SEU PRODUTO/SERVIÇO (o que você vende) ===
 ${knowledgeContext || "Sem informações adicionais do produto."}
 
-=== INSIGHTS ESTRATÉGICOS DO PROSPECT ===
-${insightsContext || "Sem insights disponíveis do prospect."}
+=== DIFERENCIAIS DO PROSPECT ===
+${insightsContext || "Sem diferenciais disponíveis do prospect."}
 
 === TEMPLATE BASE DO STEP ===
 ${currentStep.template || "Sem template definido."}
@@ -127,13 +120,11 @@ ${currentStep.template || "Sem template definido."}
 CANAL: ${currentStep.channel}
 STEP: ${currentStep.step_order} de ${steps.length}
 
-REGRAS DE PERSONALIZAÇÃO (OBRIGATÓRIAS quando há insights do prospect):
-- OBRIGATÓRIO: Conecte pelo menos 1 pain point do prospect com 1 benefício específico do seu produto/serviço
-- Mencione algo específico do negócio do prospect (produto, mercado, diferencial) para mostrar que você pesquisou
-- Mostre como seu produto/serviço resolve uma dor REAL que o prospect provavelmente tem
-- Use o contexto do mercado do prospect para justificar por que seu produto é relevante para ELE
+REGRAS DE PERSONALIZAÇÃO (OBRIGATÓRIAS quando há diferenciais do prospect):
+- OBRIGATÓRIO: Escolha 1 diferencial do prospect e faça um gancho direto com 1 benefício/produto específico da base de conhecimento acima
+- Estrutura do gancho: "Vi que vocês [diferencial do prospect] → nosso [produto/solução] potencializa isso porque [benefício concreto]"
 - Nunca seja genérico — cada mensagem deve parecer escrita à mão para aquele prospect
-- Se o prospect tem diferenciais, use como gancho: "Vi que vocês se destacam em X, e nosso produto potencializa isso com Y"
+- O gancho deve conectar naturalmente o que o prospect faz de melhor com o que você oferece
 
 REGRAS GERAIS:
 - Mantenha o tom profissional mas humano
