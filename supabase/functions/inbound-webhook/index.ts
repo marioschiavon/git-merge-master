@@ -145,7 +145,11 @@ serve(async (req) => {
       });
       slotContext = `\n\nATENÇÃO: O prospect recebeu 2 opções de horário para reunião:
 ${formatted.join("\n")}
-Se o prospect está confirmando ou escolhendo um desses horários, use action = "confirm_slot" e selected_slot = número da opção (1 ou 2).`;
+
+INSTRUÇÕES PARA SLOTS PENDENTES:
+- Se o prospect está confirmando ou escolhendo um desses horários → action = "confirm_slot" e selected_slot = número da opção (1 ou 2)
+- Se o prospect rejeitou ambos os horários (ex: "nenhum funciona", "não consigo nesses dias", "tenho compromisso") → action = "reject_slots"
+- Se o prospect sugeriu um horário alternativo (ex: "pode ser terça às 14h?", "prefiro quinta de manhã") → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)`;
     }
 
     // Get conversation history
@@ -171,11 +175,16 @@ AÇÕES POSSÍVEIS:
 - "reply": responder automaticamente (objeção, dúvida, neutro)
 - "schedule": prospect demonstrou interesse em reunião → parar cadência e confirmar horário
 - "confirm_slot": prospect está confirmando/escolhendo um dos horários já oferecidos
-- "pause": prospect rejeitou → pausar cadência educadamente
+- "reject_slots": prospect rejeitou ambos os horários oferecidos (ex: "nenhum funciona", "tenho compromisso nesses dias")
+- "check_availability": prospect sugeriu um horário alternativo próprio (ex: "pode ser terça às 14h?")
+  → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
+- "pause": prospect rejeitou totalmente → pausar cadência
 
 REGRAS:
 - Se o prospect menciona "reunião", "agendar", "conversar", "demo", "horário" E NÃO há slots pendentes → action = "schedule"
 - Se há slots pendentes e o prospect está escolhendo um deles → action = "confirm_slot" com selected_slot = 1 ou 2
+- Se há slots pendentes e o prospect recusou ambos → action = "reject_slots"
+- Se há slots pendentes e o prospect sugeriu outro horário → action = "check_availability" com suggested_datetime
 - Se o prospect diz "não tenho interesse", "não quero", "remova", "pare" → action = "pause"
 - Se objeção (preço, timing, concorrente) → contorne com empatia + prova social
 - Se dúvida → responda objetivamente + CTA para reunião
@@ -183,9 +192,10 @@ REGRAS:
 
 Responda APENAS com JSON:
 {
-  "action": "reply|schedule|confirm_slot|pause",
+  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|pause",
   "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
   "selected_slot": null,
+  "suggested_datetime": null,
   "reasoning": "explicação breve",
   "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
 }${slotContext}`;
@@ -271,6 +281,146 @@ Analise e decida a ação.`,
       } catch (e) {
         console.error("Error invoking calcom-confirm-booking:", e);
         parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
+      }
+    } else if (parsed.action === "reject_slots" && heldSlots.length >= 1) {
+      // Cancel all held slots and offer new ones
+      console.log(`Rejecting ${heldSlots.length} held slots for lead ${leadData?.id}`);
+      const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
+
+      for (const slot of heldSlots) {
+        // Cancel reservation on Cal.com
+        if (slot.cal_booking_uid && CALCOM_API_KEY) {
+          try {
+            await fetch(`https://api.cal.com/v2/slots/reservations/${slot.cal_booking_uid}`, {
+              method: "DELETE",
+              headers: {
+                "Authorization": `Bearer ${CALCOM_API_KEY}`,
+                "cal-api-version": "2024-09-04",
+              },
+            });
+          } catch (e) {
+            console.error("Error cancelling reservation:", e);
+          }
+        }
+        // Mark as cancelled in DB
+        await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
+      }
+
+      // Fetch 2 new slots
+      try {
+        const channelLabel = convChannel || channel || "email";
+        const slotsRes = await supabase.functions.invoke("calcom-slots", {
+          body: {
+            company_id: companyId,
+            lead_id: leadData?.id,
+            enrollment_id: enrollment?.id,
+            conversation_id: convId,
+            preferred_channel: channelLabel,
+          },
+        });
+
+        if (slotsRes.data?.success && slotsRes.data?.formatted?.length >= 2) {
+          parsed.reply_message = `Sem problemas! Aqui vão outras opções:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nAlgum desses funciona para você?`;
+        } else {
+          const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
+          parsed.reply_message = CALCOM_BOOKING_LINK
+            ? `Entendo! Acesse ${CALCOM_BOOKING_LINK} para escolher o horário que melhor funciona para você.`
+            : "Entendo! Me diga qual horário seria melhor para você que eu verifico a disponibilidade.";
+        }
+      } catch (e) {
+        console.error("Error fetching new slots:", e);
+        parsed.reply_message = "Entendo! Me diga qual horário seria melhor para você que eu verifico a disponibilidade.";
+      }
+
+      if (companyId && leadData) {
+        await supabase.from("lead_activities").insert({
+          company_id: companyId,
+          lead_id: leadData.id,
+          type: "meeting",
+          description: "🔄 Prospect rejeitou horários, novos slots oferecidos",
+          metadata: { action: "reject_slots", sentiment: parsed.sentiment },
+        });
+      }
+    } else if (parsed.action === "check_availability" && parsed.suggested_datetime) {
+      // Check if the prospect's suggested time is available
+      console.log(`Checking availability for suggested time: ${parsed.suggested_datetime}`);
+      const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
+
+      // Cancel existing holds first
+      for (const slot of heldSlots) {
+        if (slot.cal_booking_uid && CALCOM_API_KEY) {
+          try {
+            await fetch(`https://api.cal.com/v2/slots/reservations/${slot.cal_booking_uid}`, {
+              method: "DELETE",
+              headers: {
+                "Authorization": `Bearer ${CALCOM_API_KEY}`,
+                "cal-api-version": "2024-09-04",
+              },
+            });
+          } catch (e) {
+            console.error("Error cancelling reservation:", e);
+          }
+        }
+        await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
+      }
+
+      try {
+        const channelLabel = convChannel || channel || "email";
+        const slotsRes = await supabase.functions.invoke("calcom-slots", {
+          body: {
+            company_id: companyId,
+            lead_id: leadData?.id,
+            enrollment_id: enrollment?.id,
+            conversation_id: convId,
+            preferred_channel: channelLabel,
+            check_datetime: parsed.suggested_datetime,
+          },
+        });
+
+        if (slotsRes.data?.available) {
+          // Slot is available — confirm booking directly
+          const holdId = slotsRes.data?.slots?.[0]?.id;
+          if (holdId) {
+            const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
+              body: { lead_id: leadData.id, selected_slot_hold_id: holdId },
+            });
+
+            if (confirmRes.data?.success) {
+              const dt = new Date(parsed.suggested_datetime);
+              const formattedDate = dt.toLocaleDateString("pt-BR", {
+                weekday: "long", day: "numeric", month: "long",
+              }) + " às " + dt.toLocaleTimeString("pt-BR", {
+                hour: "2-digit", minute: "2-digit",
+              });
+              parsed.reply_message = `Perfeito, temos disponibilidade! Reunião confirmada para ${formattedDate}. Você receberá o convite por e-mail. Até lá! 🚀`;
+            } else {
+              parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
+            }
+          }
+        } else {
+          // Not available — offer 2 alternatives
+          if (slotsRes.data?.formatted?.length >= 2) {
+            parsed.reply_message = `Infelizmente esse horário não está disponível. Que tal uma dessas opções?\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor?`;
+          } else {
+            const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
+            parsed.reply_message = CALCOM_BOOKING_LINK
+              ? `Infelizmente esse horário não está disponível. Acesse ${CALCOM_BOOKING_LINK} para ver todas as opções.`
+              : "Infelizmente esse horário não está disponível. Pode sugerir outro?";
+          }
+        }
+      } catch (e) {
+        console.error("Error checking availability:", e);
+        parsed.reply_message = "Vou verificar a disponibilidade e retorno em seguida!";
+      }
+
+      if (companyId && leadData) {
+        await supabase.from("lead_activities").insert({
+          company_id: companyId,
+          lead_id: leadData.id,
+          type: "meeting",
+          description: `🔍 Verificação de disponibilidade: ${parsed.suggested_datetime}`,
+          metadata: { action: "check_availability", suggested: parsed.suggested_datetime },
+        });
       }
     } else if (parsed.action === "schedule") {
       // Existing schedule logic — offer 2 Cal.com slots
@@ -392,6 +542,8 @@ Analise e decida a ação.`,
         const actionMap: Record<string, string> = {
           schedule: "scheduled",
           confirm_slot: "meeting_confirmed",
+          reject_slots: "slots_rejected",
+          check_availability: "availability_checked",
           pause: "paused",
         };
         await supabase.from("execution_logs").insert({
