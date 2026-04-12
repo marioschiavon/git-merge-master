@@ -4,7 +4,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useConversations, useMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
-import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot } from "lucide-react";
+import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const sentimentColors: Record<string, string> = {
   interesse: "bg-green-100 text-green-800",
