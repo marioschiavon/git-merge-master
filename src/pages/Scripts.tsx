@@ -366,7 +366,7 @@ export default function Scripts() {
           <DialogHeader>
             <DialogTitle>Gerar Variações</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
             <pre className="text-xs whitespace-pre-wrap bg-muted p-3 rounded-md max-h-32 overflow-y-auto">{variationsBase}</pre>
             <Button onClick={handleGenerateVariations} disabled={generateVariations.isPending} className="w-full">
               {generateVariations.isPending ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Gerando...</> : <><Sparkles className="mr-2 h-4 w-4" />Gerar 3 Variações</>}
@@ -377,7 +377,7 @@ export default function Scripts() {
                   <Card key={i}>
                     <CardContent className="p-3">
                       <Badge variant="outline" className="text-xs mb-2">{v.tone}</Badge>
-                      <pre className="text-xs whitespace-pre-wrap">{v.text}</pre>
+                      <pre className="text-xs whitespace-pre-wrap max-h-40 overflow-y-auto">{v.text}</pre>
                     </CardContent>
                   </Card>
                 ))}
