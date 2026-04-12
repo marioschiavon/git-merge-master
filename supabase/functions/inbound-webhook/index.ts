@@ -100,7 +100,7 @@ serve(async (req) => {
           .from("cadence_enrollments")
           .update({ status: "paused", paused_reason: "lead_replied" } as any)
           .eq("id", convData.cadence_enrollment_id)
-          .eq("status", "active");
+          .in("status", ["active", "completed"]);
       }
     }
 
