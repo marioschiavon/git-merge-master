@@ -1,78 +1,59 @@
 
 
-## Blindar o fluxo de agendamento contra falhas
+## Corrigir loop infinito de agendamento no inbound-webhook
 
-### Problemas encontrados no `inbound-webhook/index.ts`
+### Diagnóstico
 
-**Bug 1 — slotContext só é construído se `heldSlots.length >= 2` (linha 134)**
-Quando os slots expiraram (status "held" mas past `expires_at`), `heldSlots` volta vazio. A IA não recebe NENHUM contexto de que há um agendamento em andamento. Resultado: classifica como `schedule` (oferecendo novos slots aleatórios) ao invés de `check_availability`.
+A conversa com `eu@julianocarneiro.com.br` mostra o prospect dizendo **"dia 15 as 17h" sete vezes consecutivas**, e toda vez o sistema ignora e oferece 2 novos slots. O motivo é um bug de ordem de operações combinado com problemas de conteúdo.
 
-**Bug 2 — Enrollment é pausado incondicionalmente no bloco `schedule` (linhas 500-504)**
-Mesmo quando a ação é sobrescrita para `reply` (ex: meeting já agendada, linha 459), o código na linha 500 AINDA pausa o enrollment porque está fora do `if (parsed.action === "schedule")`.
+### Bugs identificados
 
-**Bug 3 — `check_availability` depende 100% da IA extrair `suggested_datetime` em ISO 8601**
-Se a IA não parseia "dia 15 às 14h" → `suggested_datetime` é null → o bloco check_availability não executa → cai no fallback genérico "Como posso ajudá-lo?".
+**Bug 1 (PRINCIPAL) -- Linha 161-175 destrói o estado de agendamento**
+Quando uma mensagem inbound chega, o código na linha 169-173 **imediatamente** sobrescreve `paused_reason` para `"lead_replied"`, ANTES da lógica de detecção de agendamento na linha 213. Resultado: `schedulingInProgress` é SEMPRE `false` porque quando checamos, `paused_reason` já foi sobrescrito.
 
-**Bug 4 — Sem proteção contra slots expirados que ainda estão como "held"**
-A query de slots (linha 123-128) filtra `status = "held"` mas NÃO filtra por `expires_at > now()`. Slots expirados aparecem como "held" se o cron falhou, causando estados inconsistentes.
-
-### Correções
-
-**1. Dar contexto de agendamento mesmo sem held slots ativos**
-Se o enrollment está `paused` com `paused_reason = 'awaiting_slot_confirmation'`, incluir contexto no prompt informando que há um agendamento em andamento e que o prospect pode estar sugerindo horário alternativo.
-
-```typescript
-// Adicionar após linha 130
-let schedulingInProgress = false;
-if (heldSlots.length === 0 && enrollment) {
-  const { data: enrollCheck } = await supabase
-    .from("cadence_enrollments")
-    .select("paused_reason")
-    .eq("id", enrollment.id)
-    .maybeSingle();
-  if (enrollCheck?.paused_reason === "awaiting_slot_confirmation") {
-    schedulingInProgress = true;
-  }
-}
+```text
+Fluxo atual (ERRADO):
+  1. Mensagem chega: "dia 15 as 17h"
+  2. Linha 169: UPDATE paused_reason = "lead_replied" ← DESTRÓI "awaiting_slot_confirmation"
+  3. Linha 198: held slots = [] (expirados)
+  4. Linha 213: schedulingInProgress = false (pq paused_reason != "awaiting_slot_confirmation")
+  5. AI não tem contexto de slots → retorna action = "schedule"
+  6. Novos slots oferecidos → LOOP
 ```
 
-Quando `schedulingInProgress` e sem held slots, adicionar contexto alternativo ao prompt:
-```
-"ATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores expiraram).
-Se o prospect mencionar qualquer horário ou dia → action = 'check_availability' com suggested_datetime em ISO 8601."
-```
+**Bug 2 -- Conteúdo de email inclui toda a corrente de citações**
+As mensagens inbound incluem todo o conteúdo citado do email ("Em sáb., 11 de abr. de 2026, 23:35, Lead Automate ... escreveu: > ..."). Isso polui o histórico e confunde a IA com centenas de caracteres irrelevantes.
 
-**2. Filtrar slots expirados na query**
-```typescript
-// Linha 123-128: adicionar filtro de expiração
-.gt("expires_at", new Date().toISOString())
-```
+**Bug 3 -- Sem proteção contra loop de schedule**
+Se o último outbound foi `action: schedule` e o prospect responde, o sistema deveria tratar como resposta aos slots oferecidos (confirm/reject/check_availability), não como um novo schedule.
 
-**3. Mover pausa do enrollment para dentro do bloco condicional**
-```typescript
-// Linhas 500-505: mover para dentro do if (parsed.action === "schedule") na linha 467
-```
+### Correções no `inbound-webhook/index.ts`
 
-**4. Fallback server-side para parsear datetime quando IA não fornece**
-Quando `action = "check_availability"` mas `suggested_datetime` é null, extrair data/hora do conteúdo da mensagem via regex:
-```typescript
-function extractDateTimeFromText(text: string): string | null {
-  // Padrões: "dia 15 às 14h", "dia 15 as 17:00", "terça às 10h", "15/04 às 14h"
-  // Retorna ISO 8601 ou null
-}
-```
+**1. Ler `paused_reason` ANTES de sobrescrever (resolver o Bug 1)**
+- Mover a query de enrollment (linhas 204-209) para ANTES da atualização "lead_replied" (linhas 161-175)
+- Ou salvar o `paused_reason` original antes de sobrescrever
+- Na lógica de pausa (linha 169-173), NÃO sobrescrever se `paused_reason === "awaiting_slot_confirmation"` -- deixar o fluxo de slots decidir
 
-**5. Quando `schedule` é chamado mas `schedulingInProgress`, redirecionar para `check_availability`**
-Se a IA retorna `schedule` mas já estamos em processo de agendamento, o prospect provavelmente está sugerindo um horário — tratar como `check_availability` extraindo a data do conteúdo da mensagem.
+**2. Limpar conteúdo de email citado**
+Adicionar função `stripQuotedEmail(content)` que remove tudo após padrões como:
+- `"Em ... escreveu:"`
+- `"> "`
+- `"On ... wrote:"`
+
+**3. Adicionar guard contra loop de schedule**
+Antes de classificar com IA, verificar se o último outbound teve `action: schedule`. Se sim, adicionar contexto forçado ao prompt indicando que slots já foram oferecidos.
+
+**4. Guardar contexto dos slots oferecidos no metadata da mensagem outbound**
+Quando slots são oferecidos (action=schedule), salvar os datetimes no metadata da mensagem. Quando o próximo inbound chegar, recuperar esses slots do metadata mesmo que os `slot_holds` tenham expirado.
 
 ### Escopo
-- 1 edge function modificada: `inbound-webhook/index.ts`
-- ~60 linhas adicionadas/modificadas
-- Nenhuma mudança de banco de dados
-- Re-deploy automático
+- 1 edge function: `supabase/functions/inbound-webhook/index.ts`
+- ~80 linhas adicionadas/modificadas
+- Sem mudanças de banco de dados
+- Deploy automático
 
 ### Resultado esperado
-- Prospect sugere "dia 15 às 14h" → sistema verifica Cal.com nesse horário → confirma ou oferece alternativas
-- Nunca mais "Como posso ajudá-lo?" quando há agendamento em andamento
-- Slots expirados não causam estados fantasma
+- Prospect diz "dia 15 as 17h" → sistema verifica disponibilidade no Cal.com → confirma ou oferece alternativas
+- Nunca mais loop de "Ótimo! Tenho 2 horários disponíveis..."
+- Histórico de conversa limpo sem citações de email
 
