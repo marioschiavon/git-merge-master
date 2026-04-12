@@ -76,6 +76,39 @@ function extractDateTimeFromText(text: string): string | null {
   return null;
 }
 
+/**
+ * Strip quoted email text from replies (Gmail, Outlook, generic ">").
+ */
+function stripQuotedEmail(text: string): string {
+  const patterns = [
+    /\r?\n\s*Em .+escreveu:\s*$/im,
+    /\r?\n\s*On .+wrote:\s*$/im,
+    /\r?\n\s*-{3,}Original Message-{3,}/im,
+    /\r?\n\s*_{10,}/im,
+    /\r?\n\s*From:\s+.+\r?\nSent:\s+/im,
+    /\r?\n\s*De:\s+.+\r?\nEnviado:\s+/im,
+  ];
+
+  let clean = text;
+  for (const p of patterns) {
+    const idx = clean.search(p);
+    if (idx !== -1) {
+      clean = clean.substring(0, idx).trim();
+      break;
+    }
+  }
+
+  // Remove trailing ">" quoted lines
+  const lines = clean.split(/\r?\n/);
+  const filtered: string[] = [];
+  for (const line of lines) {
+    if (/^\s*>/.test(line)) break;
+    filtered.push(line);
+  }
+
+  return filtered.join("\n").trim() || text.trim();
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
