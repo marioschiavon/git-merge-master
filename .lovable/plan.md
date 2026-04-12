@@ -1,69 +1,42 @@
 
 
-## Tornar a IA focada em agendamento e com consciência de contexto
+## Corrigir timezone: datas sendo interpretadas em UTC ao invés de Brasília
 
-### Problema raiz
+### Problema
 
-A IA não entende o objetivo principal da conversa. Ela trata cada mensagem isoladamente sem considerar que o objetivo final é **sempre agendar uma reunião**. Quando o prospect diz "Quero agendar dia 15 as 14h", a IA responde com informações genéricas porque classifica como `reply` e nenhum guard detecta a intenção.
+`extractDateTimeFromText` cria datas usando `new Date(year, month, day, hour, minute)` que usa o timezone do servidor (UTC no Deno). Quando o prospect diz "dia 15 as 12h" (Brasília), o sistema gera `2026-04-15T12:00:00.000Z` (UTC) — que corresponde a **9:00 da manhã em Brasília**.
 
-### 3 correções no `inbound-webhook/index.ts`
+É por isso que os bookings no Cal.com apareceram às 9:00 e 11:00 ao invés de 12:00 BRT.
 
-**1. Guard no conteúdo INBOUND (pós-AI, ~linha 454)**
+### Correção
 
-Após os guards existentes, adicionar verificação no conteúdo da mensagem do prospect:
+Ajustar `extractDateTimeFromText` para produzir datetimes em **UTC-3 (America/Sao_Paulo)**, adicionando 3 horas ao ISO resultante. Ou seja, quando o prospect diz "12h", o sistema gera `15:00 UTC` que é `12:00 BRT`.
+
+**No `inbound-webhook/index.ts`, função `extractDateTimeFromText`:**
+
+Em todos os pontos onde `new Date(...)` é criado e retornado como `.toISOString()`, subtrair o offset de Brasília (adicionar 3h ao UTC):
 
 ```typescript
-if (parsed.action === "reply") {
-  const lower = cleanContent.toLowerCase();
-  const hasScheduleIntent = /\b(agendar|reunião|reuniao|demo|conversar|call|meeting|bate-?papo)\b/i.test(lower);
-  const extractedDt = extractDateTimeFromText(cleanContent);
-  
-  if (hasScheduleIntent && extractedDt) {
-    // "Quero agendar dia 15 as 14h" → verifica disponibilidade
-    parsed.action = "check_availability";
-    parsed.suggested_datetime = extractedDt;
-    parsed.reply_message = null;
-  } else if (hasScheduleIntent) {
-    // "Quero agendar" sem horário → busca slots
-    parsed.action = "schedule";
-    parsed.reply_message = null;
-  } else if (extractedDt) {
-    // Menciona horário sem palavra-chave → check_availability
-    parsed.action = "check_availability";
-    parsed.suggested_datetime = extractedDt;
-    parsed.reply_message = null;
-  }
+// Compensar timezone: prospect fala em horário de Brasília (UTC-3)
+// "12h BRT" = "15h UTC"
+const BRT_OFFSET_HOURS = 3;
+
+function toBrtIso(year: number, month: number, day: number, hour: number, minute: number): string {
+  const dt = new Date(Date.UTC(year, month, day, hour + BRT_OFFSET_HOURS, minute));
+  return dt.toISOString();
 }
 ```
 
-**2. Reforçar system prompt com objetivo principal**
+Substituir todos os `new Date(year, month, day, hour, minute).toISOString()` por `toBrtIso(year, month, day, hour, minute)`.
 
-Adicionar no início do prompt:
-```
-OBJETIVO PRINCIPAL: Seu objetivo FINAL é sempre agendar uma reunião com o prospect. 
-Todas as interações devem caminhar para isso. Se o prospect demonstra QUALQUER interesse, 
-direcione para agendamento (action = "schedule"). Se ele sugere um horário, 
-use action = "check_availability".
-```
-
-**3. Incluir mensagem do prospect destacada no user prompt**
-
-Atualmente o histórico mistura tudo. Adicionar destaque para a última mensagem:
-```
-ÚLTIMA MENSAGEM DO PROSPECT (analise com atenção):
-"${cleanContent}"
-```
-
-Isso garante que a IA não perca o conteúdo da mensagem atual em meio ao histórico.
+Também corrigir o pattern de weekday que usa `setHours` — trocar para `Date.UTC` com offset.
 
 ### Escopo
 - 1 edge function: `inbound-webhook/index.ts`
-- ~25 linhas adicionadas/modificadas
+- ~15 linhas modificadas na função `extractDateTimeFromText`
 - Sem mudanças de banco de dados
 
 ### Resultado esperado
-- "Quero agendar dia 15 as 14h" → `check_availability` → Cal.com → confirma ou alternativas
-- "Tudo bem? Quero conhecer mais" → AI responde + direciona para reunião
-- "Consigo na quinta as 16h" → `check_availability` → verifica Cal.com
-- Nunca mais resposta genérica ignorando pedido de agendamento
+- "dia 15 as 12h" → `2026-04-15T15:00:00.000Z` (= 12:00 BRT) → Cal.com agenda às 12:00 horário de Brasília
+- Todos os horários mencionados pelo prospect em BRT são corretamente convertidos para UTC
 
