@@ -7,13 +7,26 @@ const corsHeaders = {
 };
 
 /**
+ * Convert local Brasília time (UTC-3) components to UTC ISO string.
+ * "12h BRT" → "15h UTC" → "2026-04-15T15:00:00.000Z"
+ */
+const BRT_OFFSET_HOURS = 3;
+
+function toBrtIso(year: number, month: number, day: number, hour: number, minute: number): string {
+  const dt = new Date(Date.UTC(year, month, day, hour + BRT_OFFSET_HOURS, minute));
+  return dt.toISOString();
+}
+
+/**
  * Fallback server-side datetime parser for Portuguese date expressions.
- * Returns ISO 8601 string or null.
+ * Returns ISO 8601 string or null. All times are interpreted as Brasília (UTC-3).
  */
 function extractDateTimeFromText(text: string): string | null {
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth(); // 0-indexed
+  // Current time in BRT for comparisons
+  const nowBrt = new Date(now.getTime() - BRT_OFFSET_HOURS * 3600000);
 
   // Pattern: "dia DD às HH:MM" or "dia DD as HHh" or "dia DD as HH:MM"
   const diaMatch = text.match(/dia\s+(\d{1,2})\s+[àa]s?\s+(\d{1,2})(?::(\d{2})|\s*h)/i);
@@ -21,13 +34,11 @@ function extractDateTimeFromText(text: string): string | null {
     const day = parseInt(diaMatch[1]);
     const hour = parseInt(diaMatch[2]);
     const minute = parseInt(diaMatch[3] || "0");
-    // If the day already passed this month, assume next month
     let month = currentMonth;
-    if (day < now.getDate() || (day === now.getDate() && hour < now.getHours())) {
+    if (day < nowBrt.getUTCDate() || (day === nowBrt.getUTCDate() && hour < nowBrt.getUTCHours())) {
       month += 1;
     }
-    const dt = new Date(currentYear, month, day, hour, minute);
-    return dt.toISOString();
+    return toBrtIso(currentYear, month, day, hour, minute);
   }
 
   // Pattern: "DD/MM às HH:MM" or "DD/MM as HHh"
@@ -37,8 +48,7 @@ function extractDateTimeFromText(text: string): string | null {
     const month = parseInt(slashMatch[2]) - 1;
     const hour = parseInt(slashMatch[3]);
     const minute = parseInt(slashMatch[4] || "0");
-    const dt = new Date(currentYear, month, day, hour, minute);
-    return dt.toISOString();
+    return toBrtIso(currentYear, month, day, hour, minute);
   }
 
   // Pattern: weekday + time, e.g. "terça às 14h", "segunda as 10:00"
@@ -52,25 +62,32 @@ function extractDateTimeFromText(text: string): string | null {
     const hour = parseInt(weekdayMatch[2]);
     const minute = parseInt(weekdayMatch[3] || "0");
     if (targetDay >= 0) {
-      const today = now.getDay();
-      let diff = targetDay - today;
+      const todayBrt = nowBrt.getUTCDay();
+      let diff = targetDay - todayBrt;
       if (diff <= 0) diff += 7;
-      const dt = new Date(now);
-      dt.setDate(dt.getDate() + diff);
-      dt.setHours(hour, minute, 0, 0);
-      return dt.toISOString();
+      const targetDate = new Date(nowBrt);
+      targetDate.setUTCDate(targetDate.getUTCDate() + diff);
+      return toBrtIso(targetDate.getUTCFullYear(), targetDate.getUTCMonth(), targetDate.getUTCDate(), hour, minute);
     }
   }
 
-  // Pattern: just time "às HHh" or "as HH:MM" (assume today or tomorrow)
+  // Pattern: just time "às HHh" or "as HH:MM" (assume today or tomorrow in BRT)
   const timeOnly = text.match(/[àa]s?\s+(\d{1,2})(?::(\d{2})|\s*h)/i);
   if (timeOnly) {
     const hour = parseInt(timeOnly[1]);
     const minute = parseInt(timeOnly[2] || "0");
-    const dt = new Date(now);
-    dt.setHours(hour, minute, 0, 0);
-    if (dt <= now) dt.setDate(dt.getDate() + 1);
-    return dt.toISOString();
+    let day = nowBrt.getUTCDate();
+    let month = nowBrt.getUTCMonth();
+    let year = nowBrt.getUTCFullYear();
+    // If time already passed today in BRT, use tomorrow
+    if (hour < nowBrt.getUTCHours() || (hour === nowBrt.getUTCHours() && minute <= nowBrt.getUTCMinutes())) {
+      const tomorrow = new Date(nowBrt);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      day = tomorrow.getUTCDate();
+      month = tomorrow.getUTCMonth();
+      year = tomorrow.getUTCFullYear();
+    }
+    return toBrtIso(year, month, day, hour, minute);
   }
 
   return null;
