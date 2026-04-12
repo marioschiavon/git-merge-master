@@ -80,9 +80,27 @@ function extractDateTimeFromText(text: string): string | null {
  * Strip quoted email text from replies (Gmail, Outlook, generic ">").
  */
 function stripQuotedEmail(text: string): string {
+  // First: handle Gmail multi-line citations where "Em ...\n... escreveu:" spans multiple lines
+  const emIndex = text.search(/\r?\n\s*Em\s/im);
+  if (emIndex !== -1) {
+    const afterEm = text.substring(emIndex);
+    if (/escreveu\s*:/i.test(afterEm)) {
+      const cleaned = text.substring(0, emIndex).trim();
+      if (cleaned) return cleaned;
+    }
+  }
+
+  // Same for English "On ... wrote:"
+  const onIndex = text.search(/\r?\n\s*On\s/im);
+  if (onIndex !== -1) {
+    const afterOn = text.substring(onIndex);
+    if (/wrote\s*:/i.test(afterOn)) {
+      const cleaned = text.substring(0, onIndex).trim();
+      if (cleaned) return cleaned;
+    }
+  }
+
   const patterns = [
-    /\r?\n\s*Em .+escreveu:\s*$/im,
-    /\r?\n\s*On .+wrote:\s*$/im,
     /\r?\n\s*-{3,}Original Message-{3,}/im,
     /\r?\n\s*_{10,}/im,
     /\r?\n\s*From:\s+.+\r?\nSent:\s+/im,
@@ -361,6 +379,7 @@ AÇÕES POSSÍVEIS:
 - "pause": prospect rejeitou totalmente → pausar cadência
 
 REGRAS:
+- REGRA CRÍTICA: NUNCA sugira horários específicos (dia/hora) no reply_message. Se o prospect quer agendar reunião, use action = "schedule" para que o sistema busque horários reais no calendário. O reply_message NUNCA deve conter dias da semana ou horários.
 - Se o prospect menciona "reunião", "agendar", "conversar", "demo", "horário" E NÃO há slots pendentes → action = "schedule"
 - Se há slots pendentes e o prospect está escolhendo um deles → action = "confirm_slot" com selected_slot = 1 ou 2
 - Se há slots pendentes e o prospect recusou ambos → action = "reject_slots"
@@ -422,13 +441,25 @@ Analise e decida a ação.`,
       parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
     }
 
+    // FIX: Guard — if reply contains time patterns, redirect to schedule
+    if (parsed.action === "reply" && parsed.reply_message) {
+      const hasTimePattern = /\b(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)\s+(à|a)s?\s+\d{1,2}/i.test(parsed.reply_message)
+        || /📅/.test(parsed.reply_message)
+        || /\b\d{1,2}\/\d{1,2}\s+(à|a)s?\s+\d{1,2}/i.test(parsed.reply_message);
+      if (hasTimePattern) {
+        console.log("Reply contains time suggestions — redirecting to schedule");
+        parsed.action = "schedule";
+        parsed.reply_message = null;
+      }
+    }
+
     // FIX: If AI says "schedule" but scheduling is already in progress, redirect to check_availability
     if (parsed.action === "schedule" && schedulingInProgress) {
       console.log("Schedule requested but scheduling already in progress — redirecting to check_availability");
       parsed.action = "check_availability";
       // Try to extract datetime from original message
       if (!parsed.suggested_datetime) {
-        parsed.suggested_datetime = extractDateTimeFromText(content);
+        parsed.suggested_datetime = extractDateTimeFromText(cleanContent);
         console.log("Extracted datetime from text:", parsed.suggested_datetime);
       }
     }
