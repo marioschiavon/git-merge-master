@@ -92,9 +92,7 @@ serve(async (req) => {
       .map((k: any) => `## ${k.title}\n${k.content}`)
       .join("\n\n");
 
-    const highlightsContext = highlightsRes.data?.content
-      ? `\n\n=== DESTAQUES IMPORTANTES DA EMPRESA (use como argumentos de autoridade) ===\n${highlightsRes.data.content}\n\nOBRIGATÓRIO: Mencione pelo menos 1 destaque da empresa acima como argumento de credibilidade na mensagem.`
-      : "";
+    // highlightsContext will be conditionally applied per step below
 
     let insightsContext = "";
     if (insightRes.data?.insights) {

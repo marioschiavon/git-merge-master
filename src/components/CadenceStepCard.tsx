@@ -165,6 +165,28 @@ export function CadenceStepCard({ step, cadenceId, onUpsert, onDelete }: Cadence
               onCheckedChange={(v) => onUpsert({ ...step, smart_customization: v })}
             />
           </div>
+          {step.smart_customization !== false && (
+            <div className="flex items-center justify-between pt-1 pl-4">
+              <div className="flex items-center gap-2">
+                <BookOpen className="h-3.5 w-3.5 text-primary" />
+                <Label className="text-xs font-medium">Usar Destaques da Empresa</Label>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="text-muted-foreground text-xs cursor-help">ⓘ</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[220px]">
+                      <p className="text-xs">Inclui os destaques da empresa (patentes, matérias, etc.) como argumentos de autoridade na mensagem</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
+              <Switch
+                checked={step.use_highlights !== false}
+                onCheckedChange={(v) => onUpsert({ ...step, use_highlights: v })}
+              />
+            </div>
+          )}
         </CardContent>
       </Card>
 
