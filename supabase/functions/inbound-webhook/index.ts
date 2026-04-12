@@ -17,6 +17,14 @@ function toBrtIso(year: number, month: number, day: number, hour: number, minute
   return dt.toISOString();
 }
 
+/** Format a UTC ISO datetime string as a human-readable BRT string */
+function formatDateTimeBrt(isoString: string): string {
+  const dt = new Date(isoString);
+  const brt = new Date(dt.getTime() - BRT_OFFSET_HOURS * 3600000);
+  return brt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
+    + " às " + brt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
 /**
  * Fallback server-side datetime parser for Portuguese date expressions.
  * Returns ISO 8601 string or null. All times are interpreted as Brasília (UTC-3).
@@ -562,6 +570,23 @@ Analise a última mensagem e decida a ação.`,
       parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
     }
 
+    // Guard: prevent double-booking — if lead already has a confirmed slot, block scheduling actions
+    if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action)) {
+      const { data: confirmedSlots } = await supabase
+        .from("slot_holds")
+        .select("id, slot_datetime")
+        .eq("lead_id", leadData.id)
+        .eq("status", "confirmed")
+        .limit(1);
+
+      if (confirmedSlots?.length) {
+        const formatted = formatDateTimeBrt(confirmedSlots[0].slot_datetime);
+        console.log(`Double-booking guard: lead already has confirmed slot at ${confirmedSlots[0].slot_datetime}`);
+        parsed.action = "reply";
+        parsed.reply_message = `Já temos uma reunião confirmada para ${formatted}! Caso precise reagendar, é só me avisar.`;
+      }
+    }
+
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
       // Confirm the selected slot
@@ -580,15 +605,7 @@ Analise a última mensagem e decida a ação.`,
 
         if (confirmRes.data?.success) {
           console.log("Booking confirmed successfully");
-          const dt = new Date(selectedHold.slot_datetime);
-          const formattedDate = dt.toLocaleDateString("pt-BR", {
-            weekday: "long",
-            day: "numeric",
-            month: "long",
-          }) + " às " + dt.toLocaleTimeString("pt-BR", {
-            hour: "2-digit",
-            minute: "2-digit",
-          });
+          const formattedDate = formatDateTimeBrt(selectedHold.slot_datetime);
 
           if (!parsed.reply_message) {
             parsed.reply_message = `Perfeito! Reunião confirmada para ${formattedDate}. Você receberá um convite no seu e-mail em instantes. Até lá! 🚀`;
@@ -703,12 +720,7 @@ Analise a última mensagem e decida a ação.`,
             });
 
             if (confirmRes.data?.success) {
-              const dt = new Date(parsed.suggested_datetime);
-              const formattedDate = dt.toLocaleDateString("pt-BR", {
-                weekday: "long", day: "numeric", month: "long",
-              }) + " às " + dt.toLocaleTimeString("pt-BR", {
-                hour: "2-digit", minute: "2-digit",
-              });
+              const formattedDate = formatDateTimeBrt(parsed.suggested_datetime);
               parsed.reply_message = `Perfeito, temos disponibilidade! Reunião confirmada para ${formattedDate}. Você receberá o convite por e-mail. Até lá! 🚀`;
             } else {
               parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";

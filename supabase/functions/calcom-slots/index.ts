@@ -208,10 +208,11 @@ serve(async (req) => {
           await supabase.from("slot_holds").insert(holdsToInsert).select();
         }
 
+        const BRT_OFFSET = 3 * 3600000;
         const formattedSlots = selectedSlots.map(s => {
-          const dt = new Date(s.start);
-          return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
-            + " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const brt = new Date(new Date(s.start).getTime() - BRT_OFFSET);
+          return brt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
+            + " às " + brt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
         });
 
         return new Response(JSON.stringify({
@@ -305,14 +306,15 @@ serve(async (req) => {
 
     if (insertError) throw insertError;
 
-    // Format slots for display in messages
+    // Format slots for display in messages (BRT)
+    const BRT_OFFSET_MAIN = 3 * 3600000;
     const formattedSlots = selectedSlots.map(s => {
-      const dt = new Date(s.start);
-      return dt.toLocaleDateString("pt-BR", {
+      const brt = new Date(new Date(s.start).getTime() - BRT_OFFSET_MAIN);
+      return brt.toLocaleDateString("pt-BR", {
         weekday: "long",
         day: "numeric",
         month: "long",
-      }) + " às " + dt.toLocaleTimeString("pt-BR", {
+      }) + " às " + brt.toLocaleTimeString("pt-BR", {
         hour: "2-digit",
         minute: "2-digit",
       });

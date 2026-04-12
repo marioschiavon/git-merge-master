@@ -192,12 +192,13 @@ serve(async (req) => {
 
     // Log activity
     if (selectedHold.company_id) {
-      const slotDate = new Date(selectedHold.slot_datetime);
-      const formattedDate = slotDate.toLocaleDateString("pt-BR", {
+      const BRT_OFFSET = 3 * 3600000;
+      const brt = new Date(new Date(selectedHold.slot_datetime).getTime() - BRT_OFFSET);
+      const formattedDate = brt.toLocaleDateString("pt-BR", {
         weekday: "long",
         day: "numeric",
         month: "long",
-      }) + " às " + slotDate.toLocaleTimeString("pt-BR", {
+      }) + " às " + brt.toLocaleTimeString("pt-BR", {
         hour: "2-digit",
         minute: "2-digit",
       });
