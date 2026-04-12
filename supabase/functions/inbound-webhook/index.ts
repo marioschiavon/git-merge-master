@@ -542,6 +542,8 @@ Analise e decida a ação.`,
         const actionMap: Record<string, string> = {
           schedule: "scheduled",
           confirm_slot: "meeting_confirmed",
+          reject_slots: "slots_rejected",
+          check_availability: "availability_checked",
           pause: "paused",
         };
         await supabase.from("execution_logs").insert({
