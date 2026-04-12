@@ -9,6 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useScriptTemplates, useGenerateScript } from "@/hooks/useScripts";
+import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
 import { Trash2, Mail, MessageCircle, Linkedin, Sparkles, Loader2, BookOpen } from "lucide-react";
 
 const channelIcons: Record<string, any> = {
@@ -141,6 +143,26 @@ export function CadenceStepCard({ step, cadenceId, onUpsert, onDelete }: Cadence
               placeholder="Olá {{nome}}, ..."
               defaultValue={step.template}
               onBlur={(e) => onUpsert({ ...step, template: e.target.value })}
+            />
+          </div>
+          <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <Label className="text-xs font-medium">Customização Inteligente</Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="text-muted-foreground text-xs cursor-help">ⓘ</span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-[220px]">
+                    <p className="text-xs">Usa os diferenciais do site do prospect para personalizar a mensagem automaticamente</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+            <Switch
+              checked={step.smart_customization !== false}
+              onCheckedChange={(v) => onUpsert({ ...step, smart_customization: v })}
             />
           </div>
         </CardContent>

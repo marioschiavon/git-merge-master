@@ -77,25 +77,27 @@ serve(async (req) => {
           .map((k: any) => `## ${k.title}\n${k.content}`)
           .join("\n\n");
 
-        // Get lead insights from website analysis
-        const { data: leadInsight } = await supabase
-          .from("lead_insights")
-          .select("insights, raw_summary")
-          .eq("lead_id", lead.id)
-          .maybeSingle();
-
+        // Get lead insights from website analysis (only if smart_customization is enabled for this step)
         let insightsContext = "";
-        if (leadInsight?.insights) {
-          const ins = leadInsight.insights as any;
-          const parts = [];
-          if (ins.proposta_valor) parts.push(`- Proposta de valor: ${ins.proposta_valor}`);
-          if (ins.produtos?.length) parts.push(`- Produtos/Serviços: ${ins.produtos.join(", ")}`);
-          if (ins.diferenciais?.length) parts.push(`- Diferenciais: ${ins.diferenciais.join(", ")}`);
-          if (ins.pain_points?.length) parts.push(`- Pain points: ${ins.pain_points.join(", ")}`);
-          if (ins.publico_alvo) parts.push(`- Público-alvo: ${ins.publico_alvo}`);
-          if (ins.oportunidades_abordagem?.length) parts.push(`- Sugestões de abordagem: ${ins.oportunidades_abordagem.join("; ")}`);
-          if (parts.length > 0) {
-            insightsContext = `\n\nINSIGHTS DO PROSPECT (obtidos do website do lead):\n${parts.join("\n")}\n\nUse esses insights para personalizar a mensagem. Mencione algo específico do negócio do prospect para mostrar que você pesquisou sobre a empresa dele.`;
+        if (currentStep.smart_customization !== false) {
+          const { data: leadInsight } = await supabase
+            .from("lead_insights")
+            .select("insights, raw_summary")
+            .eq("lead_id", lead.id)
+            .maybeSingle();
+
+          if (leadInsight?.insights) {
+            const ins = leadInsight.insights as any;
+            const parts = [];
+            if (ins.proposta_valor) parts.push(`- Proposta de valor: ${ins.proposta_valor}`);
+            if (ins.produtos?.length) parts.push(`- Produtos/Serviços: ${ins.produtos.join(", ")}`);
+            if (ins.diferenciais?.length) parts.push(`- Diferenciais: ${ins.diferenciais.join(", ")}`);
+            if (ins.pain_points?.length) parts.push(`- Pain points: ${ins.pain_points.join(", ")}`);
+            if (ins.publico_alvo) parts.push(`- Público-alvo: ${ins.publico_alvo}`);
+            if (ins.oportunidades_abordagem?.length) parts.push(`- Sugestões de abordagem: ${ins.oportunidades_abordagem.join("; ")}`);
+            if (parts.length > 0) {
+              insightsContext = `\n\nINSIGHTS DO PROSPECT (obtidos do website do lead):\n${parts.join("\n")}\n\nUse esses insights para personalizar a mensagem. Mencione algo específico do negócio do prospect para mostrar que você pesquisou sobre a empresa dele.`;
+            }
           }
         }
 
