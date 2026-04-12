@@ -471,6 +471,16 @@ Analise a última mensagem e decida a ação.`,
       parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
     }
 
+    // FIX: Compensate AI-provided suggested_datetime from naive BRT to UTC
+    if (parsed.suggested_datetime && !parsed.suggested_datetime.endsWith("Z")) {
+      const naive = new Date(parsed.suggested_datetime);
+      if (!isNaN(naive.getTime())) {
+        const utc = new Date(naive.getTime() + BRT_OFFSET_HOURS * 3600000);
+        parsed.suggested_datetime = utc.toISOString();
+        console.log("Compensated AI suggested_datetime to UTC:", parsed.suggested_datetime);
+      }
+    }
+
     // FIX: Guard — if reply contains time patterns, redirect to schedule
     if (parsed.action === "reply" && parsed.reply_message) {
       const hasTimePattern = /\b(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)\s+(à|a)s?\s+\d{1,2}/i.test(parsed.reply_message)
