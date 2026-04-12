@@ -1,87 +1,69 @@
 
 
-## Corrigir conversa sem sentido — 2 bugs restantes
+## Tornar a IA focada em agendamento e com consciência de contexto
 
-### Problema 1: Citações de email NÃO estão sendo removidas
+### Problema raiz
 
-As mensagens inbound estão chegando com o texto citado intacto. Exemplo salvo no banco:
+A IA não entende o objetivo principal da conversa. Ela trata cada mensagem isoladamente sem considerar que o objetivo final é **sempre agendar uma reunião**. Quando o prospect diz "Quero agendar dia 15 as 14h", a IA responde com informações genéricas porque classifica como `reply` e nenhum guard detecta a intenção.
 
-```
-Interessante. Eu consigo na quinta as 16 horas.
+### 3 correções no `inbound-webhook/index.ts`
 
-Em dom., 12 de abr. de 2026, 00:43, Lead Automate <
-noreply@internetsegura.com.br> escreveu:
-```
+**1. Guard no conteúdo INBOUND (pós-AI, ~linha 454)**
 
-O `stripQuotedEmail` falha porque o Gmail quebra a linha entre `<` e o email:
-```
-Em dom., 12 de abr. de 2026, 00:43, Lead Automate <
-noreply@internetsegura.com.br> escreveu:
-```
-
-A regex atual `/\r?\n\s*Em .+escreveu:\s*$/im` espera "Em...escreveu:" na MESMA linha. Não funciona com quebra de linha.
-
-**Correção**: Usar regex que permite multi-linha, ou trocar abordagem para buscar "Em " seguido de "escreveu:" em qualquer ponto, considerando newlines entre eles.
-
-### Problema 2: IA sugere horários dentro de `reply` ao invés de usar `schedule`
-
-A mensagem mais recente do SDR tem `metadata.action: "reply"` mas o texto diz "Pode ser na terça às 14h ou na quarta às 10h?". Esses horários são inventados pela IA, sem verificar o Cal.com.
-
-Quando o prospect responde "quinta às 16h", o sistema verifica o `lastOutboundWasSchedule` → é `false` (porque `action` era `"reply"`). Então `schedulingInProgress` = `false`. A IA classifica como `reply` novamente e inventa outros horários. Loop.
-
-**Correção dupla**:
-1. No system prompt, adicionar regra explícita: "NUNCA sugira horários de reunião no reply_message. Se o prospect demonstra interesse em reunião, use action = 'schedule' para que o sistema busque horários reais no calendário."
-2. Adicionar guard pós-IA: se `parsed.action === "reply"` e o `reply_message` contém padrões de horário (e.g., "terça às 14h", "📅"), forçar `action = "schedule"`.
-
-### Correções no `inbound-webhook/index.ts`
-
-**1. Fix stripQuotedEmail — regex multi-linha**
+Após os guards existentes, adicionar verificação no conteúdo da mensagem do prospect:
 
 ```typescript
-function stripQuotedEmail(text: string): string {
-  // Handle Gmail multi-line: "Em ...\n... escreveu:"
-  const gmailMultiLine = text.search(/\r?\nEm\s.+/im);
-  if (gmailMultiLine !== -1) {
-    const afterEm = text.substring(gmailMultiLine);
-    if (/escreveu:/i.test(afterEm)) {
-      return text.substring(0, gmailMultiLine).trim() || text.trim();
-    }
-  }
-  // ... keep existing patterns
-}
-```
-
-**2. Instrução anti-horários-fantasma no system prompt**
-
-Adicionar no prompt:
-```
-REGRA CRÍTICA: NUNCA sugira horários específicos (dia/hora) no reply_message.
-Se o prospect quer agendar → action = "schedule" (o sistema busca slots reais).
-Responda apenas o conteúdo sem mencionar dias ou horários.
-```
-
-**3. Guard pós-IA contra reply com horários**
-
-Após o parsing da resposta da IA (linha ~423), adicionar detecção:
-```typescript
-if (parsed.action === "reply" && parsed.reply_message) {
-  const hasTimePattern = /\b(segunda|terça|quarta|quinta|sexta|sábado|domingo)\s+(à|a)s\s+\d{1,2}/i.test(parsed.reply_message)
-    || /📅/.test(parsed.reply_message);
-  if (hasTimePattern) {
-    console.log("Reply contains time suggestions — redirecting to schedule");
+if (parsed.action === "reply") {
+  const lower = cleanContent.toLowerCase();
+  const hasScheduleIntent = /\b(agendar|reunião|reuniao|demo|conversar|call|meeting|bate-?papo)\b/i.test(lower);
+  const extractedDt = extractDateTimeFromText(cleanContent);
+  
+  if (hasScheduleIntent && extractedDt) {
+    // "Quero agendar dia 15 as 14h" → verifica disponibilidade
+    parsed.action = "check_availability";
+    parsed.suggested_datetime = extractedDt;
+    parsed.reply_message = null;
+  } else if (hasScheduleIntent) {
+    // "Quero agendar" sem horário → busca slots
     parsed.action = "schedule";
-    parsed.reply_message = null; // let the schedule flow generate proper slots
+    parsed.reply_message = null;
+  } else if (extractedDt) {
+    // Menciona horário sem palavra-chave → check_availability
+    parsed.action = "check_availability";
+    parsed.suggested_datetime = extractedDt;
+    parsed.reply_message = null;
   }
 }
 ```
+
+**2. Reforçar system prompt com objetivo principal**
+
+Adicionar no início do prompt:
+```
+OBJETIVO PRINCIPAL: Seu objetivo FINAL é sempre agendar uma reunião com o prospect. 
+Todas as interações devem caminhar para isso. Se o prospect demonstra QUALQUER interesse, 
+direcione para agendamento (action = "schedule"). Se ele sugere um horário, 
+use action = "check_availability".
+```
+
+**3. Incluir mensagem do prospect destacada no user prompt**
+
+Atualmente o histórico mistura tudo. Adicionar destaque para a última mensagem:
+```
+ÚLTIMA MENSAGEM DO PROSPECT (analise com atenção):
+"${cleanContent}"
+```
+
+Isso garante que a IA não perca o conteúdo da mensagem atual em meio ao histórico.
 
 ### Escopo
 - 1 edge function: `inbound-webhook/index.ts`
-- ~30 linhas modificadas/adicionadas
+- ~25 linhas adicionadas/modificadas
 - Sem mudanças de banco de dados
 
 ### Resultado esperado
-- Mensagens inbound limpas (sem citações de email)
-- IA nunca inventa horários — sempre passa pelo Cal.com
-- Prospect diz "quinta às 16h" → `check_availability` → verifica Cal.com → confirma ou oferece alternativas reais
+- "Quero agendar dia 15 as 14h" → `check_availability` → Cal.com → confirma ou alternativas
+- "Tudo bem? Quero conhecer mais" → AI responde + direciona para reunião
+- "Consigo na quinta as 16h" → `check_availability` → verifica Cal.com
+- Nunca mais resposta genérica ignorando pedido de agendamento
 
