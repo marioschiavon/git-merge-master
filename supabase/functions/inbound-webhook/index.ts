@@ -369,6 +369,8 @@ NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
     // Analyze with AI
     const systemPrompt = `Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
 
+OBJETIVO PRINCIPAL: Seu objetivo FINAL é sempre agendar uma reunião com o prospect. Todas as interações devem caminhar para isso. Se o prospect demonstra QUALQUER interesse, direcione para agendamento (action = "schedule"). Se ele sugere um horário, use action = "check_availability".
+
 AÇÕES POSSÍVEIS:
 - "reply": responder automaticamente (objeção, dúvida, neutro)
 - "schedule": prospect demonstrou interesse em reunião → parar cadência e confirmar horário
@@ -414,9 +416,12 @@ Responda APENAS com JSON:
             content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
 
 Histórico:
-${(messages || []).map((m: any) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`).join("\n")}
+${(messages || []).slice(0, -1).map((m: any) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`).join("\n")}
 
-Analise e decida a ação.`,
+ÚLTIMA MENSAGEM DO PROSPECT (analise com atenção):
+"${cleanContent}"
+
+Analise a última mensagem e decida a ação.`,
           },
         ],
       }),
@@ -449,6 +454,29 @@ Analise e decida a ação.`,
       if (hasTimePattern) {
         console.log("Reply contains time suggestions — redirecting to schedule");
         parsed.action = "schedule";
+        parsed.reply_message = null;
+      }
+    }
+
+    // FIX: Guard on INBOUND content — if prospect has scheduling intent but AI said "reply"
+    if (parsed.action === "reply") {
+      const lower = cleanContent.toLowerCase();
+      const hasScheduleIntent = /\b(agendar|reunião|reuniao|demo|conversar|call|meeting|bate-?papo)\b/i.test(lower);
+      const extractedDt = extractDateTimeFromText(cleanContent);
+
+      if (hasScheduleIntent && extractedDt) {
+        console.log("Inbound has scheduling intent + datetime — redirecting to check_availability");
+        parsed.action = "check_availability";
+        parsed.suggested_datetime = extractedDt;
+        parsed.reply_message = null;
+      } else if (hasScheduleIntent) {
+        console.log("Inbound has scheduling intent without specific time — redirecting to schedule");
+        parsed.action = "schedule";
+        parsed.reply_message = null;
+      } else if (extractedDt) {
+        console.log("Inbound mentions datetime without keyword — redirecting to check_availability");
+        parsed.action = "check_availability";
+        parsed.suggested_datetime = extractedDt;
         parsed.reply_message = null;
       }
     }
