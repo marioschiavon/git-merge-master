@@ -974,7 +974,7 @@ Analise a última mensagem e decida a ação.`,
           action: parsed.action,
           reasoning: parsed.reasoning,
           // FIX: Save offered slot datetimes for future context recovery
-          ...(parsed.action === "schedule" || parsed.action === "reject_slots" ? { offered_slots: (heldSlots || []).map((s: any) => s.slot_datetime) } : {}),
+          ...(["schedule", "reject_slots", "reschedule"].includes(parsed.action) ? { offered_slots: (heldSlots || []).map((s: any) => s.slot_datetime) } : {}),
         },
       });
 
