@@ -145,7 +145,11 @@ serve(async (req) => {
       });
       slotContext = `\n\nATENÇÃO: O prospect recebeu 2 opções de horário para reunião:
 ${formatted.join("\n")}
-Se o prospect está confirmando ou escolhendo um desses horários, use action = "confirm_slot" e selected_slot = número da opção (1 ou 2).`;
+
+INSTRUÇÕES PARA SLOTS PENDENTES:
+- Se o prospect está confirmando ou escolhendo um desses horários → action = "confirm_slot" e selected_slot = número da opção (1 ou 2)
+- Se o prospect rejeitou ambos os horários (ex: "nenhum funciona", "não consigo nesses dias", "tenho compromisso") → action = "reject_slots"
+- Se o prospect sugeriu um horário alternativo (ex: "pode ser terça às 14h?", "prefiro quinta de manhã") → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)`;
     }
 
     // Get conversation history
@@ -171,11 +175,16 @@ AÇÕES POSSÍVEIS:
 - "reply": responder automaticamente (objeção, dúvida, neutro)
 - "schedule": prospect demonstrou interesse em reunião → parar cadência e confirmar horário
 - "confirm_slot": prospect está confirmando/escolhendo um dos horários já oferecidos
-- "pause": prospect rejeitou → pausar cadência educadamente
+- "reject_slots": prospect rejeitou ambos os horários oferecidos (ex: "nenhum funciona", "tenho compromisso nesses dias")
+- "check_availability": prospect sugeriu um horário alternativo próprio (ex: "pode ser terça às 14h?")
+  → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
+- "pause": prospect rejeitou totalmente → pausar cadência
 
 REGRAS:
 - Se o prospect menciona "reunião", "agendar", "conversar", "demo", "horário" E NÃO há slots pendentes → action = "schedule"
 - Se há slots pendentes e o prospect está escolhendo um deles → action = "confirm_slot" com selected_slot = 1 ou 2
+- Se há slots pendentes e o prospect recusou ambos → action = "reject_slots"
+- Se há slots pendentes e o prospect sugeriu outro horário → action = "check_availability" com suggested_datetime
 - Se o prospect diz "não tenho interesse", "não quero", "remova", "pare" → action = "pause"
 - Se objeção (preço, timing, concorrente) → contorne com empatia + prova social
 - Se dúvida → responda objetivamente + CTA para reunião
@@ -183,9 +192,10 @@ REGRAS:
 
 Responda APENAS com JSON:
 {
-  "action": "reply|schedule|confirm_slot|pause",
+  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|pause",
   "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
   "selected_slot": null,
+  "suggested_datetime": null,
   "reasoning": "explicação breve",
   "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
 }${slotContext}`;
