@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 type AppRole = "master_admin" | "company_admin" | "user";
 
@@ -36,6 +37,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<{ full_name: string | null; avatar_url: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const doSignOut = async () => {
+    await supabase.auth.signOut();
+  };
+
   const fetchUserData = async (userId: string) => {
     const [rolesRes, memberRes, profileRes] = await Promise.all([
       supabase.from("user_roles").select("role").eq("user_id", userId),
@@ -43,9 +48,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       supabase.from("profiles").select("full_name, avatar_url").eq("user_id", userId).maybeSingle(),
     ]);
 
-    if (rolesRes.data) setRoles(rolesRes.data.map((r) => r.role as AppRole));
-    if (memberRes.data) setCompanyId(memberRes.data.company_id);
+    const userRoles = rolesRes.data?.map((r) => r.role as AppRole) ?? [];
+    setRoles(userRoles);
     if (profileRes.data) setProfile(profileRes.data);
+
+    const isMaster = userRoles.includes("master_admin");
+
+    if (memberRes.data) {
+      setCompanyId(memberRes.data.company_id);
+
+      // Check company status — block inactive companies for non-master users
+      if (!isMaster) {
+        const { data: company } = await supabase
+          .from("companies")
+          .select("status")
+          .eq("id", memberRes.data.company_id)
+          .maybeSingle();
+
+        if (company?.status === "inactive") {
+          toast.error("Sua empresa está inativa. Entre em contato com o administrador.");
+          await doSignOut();
+          return;
+        }
+      }
+    } else {
+      setCompanyId(null);
+    }
   };
 
   useEffect(() => {
@@ -76,15 +104,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
-  };
-
   const isMasterAdmin = roles.includes("master_admin");
   const isCompanyAdmin = roles.includes("company_admin");
 
   return (
-    <AuthContext.Provider value={{ session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin, signOut }}>
+    <AuthContext.Provider value={{ session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin, signOut: doSignOut }}>
       {children}
     </AuthContext.Provider>
   );
