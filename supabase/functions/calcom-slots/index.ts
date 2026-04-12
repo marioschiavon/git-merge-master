@@ -56,7 +56,17 @@ serve(async (req) => {
     const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY);
 
     const body = await req.json();
-    const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel, check_datetime } = body;
+    const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel, check_datetime, exclude_datetimes } = body;
+
+    // Parse exclusion list (array of ISO datetime strings to skip)
+    const excludeSet = new Set<number>();
+    if (Array.isArray(exclude_datetimes)) {
+      for (const dt of exclude_datetimes) {
+        const ts = new Date(dt).getTime();
+        if (!isNaN(ts)) excludeSet.add(ts);
+      }
+      console.log(`Excluding ${excludeSet.size} previously offered datetimes`);
+    }
 
     if (!company_id || !lead_id) {
       return new Response(JSON.stringify({ error: "company_id and lead_id are required" }), {
@@ -168,8 +178,11 @@ serve(async (req) => {
         const sortedDates = Object.keys(slotsData).sort();
         for (const date of sortedDates) {
           if (selectedSlots.length >= 2) break;
-          const daySlots = slotsData[date];
-          if (daySlots && daySlots.length > 0) {
+          const daySlots = (slotsData[date] || []).filter((s: any) => {
+            const ts = new Date(s.start).getTime();
+            return !excludeSet.has(ts) && ![...excludeSet].some(exc => Math.abs(ts - exc) < 60000);
+          });
+          if (daySlots.length > 0) {
             const midIndex = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
             selectedSlots.push({ date, start: daySlots[midIndex].start });
           }
@@ -232,8 +245,11 @@ serve(async (req) => {
 
     for (const date of sortedDates) {
       if (selectedSlots.length >= 2) break;
-      const daySlots = slotsData[date];
-      if (daySlots && daySlots.length > 0) {
+      const daySlots = (slotsData[date] || []).filter((s: any) => {
+        const ts = new Date(s.start).getTime();
+        return !excludeSet.has(ts) && ![...excludeSet].some(exc => Math.abs(ts - exc) < 60000);
+      });
+      if (daySlots.length > 0) {
         const midIndex = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
         selectedSlots.push({ date, start: daySlots[midIndex].start });
       }
