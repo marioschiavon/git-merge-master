@@ -242,6 +242,29 @@ Analise e decida a ação.`,
       parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
     }
 
+    // Fallback: if AI says confirm_slot but no held slots exist, reclassify as reply
+    if (parsed.action === "confirm_slot" && heldSlots.length < 2) {
+      console.log("confirm_slot requested but no held slots found — falling back to reply");
+      parsed.action = "reply";
+      if (!parsed.reply_message) {
+        parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
+      }
+    }
+
+    // Fallback: if AI says reject_slots/check_availability but no held slots
+    if ((parsed.action === "reject_slots" || parsed.action === "check_availability") && heldSlots.length === 0) {
+      console.log(`${parsed.action} requested but no held slots found — falling back to reply`);
+      parsed.action = "reply";
+      if (!parsed.reply_message) {
+        parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
+      }
+    }
+
+    // Ensure reply_message is never null for action=reply
+    if (parsed.action === "reply" && !parsed.reply_message) {
+      parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
+    }
+
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 2) {
       // Confirm the selected slot
