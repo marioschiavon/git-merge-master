@@ -730,6 +730,10 @@ Analise a última mensagem e decida a ação.`,
             conversation_id: convId,
             preferred_channel: channelLabel,
             check_datetime: parsed.suggested_datetime,
+            exclude_datetimes: [
+              ...heldSlots.map((s: any) => s.slot_datetime),
+              ...lastOfferedSlots,
+            ],
           },
         });
 
