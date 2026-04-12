@@ -1,43 +1,34 @@
 
 
-## Preview de Mensagens por Lead na Cadência
+## Focar Customização Inteligente nos Diferenciais + Gancho com Produto
 
-### O que será feito
-Ao clicar no nome de um lead na aba Leads da cadência, abre um Dialog mostrando como cada step ficaria para aquele lead específico. Steps com Customização Inteligente ativada terão a mensagem gerada pela IA automaticamente. O usuário pode revisar e editar cada mensagem antes de enviar.
+### Problema
+Atualmente, a Customização Inteligente usa todos os insights do prospect (proposta de valor, produtos, pain points, público-alvo, etc.). O usuário quer que use **apenas os Diferenciais** do prospect, e que o prompt **sempre faça um gancho** entre um diferencial do prospect e a solução/produto do SDR (da base de conhecimento).
 
-### Detalhes técnicos
+### Solução
 
-**1. Nova Edge Function: `preview-cadence-messages`**
-- Recebe `cadence_id` e `lead_id`
-- Busca todos os steps da cadência, knowledge da empresa, e lead_insights
-- Para cada step com `smart_customization = true`: chama a IA (mesmo prompt do executor) para gerar a mensagem personalizada
-- Para steps com `smart_customization = false`: retorna o template original com `{{nome}}` substituído
-- Retorna array de `{ step_order, channel, subject, message, smart_customization, template_original }`
+Alterar os dois edge functions que montam o `insightsContext` e o prompt da IA:
 
-**2. Novo componente: `LeadMessagePreview`**
-- Dialog que abre ao clicar no nome do lead na lista de enrollments
-- Mostra cada step em cards sequenciais com:
-  - Número do step, canal, delay
-  - Badge "✨ Customizado com IA" se smart_customization ativo
-  - Textarea editável com a mensagem gerada/template
-  - Campo de assunto editável (para email)
-- Botão de loading enquanto a IA gera as mensagens
-- Botão "Regenerar" por step individual
+**1. `supabase/functions/cadence-executor/index.ts`**
+- No bloco de insights (linhas 89-101): extrair **apenas `ins.diferenciais`** em vez de todos os campos
+- Reformular o `insightsContext` para focar em diferenciais:
+  ```
+  DIFERENCIAIS DO PROSPECT: ${ins.diferenciais.join(", ")}
+  ```
+- Atualizar as regras de personalização no prompt para:
+  - OBRIGATÓRIO: Escolha 1 diferencial do prospect e faça um gancho direto com 1 benefício/produto da base de conhecimento
+  - Estrutura: "Vi que vocês [diferencial do prospect] → nosso [produto/solução] potencializa isso porque [benefício concreto]"
+  - Remover menções a pain points, proposta de valor, público-alvo do prompt
 
-**3. UI no `CadenceDetail.tsx`**
-- Nome do lead na lista de enrollments vira clicável (cursor pointer, underline on hover)
-- Ao clicar, abre o Dialog de preview passando `leadId` e `cadenceId`
-
-**4. Hook: `usePreviewCadenceMessages`**
-- Mutation que invoca a edge function `preview-cadence-messages`
-- Retorna as mensagens geradas para exibição no dialog
+**2. `supabase/functions/preview-cadence-messages/index.ts`**
+- Mesma alteração: extrair apenas diferenciais (linhas 60-72)
+- Mesmo prompt atualizado (linhas 113-150)
 
 ### Escopo
-- 1 nova edge function (`preview-cadence-messages`)
-- 1 novo componente (`LeadMessagePreview.tsx`)
-- 1 novo hook (`usePreviewCadenceMessages`)
-- 1 componente atualizado (`CadenceDetail.tsx` — nome clicável)
+- 2 edge functions atualizadas (executor e preview)
+- Redeploy de ambas
+- Nenhuma mudança de UI
 
 ### Resultado
-O SDR pode clicar no nome do lead, ver exatamente como cada mensagem ficaria (com ou sem personalização IA), editar se necessário, e ter confiança antes de executar a cadência.
+A IA foca exclusivamente nos diferenciais do prospect, criando um gancho natural entre o que o prospect faz de melhor e como o produto do SDR complementa/potencializa isso.
 
