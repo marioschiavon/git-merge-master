@@ -158,16 +158,36 @@ serve(async (req) => {
       })
       .eq("id", selectedHold.id);
 
-    // Update enrollment if exists
-    if (selectedHold.enrollment_id) {
-      await supabase
+    // Update enrollment if exists — try from slot_holds first, then find by lead_id
+    let enrollmentId = selectedHold.enrollment_id;
+    if (!enrollmentId) {
+      // Find active/paused enrollment for this lead
+      const { data: activeEnrollment } = await supabase
+        .from("cadence_enrollments")
+        .select("id")
+        .eq("lead_id", lead_id)
+        .in("status", ["active", "paused"])
+        .order("enrolled_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      enrollmentId = activeEnrollment?.id;
+    }
+
+    if (enrollmentId) {
+      const { error: enrollError } = await supabase
         .from("cadence_enrollments")
         .update({
           status: "completed",
           meeting_scheduled: true,
           completed_at: new Date().toISOString(),
         })
-        .eq("id", selectedHold.enrollment_id);
+        .eq("id", enrollmentId);
+      
+      if (enrollError) {
+        console.error("Failed to update enrollment:", enrollError);
+      } else {
+        console.log(`Enrollment ${enrollmentId} marked as completed with meeting_scheduled=true`);
+      }
     }
 
     // Log activity
