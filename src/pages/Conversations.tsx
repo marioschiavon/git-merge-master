@@ -56,11 +56,6 @@ export default function Conversations() {
       setResetting(false);
     }
   };
-  const { data: messages = [] } = useMessages(selectedConvId);
-  const sendMessage = useSendMessage();
-  const aiReply = useAiReply();
-  const [newMessage, setNewMessage] = useState("");
-  const [aiSuggestion, setAiSuggestion] = useState<any>(null);
 
   const selectedConv = conversations.find((c: any) => c.id === selectedConvId);
 
