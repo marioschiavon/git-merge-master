@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useScriptTemplates, useCreateScript, useUpdateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
 import { useCadences, useCadenceSteps, useUpsertStep } from "@/hooks/useCadences";
 import { ScriptCard } from "@/components/ScriptCard";
-import { Sparkles, Plus, Copy, Loader2, FileText, Pencil } from "lucide-react";
+import { Sparkles, Plus, Copy, Loader2, FileText, Pencil, Send } from "lucide-react";
 import { toast } from "sonner";
 
 const segments = [
