@@ -123,6 +123,9 @@ serve(async (req) => {
 
       const useInsights = step.smart_customization !== false;
       const stepInsights = useInsights ? insightsContext : "";
+      const stepHighlights = (useInsights && step.use_highlights !== false && highlightsRes.data?.content)
+        ? `\n\n=== DESTAQUES IMPORTANTES DA EMPRESA (use como argumentos de autoridade) ===\n${highlightsRes.data.content}\n\nOBRIGATÓRIO: Mencione pelo menos 1 destaque da empresa acima como argumento de credibilidade na mensagem.`
+        : "";
 
       if (!useInsights) {
         const simpleMessage = (step.template || "")
@@ -159,7 +162,7 @@ serve(async (req) => {
 
 === SEU PRODUTO/SERVIÇO (o que você vende) ===
 ${knowledgeContext || "Sem informações adicionais do produto."}
-${highlightsContext}
+${stepHighlights}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${stepInsights || "Sem diferenciais disponíveis do prospect."}
