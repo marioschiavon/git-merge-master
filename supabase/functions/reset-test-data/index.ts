@@ -19,23 +19,17 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const supabaseUser = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } }
-    );
-
-    const { data: claimsData, error: claimsErr } = await supabaseUser.auth.getClaims(authHeader.replace("Bearer ", ""));
-    if (claimsErr || !claimsData?.claims) {
+    // Verify user via getUser
+    const { data: { user }, error: userErr } = await supabaseAdmin.auth.getUser(authHeader.replace("Bearer ", ""));
+    if (userErr || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: corsHeaders });
     }
-    const userId = claimsData.claims.sub;
 
     // Get company_id
     const { data: member } = await supabaseAdmin
       .from("company_members")
       .select("company_id")
-      .eq("user_id", userId)
+      .eq("user_id", user.id)
       .limit(1)
       .maybeSingle();
 
@@ -66,20 +60,11 @@ Deno.serve(async (req) => {
     await supabaseAdmin.from("lead_activities").delete().eq("company_id", companyId).eq("type", "meeting");
 
     // 5. Reset enrollments that had meetings
-    const { data: enrollments } = await supabaseAdmin
+    await supabaseAdmin
       .from("cadence_enrollments")
-      .select("id")
+      .update({ status: "active", meeting_scheduled: false, completed_at: null })
       .eq("company_id", companyId)
       .eq("meeting_scheduled", true);
-
-    if (enrollments && enrollments.length > 0) {
-      for (const e of enrollments) {
-        await supabaseAdmin
-          .from("cadence_enrollments")
-          .update({ status: "active", meeting_scheduled: false, completed_at: null })
-          .eq("id", e.id);
-      }
-    }
 
     return new Response(JSON.stringify({ success: true, company_id: companyId }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
