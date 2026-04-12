@@ -1,27 +1,45 @@
 
+## Corrigir repetição de horários após o prospect rejeitar os slots
 
-## Adicionar botão "Resetar dados de teste" na página de Conversas
+### Problema
+O backend cancela os horários atuais e busca novos, mas o `calcom-slots` escolhe os slots de forma determinística. Como os horários cancelados voltam a ficar disponíveis no calendário, ele acaba devolvendo as mesmas opções de novo.
 
-### O que será feito
+Também há um detalhe extra: no `inbound-webhook`, quando a resposta é `reject_slots`, a metadata `offered_slots` continua podendo guardar os slots antigos em vez dos novos, o que mantém o contexto errado para a próxima rodada.
 
-Adicionar um botão visível apenas para admins na página de Conversas que limpa todos os dados de teste de uma vez:
+### O que vou ajustar
+1. **Ensinar o `calcom-slots` a ignorar horários já oferecidos**
+   - Adicionar um parâmetro opcional `exclude_datetimes`.
+   - Filtrar esses horários antes de montar as próximas opções.
+   - Aplicar isso tanto no fluxo normal quanto no fallback de alternativas do `check_datetime`.
 
-1. **Edge function `reset-test-data`** — recebe o `company_id` do usuário autenticado e executa:
-   - `DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE company_id = $1)`
-   - `DELETE FROM conversations WHERE company_id = $1`
-   - `DELETE FROM slot_holds WHERE company_id = $1`
-   - `DELETE FROM lead_activities WHERE company_id = $1 AND type = 'meeting'`
-   - `UPDATE cadence_enrollments SET status = 'active', meeting_scheduled = false, completed_at = NULL WHERE company_id = $1 AND meeting_scheduled = true`
+2. **Passar os horários rejeitados no `inbound-webhook`**
+   - No fluxo `reject_slots`, enviar para o `calcom-slots` os horários dos `heldSlots` que o prospect acabou de recusar.
+   - Se os holds já tiverem expirado, usar `lastOfferedSlots` como fallback para não repetir a última oferta.
 
-2. **Botão na UI** (`Conversations.tsx`) — botão "Resetar testes" com confirmação (dialog) que chama a edge function. Aparece ao lado do título.
+3. **Salvar os slots realmente enviados**
+   - Depois que o `calcom-slots` retornar novas opções, atualizar o array local usado na metadata.
+   - Assim `offered_slots` passa a refletir os horários novos, não os cancelados.
+
+4. **Alinhar o contexto da IA com BRT**
+   - Trocar a montagem manual das datas no `inbound-webhook` para usar o helper de formatação em BRT.
+   - Isso evita a IA “enxergar” horários em UTC no contexto interno.
+
+### Detalhe técnico
+- Comparar exclusões por timestamp UTC normalizado, não por texto bruto.
+- Filtrar antes da seleção do “slot do dia”, para que o sistema pegue outra opção real daquele dia quando existir.
+- Se, após excluir os rejeitados, não houver 2 opções novas, o fluxo deve oferecer 1 horário novo ou cair no link de agendamento, nunca repetir os anteriores.
+
+### Arquivos
+- `supabase/functions/inbound-webhook/index.ts`
+- `supabase/functions/calcom-slots/index.ts`
 
 ### Escopo
-- 1 nova edge function: `reset-test-data/index.ts`
-- 1 arquivo editado: `src/pages/Conversations.tsx` (botão + dialog)
-- Config: `supabase/config.toml` — adicionar `verify_jwt = false` para a função
-- Sem mudanças de banco de dados
+- 2 edge functions
+- Sem mudanças de banco
+- Sem mudanças de UI
 
-### Resultado
-- Um clique limpa conversas, mensagens, slot_holds, atividades de meeting e reseta enrollments
-- Pronto para testar agendamentos do zero
-
+### Resultado esperado
+- Primeira oferta: A / B
+- Prospect: “nenhum desses”
+- Segunda oferta: C / D
+- O sistema não volta a mandar A / B na resposta seguinte
