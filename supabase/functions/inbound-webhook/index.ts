@@ -403,6 +403,8 @@ AÇÕES POSSÍVEIS:
 - "reject_slots": prospect rejeitou ambos os horários oferecidos (ex: "nenhum funciona", "tenho compromisso nesses dias")
 - "check_availability": prospect sugeriu um horário alternativo próprio (ex: "pode ser terça às 14h?")
   → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
+- "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião")
+  → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
 - "pause": prospect rejeitou totalmente → pausar cadência
 
 REGRAS:
@@ -418,7 +420,7 @@ REGRAS:
 
 Responda APENAS com JSON:
 {
-  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|pause",
+  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause",
   "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
   "selected_slot": null,
   "suggested_datetime": null,
@@ -581,7 +583,7 @@ Analise a última mensagem e decida a ação.`,
     }
 
     // Guard: prevent double-booking — if lead already has a confirmed slot, block scheduling actions
-    if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action)) {
+    if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action) && parsed.action !== "reschedule") {
       const { data: confirmedSlots } = await supabase
         .from("slot_holds")
         .select("id, slot_datetime")
@@ -695,6 +697,108 @@ Analise a última mensagem e decida a ação.`,
           type: "meeting",
           description: "🔄 Prospect rejeitou horários, novos slots oferecidos",
           metadata: { action: "reject_slots", sentiment: parsed.sentiment },
+        });
+      }
+    } else if (parsed.action === "reschedule") {
+      // Reschedule: cancel existing confirmed booking and offer new slots
+      console.log(`Reschedule requested for lead ${leadData?.id}`);
+      const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
+
+      // Find and cancel confirmed slot
+      const { data: confirmedSlots } = await supabase
+        .from("slot_holds")
+        .select("id, slot_datetime, cal_booking_uid")
+        .eq("lead_id", leadData.id)
+        .eq("status", "confirmed");
+
+      for (const slot of (confirmedSlots || [])) {
+        // Cancel Cal.com booking
+        if (slot.cal_booking_uid && CALCOM_API_KEY) {
+          try {
+            await fetch(`https://api.cal.com/v2/bookings/${slot.cal_booking_uid}/cancel`, {
+              method: "DELETE",
+              headers: {
+                "Authorization": `Bearer ${CALCOM_API_KEY}`,
+                "cal-api-version": "2024-04-15",
+              },
+            });
+            console.log("Cancelled Cal.com booking:", slot.cal_booking_uid);
+          } catch (e) {
+            console.error("Error cancelling Cal.com booking:", e);
+          }
+        }
+        await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
+      }
+
+      // Reset enrollment
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ meeting_scheduled: false, status: "paused", paused_reason: "awaiting_slot_confirmation" } as any)
+          .eq("id", enrollment.id);
+      } else if (enrollmentId) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ meeting_scheduled: false, status: "paused", paused_reason: "awaiting_slot_confirmation" } as any)
+          .eq("id", enrollmentId);
+      }
+
+      // Now fetch new slots — either check suggested datetime or offer 2 new ones
+      try {
+        const channelLabel = convChannel || channel || "email";
+        const slotsBody: any = {
+          company_id: companyId,
+          lead_id: leadData?.id,
+          enrollment_id: enrollment?.id || enrollmentId,
+          conversation_id: convId,
+          preferred_channel: channelLabel,
+        };
+
+        if (parsed.suggested_datetime) {
+          slotsBody.check_datetime = parsed.suggested_datetime;
+        }
+
+        const slotsRes = await supabase.functions.invoke("calcom-slots", { body: slotsBody });
+
+        if (slotsRes.data?.available && slotsRes.data?.slots?.[0]?.id) {
+          // Suggested time is available — confirm immediately
+          const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
+            body: { lead_id: leadData.id, selected_slot_hold_id: slotsRes.data.slots[0].id },
+          });
+          if (confirmRes.data?.success) {
+            const formattedDate = formatDateTimeBrt(parsed.suggested_datetime);
+            parsed.reply_message = `Sem problemas! Reunião reagendada para ${formattedDate}. Você receberá um novo convite por e-mail. Até lá! 🚀`;
+          } else {
+            parsed.reply_message = "Vou verificar a disponibilidade e retorno em seguida!";
+          }
+        } else if (slotsRes.data?.formatted?.length >= 2) {
+          // Offer 2 alternatives
+          if (slotsRes.data?.slots) heldSlots = slotsRes.data.slots;
+          const prefix = parsed.suggested_datetime
+            ? "Infelizmente esse horário não está disponível. Que tal uma dessas opções?"
+            : "Sem problemas! Aqui vão novas opções:";
+          parsed.reply_message = `${prefix}\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor?`;
+        } else if (slotsRes.data?.formatted?.length === 1) {
+          if (slotsRes.data?.slots) heldSlots = slotsRes.data.slots;
+          parsed.reply_message = `Sem problemas! Consegui este horário:\n\n📅 ${slotsRes.data.formatted[0]}\n\nFunciona para você?`;
+        } else {
+          const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
+          parsed.reply_message = CALCOM_BOOKING_LINK
+            ? `Sem problemas! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário.`
+            : "Sem problemas! Me diga qual horário seria ideal para você.";
+        }
+      } catch (e) {
+        console.error("Error fetching slots for reschedule:", e);
+        parsed.reply_message = "Sem problemas! Me diga qual horário seria ideal para remarcar.";
+      }
+
+      if (companyId && leadData) {
+        await supabase.from("lead_activities").insert({
+          company_id: companyId,
+          lead_id: leadData.id,
+          type: "meeting",
+          description: "🔄 Reunião reagendada a pedido do prospect",
+          metadata: { action: "reschedule", suggested: parsed.suggested_datetime },
         });
       }
     } else if (parsed.action === "check_availability" && parsed.suggested_datetime) {
@@ -928,6 +1032,7 @@ Analise a última mensagem e decida a ação.`,
           confirm_slot: "meeting_confirmed",
           reject_slots: "slots_rejected",
           check_availability: "availability_checked",
+          reschedule: "rescheduled",
           pause: "paused",
         };
         await supabase.from("execution_logs").insert({
