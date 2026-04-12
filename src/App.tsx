@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { AppLayout } from "@/components/AppLayout";
+import { RequireMasterAdmin } from "@/components/RequireMasterAdmin";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
@@ -44,8 +45,10 @@ const App = () => (
               <Route path="/conversations" element={<Conversations />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/knowledge" element={<Knowledge />} />
-              <Route path="/master" element={<MasterDashboard />} />
-              <Route path="/master/companies" element={<Companies />} />
+              <Route element={<RequireMasterAdmin />}>
+                <Route path="/master" element={<MasterDashboard />} />
+                <Route path="/master/companies" element={<Companies />} />
+              </Route>
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/settings/team" element={<Team />} />
               <Route path="/settings/integrations" element={<Integrations />} />
