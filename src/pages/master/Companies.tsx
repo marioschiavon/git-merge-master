@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,6 +28,7 @@ export default function Companies() {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
+  const [confirmCompany, setConfirmCompany] = useState<Company | null>(null);
 
   const fetchCompanies = async () => {
     const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
@@ -45,6 +48,29 @@ export default function Companies() {
       setOpen(false);
       setName("");
       setSlug("");
+      fetchCompanies();
+    }
+  };
+
+  const handleToggleStatus = async (company: Company) => {
+    if (company.status === "active" || company.status === "trial") {
+      // About to inactivate — show confirmation
+      setConfirmCompany(company);
+    } else {
+      // Reactivate directly
+      await updateStatus(company.id, "active");
+    }
+  };
+
+  const updateStatus = async (companyId: string, newStatus: string) => {
+    const { error } = await supabase
+      .from("companies")
+      .update({ status: newStatus as any })
+      .eq("id", companyId);
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success(newStatus === "inactive" ? "Empresa inativada!" : "Empresa ativada!");
       fetchCompanies();
     }
   };
@@ -109,6 +135,7 @@ export default function Companies() {
                   <TableHead>Status</TableHead>
                   <TableHead>Limite Usuários</TableHead>
                   <TableHead>Limite Leads</TableHead>
+                  <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -119,6 +146,17 @@ export default function Companies() {
                     <TableCell><Badge variant={statusColor(c.status)}>{statusLabel(c.status)}</Badge></TableCell>
                     <TableCell>{c.max_users}</TableCell>
                     <TableCell>{c.max_leads}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={c.status !== "inactive"}
+                          onCheckedChange={() => handleToggleStatus(c)}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {c.status !== "inactive" ? "Ativa" : "Inativa"}
+                        </span>
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -126,6 +164,30 @@ export default function Companies() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!confirmCompany} onOpenChange={(open) => !open && setConfirmCompany(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Inativar empresa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Ao inativar a empresa <strong>{confirmCompany?.name}</strong>, todos os usuários dela perderão acesso ao sistema imediatamente. Deseja continuar?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmCompany) {
+                  updateStatus(confirmCompany.id, "inactive");
+                  setConfirmCompany(null);
+                }
+              }}
+            >
+              Inativar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
