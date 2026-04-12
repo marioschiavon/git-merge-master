@@ -917,6 +917,77 @@ export type Database = {
           },
         ]
       }
+      slot_holds: {
+        Row: {
+          cal_booking_uid: string | null
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          enrollment_id: string | null
+          expires_at: string
+          id: string
+          lead_id: string
+          preferred_channel: string | null
+          slot_datetime: string
+          status: string
+        }
+        Insert: {
+          cal_booking_uid?: string | null
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          enrollment_id?: string | null
+          expires_at: string
+          id?: string
+          lead_id: string
+          preferred_channel?: string | null
+          slot_datetime: string
+          status?: string
+        }
+        Update: {
+          cal_booking_uid?: string | null
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          enrollment_id?: string | null
+          expires_at?: string
+          id?: string
+          lead_id?: string
+          preferred_channel?: string | null
+          slot_datetime?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slot_holds_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slot_holds_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slot_holds_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slot_holds_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppressed_emails: {
         Row: {
           created_at: string
