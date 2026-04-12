@@ -66,6 +66,87 @@ serve(async (req) => {
           continue;
         }
 
+        // Check for saved custom message first
+        const { data: customMsg } = await supabase
+          .from("cadence_custom_messages")
+          .select("subject, message")
+          .eq("enrollment_id", enrollment.id)
+          .eq("step_id", currentStep.id)
+          .maybeSingle();
+
+        if (customMsg) {
+          // Use saved custom message — skip AI generation
+          const parsed = { subject: customMsg.subject, message: customMsg.message };
+          let sendAction = "sent";
+
+          // === CHANNEL-SPECIFIC SENDING (same logic as below) ===
+          if (currentStep.channel === "email" && lead.email) {
+            try {
+              const { error: sendError } = await supabase.functions.invoke("send-transactional-email", {
+                body: {
+                  templateName: "cadence-outreach",
+                  recipientEmail: lead.email,
+                  idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}-${Date.now()}`,
+                  templateData: {
+                    leadName: lead.name,
+                    subject: parsed.subject || `Mensagem para ${lead.name}`,
+                    messageBody: parsed.message,
+                  },
+                },
+              });
+              if (sendError) { sendAction = "failed"; }
+            } catch { sendAction = "failed"; }
+          } else if (currentStep.channel === "whatsapp" && lead.phone) {
+            const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
+            const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
+            if (TWILIO_API_KEY && TWILIO_PHONE) {
+              try {
+                const twilioRes = await fetch(`${TWILIO_GATEWAY_URL}/Messages.json`, {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "X-Connection-Api-Key": TWILIO_API_KEY, "Content-Type": "application/x-www-form-urlencoded" },
+                  body: new URLSearchParams({ To: `whatsapp:${lead.phone}`, From: `whatsapp:${TWILIO_PHONE}`, Body: parsed.message }),
+                });
+                if (!twilioRes.ok) { await twilioRes.text(); sendAction = "failed"; }
+              } catch { sendAction = "failed"; }
+            } else { sendAction = "pending_manual"; }
+          } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
+
+          // Log activity
+          if (cadence.company_id && lead.id) {
+            const channelEmoji = currentStep.channel === "email" ? "📧" : currentStep.channel === "whatsapp" ? "📱" : "💼";
+            const statusLabel = sendAction === "sent" ? "enviado" : sendAction === "failed" ? "falhou" : "tarefa manual";
+            await supabase.from("lead_activities").insert({
+              company_id: cadence.company_id, lead_id: lead.id,
+              type: currentStep.channel === "multi_channel" ? "email" : currentStep.channel,
+              description: `${channelEmoji} ${currentStep.channel.charAt(0).toUpperCase() + currentStep.channel.slice(1)} ${statusLabel} - Step ${currentStep.step_order} (msg aprovada)${parsed.subject ? `: ${parsed.subject}` : `: ${parsed.message.substring(0, 100)}`}`,
+              metadata: { step_order: currentStep.step_order, cadence_id: cadence.id, action: sendAction, subject: parsed.subject, custom_message: true },
+            });
+          }
+
+          // Create conversation + message
+          let { data: conversation } = await supabase.from("conversations").select("id").eq("lead_id", lead.id).eq("cadence_enrollment_id", enrollment.id).maybeSingle();
+          if (!conversation) {
+            const { data: newConv } = await supabase.from("conversations").insert({ lead_id: lead.id, company_id: cadence.company_id, channel: currentStep.channel, cadence_enrollment_id: enrollment.id }).select().single();
+            conversation = newConv;
+          }
+          if (conversation) {
+            await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel } });
+          }
+
+          // Log execution
+          await supabase.from("execution_logs").insert({ company_id: cadence.company_id, enrollment_id: enrollment.id, step_id: currentStep.id, lead_id: lead.id, channel: currentStep.channel, action: sendAction, message_content: parsed.message, ai_context: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true } });
+
+          // Advance step
+          const nextStep = steps.find((s: any) => s.step_order === enrollment.current_step + 1);
+          const updateData: any = { current_step: enrollment.current_step + 1, last_executed_at: new Date().toISOString() };
+          if (nextStep) { const nd = new Date(); nd.setDate(nd.getDate() + nextStep.delay_days); updateData.next_execution_at = nd.toISOString(); }
+          else { updateData.status = "completed"; updateData.completed_at = new Date().toISOString(); updateData.next_execution_at = null; }
+          await supabase.from("cadence_enrollments").update(updateData).eq("id", enrollment.id);
+
+          processed++;
+          continue; // Skip AI generation below
+        }
+
         // Get company knowledge for context
         const { data: knowledge } = await supabase
           .from("company_knowledge")

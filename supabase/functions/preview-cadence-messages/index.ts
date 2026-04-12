@@ -17,7 +17,7 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const { cadence_id, lead_id } = await req.json();
+    const { cadence_id, lead_id, force_regenerate } = await req.json();
     if (!cadence_id || !lead_id) {
       return new Response(JSON.stringify({ error: "cadence_id and lead_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -25,10 +25,11 @@ serve(async (req) => {
     }
 
     // Fetch all data in parallel
-    const [stepsRes, leadRes, cadenceRes] = await Promise.all([
+    const [stepsRes, leadRes, cadenceRes, enrollmentRes] = await Promise.all([
       supabase.from("cadence_steps").select("*").eq("cadence_id", cadence_id).order("step_order", { ascending: true }),
       supabase.from("leads").select("*").eq("id", lead_id).single(),
       supabase.from("cadences").select("*").eq("id", cadence_id).single(),
+      supabase.from("cadence_enrollments").select("id").eq("cadence_id", cadence_id).eq("lead_id", lead_id).maybeSingle(),
     ]);
 
     if (stepsRes.error) throw stepsRes.error;
@@ -38,9 +39,44 @@ serve(async (req) => {
     const steps = stepsRes.data;
     const lead = leadRes.data;
     const cadence = cadenceRes.data;
+    const enrollment = enrollmentRes.data;
 
     if (!steps.length) {
       return new Response(JSON.stringify({ previews: [] }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Check for saved custom messages (if enrolled and not forcing regenerate)
+    let savedMessages: Record<string, any> = {};
+    if (enrollment && !force_regenerate) {
+      const { data: customMsgs } = await supabase
+        .from("cadence_custom_messages")
+        .select("step_id, subject, message")
+        .eq("enrollment_id", enrollment.id);
+
+      if (customMsgs) {
+        for (const cm of customMsgs) {
+          savedMessages[cm.step_id] = cm;
+        }
+      }
+    }
+
+    // If we have saved messages for ALL steps and not forcing regenerate, return them directly
+    const allStepsSaved = !force_regenerate && steps.every((s: any) => savedMessages[s.id]);
+    if (allStepsSaved) {
+      const previews = steps.map((step: any) => ({
+        step_order: step.step_order,
+        step_id: step.id,
+        channel: step.channel,
+        delay_days: step.delay_days,
+        smart_customization: step.smart_customization !== false,
+        subject: savedMessages[step.id].subject,
+        message: savedMessages[step.id].message,
+        template_original: step.template,
+        is_saved: true,
+      }));
+      return new Response(JSON.stringify({ previews, lead }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -55,7 +91,6 @@ serve(async (req) => {
       .map((k: any) => `## ${k.title}\n${k.content}`)
       .join("\n\n");
 
-    // Build insights context once
     let insightsContext = "";
     if (insightRes.data?.insights) {
       const ins = insightRes.data.insights as any;
@@ -64,14 +99,28 @@ serve(async (req) => {
       }
     }
 
-    // Generate previews for each step
     const previews = [];
 
     for (const step of steps) {
+      // If this step has a saved message and we're not forcing regenerate, use it
+      if (!force_regenerate && savedMessages[step.id]) {
+        previews.push({
+          step_order: step.step_order,
+          step_id: step.id,
+          channel: step.channel,
+          delay_days: step.delay_days,
+          smart_customization: step.smart_customization !== false,
+          subject: savedMessages[step.id].subject,
+          message: savedMessages[step.id].message,
+          template_original: step.template,
+          is_saved: true,
+        });
+        continue;
+      }
+
       const useInsights = step.smart_customization !== false;
       const stepInsights = useInsights ? insightsContext : "";
 
-      // For non-smart steps, just do simple template replacement
       if (!useInsights) {
         const simpleMessage = (step.template || "")
           .replace(/\{\{nome\}\}/gi, lead.name)
@@ -87,11 +136,11 @@ serve(async (req) => {
           subject: step.subject || null,
           message: simpleMessage,
           template_original: step.template,
+          is_saved: false,
         });
         continue;
       }
 
-      // AI generation for smart customization steps
       const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -186,6 +235,7 @@ Gere a mensagem personalizada para o step ${step.step_order}.`,
         subject,
         message,
         template_original: step.template,
+        is_saved: false,
       });
     }
 
