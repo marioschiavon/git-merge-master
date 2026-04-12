@@ -161,6 +161,7 @@ export type Database = {
           subject: string | null
           template: string
           updated_at: string
+          use_highlights: boolean
         }
         Insert: {
           cadence_id: string
@@ -173,6 +174,7 @@ export type Database = {
           subject?: string | null
           template?: string
           updated_at?: string
+          use_highlights?: boolean
         }
         Update: {
           cadence_id?: string
@@ -185,6 +187,7 @@ export type Database = {
           subject?: string | null
           template?: string
           updated_at?: string
+          use_highlights?: boolean
         }
         Relationships: [
           {
