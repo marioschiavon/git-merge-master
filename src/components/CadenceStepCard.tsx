@@ -11,7 +11,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useScriptTemplates, useGenerateScript } from "@/hooks/useScripts";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from "@/components/ui/tooltip";
-import { Trash2, Mail, MessageCircle, Linkedin, Sparkles, Loader2, BookOpen } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Trash2, Mail, MessageCircle, Linkedin, Sparkles, Loader2, BookOpen, Brain } from "lucide-react";
 
 const channelIcons: Record<string, any> = {
   email: Mail,
@@ -166,26 +167,79 @@ export function CadenceStepCard({ step, cadenceId, onUpsert, onDelete }: Cadence
             />
           </div>
           {step.smart_customization !== false && (
-            <div className="flex items-center justify-between pt-1 pl-4">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-3.5 w-3.5 text-primary" />
-                <Label className="text-xs font-medium">Usar Destaques da Empresa</Label>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="text-muted-foreground text-xs cursor-help">ⓘ</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" className="max-w-[220px]">
-                      <p className="text-xs">Inclui os destaques da empresa (patentes, matérias, etc.) como argumentos de autoridade na mensagem</p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+            <>
+              <div className="flex items-center justify-between pt-1 pl-4">
+                <div className="flex items-center gap-2">
+                  <BookOpen className="h-3.5 w-3.5 text-primary" />
+                  <Label className="text-xs font-medium">Usar Destaques da Empresa</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-muted-foreground text-xs cursor-help">ⓘ</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[220px]">
+                        <p className="text-xs">Inclui os destaques da empresa (patentes, matérias, etc.) como argumentos de autoridade na mensagem</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <Switch
+                  checked={step.use_highlights !== false}
+                  onCheckedChange={(v) => onUpsert({ ...step, use_highlights: v })}
+                />
               </div>
-              <Switch
-                checked={step.use_highlights !== false}
-                onCheckedChange={(v) => onUpsert({ ...step, use_highlights: v })}
-              />
-            </div>
+              <div className="flex items-center justify-between pt-1 pl-4">
+                <div className="flex items-center gap-2">
+                  <Brain className="h-3.5 w-3.5 text-primary" />
+                  <Label className="text-xs font-medium">Gatilhos Mentais</Label>
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="text-muted-foreground text-xs cursor-help">ⓘ</span>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="max-w-[220px]">
+                        <p className="text-xs">Selecione gatilhos mentais de vendas para a IA usar na mensagem</p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+                <Switch
+                  checked={step.use_mental_triggers === true}
+                  onCheckedChange={(v) => onUpsert({ ...step, use_mental_triggers: v, mental_triggers: v ? (step.mental_triggers || []) : [] })}
+                />
+              </div>
+              {step.use_mental_triggers && (
+                <div className="grid grid-cols-2 gap-2 pl-4 pt-1">
+                  {[
+                    { value: "escassez", label: "Escassez" },
+                    { value: "urgencia", label: "Urgência" },
+                    { value: "prova_social", label: "Prova Social" },
+                    { value: "autoridade", label: "Autoridade" },
+                    { value: "reciprocidade", label: "Reciprocidade" },
+                    { value: "compromisso", label: "Compromisso" },
+                    { value: "novidade", label: "Novidade" },
+                    { value: "exclusividade", label: "Exclusividade" },
+                  ].map((trigger) => {
+                    const triggers: string[] = step.mental_triggers || [];
+                    const isChecked = triggers.includes(trigger.value);
+                    return (
+                      <label key={trigger.value} className="flex items-center gap-2 text-xs cursor-pointer">
+                        <Checkbox
+                          checked={isChecked}
+                          onCheckedChange={(checked) => {
+                            const updated = checked
+                              ? [...triggers, trigger.value]
+                              : triggers.filter((t: string) => t !== trigger.value);
+                            onUpsert({ ...step, mental_triggers: updated });
+                          }}
+                        />
+                        {trigger.label}
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
