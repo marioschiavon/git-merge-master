@@ -1,40 +1,27 @@
 
 
-## Corrigir: IA fornece datetime sem offset BRT
+## Adicionar botão "Resetar dados de teste" na página de Conversas
 
-### Problema raiz
+### O que será feito
 
-Quando a IA retorna `suggested_datetime: "2026-04-17T10:00:00"`, esse valor vai direto para o Cal.com como UTC. Mas "10:00" era a hora em Brasília — deveria ser `13:00 UTC`.
+Adicionar um botão visível apenas para admins na página de Conversas que limpa todos os dados de teste de uma vez:
 
-O `extractDateTimeFromText` aplica o offset BRT corretamente, mas só é usado como **fallback** (linha 521) quando a IA **não** fornece o datetime. Quando a IA fornece, o valor vai cru.
+1. **Edge function `reset-test-data`** — recebe o `company_id` do usuário autenticado e executa:
+   - `DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE company_id = $1)`
+   - `DELETE FROM conversations WHERE company_id = $1`
+   - `DELETE FROM slot_holds WHERE company_id = $1`
+   - `DELETE FROM lead_activities WHERE company_id = $1 AND type = 'meeting'`
+   - `UPDATE cadence_enrollments SET status = 'active', meeting_scheduled = false, completed_at = NULL WHERE company_id = $1 AND meeting_scheduled = true`
 
-### Correção
-
-No `inbound-webhook/index.ts`, após parsear o JSON da IA (~linha 472), adicionar compensação BRT ao `suggested_datetime` da IA:
-
-```typescript
-// Se a IA forneceu suggested_datetime, compensar BRT→UTC
-// A IA interpreta horários em Brasília mas formata como se fosse UTC
-if (parsed.suggested_datetime && !parsed.suggested_datetime.endsWith("Z")) {
-  const naive = new Date(parsed.suggested_datetime);
-  if (!isNaN(naive.getTime())) {
-    // Adicionar 3h para converter de "BRT naive" para UTC
-    const utc = new Date(naive.getTime() + BRT_OFFSET_HOURS * 3600000);
-    parsed.suggested_datetime = utc.toISOString();
-    console.log("Compensated AI suggested_datetime to UTC:", parsed.suggested_datetime);
-  }
-}
-```
-
-Adicionar isso logo após o parsing do JSON (linha 472), antes de qualquer guard que use `suggested_datetime`.
-
-Também aplicar ao fallback na linha 521 — quando `extractDateTimeFromText` é chamado com `content` (não `cleanContent`), já retorna com offset, mas vale garantir consistência.
+2. **Botão na UI** (`Conversations.tsx`) — botão "Resetar testes" com confirmação (dialog) que chama a edge function. Aparece ao lado do título.
 
 ### Escopo
-- 1 edge function: `inbound-webhook/index.ts`
-- ~8 linhas adicionadas
+- 1 nova edge function: `reset-test-data/index.ts`
+- 1 arquivo editado: `src/pages/Conversations.tsx` (botão + dialog)
+- Config: `supabase/config.toml` — adicionar `verify_jwt = false` para a função
 - Sem mudanças de banco de dados
 
-### Resultado esperado
-- "17 as 10h" → IA diz `2026-04-17T10:00:00` → compensação → `2026-04-17T13:00:00.000Z` → Cal.com verifica 10h BRT → slot correto
+### Resultado
+- Um clique limpa conversas, mensagens, slot_holds, atividades de meeting e reseta enrollments
+- Pronto para testar agendamentos do zero
 
