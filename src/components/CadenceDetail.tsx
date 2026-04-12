@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads, useExecuteCadenceNow, useGenerateCadenceSteps } from "@/hooks/useCadences";
+import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads, useExecuteCadenceNow, useGenerateCadenceSteps, useResumeEnrollment } from "@/hooks/useCadences";
 import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
-import { Plus, Users, ListOrdered, Wand2, Play, Loader2 } from "lucide-react";
+import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw } from "lucide-react";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -39,6 +39,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const enrollLeads = useEnrollLeads();
   const executeCadence = useExecuteCadenceNow();
   const generateSteps = useGenerateCadenceSteps();
+  const resumeEnrollment = useResumeEnrollment();
   const { data: allLeads = [] } = useLeads({ status: "all", search: "" });
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -206,10 +207,25 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                         {e.meeting_scheduled && (
                           <Badge className="bg-green-100 text-green-800 text-xs">📅 Reunião</Badge>
                         )}
+                        {e.status === "paused" && (e as any).paused_reason === "lead_replied" && (
+                          <Badge className="bg-amber-100 text-amber-800 text-xs">💬 Lead respondeu</Badge>
+                        )}
                         <Badge variant="outline" className="text-xs">Step {e.current_step}</Badge>
                         <Badge variant="secondary" className="text-xs">
                           {enrollmentStatusLabels[e.status] || e.status}
                         </Badge>
+                        {e.status === "paused" && (e as any).paused_reason === "lead_replied" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 px-2 text-xs"
+                            onClick={() => resumeEnrollment.mutate(e.id)}
+                            disabled={resumeEnrollment.isPending}
+                          >
+                            <RotateCcw className="mr-1 h-3 w-3" />
+                            Retomar
+                          </Button>
+                        )}
                         {e.next_execution_at && e.status === "active" && (
                           <span className="text-[10px] text-muted-foreground">
                             Próx: {new Date(e.next_execution_at).toLocaleDateString("pt-BR")}
