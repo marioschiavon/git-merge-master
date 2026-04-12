@@ -1,25 +1,31 @@
 
 
-## Corrigir: Pausar cadência ao receber resposta mesmo se já "completed"
+## Customização Inteligente por Step — Switch On/Off
 
-### Problema
-O webhook só atualiza enrollments com `status = 'active'`. Se o lead responde após o último step (quando já está `completed`), a lógica de pausa não é acionada e o badge "💬 Lead respondeu" não aparece.
+### O que será feito
+Adicionar um switch "Customização Inteligente" em cada step card. Quando ligado, o executor usará os diferenciais e insights da análise do site do prospect para personalizar a mensagem. Quando desligado, a IA gera a mensagem baseada apenas no template, sem usar insights do prospect.
 
-### Solução
+### Observação importante
+O executor **já busca** os insights do lead (`lead_insights`) e os usa no prompt da IA (linhas 80-99 do executor). O que falta é um **controle por step** para ativar/desativar esse comportamento.
 
-**Arquivo: `supabase/functions/inbound-webhook/index.ts`**
-- Alterar o filtro do update para aceitar tanto `active` quanto `completed`:
-  - Usar `.in("status", ["active", "completed"])` em vez de `.eq("status", "active")`
-- Isso garante que o badge apareça independentemente de em qual step o lead respondeu
+### Detalhes técnicos
 
-**Arquivo: `src/components/CadenceDetail.tsx`**
-- Ajustar a condição do badge e do botão "Retomar" para também considerar status `completed` com `paused_reason = 'lead_replied'`, já que o update mudará o status para `paused`
+**1. Migração — nova coluna `smart_customization`**
+- Adicionar `smart_customization boolean NOT NULL DEFAULT true` na tabela `cadence_steps`
+- Default `true` para que steps existentes já usem a customização
+
+**2. UI — `src/components/CadenceStepCard.tsx`**
+- Adicionar um Switch com label "Customização Inteligente" e ícone de Sparkles abaixo do template
+- Tooltip explicando: "Usa os diferenciais do site do prospect para personalizar a mensagem"
+- Quando alterado, chama `onUpsert({ ...step, smart_customization: value })`
+
+**3. Executor — `supabase/functions/cadence-executor/index.ts`**
+- Condicionar a busca e inclusão de `insightsContext` ao valor de `currentStep.smart_customization`
+- Se `smart_customization === false`, setar `insightsContext = ""` e ajustar o prompt para não mencionar insights
+- Se `true` (ou não definido, para retrocompatibilidade), manter o comportamento atual
 
 ### Escopo
-- 1 edge function atualizada (`inbound-webhook`)
-- Redeploy da function
-- Nenhuma mudança de UI necessária (o badge já verifica `status === 'paused'` e `paused_reason === 'lead_replied'`, e o update mudará o status para `paused`)
-
-### Resultado
-Quando qualquer lead responder — esteja no meio da cadência ou após completá-la — o enrollment será pausado com o motivo `lead_replied` e o badge aparecerá na lista.
+- 1 migração (nova coluna)
+- 1 componente UI atualizado (switch no card)
+- 1 edge function atualizada (condicional no executor)
 
