@@ -1,40 +1,21 @@
 
 
-## Corrigir `check_availability` que não funciona sem slots existentes
+## Corrigir enrollment pausado de eu@julianocarneiro.com.br
 
-### Diagnóstico
+### Problema
+O enrollment está travado em `status: paused`, `paused_reason: awaiting_slot_confirmation`. A mensagem do prospect ("dia 15 as 17h") chegou antes do deploy da correção do `check_availability`, então caiu no fallback genérico e não respondeu. Os 4 slot_holds estão com status `held` mas já expiraram.
 
-O log confirma: `check_availability requested but no held slots found — falling back to reply`
+### Ações
 
-O problema está na linha 255 do `inbound-webhook`:
-```typescript
-if ((parsed.action === "reject_slots" || parsed.action === "check_availability") && heldSlots.length === 0) {
-  parsed.action = "reply";
-  parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
-}
-```
+**1. Correção de dados (via migração SQL):**
+- Cancelar os 4 `slot_holds` expirados (`status` -> `cancelled`)
+- Reativar o enrollment: `status` -> `active`, `paused_reason` -> null, `next_execution_at` -> now()
 
-`check_availability` NÃO precisa de slots existentes — o prospect está sugerindo um horário NOVO. Mas o fallback impede que o código real (linhas 367-430) execute, e a resposta genérica "Como posso ajudá-lo?" é enviada.
-
-### Mudança
-
-**`supabase/functions/inbound-webhook/index.ts`** — Separar `check_availability` do fallback de `reject_slots`:
-
-- Linha 255: remover `parsed.action === "check_availability"` da condição
-- Manter o fallback apenas para `reject_slots` sem slots
-- `check_availability` deve sempre executar normalmente (linhas 367+), mesmo sem slots held — o código já lida com `heldSlots` vazio no loop de cancelamento (simplesmente não cancela nada)
-
-Mudança de 1 linha:
-```typescript
-// ANTES
-if ((parsed.action === "reject_slots" || parsed.action === "check_availability") && heldSlots.length === 0) {
-
-// DEPOIS  
-if (parsed.action === "reject_slots" && heldSlots.length === 0) {
-```
+**2. Reprocessar a mensagem do prospect:**
+- Chamar o `inbound-webhook` manualmente via curl com a mensagem "Eu consigo dia 15 as 17h" para que o sistema (agora corrigido) execute `check_availability` e responda ao prospect
 
 ### Escopo
-- 1 edge function atualizada (`inbound-webhook`)
-- Mudança de 1 linha
-- Re-deploy da função
+- 1 correção de dados no DB
+- 1 chamada manual ao inbound-webhook para reprocessar
+- Nenhuma mudança de código (a correção do check_availability já foi deployada)
 
