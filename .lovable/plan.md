@@ -1,45 +1,35 @@
 
-## Corrigir repetição de horários após o prospect rejeitar os slots
 
-### Problema
-O backend cancela os horários atuais e busca novos, mas o `calcom-slots` escolhe os slots de forma determinística. Como os horários cancelados voltam a ficar disponíveis no calendário, ele acaba devolvendo as mesmas opções de novo.
+## Adicionar fluxo de reagendamento (reschedule) — via IA
 
-Também há um detalhe extra: no `inbound-webhook`, quando a resposta é `reject_slots`, a metadata `offered_slots` continua podendo guardar os slots antigos em vez dos novos, o que mantém o contexto errado para a próxima rodada.
+### Abordagem
+Você tem razão: a IA já classifica todas as outras ações pelo contexto. Basta adicionar `reschedule` como action possível no prompt e deixar a IA decidir quando usar. Sem lista de palavras-chave no código.
 
-### O que vou ajustar
-1. **Ensinar o `calcom-slots` a ignorar horários já oferecidos**
-   - Adicionar um parâmetro opcional `exclude_datetimes`.
-   - Filtrar esses horários antes de montar as próximas opções.
-   - Aplicar isso tanto no fluxo normal quanto no fallback de alternativas do `check_datetime`.
+### Mudanças em `supabase/functions/inbound-webhook/index.ts`
 
-2. **Passar os horários rejeitados no `inbound-webhook`**
-   - No fluxo `reject_slots`, enviar para o `calcom-slots` os horários dos `heldSlots` que o prospect acabou de recusar.
-   - Se os holds já tiverem expirado, usar `lastOfferedSlots` como fallback para não repetir a última oferta.
+1. **Prompt da IA (linha ~399-427)** — adicionar `reschedule` às ações possíveis:
+   - `"reschedule": prospect quer remarcar/reagendar uma reunião já confirmada`
+   - Regra: se já existe reunião confirmada e o prospect quer mudar → `action = "reschedule"`. Se incluiu novo horário, preencher `suggested_datetime`
 
-3. **Salvar os slots realmente enviados**
-   - Depois que o `calcom-slots` retornar novas opções, atualizar o array local usado na metadata.
-   - Assim `offered_slots` passa a refletir os horários novos, não os cancelados.
+2. **JSON de resposta (linha 421)** — incluir `reschedule` na lista de actions válidas
 
-4. **Alinhar o contexto da IA com BRT**
-   - Trocar a montagem manual das datas no `inbound-webhook` para usar o helper de formatação em BRT.
-   - Isso evita a IA “enxergar” horários em UTC no contexto interno.
+3. **Guard de double-booking (linha 584)** — excluir `reschedule` da lista de actions bloqueadas. Atualmente bloqueia `schedule`, `check_availability`, `confirm_slot`. O `reschedule` precisa passar.
 
-### Detalhe técnico
-- Comparar exclusões por timestamp UTC normalizado, não por texto bruto.
-- Filtrar antes da seleção do “slot do dia”, para que o sistema pegue outra opção real daquele dia quando existir.
-- Se, após excluir os rejeitados, não houver 2 opções novas, o fluxo deve oferecer 1 horário novo ou cair no link de agendamento, nunca repetir os anteriores.
-
-### Arquivos
-- `supabase/functions/inbound-webhook/index.ts`
-- `supabase/functions/calcom-slots/index.ts`
+4. **Novo bloco de execução** — após os blocos existentes, tratar `action === "reschedule"`:
+   - Buscar slot confirmado do lead
+   - Cancelar booking no Cal.com (`DELETE /v2/bookings/{uid}/cancel`)
+   - Atualizar `slot_holds` para `cancelled`
+   - Resetar `cadence_enrollments` (`meeting_scheduled = false`)
+   - Se `suggested_datetime` existe → chamar `calcom-slots` com `check_datetime`
+   - Se não → chamar `calcom-slots` normal para oferecer 2 novos horários
+   - Montar reply com os novos horários ou confirmação
 
 ### Escopo
-- 2 edge functions
+- 1 edge function: `inbound-webhook/index.ts`
+- ~50 linhas
 - Sem mudanças de banco
-- Sem mudanças de UI
 
-### Resultado esperado
-- Primeira oferta: A / B
-- Prospect: “nenhum desses”
-- Segunda oferta: C / D
-- O sistema não volta a mandar A / B na resposta seguinte
+### Resultado
+- Prospect: "Preciso remarcar" → IA classifica `reschedule` → cancela booking → oferece novos horários
+- Prospect: "Preciso remarcar para dia 21 às 9h" → IA classifica `reschedule` com `suggested_datetime` → cancela → verifica disponibilidade → confirma ou oferece alternativas
+
