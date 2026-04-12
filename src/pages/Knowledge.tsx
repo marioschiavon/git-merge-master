@@ -48,6 +48,18 @@ export default function Knowledge() {
   const updateKnowledge = useUpdateKnowledge();
   const extractUrl = useExtractUrl();
   const uploadDoc = useUploadKnowledgeDoc();
+  const { data: highlightsItem } = useHighlights();
+  const saveHighlights = useSaveHighlights();
+
+  // Highlights state
+  const [highlightsText, setHighlightsText] = useState("");
+  const [highlightsLoaded, setHighlightsLoaded] = useState(false);
+
+  // Load highlights when data arrives
+  if (highlightsItem && !highlightsLoaded) {
+    setHighlightsText(highlightsItem.content || "");
+    setHighlightsLoaded(true);
+  }
 
   // Text form
   const [textTitle, setTextTitle] = useState("");
@@ -113,9 +125,17 @@ export default function Knowledge() {
     setEditingId(null);
   };
 
-  const textItems = items.filter((i: any) => i.type === "text");
-  const docItems = items.filter((i: any) => i.type === "document");
-  const urlItems = items.filter((i: any) => i.type === "url");
+  const nonHighlightItems = items.filter((i: any) => i.type !== "highlights");
+  const textItems = nonHighlightItems.filter((i: any) => i.type === "text");
+  const docItems = nonHighlightItems.filter((i: any) => i.type === "document");
+  const urlItems = nonHighlightItems.filter((i: any) => i.type === "url");
+
+  const handleSaveHighlights = async () => {
+    await saveHighlights.mutateAsync({
+      content: highlightsText,
+      existingId: highlightsItem?.id,
+    });
+  };
 
   return (
     <div className="space-y-6">
