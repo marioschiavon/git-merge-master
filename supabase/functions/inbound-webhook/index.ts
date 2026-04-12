@@ -446,32 +446,54 @@ Analise e decida a ação.`,
         });
       }
     } else if (parsed.action === "schedule") {
-      // Existing schedule logic — offer 2 Cal.com slots
-      try {
-        const channelLabel = convChannel || channel || "email";
-        const slotsRes = await supabase.functions.invoke("calcom-slots", {
-          body: {
-            company_id: companyId,
-            lead_id: leadData?.id,
-            enrollment_id: enrollment?.id,
-            conversation_id: convId,
-            preferred_channel: channelLabel,
-          },
-        });
+      // Block schedule if meeting already scheduled
+      if (enrollment) {
+        const { data: enrollCheck } = await supabase
+          .from("cadence_enrollments")
+          .select("meeting_scheduled")
+          .eq("id", enrollment.id)
+          .maybeSingle();
 
-        if (slotsRes.data?.success && slotsRes.data?.formatted?.length >= 2) {
-          parsed.reply_message = `Ótimo! Tenho 2 horários disponíveis para conversarmos:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor para você?`;
-        } else {
-          const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
-          if (CALCOM_BOOKING_LINK) {
-            parsed.reply_message = `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`;
+        if (enrollCheck?.meeting_scheduled) {
+          console.log("Meeting already scheduled — skipping schedule action");
+          parsed.action = "reply";
+          if (!parsed.reply_message) {
+            parsed.reply_message = "Já temos uma reunião agendada! Caso precise reagendar, é só me avisar.";
           }
         }
-      } catch (slotErr) {
-        console.error("Error fetching Cal.com slots:", slotErr);
-        const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
-        if (CALCOM_BOOKING_LINK) {
-          parsed.reply_message = `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`;
+      }
+
+      // Only proceed with scheduling if action wasn't overridden
+      if (parsed.action === "schedule") {
+        try {
+          const channelLabel = convChannel || channel || "email";
+          const slotsRes = await supabase.functions.invoke("calcom-slots", {
+            body: {
+              company_id: companyId,
+              lead_id: leadData?.id,
+              enrollment_id: enrollment?.id,
+              conversation_id: convId,
+              preferred_channel: channelLabel,
+            },
+          });
+
+          const slotCount = slotsRes.data?.formatted?.length || 0;
+          if (slotsRes.data?.success && slotCount >= 2) {
+            parsed.reply_message = `Ótimo! Tenho 2 horários disponíveis para conversarmos:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor para você?`;
+          } else if (slotsRes.data?.success && slotCount === 1) {
+            parsed.reply_message = `Ótimo! Consegui o seguinte horário disponível:\n\n📅 ${slotsRes.data.formatted[0]}\n\nFunciona para você? Se não, me diga sua preferência que verifico outras opções.`;
+          } else {
+            const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
+            parsed.reply_message = CALCOM_BOOKING_LINK
+              ? `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`
+              : "Ótimo! Me diga sua disponibilidade para a reunião que eu verifico os horários.";
+          }
+        } catch (slotErr) {
+          console.error("Error fetching Cal.com slots:", slotErr);
+          const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
+          parsed.reply_message = CALCOM_BOOKING_LINK
+            ? `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`
+            : "Ótimo! Me diga sua disponibilidade para a reunião que eu verifico os horários.";
         }
       }
 
