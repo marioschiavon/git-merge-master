@@ -1,42 +1,70 @@
 
 
-## Corrigir timezone: datas sendo interpretadas em UTC ao invés de Brasília
+## Corrigir 3 problemas: timezone na exibição, double-booking, e formatação BRT
 
-### Problema
+### Problema 1: Horários exibidos em UTC ao invés de BRT
 
-`extractDateTimeFromText` cria datas usando `new Date(year, month, day, hour, minute)` que usa o timezone do servidor (UTC no Deno). Quando o prospect diz "dia 15 as 12h" (Brasília), o sistema gera `2026-04-15T12:00:00.000Z` (UTC) — que corresponde a **9:00 da manhã em Brasília**.
+O `toBrtIso` corrige a **geração** do datetime (12h BRT → 15:00 UTC). Mas na **exibição** ao prospect, `new Date(iso).toLocaleTimeString("pt-BR")` no Deno (que roda em UTC) mostra `15:00` ao invés de `12:00`. Isso acontece em 3 lugares:
 
-É por isso que os bookings no Cal.com apareceram às 9:00 e 11:00 ao invés de 12:00 BRT.
+- `inbound-webhook/index.ts` linha 706-711 (confirmação de booking)
+- `calcom-slots/index.ts` linhas 211-214 e 309-318 (formatação de slots alternativos)
 
-### Correção
+### Problema 2: Double-booking
 
-Ajustar `extractDateTimeFromText` para produzir datetimes em **UTC-3 (America/Sao_Paulo)**, adicionando 3 horas ao ISO resultante. Ou seja, quando o prospect diz "12h", o sistema gera `15:00 UTC` que é `12:00 BRT`.
+O lead `73be7ea6` tem **2 bookings confirmados** no Cal.com (12:00 UTC e 14:00 UTC). Não existe guard contra confirmar múltiplos bookings para o mesmo lead.
 
-**No `inbound-webhook/index.ts`, função `extractDateTimeFromText`:**
+### Problema 3: Mensagem de confirmação não converte BRT
 
-Em todos os pontos onde `new Date(...)` é criado e retornado como `.toISOString()`, subtrair o offset de Brasília (adicionar 3h ao UTC):
+A mensagem "Reunião confirmada para 15 de abril às 12:00" foi gerada com o horário UTC (pré-fix). Mesmo com o fix, exibiria "15:00" (UTC) ao invés de "12:00 BRT".
+
+---
+
+### Correções
+
+**1. Helper de formatação BRT** — em ambos edge functions, criar uma função que formata datetime em BRT:
 
 ```typescript
-// Compensar timezone: prospect fala em horário de Brasília (UTC-3)
-// "12h BRT" = "15h UTC"
-const BRT_OFFSET_HOURS = 3;
-
-function toBrtIso(year: number, month: number, day: number, hour: number, minute: number): string {
-  const dt = new Date(Date.UTC(year, month, day, hour + BRT_OFFSET_HOURS, minute));
-  return dt.toISOString();
+function formatDateTimeBrt(isoString: string): string {
+  const dt = new Date(isoString);
+  // Subtrair 3h para converter UTC → BRT para exibição
+  const brt = new Date(dt.getTime() - 3 * 3600000);
+  return brt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
+    + " às " + brt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 ```
 
-Substituir todos os `new Date(year, month, day, hour, minute).toISOString()` por `toBrtIso(year, month, day, hour, minute)`.
+Aplicar em:
+- `inbound-webhook/index.ts` linha 706-711
+- `calcom-slots/index.ts` linhas 211-214 e 309-318
+- `calcom-confirm-booking/index.ts` linhas de formatação de data
 
-Também corrigir o pattern de weekday que usa `setHours` — trocar para `Date.UTC` com offset.
+**2. Guard contra double-booking** — em `inbound-webhook/index.ts`, antes dos fluxos de agendamento (~linha 548), verificar se já existe slot confirmado:
+
+```typescript
+if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action)) {
+  const { data: confirmedSlots } = await supabase
+    .from("slot_holds")
+    .select("id, slot_datetime")
+    .eq("lead_id", leadData.id)
+    .eq("status", "confirmed")
+    .limit(1);
+
+  if (confirmedSlots?.length) {
+    const formatted = formatDateTimeBrt(confirmedSlots[0].slot_datetime);
+    parsed.action = "reply";
+    parsed.reply_message = `Já temos uma reunião confirmada para ${formatted}! Caso precise reagendar, é só me avisar.`;
+  }
+}
+```
 
 ### Escopo
-- 1 edge function: `inbound-webhook/index.ts`
-- ~15 linhas modificadas na função `extractDateTimeFromText`
+- 3 edge functions: `inbound-webhook`, `calcom-slots`, `calcom-confirm-booking`
+- ~30 linhas adicionadas/modificadas
 - Sem mudanças de banco de dados
 
 ### Resultado esperado
-- "dia 15 as 12h" → `2026-04-15T15:00:00.000Z` (= 12:00 BRT) → Cal.com agenda às 12:00 horário de Brasília
-- Todos os horários mencionados pelo prospect em BRT são corretamente convertidos para UTC
+- Horários exibidos ao prospect sempre em BRT (12:00 BRT, não 15:00 UTC)
+- Slots alternativos formatados corretamente em BRT
+- Nunca mais double-booking: se já tem reunião, informa o prospect
+- "Dia 15 as 12h" → booking às 12:00 BRT → mensagem diz "12:00" → Cal.com mostra 12:00
 
