@@ -325,8 +325,17 @@ INSTRUÇÕES PARA SLOT PENDENTE:
 - Se o prospect sugeriu um horário alternativo → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601`;
     } else if (schedulingInProgress) {
       // FIX: Even without active slots, give context that scheduling is happening
-      slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).
+      let offeredSlotsContext = "";
+      if (lastOfferedSlots.length > 0) {
+        offeredSlotsContext = `\nHorários anteriormente oferecidos (já expiraram): ${lastOfferedSlots.map((s: string) => {
+          const dt = new Date(s);
+          return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }) +
+            " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        }).join(", ")}`;
+      }
+      slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).${offeredSlotsContext}
 Se o prospect mencionar qualquer horário, dia ou disponibilidade → action = "check_availability" com suggested_datetime em ISO 8601 (YYYY-MM-DDTHH:mm:ss).
+Se o prospect confirmar um dos horários anteriores → action = "check_availability" com o datetime correspondente.
 Se o prospect rejeitar completamente a ideia de reunião → action = "pause".
 NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
     }
@@ -378,7 +387,7 @@ Responda APENAS com JSON:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "openai/gpt-5",
         messages: [
           { role: "system", content: systemPrompt },
           {
@@ -742,6 +751,8 @@ Analise e decida a ação.`,
           sentiment: parsed.sentiment,
           action: parsed.action,
           reasoning: parsed.reasoning,
+          // FIX: Save offered slot datetimes for future context recovery
+          ...(parsed.action === "schedule" || parsed.action === "reject_slots" ? { offered_slots: (heldSlots || []).map((s: any) => s.slot_datetime) } : {}),
         },
       });
 
