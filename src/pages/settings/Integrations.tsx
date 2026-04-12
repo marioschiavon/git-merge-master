@@ -11,8 +11,48 @@ const otherIntegrations = [
   { name: "LinkedIn", description: "Conecte e envie mensagens no LinkedIn", connected: false },
   { name: "Email (SMTP)", description: "Configure o envio de emails", connected: false },
   { name: "Twilio (Ligações)", description: "Faça e receba ligações VoIP", connected: false },
-  { name: "Google Calendar", description: "Agende reuniões automaticamente", connected: false },
 ];
+
+const CalComCard = () => {
+  const [configured, setConfigured] = useState(false);
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">Cal.com</CardTitle>
+          <Badge variant={configured ? "default" : "secondary"}>
+            {configured ? "Configurado" : "Pendente"}
+          </Badge>
+        </div>
+        <CardDescription>
+          Agendamento inteligente — reserva 2 slots automaticamente e oferece ao prospect
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          As credenciais do Cal.com são configuradas como variáveis de ambiente no backend. 
+          Você precisa de: <strong>API Key</strong>, <strong>Event Type ID</strong> e <strong>Link de agendamento</strong>.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          <a
+            href="https://app.cal.com/settings/developer/api-keys"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-primary hover:underline"
+          >
+            Onde encontrar minha API Key? <ExternalLink className="h-3 w-3" />
+          </a>
+        </p>
+        <div className="bg-muted rounded p-3 text-xs space-y-1">
+          <p>✅ <strong>CALCOM_API_KEY</strong> — Sua API Key do Cal.com</p>
+          <p>✅ <strong>CALCOM_EVENT_TYPE_ID</strong> — ID do tipo de evento</p>
+          <p>✅ <strong>CALCOM_BOOKING_LINK</strong> — Link público de agendamento</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
 
 export default function Integrations() {
   const [apiToken, setApiToken] = useState("");
