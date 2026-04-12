@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads, useExecuteCadenceNow, useGenerateCadenceSteps, useResumeEnrollment } from "@/hooks/useCadences";
 import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
+import { LeadMessagePreview } from "@/components/LeadMessagePreview";
 import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw } from "lucide-react";
 
 const enrollmentStatusLabels: Record<string, string> = {
@@ -43,6 +44,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const { data: allLeads = [] } = useLeads({ status: "all", search: "" });
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
+  const [previewLead, setPreviewLead] = useState<{ id: string; name: string } | null>(null);
 
   if (!cadence) return null;
 
@@ -200,7 +202,12 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                   <Card key={e.id}>
                     <CardContent className="p-3 flex items-center justify-between">
                       <div>
-                        <p className="text-sm font-medium">{e.leads?.name || "Lead"}</p>
+                        <button
+                          className="text-sm font-medium text-left hover:underline hover:text-primary cursor-pointer"
+                          onClick={() => setPreviewLead({ id: e.lead_id, name: e.leads?.name || "Lead" })}
+                        >
+                          {e.leads?.name || "Lead"}
+                        </button>
                         <p className="text-xs text-muted-foreground">{e.leads?.email || ""}</p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -240,6 +247,16 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
           </TabsContent>
         </Tabs>
       </SheetContent>
+
+      {previewLead && cadenceId && (
+        <LeadMessagePreview
+          cadenceId={cadenceId}
+          leadId={previewLead.id}
+          leadName={previewLead.name}
+          open={!!previewLead}
+          onOpenChange={(open) => !open && setPreviewLead(null)}
+        />
+      )}
     </Sheet>
   );
 }
