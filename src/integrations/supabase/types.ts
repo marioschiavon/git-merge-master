@@ -91,6 +91,7 @@ export type Database = {
           created_at: string
           delay_days: number
           id: string
+          smart_customization: boolean
           step_order: number
           subject: string | null
           template: string
@@ -102,6 +103,7 @@ export type Database = {
           created_at?: string
           delay_days?: number
           id?: string
+          smart_customization?: boolean
           step_order?: number
           subject?: string | null
           template?: string
@@ -113,6 +115,7 @@ export type Database = {
           created_at?: string
           delay_days?: number
           id?: string
+          smart_customization?: boolean
           step_order?: number
           subject?: string | null
           template?: string
