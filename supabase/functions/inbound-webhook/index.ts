@@ -117,6 +117,37 @@ serve(async (req) => {
       });
     }
 
+    // Check for held slots (for confirm_slot context)
+    let heldSlots: any[] = [];
+    if (leadData?.id) {
+      const { data: slots } = await supabase
+        .from("slot_holds")
+        .select("id, slot_datetime, cal_booking_uid, status")
+        .eq("lead_id", leadData.id)
+        .eq("status", "held")
+        .order("slot_datetime", { ascending: true });
+      heldSlots = slots || [];
+    }
+
+    // Format slot context for AI
+    let slotContext = "";
+    if (heldSlots.length >= 2) {
+      const formatted = heldSlots.map((s: any, i: number) => {
+        const dt = new Date(s.slot_datetime);
+        return `${i + 1}) ${dt.toLocaleDateString("pt-BR", {
+          weekday: "long",
+          day: "numeric",
+          month: "long",
+        })} às ${dt.toLocaleTimeString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`;
+      });
+      slotContext = `\n\nATENÇÃO: O prospect recebeu 2 opções de horário para reunião:
+${formatted.join("\n")}
+Se o prospect está confirmando ou escolhendo um desses horários, use action = "confirm_slot" e selected_slot = número da opção (1 ou 2).`;
+    }
+
     // Get conversation history
     const { data: messages } = await supabase
       .from("messages")
@@ -125,7 +156,40 @@ serve(async (req) => {
       .order("sent_at", { ascending: true })
       .limit(20);
 
+    // Find active enrollment for this lead
+    const { data: enrollment } = await supabase
+      .from("cadence_enrollments")
+      .select("id, cadence_id")
+      .eq("lead_id", leadData?.id)
+      .in("status", ["active", "paused"])
+      .maybeSingle();
+
     // Analyze with AI
+    const systemPrompt = `Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
+
+AÇÕES POSSÍVEIS:
+- "reply": responder automaticamente (objeção, dúvida, neutro)
+- "schedule": prospect demonstrou interesse em reunião → parar cadência e confirmar horário
+- "confirm_slot": prospect está confirmando/escolhendo um dos horários já oferecidos
+- "pause": prospect rejeitou → pausar cadência educadamente
+
+REGRAS:
+- Se o prospect menciona "reunião", "agendar", "conversar", "demo", "horário" E NÃO há slots pendentes → action = "schedule"
+- Se há slots pendentes e o prospect está escolhendo um deles → action = "confirm_slot" com selected_slot = 1 ou 2
+- Se o prospect diz "não tenho interesse", "não quero", "remova", "pare" → action = "pause"
+- Se objeção (preço, timing, concorrente) → contorne com empatia + prova social
+- Se dúvida → responda objetivamente + CTA para reunião
+- Mensagens curtas e naturais
+
+Responda APENAS com JSON:
+{
+  "action": "reply|schedule|confirm_slot|pause",
+  "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
+  "selected_slot": null,
+  "reasoning": "explicação breve",
+  "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
+}${slotContext}`;
+
     const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -135,30 +199,7 @@ serve(async (req) => {
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          {
-            role: "system",
-            content: `Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
-
-AÇÕES POSSÍVEIS:
-- "reply": responder automaticamente (objeção, dúvida, neutro)
-- "schedule": prospect demonstrou interesse em reunião → parar cadência e confirmar horário
-- "pause": prospect rejeitou → pausar cadência educadamente
-
-REGRAS:
-- Se o prospect menciona "reunião", "agendar", "conversar", "demo", "horário" → action = "schedule"
-- Se o prospect diz "não tenho interesse", "não quero", "remova", "pare" → action = "pause"
-- Se objeção (preço, timing, concorrente) → contorne com empatia + prova social
-- Se dúvida → responda objetivamente + CTA para reunião
-- Mensagens curtas e naturais
-
-Responda APENAS com JSON:
-{
-  "action": "reply|schedule|pause",
-  "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
-  "reasoning": "explicação breve",
-  "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
-}`,
-          },
+          { role: "system", content: systemPrompt },
           {
             role: "user",
             content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
@@ -188,20 +229,51 @@ Analise e decida a ação.`,
       const jsonMatch = aiContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, aiContent];
       parsed = JSON.parse(jsonMatch[1].trim());
     } catch {
-      parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null };
+      parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
     }
 
-    // Find active enrollment for this lead
-    const { data: enrollment } = await supabase
-      .from("cadence_enrollments")
-      .select("id, cadence_id")
-      .eq("lead_id", leadData?.id)
-      .eq("status", "active")
-      .maybeSingle();
+    // Execute action based on AI decision
+    if (parsed.action === "confirm_slot" && heldSlots.length >= 2) {
+      // Confirm the selected slot
+      const slotIndex = (parsed.selected_slot || 1) - 1;
+      const selectedHold = heldSlots[Math.min(slotIndex, heldSlots.length - 1)];
 
-    // Execute action
-    if (parsed.action === "schedule") {
-      // Try to fetch 2 Cal.com slots and offer them
+      console.log(`Confirming slot ${parsed.selected_slot}: ${selectedHold.slot_datetime}`);
+
+      try {
+        const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
+          body: {
+            lead_id: leadData.id,
+            selected_slot_hold_id: selectedHold.id,
+          },
+        });
+
+        if (confirmRes.data?.success) {
+          console.log("Booking confirmed successfully");
+          // Format confirmation date for reply
+          const dt = new Date(selectedHold.slot_datetime);
+          const formattedDate = dt.toLocaleDateString("pt-BR", {
+            weekday: "long",
+            day: "numeric",
+            month: "long",
+          }) + " às " + dt.toLocaleTimeString("pt-BR", {
+            hour: "2-digit",
+            minute: "2-digit",
+          });
+
+          if (!parsed.reply_message) {
+            parsed.reply_message = `Perfeito! Reunião confirmada para ${formattedDate}. Você receberá um convite no seu e-mail em instantes. Até lá! 🚀`;
+          }
+        } else {
+          console.error("Failed to confirm booking:", confirmRes.data?.error);
+          parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
+        }
+      } catch (e) {
+        console.error("Error invoking calcom-confirm-booking:", e);
+        parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
+      }
+    } else if (parsed.action === "schedule") {
+      // Existing schedule logic — offer 2 Cal.com slots
       try {
         const channelLabel = convChannel || channel || "email";
         const slotsRes = await supabase.functions.invoke("calcom-slots", {
@@ -215,10 +287,8 @@ Analise e decida a ação.`,
         });
 
         if (slotsRes.data?.success && slotsRes.data?.formatted?.length >= 2) {
-          // Override AI reply with slot offer
           parsed.reply_message = `Ótimo! Tenho 2 horários disponíveis para conversarmos:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor para você?`;
         } else {
-          // Fallback: send Cal.com booking link
           const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
           if (CALCOM_BOOKING_LINK) {
             parsed.reply_message = `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`;
@@ -233,7 +303,6 @@ Analise e decida a ação.`,
       }
 
       if (enrollment) {
-        // Don't complete yet — wait for slot confirmation
         await supabase
           .from("cadence_enrollments")
           .update({ status: "paused", paused_reason: "awaiting_slot_confirmation" } as any)
@@ -258,7 +327,6 @@ Analise e decida a ação.`,
 
     // Send auto-reply if needed
     if (parsed.reply_message) {
-      // Save reply message in conversation
       await supabase.from("messages").insert({
         conversation_id: convId,
         content: parsed.reply_message,
@@ -272,11 +340,9 @@ Analise e decida a ação.`,
         },
       });
 
-      // Send reply via the same channel
       const replyChannel = convChannel || channel || "email";
 
       if (replyChannel === "email" && leadData?.email) {
-        // Send via transactional email system
         await supabase.functions.invoke("send-transactional-email", {
           body: {
             templateName: "cadence-outreach",
@@ -290,7 +356,6 @@ Analise e decida a ação.`,
           },
         });
       } else if (replyChannel === "whatsapp" && leadData?.phone) {
-        // Send via Twilio WhatsApp if configured
         const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
         const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
         if (LOVABLE_API_KEY && TWILIO_API_KEY && TWILIO_PHONE) {
@@ -324,13 +389,18 @@ Analise e decida a ação.`,
         .limit(1);
 
       if (steps && steps.length > 0) {
+        const actionMap: Record<string, string> = {
+          schedule: "scheduled",
+          confirm_slot: "meeting_confirmed",
+          pause: "paused",
+        };
         await supabase.from("execution_logs").insert({
           company_id: companyId,
           enrollment_id: enrollment.id,
           step_id: steps[0].id,
           lead_id: leadData.id,
           channel: channel || "email",
-          action: parsed.action === "schedule" ? "scheduled" : parsed.action === "pause" ? "paused" : "replied",
+          action: actionMap[parsed.action] || "replied",
           message_content: parsed.reply_message || content,
           ai_context: parsed,
         });
