@@ -4,7 +4,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useConversations, useMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
-import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot } from "lucide-react";
+import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 const sentimentColors: Record<string, string> = {
   interesse: "bg-green-100 text-green-800",
@@ -15,13 +29,33 @@ const sentimentColors: Record<string, string> = {
 };
 
 export default function Conversations() {
-  const { data: conversations = [], isLoading } = useConversations();
+  const { data: conversations = [], isLoading, refetch } = useConversations();
+  const { isMasterAdmin, isCompanyAdmin } = useAuth();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
   const { data: messages = [] } = useMessages(selectedConvId);
   const sendMessage = useSendMessage();
   const aiReply = useAiReply();
   const [newMessage, setNewMessage] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState<any>(null);
+  const [resetting, setResetting] = useState(false);
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await supabase.functions.invoke("reset-test-data", {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (res.error) throw res.error;
+      toast.success("Dados de teste resetados com sucesso!");
+      setSelectedConvId(null);
+      refetch();
+    } catch (err: any) {
+      toast.error("Erro ao resetar: " + (err.message || "erro desconhecido"));
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const selectedConv = conversations.find((c: any) => c.id === selectedConvId);
 
@@ -129,9 +163,33 @@ export default function Conversations() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Conversas</h1>
-        <p className="text-muted-foreground">Histórico de mensagens com leads</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Conversas</h1>
+          <p className="text-muted-foreground">Histórico de mensagens com leads</p>
+        </div>
+        {(isMasterAdmin || isCompanyAdmin) && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" disabled={resetting}>
+                {resetting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RotateCcw className="h-4 w-4 mr-1" />}
+                Resetar testes
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Resetar dados de teste?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Isso vai apagar todas as conversas, mensagens, agendamentos (slot_holds) e resetar enrollments com reunião marcada. Esta ação não pode ser desfeita.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={handleReset}>Confirmar reset</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
 
       {isLoading ? (
