@@ -182,15 +182,21 @@ serve(async (req) => {
       });
     }
 
-    // Save inbound message
+    // FIX: Strip quoted email content before saving
+    const cleanContent = stripQuotedEmail(content);
+    console.log("Original content length:", content.length, "Clean content length:", cleanContent.length);
+
+    // Save inbound message (with clean content)
     await supabase.from("messages").insert({
       conversation_id: convId,
-      content,
+      content: cleanContent,
       direction: "inbound",
       ai_suggested: false,
     });
 
-    // Auto-pause cadence enrollment if conversation is linked to one
+    // FIX: Read enrollment state BEFORE overwriting paused_reason
+    let originalPausedReason: string | null = null;
+    let enrollmentId: string | null = null;
     if (convId) {
       const { data: convData } = await supabase
         .from("conversations")
@@ -199,11 +205,23 @@ serve(async (req) => {
         .maybeSingle();
 
       if (convData?.cadence_enrollment_id) {
-        await supabase
+        enrollmentId = convData.cadence_enrollment_id;
+        // Read current paused_reason BEFORE updating
+        const { data: enrollState } = await supabase
           .from("cadence_enrollments")
-          .update({ status: "paused", paused_reason: "lead_replied" } as any)
-          .eq("id", convData.cadence_enrollment_id)
-          .in("status", ["active", "completed"]);
+          .select("paused_reason")
+          .eq("id", enrollmentId)
+          .maybeSingle();
+        originalPausedReason = enrollState?.paused_reason || null;
+
+        // FIX: Only set lead_replied if NOT in scheduling flow
+        if (originalPausedReason !== "awaiting_slot_confirmation") {
+          await supabase
+            .from("cadence_enrollments")
+            .update({ status: "paused", paused_reason: "lead_replied" } as any)
+            .eq("id", enrollmentId)
+            .in("status", ["active", "completed"]);
+        }
       }
     }
 
@@ -215,7 +233,7 @@ serve(async (req) => {
         company_id: companyId,
         lead_id: leadData.id,
         type: channelLabel === "multi_channel" ? "email" : channelLabel,
-        description: `${channelEmoji} Resposta recebida: ${content.substring(0, 150)}`,
+        description: `${channelEmoji} Resposta recebida: ${cleanContent.substring(0, 150)}`,
         metadata: { direction: "inbound", channel: channelLabel },
       });
     }
@@ -241,11 +259,36 @@ serve(async (req) => {
       .in("status", ["active", "paused"])
       .maybeSingle();
 
-    // FIX: Detect scheduling in progress even when slots expired
+    // FIX: Detect scheduling in progress via preserved original state OR current enrollment
     let schedulingInProgress = false;
-    if (heldSlots.length === 0 && enrollment?.paused_reason === "awaiting_slot_confirmation") {
+    if (originalPausedReason === "awaiting_slot_confirmation" || enrollment?.paused_reason === "awaiting_slot_confirmation") {
       schedulingInProgress = true;
-      console.log("Scheduling in progress detected (slots expired but enrollment still awaiting confirmation)");
+      console.log("Scheduling in progress detected (paused_reason was awaiting_slot_confirmation)");
+    }
+
+    // FIX: Check last outbound message for schedule loop guard
+    let lastOutboundWasSchedule = false;
+    let lastOfferedSlots: string[] = [];
+    {
+      const { data: lastOutbound } = await supabase
+        .from("messages")
+        .select("metadata")
+        .eq("conversation_id", convId)
+        .eq("direction", "outbound")
+        .order("sent_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastOutbound?.metadata) {
+        const meta = lastOutbound.metadata as any;
+        if (meta.action === "schedule" || meta.action === "reject_slots") {
+          lastOutboundWasSchedule = true;
+          schedulingInProgress = true;
+          console.log("Last outbound was schedule/reject_slots — forcing scheduling context");
+        }
+        if (meta.offered_slots) {
+          lastOfferedSlots = meta.offered_slots;
+        }
+      }
     }
 
     // Format slot context for AI
