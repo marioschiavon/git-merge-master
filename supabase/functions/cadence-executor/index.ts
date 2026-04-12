@@ -161,6 +161,10 @@ serve(async (req) => {
           ? `\n\n=== DESTAQUES IMPORTANTES DA EMPRESA (use como argumentos de autoridade) ===\n${highlightsRes.data.content}\n\nOBRIGATÓRIO: Mencione pelo menos 1 destaque da empresa acima como argumento de credibilidade na mensagem.`
           : "";
 
+        const mentalTriggersContext = (currentStep.use_mental_triggers === true && currentStep.mental_triggers?.length > 0)
+          ? `\n\nGATILHOS MENTAIS OBRIGATÓRIOS: Use os seguintes gatilhos mentais de vendas na mensagem de forma natural e persuasiva: ${currentStep.mental_triggers.join(", ")}. Integre-os ao texto sem ser óbvio ou forçado.`
+          : "";
+
         // Get lead insights from website analysis (only if smart_customization is enabled for this step)
         let insightsContext = "";
         if (currentStep.smart_customization !== false) {
@@ -198,6 +202,7 @@ ${highlightsContext}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${insightsContext || "Sem diferenciais disponíveis do prospect."}
+${mentalTriggersContext}
 
 === TEMPLATE BASE DO STEP ===
 ${currentStep.template || "Sem template definido."}
