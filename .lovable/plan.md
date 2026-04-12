@@ -1,33 +1,51 @@
 
 
-## Proteção de Rotas Master + Ativar/Inativar Empresa
+## Sincronização Bidirecional: Deletar e Atualizar Leads do Pipedrive
 
-### 1. Componente `RequireMasterAdmin`
-Criar um componente wrapper de rota que verifica `isMasterAdmin` do `useAuth()`. Se não for master, redireciona para `/dashboard`. Usado para envolver as rotas `/master` e `/master/companies` no `App.tsx`.
+### Problema
+A sincronização atual só faz **upsert** — insere novos e atualiza existentes pelo `pipedrive_id`. Mas leads deletados no Pipedrive continuam no sistema, e campos atualizados (nome, email, telefone, empresa) podem não refletir corretamente.
 
-### 2. Bloqueio de acesso para empresas inativas
-No `useAuth`, após buscar o `companyId`, verificar o `status` da empresa na tabela `companies`. Se `status === 'inactive'`, fazer sign out automático e redirecionar para `/auth` com uma mensagem de erro. O `master_admin` não será bloqueado (ele não depende de empresa).
+### Solução
 
-### 3. Toggle ativar/inativar na página de Empresas
-Adicionar um botão/switch na tabela de empresas (coluna "Ações") que alterna o status entre `active`/`trial` e `inactive`. Ao inativar, os usuários daquela empresa serão impedidos de acessar na próxima verificação de sessão.
+Alterar `supabase/functions/pipedrive-sync/index.ts` para adicionar uma etapa de **reconciliação** após o upsert:
+
+1. **Após o upsert**, buscar todos os leads da empresa com `source = 'pipedrive'` e `pipedrive_id IS NOT NULL`
+2. **Comparar** os `pipedrive_id` do banco com os IDs retornados pela API do Pipedrive
+3. **Deletar** (ou marcar como removidos) os leads que existem no banco mas não existem mais no Pipedrive
 
 ### Detalhes técnicos
 
-**Arquivo: `src/components/RequireMasterAdmin.tsx`** (novo)
-- Usa `useAuth()` para checar `isMasterAdmin` e `loading`
-- Renderiza `<Outlet />` se master, `<Navigate to="/dashboard" />` se não
+**Arquivo: `supabase/functions/pipedrive-sync/index.ts`**
 
-**Arquivo: `src/App.tsx`**
-- Envolver rotas `/master` e `/master/companies` dentro de `<Route element={<RequireMasterAdmin />}>`
+Após o loop de upsert, adicionar:
 
-**Arquivo: `src/hooks/useAuth.tsx`**
-- Após buscar `companyId`, buscar `status` da empresa
-- Se `status === 'inactive'` e não é `master_admin`, chamar `signOut()` e setar um flag para mostrar mensagem
+```typescript
+// Reconciliation: remove leads deleted from Pipedrive
+const pipedriveIds = new Set(persons.map((p: any) => p.id));
 
-**Arquivo: `src/pages/master/Companies.tsx`**
-- Adicionar coluna "Ações" na tabela
-- Botão/switch para alternar status (`active` ↔ `inactive`)
-- Confirmação antes de inativar (AlertDialog)
+const { data: existingLeads } = await supabase
+  .from("leads")
+  .select("id, pipedrive_id")
+  .eq("company_id", company_id)
+  .eq("source", "pipedrive")
+  .not("pipedrive_id", "is", null);
 
-**Nenhuma migração necessária** — a coluna `status` já existe na tabela `companies` com os valores `active`, `trial`, `inactive`.
+let removed = 0;
+for (const lead of existingLeads || []) {
+  if (!pipedriveIds.has(lead.pipedrive_id)) {
+    await supabase.from("leads").delete().eq("id", lead.id);
+    removed++;
+  }
+}
+```
+
+- Retornar `removed` no response JSON para feedback ao usuário
+- O upsert existente já cuida de **atualizações** de campos (nome, email, etc.) — isso funciona porque usa `onConflict: "company_id,pipedrive_id"`
+
+### Escopo
+- 1 arquivo: `supabase/functions/pipedrive-sync/index.ts`
+- Redeploy da edge function
+
+### Resultado
+Ao sincronizar, leads deletados no Pipedrive serão removidos do sistema. Leads atualizados já são cobertos pelo upsert existente. O toast mostrará quantos foram sincronizados e quantos foram removidos.
 
