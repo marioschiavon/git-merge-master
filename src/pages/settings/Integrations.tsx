@@ -140,6 +140,9 @@ export default function Integrations() {
         </CardContent>
       </Card>
 
+      {/* Cal.com Card */}
+      <CalComCard />
+
       {/* Other integrations */}
       <div className="grid gap-4 md:grid-cols-2">
         {otherIntegrations.map((i) => (
