@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { useScriptTemplates, useScriptVariations, useCreateScript, useUpdateScript, useDeleteScript, useDeleteVariation, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useCadences, useCadenceSteps, useUpsertStep } from "@/hooks/useCadences";
-import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send, Pencil } from "lucide-react";
+import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send, Pencil, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 
 const segments = [
