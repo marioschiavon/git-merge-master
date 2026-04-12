@@ -76,6 +76,52 @@ export function useDeleteKnowledge() {
   });
 }
 
+export function useHighlights() {
+  const { companyId } = useAuth();
+  return useQuery({
+    queryKey: ["company_knowledge_highlights", companyId],
+    queryFn: async () => {
+      if (!companyId) return null;
+      const { data, error } = await supabase
+        .from("company_knowledge")
+        .select("*")
+        .eq("company_id", companyId)
+        .eq("type", "highlights")
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useSaveHighlights() {
+  const qc = useQueryClient();
+  const { companyId } = useAuth();
+  return useMutation({
+    mutationFn: async ({ content, existingId }: { content: string; existingId?: string }) => {
+      if (!companyId) throw new Error("Sem empresa vinculada");
+      if (existingId) {
+        const { error } = await supabase
+          .from("company_knowledge")
+          .update({ content, updated_at: new Date().toISOString() })
+          .eq("id", existingId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("company_knowledge")
+          .insert({ company_id: companyId, title: "Destaques para Prospecção", content, type: "highlights" });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["company_knowledge_highlights"] });
+      toast.success("Destaques salvos!");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}
+
 export function useExtractUrl() {
   return useMutation({
     mutationFn: async (url: string) => {

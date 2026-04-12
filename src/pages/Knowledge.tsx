@@ -13,6 +13,8 @@ import {
   useUpdateKnowledge,
   useExtractUrl,
   useUploadKnowledgeDoc,
+  useHighlights,
+  useSaveHighlights,
 } from "@/hooks/useKnowledge";
 import {
   BookOpen,
@@ -24,6 +26,7 @@ import {
   Loader2,
   Save,
   Pencil,
+  Star,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
