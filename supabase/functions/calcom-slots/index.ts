@@ -6,6 +6,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const CALCOM_API_VERSION = "2024-09-04";
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -30,15 +32,23 @@ serve(async (req) => {
       });
     }
 
-    // Fetch available slots from Cal.com for the next 7 days
+    // Fetch available slots from Cal.com v2 for the next 7 days
     const startDate = new Date();
     const endDate = new Date();
     endDate.setDate(endDate.getDate() + 7);
 
-    const slotsRes = await fetch(
-      `https://api.cal.com/v1/slots/available?apiKey=${CALCOM_API_KEY}&eventTypeId=${CALCOM_EVENT_TYPE_ID}&startTime=${startDate.toISOString()}&endTime=${endDate.toISOString()}`,
-      { method: "GET" }
-    );
+    const slotsUrl = new URL("https://api.cal.com/v2/slots");
+    slotsUrl.searchParams.set("eventTypeId", CALCOM_EVENT_TYPE_ID);
+    slotsUrl.searchParams.set("start", startDate.toISOString());
+    slotsUrl.searchParams.set("end", endDate.toISOString());
+
+    const slotsRes = await fetch(slotsUrl.toString(), {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${CALCOM_API_KEY}`,
+        "cal-api-version": CALCOM_API_VERSION,
+      },
+    });
 
     if (!slotsRes.ok) {
       const errText = await slotsRes.text();
@@ -46,21 +56,20 @@ serve(async (req) => {
       throw new Error(`Cal.com API error: ${slotsRes.status}`);
     }
 
-    const slotsData = await slotsRes.json();
-    // slotsData.slots is an object keyed by date: { "2024-01-15": [{time: "..."}], ... }
-    const slots = slotsData.slots || {};
+    const slotsJson = await slotsRes.json();
+    // v2 response: { status: "success", data: { "2024-01-15": [{ start: "..." }], ... } }
+    const slotsData = slotsJson.data || {};
 
     // Pick 2 slots on different days
-    const selectedSlots: { date: string; time: string }[] = [];
-    const sortedDates = Object.keys(slots).sort();
+    const selectedSlots: { date: string; start: string }[] = [];
+    const sortedDates = Object.keys(slotsData).sort();
 
     for (const date of sortedDates) {
       if (selectedSlots.length >= 2) break;
-      const daySlots = slots[date];
+      const daySlots = slotsData[date];
       if (daySlots && daySlots.length > 0) {
-        // Pick a slot around mid-day if possible
         const midIndex = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
-        selectedSlots.push({ date, time: daySlots[midIndex].time });
+        selectedSlots.push({ date, start: daySlots[midIndex].start });
       }
     }
 
@@ -74,19 +83,54 @@ serve(async (req) => {
       });
     }
 
+    // Reserve each slot via Cal.com v2
+    const reservationUids: string[] = [];
+    for (const slot of selectedSlots) {
+      try {
+        const reserveRes = await fetch("https://api.cal.com/v2/slots/reservations", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${CALCOM_API_KEY}`,
+            "cal-api-version": CALCOM_API_VERSION,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            eventTypeId: Number(CALCOM_EVENT_TYPE_ID),
+            slotStart: slot.start,
+            slotEnd: undefined, // Cal.com calculates based on event type duration
+            reservationDuration: 120, // 2 hours hold
+          }),
+        });
+
+        if (reserveRes.ok) {
+          const reserveData = await reserveRes.json();
+          reservationUids.push(reserveData.data?.reservationUid || reserveData.data?.uid || "");
+          console.log("Slot reserved:", slot.start, reserveData.data);
+        } else {
+          const errText = await reserveRes.text();
+          console.error("Failed to reserve slot:", slot.start, errText);
+          reservationUids.push("");
+        }
+      } catch (e) {
+        console.error("Reserve slot error:", e);
+        reservationUids.push("");
+      }
+    }
+
     // Save holds in the database
     const expiresAt = new Date();
     expiresAt.setHours(expiresAt.getHours() + 2);
 
-    const holdsToInsert = selectedSlots.map(s => ({
+    const holdsToInsert = selectedSlots.map((s, i) => ({
       company_id,
       lead_id,
       enrollment_id: enrollment_id || null,
       conversation_id: conversation_id || null,
-      slot_datetime: s.time,
+      slot_datetime: s.start,
       status: "held",
       expires_at: expiresAt.toISOString(),
       preferred_channel: preferred_channel || null,
+      cal_booking_uid: reservationUids[i] || null,
     }));
 
     const { data: insertedHolds, error: insertError } = await supabase
@@ -98,7 +142,7 @@ serve(async (req) => {
 
     // Format slots for display in messages
     const formattedSlots = selectedSlots.map(s => {
-      const dt = new Date(s.time);
+      const dt = new Date(s.start);
       return dt.toLocaleDateString("pt-BR", {
         weekday: "long",
         day: "numeric",

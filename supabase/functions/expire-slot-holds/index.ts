@@ -42,16 +42,22 @@ serve(async (req) => {
 
     for (const [leadId, holds] of Object.entries(holdsByLead)) {
       try {
-        // Cancel Cal.com bookings if they have UIDs
+        // Cancel Cal.com slot reservations via v2 API
         for (const hold of holds) {
           if (hold.cal_booking_uid && CALCOM_API_KEY) {
             try {
               await fetch(
-                `https://api.cal.com/v1/bookings/${hold.cal_booking_uid}/cancel?apiKey=${CALCOM_API_KEY}`,
-                { method: "DELETE" }
+                `https://api.cal.com/v2/slots/reservations/${hold.cal_booking_uid}`,
+                {
+                  method: "DELETE",
+                  headers: {
+                    "Authorization": `Bearer ${CALCOM_API_KEY}`,
+                    "cal-api-version": "2024-09-04",
+                  },
+                }
               );
             } catch (e) {
-              console.error(`Failed to cancel Cal.com booking ${hold.cal_booking_uid}:`, e);
+              console.error(`Failed to cancel Cal.com reservation ${hold.cal_booking_uid}:`, e);
             }
           }
         }
