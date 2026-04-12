@@ -17,3 +17,12 @@ verify_jwt = false
 
 [functions.inbound-email-webhook]
 verify_jwt = false
+
+[functions.calcom-slots]
+verify_jwt = false
+
+[functions.expire-slot-holds]
+verify_jwt = false
+
+[functions.inbound-webhook]
+verify_jwt = false

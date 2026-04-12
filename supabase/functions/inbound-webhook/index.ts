@@ -200,18 +200,52 @@ Analise e decida a ação.`,
       .maybeSingle();
 
     // Execute action
-    if (parsed.action === "schedule" && enrollment) {
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", meeting_scheduled: true, completed_at: new Date().toISOString() })
-        .eq("id", enrollment.id);
+    if (parsed.action === "schedule") {
+      // Try to fetch 2 Cal.com slots and offer them
+      try {
+        const channelLabel = convChannel || channel || "email";
+        const slotsRes = await supabase.functions.invoke("calcom-slots", {
+          body: {
+            company_id: companyId,
+            lead_id: leadData?.id,
+            enrollment_id: enrollment?.id,
+            conversation_id: convId,
+            preferred_channel: channelLabel,
+          },
+        });
+
+        if (slotsRes.data?.success && slotsRes.data?.formatted?.length >= 2) {
+          // Override AI reply with slot offer
+          parsed.reply_message = `Ótimo! Tenho 2 horários disponíveis para conversarmos:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor para você?`;
+        } else {
+          // Fallback: send Cal.com booking link
+          const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
+          if (CALCOM_BOOKING_LINK) {
+            parsed.reply_message = `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`;
+          }
+        }
+      } catch (slotErr) {
+        console.error("Error fetching Cal.com slots:", slotErr);
+        const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
+        if (CALCOM_BOOKING_LINK) {
+          parsed.reply_message = `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`;
+        }
+      }
+
+      if (enrollment) {
+        // Don't complete yet — wait for slot confirmation
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "awaiting_slot_confirmation" } as any)
+          .eq("id", enrollment.id);
+      }
 
       if (companyId && leadData) {
         await supabase.from("lead_activities").insert({
           company_id: companyId,
           lead_id: leadData.id,
           type: "meeting",
-          description: "Reunião agendada via SDR autônomo",
+          description: "📅 Slots oferecidos ao prospect para agendamento",
           metadata: { auto_scheduled: true, sentiment: parsed.sentiment },
         });
       }
