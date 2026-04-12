@@ -138,9 +138,11 @@ export function useSyncLeads() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
+      const parts = [`${data.synced} sincronizados`];
+      if (data.removed > 0) parts.push(`${data.removed} removidos`);
       toast({
         title: "Sincronização concluída!",
-        description: `${data.synced} leads sincronizados.`,
+        description: parts.join(", ") + ".",
       });
     },
     onError: (error: Error) => {

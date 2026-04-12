@@ -162,6 +162,24 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Reconciliation: remove leads deleted from Pipedrive
+    const pipedriveIds = new Set(persons.map((p: any) => p.id));
+
+    const { data: existingLeads } = await supabase
+      .from("leads")
+      .select("id, pipedrive_id")
+      .eq("company_id", company_id)
+      .eq("source", "pipedrive")
+      .not("pipedrive_id", "is", null);
+
+    let removed = 0;
+    for (const lead of existingLeads || []) {
+      if (!pipedriveIds.has(lead.pipedrive_id)) {
+        await supabase.from("leads").delete().eq("id", lead.id);
+        removed++;
+      }
+    }
+
     // Update last_synced_at on integration
     await supabase
       .from("integrations")
@@ -174,6 +192,7 @@ Deno.serve(async (req) => {
         total_from_pipedrive: persons.length,
         synced,
         errors,
+        removed,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
