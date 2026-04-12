@@ -76,6 +76,39 @@ function extractDateTimeFromText(text: string): string | null {
   return null;
 }
 
+/**
+ * Strip quoted email text from replies (Gmail, Outlook, generic ">").
+ */
+function stripQuotedEmail(text: string): string {
+  const patterns = [
+    /\r?\n\s*Em .+escreveu:\s*$/im,
+    /\r?\n\s*On .+wrote:\s*$/im,
+    /\r?\n\s*-{3,}Original Message-{3,}/im,
+    /\r?\n\s*_{10,}/im,
+    /\r?\n\s*From:\s+.+\r?\nSent:\s+/im,
+    /\r?\n\s*De:\s+.+\r?\nEnviado:\s+/im,
+  ];
+
+  let clean = text;
+  for (const p of patterns) {
+    const idx = clean.search(p);
+    if (idx !== -1) {
+      clean = clean.substring(0, idx).trim();
+      break;
+    }
+  }
+
+  // Remove trailing ">" quoted lines
+  const lines = clean.split(/\r?\n/);
+  const filtered: string[] = [];
+  for (const line of lines) {
+    if (/^\s*>/.test(line)) break;
+    filtered.push(line);
+  }
+
+  return filtered.join("\n").trim() || text.trim();
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -149,15 +182,21 @@ serve(async (req) => {
       });
     }
 
-    // Save inbound message
+    // FIX: Strip quoted email content before saving
+    const cleanContent = stripQuotedEmail(content);
+    console.log("Original content length:", content.length, "Clean content length:", cleanContent.length);
+
+    // Save inbound message (with clean content)
     await supabase.from("messages").insert({
       conversation_id: convId,
-      content,
+      content: cleanContent,
       direction: "inbound",
       ai_suggested: false,
     });
 
-    // Auto-pause cadence enrollment if conversation is linked to one
+    // FIX: Read enrollment state BEFORE overwriting paused_reason
+    let originalPausedReason: string | null = null;
+    let enrollmentId: string | null = null;
     if (convId) {
       const { data: convData } = await supabase
         .from("conversations")
@@ -166,11 +205,23 @@ serve(async (req) => {
         .maybeSingle();
 
       if (convData?.cadence_enrollment_id) {
-        await supabase
+        enrollmentId = convData.cadence_enrollment_id;
+        // Read current paused_reason BEFORE updating
+        const { data: enrollState } = await supabase
           .from("cadence_enrollments")
-          .update({ status: "paused", paused_reason: "lead_replied" } as any)
-          .eq("id", convData.cadence_enrollment_id)
-          .in("status", ["active", "completed"]);
+          .select("paused_reason")
+          .eq("id", enrollmentId)
+          .maybeSingle();
+        originalPausedReason = enrollState?.paused_reason || null;
+
+        // FIX: Only set lead_replied if NOT in scheduling flow
+        if (originalPausedReason !== "awaiting_slot_confirmation") {
+          await supabase
+            .from("cadence_enrollments")
+            .update({ status: "paused", paused_reason: "lead_replied" } as any)
+            .eq("id", enrollmentId)
+            .in("status", ["active", "completed"]);
+        }
       }
     }
 
@@ -182,7 +233,7 @@ serve(async (req) => {
         company_id: companyId,
         lead_id: leadData.id,
         type: channelLabel === "multi_channel" ? "email" : channelLabel,
-        description: `${channelEmoji} Resposta recebida: ${content.substring(0, 150)}`,
+        description: `${channelEmoji} Resposta recebida: ${cleanContent.substring(0, 150)}`,
         metadata: { direction: "inbound", channel: channelLabel },
       });
     }
@@ -208,11 +259,36 @@ serve(async (req) => {
       .in("status", ["active", "paused"])
       .maybeSingle();
 
-    // FIX: Detect scheduling in progress even when slots expired
+    // FIX: Detect scheduling in progress via preserved original state OR current enrollment
     let schedulingInProgress = false;
-    if (heldSlots.length === 0 && enrollment?.paused_reason === "awaiting_slot_confirmation") {
+    if (originalPausedReason === "awaiting_slot_confirmation" || enrollment?.paused_reason === "awaiting_slot_confirmation") {
       schedulingInProgress = true;
-      console.log("Scheduling in progress detected (slots expired but enrollment still awaiting confirmation)");
+      console.log("Scheduling in progress detected (paused_reason was awaiting_slot_confirmation)");
+    }
+
+    // FIX: Check last outbound message for schedule loop guard
+    let lastOutboundWasSchedule = false;
+    let lastOfferedSlots: string[] = [];
+    {
+      const { data: lastOutbound } = await supabase
+        .from("messages")
+        .select("metadata")
+        .eq("conversation_id", convId)
+        .eq("direction", "outbound")
+        .order("sent_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (lastOutbound?.metadata) {
+        const meta = lastOutbound.metadata as any;
+        if (meta.action === "schedule" || meta.action === "reject_slots") {
+          lastOutboundWasSchedule = true;
+          schedulingInProgress = true;
+          console.log("Last outbound was schedule/reject_slots — forcing scheduling context");
+        }
+        if (meta.offered_slots) {
+          lastOfferedSlots = meta.offered_slots;
+        }
+      }
     }
 
     // Format slot context for AI
@@ -249,8 +325,17 @@ INSTRUÇÕES PARA SLOT PENDENTE:
 - Se o prospect sugeriu um horário alternativo → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601`;
     } else if (schedulingInProgress) {
       // FIX: Even without active slots, give context that scheduling is happening
-      slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).
+      let offeredSlotsContext = "";
+      if (lastOfferedSlots.length > 0) {
+        offeredSlotsContext = `\nHorários anteriormente oferecidos (já expiraram): ${lastOfferedSlots.map((s: string) => {
+          const dt = new Date(s);
+          return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }) +
+            " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        }).join(", ")}`;
+      }
+      slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).${offeredSlotsContext}
 Se o prospect mencionar qualquer horário, dia ou disponibilidade → action = "check_availability" com suggested_datetime em ISO 8601 (YYYY-MM-DDTHH:mm:ss).
+Se o prospect confirmar um dos horários anteriores → action = "check_availability" com o datetime correspondente.
 Se o prospect rejeitar completamente a ideia de reunião → action = "pause".
 NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
     }
@@ -302,7 +387,7 @@ Responda APENAS com JSON:
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "openai/gpt-5",
         messages: [
           { role: "system", content: systemPrompt },
           {
@@ -611,6 +696,10 @@ Analise e decida a ação.`,
           });
 
           const slotCount = slotsRes.data?.formatted?.length || 0;
+          // FIX: Capture offered slot datetimes for metadata
+          if (slotsRes.data?.slots) {
+            heldSlots = slotsRes.data.slots;
+          }
           if (slotsRes.data?.success && slotCount >= 2) {
             parsed.reply_message = `Ótimo! Tenho 2 horários disponíveis para conversarmos:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor para você?`;
           } else if (slotsRes.data?.success && slotCount === 1) {
@@ -666,6 +755,8 @@ Analise e decida a ação.`,
           sentiment: parsed.sentiment,
           action: parsed.action,
           reasoning: parsed.reasoning,
+          // FIX: Save offered slot datetimes for future context recovery
+          ...(parsed.action === "schedule" || parsed.action === "reject_slots" ? { offered_slots: (heldSlots || []).map((s: any) => s.slot_datetime) } : {}),
         },
       });
 
