@@ -87,6 +87,23 @@ serve(async (req) => {
       ai_suggested: false,
     });
 
+    // Auto-pause cadence enrollment if conversation is linked to one
+    if (convId) {
+      const { data: convData } = await supabase
+        .from("conversations")
+        .select("cadence_enrollment_id")
+        .eq("id", convId)
+        .maybeSingle();
+
+      if (convData?.cadence_enrollment_id) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "lead_replied" } as any)
+          .eq("id", convData.cadence_enrollment_id)
+          .eq("status", "active");
+      }
+    }
+
     // Log inbound activity
     if (companyId && leadData?.id) {
       const channelLabel = convChannel || channel || "email";
