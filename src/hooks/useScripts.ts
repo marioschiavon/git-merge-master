@@ -153,6 +153,21 @@ export function useGenerateScript() {
   });
 }
 
+export function useDeleteVariation() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("script_variations").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["script_variations"] });
+      toast.success("Variação excluída!");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}
+
 export function useGenerateVariations() {
   return useMutation({
     mutationFn: async (params: { baseScript: string; count?: number; tones?: string[]; segment?: string; channel?: string }) => {
