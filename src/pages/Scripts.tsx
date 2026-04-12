@@ -316,47 +316,22 @@ export default function Scripts() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((script: any) => (
-            <Card key={script.id}>
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-sm">{script.name}</CardTitle>
-                    <CardDescription className="text-xs mt-1">
-                      {segments.find(s => s.value === script.segment)?.label || script.segment} · {channels.find(c => c.value === script.channel)?.label || script.channel}
-                    </CardDescription>
-                  </div>
-                  <div className="flex gap-1">
-                    {script.is_ai_generated && <Badge variant="secondary" className="text-xs"><Sparkles className="mr-1 h-3 w-3" />IA</Badge>}
-                    <Badge variant="outline" className="text-xs">{tones.find(t => t.value === script.tone)?.label || script.tone}</Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <pre className="text-xs whitespace-pre-wrap bg-muted p-2 rounded max-h-32 overflow-y-auto">{script.base_script}</pre>
-                <div className="flex gap-2 flex-wrap">
-                  <Button size="sm" variant="outline" onClick={() => handleUseCadence(script.base_script, script.channel)}>
-                    <Send className="mr-1 h-3 w-3" />Usar em Cadência
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => {
-                    setVariationsTemplateId(script.id);
-                    setVariationsBase(script.base_script);
-                    setGeneratedVariations([]);
-                    setVariationsOpen(true);
-                  }}>
-                    <Sparkles className="mr-1 h-3 w-3" />Variações
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => { navigator.clipboard.writeText(script.base_script); toast.success("Copiado!"); }}>
-                    <Copy className="mr-1 h-3 w-3" />Copiar
-                  </Button>
-                  <Button size="sm" variant="outline" onClick={() => handleEdit(script)}>
-                    <Pencil className="mr-1 h-3 w-3" />Editar
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => deleteScript.mutate(script.id)}>
-                    <Trash2 className="h-3 w-3 text-destructive" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+            <ScriptCard
+              key={script.id}
+              script={script}
+              segments={segments}
+              channels={channels}
+              tones={tones}
+              onEdit={handleEdit}
+              onDelete={(id) => deleteScript.mutate(id)}
+              onUseCadence={handleUseCadence}
+              onOpenVariations={(script) => {
+                setVariationsTemplateId(script.id);
+                setVariationsBase(script.base_script);
+                setGeneratedVariations([]);
+                setVariationsOpen(true);
+              }}
+            />
           ))}
         </div>
       )}
