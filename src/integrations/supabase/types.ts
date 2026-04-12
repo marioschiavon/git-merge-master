@@ -26,6 +26,7 @@ export type Database = {
           lead_id: string
           meeting_scheduled: boolean
           next_execution_at: string | null
+          paused_reason: string | null
           status: Database["public"]["Enums"]["enrollment_status"]
           updated_at: string
         }
@@ -40,6 +41,7 @@ export type Database = {
           lead_id: string
           meeting_scheduled?: boolean
           next_execution_at?: string | null
+          paused_reason?: string | null
           status?: Database["public"]["Enums"]["enrollment_status"]
           updated_at?: string
         }
@@ -54,6 +56,7 @@ export type Database = {
           lead_id?: string
           meeting_scheduled?: boolean
           next_execution_at?: string | null
+          paused_reason?: string | null
           status?: Database["public"]["Enums"]["enrollment_status"]
           updated_at?: string
         }
