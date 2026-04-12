@@ -252,7 +252,7 @@ Analise e decida a ação.`,
     }
 
     // Fallback: if AI says reject_slots/check_availability but no held slots
-    if ((parsed.action === "reject_slots" || parsed.action === "check_availability") && heldSlots.length === 0) {
+    if (parsed.action === "reject_slots" && heldSlots.length === 0) {
       console.log(`${parsed.action} requested but no held slots found — falling back to reply`);
       parsed.action = "reply";
       if (!parsed.reply_message) {
