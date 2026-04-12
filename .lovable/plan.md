@@ -1,38 +1,33 @@
 
 
-## Email de Prospecção: Mais Curto, Objetivo e com Hook dos Insights
+## Proteção de Rotas Master + Ativar/Inativar Empresa
 
-### Problema
-O prompt atual instrui emails com até 150 palavras e regras genéricas. O resultado são emails longos e sem gancho claro baseado nos insights do prospect.
+### 1. Componente `RequireMasterAdmin`
+Criar um componente wrapper de rota que verifica `isMasterAdmin` do `useAuth()`. Se não for master, redireciona para `/dashboard`. Usado para envolver as rotas `/master` e `/master/companies` no `App.tsx`.
 
-### Solução
+### 2. Bloqueio de acesso para empresas inativas
+No `useAuth`, após buscar o `companyId`, verificar o `status` da empresa na tabela `companies`. Se `status === 'inactive'`, fazer sign out automático e redirecionar para `/auth` com uma mensagem de erro. O `master_admin` não será bloqueado (ele não depende de empresa).
 
-Alterar o bloco de regras do prompt no `cadence-executor` para emails:
+### 3. Toggle ativar/inativar na página de Empresas
+Adicionar um botão/switch na tabela de empresas (coluna "Ações") que alterna o status entre `active`/`trial` e `inactive`. Ao inativar, os usuários daquela empresa serão impedidos de acessar na próxima verificação de sessão.
 
-1. **Reduzir limite de palavras** — de 150 para **80 palavras** máximo
-2. **Estrutura obrigatória do email** com hook baseado no insight:
-   - **Linha 1 (HOOK)**: Frase curta mencionando algo específico do prospect (insight do website) — ex: "Vi que a [empresa] está focada em [X]..."
-   - **Linha 2-3 (CONEXÃO)**: Conectar o hook com o benefício do seu produto em 1-2 frases diretas
-   - **Linha 4 (CTA)**: Pergunta direta para agendar — ex: "Faz sentido conversarmos 15min essa semana?"
-3. **Subject curto e intrigante** — máximo 6 palavras, referenciando o insight do prospect
-4. **Proibir** introduções genéricas ("Meu nome é...", "Somos uma empresa que...")
+### Detalhes técnicos
 
-### Trecho do prompt atualizado
+**Arquivo: `src/components/RequireMasterAdmin.tsx`** (novo)
+- Usa `useAuth()` para checar `isMasterAdmin` e `loading`
+- Renderiza `<Outlet />` se master, `<Navigate to="/dashboard" />` se não
 
-```text
-Email: MÁXIMO 80 palavras. Estrutura obrigatória:
-1. HOOK (1 frase): Mencione algo específico do prospect (do insight) que chame atenção
-2. CONEXÃO (1-2 frases): Ligue o hook a 1 benefício concreto do seu produto
-3. CTA (1 frase): Pergunta direta para agendar reunião de 15min
-- Subject: máximo 6 palavras, curioso, referenciando o negócio do prospect
-- PROIBIDO: "Meu nome é...", "Somos uma empresa...", introduções longas
-- Tom: direto, confiante, como se já conhecesse o mercado do prospect
-```
+**Arquivo: `src/App.tsx`**
+- Envolver rotas `/master` e `/master/companies` dentro de `<Route element={<RequireMasterAdmin />}>`
 
-### Escopo
-- 1 arquivo: `supabase/functions/cadence-executor/index.ts` (apenas bloco de regras do email)
-- Redeploy da edge function
+**Arquivo: `src/hooks/useAuth.tsx`**
+- Após buscar `companyId`, buscar `status` da empresa
+- Se `status === 'inactive'` e não é `master_admin`, chamar `signOut()` e setar um flag para mostrar mensagem
 
-### Resultado
-Emails curtos, com hook personalizado baseado nos insights do website do prospect, gerando mais curiosidade e taxa de resposta.
+**Arquivo: `src/pages/master/Companies.tsx`**
+- Adicionar coluna "Ações" na tabela
+- Botão/switch para alternar status (`active` ↔ `inactive`)
+- Confirmação antes de inativar (AlertDialog)
+
+**Nenhuma migração necessária** — a coluna `status` já existe na tabela `companies` com os valores `active`, `trial`, `inactive`.
 
