@@ -1,16 +1,16 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { useScriptTemplates, useScriptVariations, useCreateScript, useUpdateScript, useDeleteScript, useDeleteVariation, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { useScriptTemplates, useCreateScript, useUpdateScript, useDeleteScript, useGenerateScript, useGenerateVariations, useSaveVariations } from "@/hooks/useScripts";
 import { useCadences, useCadenceSteps, useUpsertStep } from "@/hooks/useCadences";
-import { Sparkles, Plus, Trash2, Copy, Loader2, FileText, Send, Pencil, ChevronDown } from "lucide-react";
+import { ScriptCard } from "@/components/ScriptCard";
+import { Sparkles, Plus, Copy, Loader2, FileText, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const segments = [
