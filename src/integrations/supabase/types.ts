@@ -156,12 +156,14 @@ export type Database = {
           created_at: string
           delay_days: number
           id: string
+          mental_triggers: string[] | null
           smart_customization: boolean
           step_order: number
           subject: string | null
           template: string
           updated_at: string
           use_highlights: boolean
+          use_mental_triggers: boolean
         }
         Insert: {
           cadence_id: string
@@ -169,12 +171,14 @@ export type Database = {
           created_at?: string
           delay_days?: number
           id?: string
+          mental_triggers?: string[] | null
           smart_customization?: boolean
           step_order?: number
           subject?: string | null
           template?: string
           updated_at?: string
           use_highlights?: boolean
+          use_mental_triggers?: boolean
         }
         Update: {
           cadence_id?: string
@@ -182,12 +186,14 @@ export type Database = {
           created_at?: string
           delay_days?: number
           id?: string
+          mental_triggers?: string[] | null
           smart_customization?: boolean
           step_order?: number
           subject?: string | null
           template?: string
           updated_at?: string
           use_highlights?: boolean
+          use_mental_triggers?: boolean
         }
         Relationships: [
           {
