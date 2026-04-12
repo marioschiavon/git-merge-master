@@ -696,6 +696,10 @@ Analise e decida a ação.`,
           });
 
           const slotCount = slotsRes.data?.formatted?.length || 0;
+          // FIX: Capture offered slot datetimes for metadata
+          if (slotsRes.data?.slots) {
+            heldSlots = slotsRes.data.slots;
+          }
           if (slotsRes.data?.success && slotCount >= 2) {
             parsed.reply_message = `Ótimo! Tenho 2 horários disponíveis para conversarmos:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor para você?`;
           } else if (slotsRes.data?.success && slotCount === 1) {
