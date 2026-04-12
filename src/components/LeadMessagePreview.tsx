@@ -1,12 +1,14 @@
 import { useState, useEffect } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, Sparkles, RefreshCw, Mail, MessageSquare, Linkedin } from "lucide-react";
+import { Loader2, Sparkles, RefreshCw, Mail, MessageSquare, Linkedin, Save, Check } from "lucide-react";
 import { usePreviewCadenceMessages, StepPreview } from "@/hooks/usePreviewCadenceMessages";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const channelIcons: Record<string, React.ReactNode> = {
   email: <Mail className="h-4 w-4" />,
@@ -32,11 +34,21 @@ interface LeadMessagePreviewProps {
 export function LeadMessagePreview({ cadenceId, leadId, leadName, open, onOpenChange }: LeadMessagePreviewProps) {
   const preview = usePreviewCadenceMessages();
   const [editedPreviews, setEditedPreviews] = useState<StepPreview[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [savedStepIds, setSavedStepIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (open && cadenceId && leadId) {
       preview.mutate({ cadenceId, leadId }, {
-        onSuccess: (data) => setEditedPreviews(data.previews),
+        onSuccess: (data) => {
+          setEditedPreviews(data.previews);
+          // Mark steps that came from saved custom messages
+          const saved = new Set<string>();
+          data.previews.forEach((p) => {
+            if (p.is_saved) saved.add(p.step_id);
+          });
+          setSavedStepIds(saved);
+        },
       });
     }
   }, [open, cadenceId, leadId]);
@@ -50,16 +62,67 @@ export function LeadMessagePreview({ cadenceId, leadId, leadName, open, onOpenCh
   };
 
   const regenerateStep = (stepOrder: number) => {
-    preview.mutate({ cadenceId, leadId }, {
+    preview.mutate({ cadenceId, leadId, forceRegenerate: true }, {
       onSuccess: (data) => {
         const newStep = data.previews.find((p) => p.step_order === stepOrder);
         if (newStep) {
           setEditedPreviews((prev) =>
-            prev.map((p) => (p.step_order === stepOrder ? newStep : p))
+            prev.map((p) => (p.step_order === stepOrder ? { ...newStep, is_saved: false } : p))
           );
+          setSavedStepIds((prev) => {
+            const next = new Set(prev);
+            const step = editedPreviews.find((p) => p.step_order === stepOrder);
+            if (step) next.delete(step.step_id);
+            return next;
+          });
         }
       },
     });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      // Get enrollment for this lead + cadence
+      const { data: enrollment } = await supabase
+        .from("cadence_enrollments")
+        .select("id, company_id")
+        .eq("cadence_id", cadenceId)
+        .eq("lead_id", leadId)
+        .maybeSingle();
+
+      if (!enrollment) {
+        toast.error("Lead não está inscrito nesta cadência. Inscreva o lead primeiro.");
+        setSaving(false);
+        return;
+      }
+
+      // Upsert all edited messages
+      for (const step of editedPreviews) {
+        const { error } = await supabase
+          .from("cadence_custom_messages")
+          .upsert(
+            {
+              enrollment_id: enrollment.id,
+              step_id: step.step_id,
+              lead_id: leadId,
+              company_id: enrollment.company_id,
+              subject: step.subject,
+              message: step.message,
+            },
+            { onConflict: "enrollment_id,step_id" }
+          );
+        if (error) throw error;
+      }
+
+      setSavedStepIds(new Set(editedPreviews.map((p) => p.step_id)));
+      toast.success("Mensagens salvas! Serão usadas quando a cadência executar.");
+    } catch (err: any) {
+      console.error("Save error:", err);
+      toast.error("Erro ao salvar mensagens: " + (err.message || "Erro desconhecido"));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -82,69 +145,86 @@ export function LeadMessagePreview({ cadenceId, leadId, leadName, open, onOpenCh
             </Button>
           </div>
         ) : (
-          <div className="space-y-4 mt-2">
-            {editedPreviews.map((step, idx) => (
-              <Card key={step.step_id}>
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      {channelIcons[step.channel] || channelIcons.email}
-                      <span className="text-sm font-medium">
-                        Step {step.step_order} — {channelLabels[step.channel] || step.channel}
-                      </span>
-                      {step.delay_days > 0 && (
-                        <Badge variant="outline" className="text-xs">+{step.delay_days}d</Badge>
-                      )}
+          <>
+            <div className="space-y-4 mt-2">
+              {editedPreviews.map((step, idx) => (
+                <Card key={step.step_id}>
+                  <CardContent className="p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {channelIcons[step.channel] || channelIcons.email}
+                        <span className="text-sm font-medium">
+                          Step {step.step_order} — {channelLabels[step.channel] || step.channel}
+                        </span>
+                        {step.delay_days > 0 && (
+                          <Badge variant="outline" className="text-xs">+{step.delay_days}d</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {savedStepIds.has(step.step_id) && (
+                          <Badge variant="outline" className="text-xs gap-1 border-green-300 text-green-700">
+                            <Check className="h-3 w-3" />
+                            Salvo
+                          </Badge>
+                        )}
+                        {step.smart_customization && (
+                          <Badge className="bg-purple-100 text-purple-800 text-xs gap-1">
+                            <Sparkles className="h-3 w-3" />
+                            IA
+                          </Badge>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2"
+                          onClick={() => regenerateStep(step.step_order)}
+                          disabled={preview.isPending}
+                        >
+                          <RefreshCw className={`h-3 w-3 ${preview.isPending ? "animate-spin" : ""}`} />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {step.smart_customization && (
-                        <Badge className="bg-purple-100 text-purple-800 text-xs gap-1">
-                          <Sparkles className="h-3 w-3" />
-                          Customizado com IA
-                        </Badge>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 px-2"
-                        onClick={() => regenerateStep(step.step_order)}
-                        disabled={preview.isPending}
-                      >
-                        <RefreshCw className={`h-3 w-3 ${preview.isPending ? "animate-spin" : ""}`} />
-                      </Button>
-                    </div>
-                  </div>
 
-                  {step.channel === "email" && (
+                    {step.channel === "email" && (
+                      <div>
+                        <label className="text-xs text-muted-foreground mb-1 block">Assunto</label>
+                        <Input
+                          value={step.subject || ""}
+                          onChange={(e) => updatePreview(idx, "subject", e.target.value)}
+                          placeholder="Assunto do email"
+                        />
+                      </div>
+                    )}
+
                     <div>
-                      <label className="text-xs text-muted-foreground mb-1 block">Assunto</label>
-                      <Input
-                        value={step.subject || ""}
-                        onChange={(e) => updatePreview(idx, "subject", e.target.value)}
-                        placeholder="Assunto do email"
+                      <label className="text-xs text-muted-foreground mb-1 block">Mensagem</label>
+                      <Textarea
+                        value={step.message}
+                        onChange={(e) => updatePreview(idx, "message", e.target.value)}
+                        rows={4}
                       />
                     </div>
-                  )}
 
-                  <div>
-                    <label className="text-xs text-muted-foreground mb-1 block">Mensagem</label>
-                    <Textarea
-                      value={step.message}
-                      onChange={(e) => updatePreview(idx, "message", e.target.value)}
-                      rows={4}
-                    />
-                  </div>
+                    {step.smart_customization && step.template_original && (
+                      <details className="text-xs text-muted-foreground">
+                        <summary className="cursor-pointer hover:text-foreground">Ver template original</summary>
+                        <pre className="mt-1 p-2 bg-muted rounded text-xs whitespace-pre-wrap">{step.template_original}</pre>
+                      </details>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
-                  {step.smart_customization && step.template_original && (
-                    <details className="text-xs text-muted-foreground">
-                      <summary className="cursor-pointer hover:text-foreground">Ver template original</summary>
-                      <pre className="mt-1 p-2 bg-muted rounded text-xs whitespace-pre-wrap">{step.template_original}</pre>
-                    </details>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+            {editedPreviews.length > 0 && (
+              <DialogFooter className="mt-4">
+                <Button onClick={handleSave} disabled={saving} className="gap-2">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Salvar mensagens
+                </Button>
+              </DialogFooter>
+            )}
+          </>
         )}
       </DialogContent>
     </Dialog>
