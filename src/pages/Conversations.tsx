@@ -29,8 +29,33 @@ const sentimentColors: Record<string, string> = {
 };
 
 export default function Conversations() {
-  const { data: conversations = [], isLoading } = useConversations();
+  const { data: conversations = [], isLoading, refetch } = useConversations();
+  const { isMasterAdmin, isCompanyAdmin } = useAuth();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+  const { data: messages = [] } = useMessages(selectedConvId);
+  const sendMessage = useSendMessage();
+  const aiReply = useAiReply();
+  const [newMessage, setNewMessage] = useState("");
+  const [aiSuggestion, setAiSuggestion] = useState<any>(null);
+  const [resetting, setResetting] = useState(false);
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await supabase.functions.invoke("reset-test-data", {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      });
+      if (res.error) throw res.error;
+      toast.success("Dados de teste resetados com sucesso!");
+      setSelectedConvId(null);
+      refetch();
+    } catch (err: any) {
+      toast.error("Erro ao resetar: " + (err.message || "erro desconhecido"));
+    } finally {
+      setResetting(false);
+    }
+  };
   const { data: messages = [] } = useMessages(selectedConvId);
   const sendMessage = useSendMessage();
   const aiReply = useAiReply();
