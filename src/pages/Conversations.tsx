@@ -163,9 +163,33 @@ export default function Conversations() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Conversas</h1>
-        <p className="text-muted-foreground">Histórico de mensagens com leads</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Conversas</h1>
+          <p className="text-muted-foreground">Histórico de mensagens com leads</p>
+        </div>
+        {(isMasterAdmin || isCompanyAdmin) && (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="outline" size="sm" disabled={resetting}>
+                {resetting ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <RotateCcw className="h-4 w-4 mr-1" />}
+                Resetar testes
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Resetar dados de teste?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  Isso vai apagar todas as conversas, mensagens, agendamentos (slot_holds) e resetar enrollments com reunião marcada. Esta ação não pode ser desfeita.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                <AlertDialogAction onClick={handleReset}>Confirmar reset</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
       </div>
 
       {isLoading ? (
