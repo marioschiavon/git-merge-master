@@ -1,34 +1,42 @@
 
 
-## Focar Customização Inteligente nos Diferenciais + Gancho com Produto
+## Salvar Mensagens Editadas do Preview para Uso na Execução
 
 ### Problema
-Atualmente, a Customização Inteligente usa todos os insights do prospect (proposta de valor, produtos, pain points, público-alvo, etc.). O usuário quer que use **apenas os Diferenciais** do prospect, e que o prompt **sempre faça um gancho** entre um diferencial do prospect e a solução/produto do SDR (da base de conhecimento).
+O preview gera mensagens personalizadas e permite edição, mas nada é persistido. Quando a cadência executa, o executor gera tudo novamente, ignorando qualquer ajuste manual do SDR.
 
 ### Solução
+Criar uma tabela para armazenar mensagens pré-aprovadas por lead/step. O executor verificará se existe uma mensagem salva antes de gerar uma nova.
 
-Alterar os dois edge functions que montam o `insightsContext` e o prompt da IA:
+### Detalhes técnicos
 
-**1. `supabase/functions/cadence-executor/index.ts`**
-- No bloco de insights (linhas 89-101): extrair **apenas `ins.diferenciais`** em vez de todos os campos
-- Reformular o `insightsContext` para focar em diferenciais:
-  ```
-  DIFERENCIAIS DO PROSPECT: ${ins.diferenciais.join(", ")}
-  ```
-- Atualizar as regras de personalização no prompt para:
-  - OBRIGATÓRIO: Escolha 1 diferencial do prospect e faça um gancho direto com 1 benefício/produto da base de conhecimento
-  - Estrutura: "Vi que vocês [diferencial do prospect] → nosso [produto/solução] potencializa isso porque [benefício concreto]"
-  - Remover menções a pain points, proposta de valor, público-alvo do prompt
+**1. Nova tabela: `cadence_custom_messages`**
+- Colunas: `id`, `enrollment_id`, `step_id`, `lead_id`, `company_id`, `subject`, `message`, `created_at`, `updated_at`
+- Constraint unique em `(enrollment_id, step_id)`
+- RLS por `company_id`
 
-**2. `supabase/functions/preview-cadence-messages/index.ts`**
-- Mesma alteração: extrair apenas diferenciais (linhas 60-72)
-- Mesmo prompt atualizado (linhas 113-150)
+**2. UI — Botão "Salvar" no `LeadMessagePreview`**
+- Adicionar botão "Salvar mensagens" no footer do dialog
+- Ao clicar, faz upsert das mensagens editadas na tabela `cadence_custom_messages`
+- Feedback visual (toast) confirmando que foram salvas
+- Badge indicando quais steps têm mensagem customizada salva
+
+**3. Executor — Verificar mensagens salvas antes de gerar**
+- No `cadence-executor`, antes de chamar a IA, buscar em `cadence_custom_messages` se existe mensagem para aquele `enrollment_id` + `step_id`
+- Se existir, usar a mensagem salva (subject + message) em vez de gerar
+- Se não existir, seguir fluxo normal (template ou IA)
+
+**4. Preview — Carregar mensagens salvas ao abrir**
+- Ao abrir o preview, verificar se já existem mensagens salvas para aquele lead/cadência
+- Se existirem, exibir as salvas (em vez de regenerar com IA)
+- Botão "Regenerar" continua disponível para sobrescrever
 
 ### Escopo
-- 2 edge functions atualizadas (executor e preview)
-- Redeploy de ambas
-- Nenhuma mudança de UI
+- 1 migração (nova tabela)
+- 1 componente atualizado (botão salvar + carregar salvas)
+- 1 edge function atualizada (executor verifica mensagens salvas)
+- 1 edge function atualizada (preview retorna mensagens salvas se existirem)
 
 ### Resultado
-A IA foca exclusivamente nos diferenciais do prospect, criando um gancho natural entre o que o prospect faz de melhor e como o produto do SDR complementa/potencializa isso.
+O SDR pode revisar, editar e salvar as mensagens antes de iniciar a cadência. Quando a cadência executar, usará exatamente o que foi aprovado.
 
