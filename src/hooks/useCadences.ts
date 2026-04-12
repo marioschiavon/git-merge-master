@@ -244,6 +244,9 @@ export function useResetEnrollment() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["cadence_enrollments"] });
+      qc.invalidateQueries({ queryKey: ["cadence_dashboard_enrollments"] });
+      qc.invalidateQueries({ queryKey: ["cadence_dashboard_logs"] });
+      qc.invalidateQueries({ queryKey: ["cadence_step_progress"] });
       toast.success("Enrollment resetado! Clique 'Executar Agora' para re-testar.");
     },
     onError: (e: any) => toast.error(e.message),
