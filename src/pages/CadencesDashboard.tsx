@@ -274,7 +274,7 @@ export default function CadencesDashboard() {
                           <TableCell>{fmt(e.next_execution_at)}</TableCell>
                           <TableCell>{fmt(e.last_executed_at)}</TableCell>
                           <TableCell>
-                            {(e.status === "completed" || e.status === "bounced" || e.status === "paused") && (
+                            {(
                               <Button
                                 size="sm"
                                 variant="outline"
