@@ -14,6 +14,71 @@ export type Database = {
   }
   public: {
     Tables: {
+      cadence_custom_messages: {
+        Row: {
+          company_id: string
+          created_at: string
+          enrollment_id: string
+          id: string
+          lead_id: string
+          message: string
+          step_id: string
+          subject: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          enrollment_id: string
+          id?: string
+          lead_id: string
+          message: string
+          step_id: string
+          subject?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          enrollment_id?: string
+          id?: string
+          lead_id?: string
+          message?: string
+          step_id?: string
+          subject?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cadence_custom_messages_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_custom_messages_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_custom_messages_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_custom_messages_step_id_fkey"
+            columns: ["step_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_steps"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cadence_enrollments: {
         Row: {
           cadence_id: string
