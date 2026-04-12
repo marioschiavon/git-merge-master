@@ -650,7 +650,14 @@ Analise a última mensagem e decida a ação.`,
         await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
       }
 
-      // Fetch 2 new slots
+      // Collect previously offered datetimes to exclude from new selection
+      const excludeDatetimes = [
+        ...heldSlots.map((s: any) => s.slot_datetime),
+        ...lastOfferedSlots,
+      ];
+      console.log("Excluding previously offered datetimes:", excludeDatetimes);
+
+      // Fetch 2 new slots (excluding rejected ones)
       try {
         const channelLabel = convChannel || channel || "email";
         const slotsRes = await supabase.functions.invoke("calcom-slots", {
@@ -660,10 +667,15 @@ Analise a última mensagem e decida a ação.`,
             enrollment_id: enrollment?.id,
             conversation_id: convId,
             preferred_channel: channelLabel,
+            exclude_datetimes: excludeDatetimes,
           },
         });
 
         if (slotsRes.data?.success && slotsRes.data?.formatted?.length >= 2) {
+          // FIX: Update heldSlots to reflect the NEW slots (for metadata)
+          if (slotsRes.data?.slots) {
+            heldSlots = slotsRes.data.slots;
+          }
           parsed.reply_message = `Sem problemas! Aqui vão outras opções:\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nAlgum desses funciona para você?`;
         } else {
           const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
@@ -718,6 +730,10 @@ Analise a última mensagem e decida a ação.`,
             conversation_id: convId,
             preferred_channel: channelLabel,
             check_datetime: parsed.suggested_datetime,
+            exclude_datetimes: [
+              ...heldSlots.map((s: any) => s.slot_datetime),
+              ...lastOfferedSlots,
+            ],
           },
         });
 
