@@ -6,6 +6,76 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/**
+ * Fallback server-side datetime parser for Portuguese date expressions.
+ * Returns ISO 8601 string or null.
+ */
+function extractDateTimeFromText(text: string): string | null {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth(); // 0-indexed
+
+  // Pattern: "dia DD às HH:MM" or "dia DD as HHh" or "dia DD as HH:MM"
+  const diaMatch = text.match(/dia\s+(\d{1,2})\s+[àa]s?\s+(\d{1,2})(?::(\d{2})|\s*h)/i);
+  if (diaMatch) {
+    const day = parseInt(diaMatch[1]);
+    const hour = parseInt(diaMatch[2]);
+    const minute = parseInt(diaMatch[3] || "0");
+    // If the day already passed this month, assume next month
+    let month = currentMonth;
+    if (day < now.getDate() || (day === now.getDate() && hour < now.getHours())) {
+      month += 1;
+    }
+    const dt = new Date(currentYear, month, day, hour, minute);
+    return dt.toISOString();
+  }
+
+  // Pattern: "DD/MM às HH:MM" or "DD/MM as HHh"
+  const slashMatch = text.match(/(\d{1,2})\/(\d{1,2})\s+[àa]s?\s+(\d{1,2})(?::(\d{2})|\s*h)/i);
+  if (slashMatch) {
+    const day = parseInt(slashMatch[1]);
+    const month = parseInt(slashMatch[2]) - 1;
+    const hour = parseInt(slashMatch[3]);
+    const minute = parseInt(slashMatch[4] || "0");
+    const dt = new Date(currentYear, month, day, hour, minute);
+    return dt.toISOString();
+  }
+
+  // Pattern: weekday + time, e.g. "terça às 14h", "segunda as 10:00"
+  const weekdayMap: Record<string, number> = {
+    domingo: 0, segunda: 1, terça: 2, terca: 2, quarta: 3,
+    quinta: 4, sexta: 5, sábado: 6, sabado: 6,
+  };
+  const weekdayMatch = text.match(/(domingo|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado)\s+[àa]s?\s+(\d{1,2})(?::(\d{2})|\s*h)/i);
+  if (weekdayMatch) {
+    const targetDay = weekdayMap[weekdayMatch[1].toLowerCase().replace("ç", "c").replace("á", "a")] ?? -1;
+    const hour = parseInt(weekdayMatch[2]);
+    const minute = parseInt(weekdayMatch[3] || "0");
+    if (targetDay >= 0) {
+      const today = now.getDay();
+      let diff = targetDay - today;
+      if (diff <= 0) diff += 7;
+      const dt = new Date(now);
+      dt.setDate(dt.getDate() + diff);
+      dt.setHours(hour, minute, 0, 0);
+      return dt.toISOString();
+    }
+  }
+
+  // Pattern: just time "às HHh" or "as HH:MM" (assume today or tomorrow)
+  const timeOnly = text.match(/[àa]s?\s+(\d{1,2})(?::(\d{2})|\s*h)/i);
+  if (timeOnly) {
+    const hour = parseInt(timeOnly[1]);
+    const minute = parseInt(timeOnly[2] || "0");
+    const dt = new Date(now);
+    dt.setHours(hour, minute, 0, 0);
+    if (dt <= now) dt.setDate(dt.getDate() + 1);
+    return dt.toISOString();
+  }
+
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -117,7 +187,7 @@ serve(async (req) => {
       });
     }
 
-    // Check for held slots (for confirm_slot context)
+    // Check for held slots (FIX: filter out expired slots)
     let heldSlots: any[] = [];
     if (leadData?.id) {
       const { data: slots } = await supabase
@@ -125,8 +195,24 @@ serve(async (req) => {
         .select("id, slot_datetime, cal_booking_uid, status")
         .eq("lead_id", leadData.id)
         .eq("status", "held")
+        .gt("expires_at", new Date().toISOString())
         .order("slot_datetime", { ascending: true });
       heldSlots = slots || [];
+    }
+
+    // Find active/paused enrollment for this lead
+    const { data: enrollment } = await supabase
+      .from("cadence_enrollments")
+      .select("id, cadence_id, paused_reason")
+      .eq("lead_id", leadData?.id)
+      .in("status", ["active", "paused"])
+      .maybeSingle();
+
+    // FIX: Detect scheduling in progress even when slots expired
+    let schedulingInProgress = false;
+    if (heldSlots.length === 0 && enrollment?.paused_reason === "awaiting_slot_confirmation") {
+      schedulingInProgress = true;
+      console.log("Scheduling in progress detected (slots expired but enrollment still awaiting confirmation)");
     }
 
     // Format slot context for AI
@@ -150,6 +236,23 @@ INSTRUÇÕES PARA SLOTS PENDENTES:
 - Se o prospect está confirmando ou escolhendo um desses horários → action = "confirm_slot" e selected_slot = número da opção (1 ou 2)
 - Se o prospect rejeitou ambos os horários (ex: "nenhum funciona", "não consigo nesses dias", "tenho compromisso") → action = "reject_slots"
 - Se o prospect sugeriu um horário alternativo (ex: "pode ser terça às 14h?", "prefiro quinta de manhã") → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)`;
+    } else if (heldSlots.length === 1) {
+      const dt = new Date(heldSlots[0].slot_datetime);
+      const formatted = dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
+        + " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      slotContext = `\n\nATENÇÃO: O prospect recebeu 1 opção de horário para reunião:
+1) ${formatted}
+
+INSTRUÇÕES PARA SLOT PENDENTE:
+- Se o prospect está confirmando esse horário → action = "confirm_slot" e selected_slot = 1
+- Se o prospect rejeitou o horário → action = "reject_slots"
+- Se o prospect sugeriu um horário alternativo → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601`;
+    } else if (schedulingInProgress) {
+      // FIX: Even without active slots, give context that scheduling is happening
+      slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).
+Se o prospect mencionar qualquer horário, dia ou disponibilidade → action = "check_availability" com suggested_datetime em ISO 8601 (YYYY-MM-DDTHH:mm:ss).
+Se o prospect rejeitar completamente a ideia de reunião → action = "pause".
+NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
     }
 
     // Get conversation history
@@ -159,14 +262,6 @@ INSTRUÇÕES PARA SLOTS PENDENTES:
       .eq("conversation_id", convId)
       .order("sent_at", { ascending: true })
       .limit(20);
-
-    // Find active enrollment for this lead
-    const { data: enrollment } = await supabase
-      .from("cadence_enrollments")
-      .select("id, cadence_id")
-      .eq("lead_id", leadData?.id)
-      .in("status", ["active", "paused"])
-      .maybeSingle();
 
     // Analyze with AI
     const systemPrompt = `Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
@@ -242,21 +337,62 @@ Analise e decida a ação.`,
       parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
     }
 
-    // Fallback: if AI says confirm_slot but no held slots exist, reclassify as reply
-    if (parsed.action === "confirm_slot" && heldSlots.length < 2) {
-      console.log("confirm_slot requested but no held slots found — falling back to reply");
-      parsed.action = "reply";
-      if (!parsed.reply_message) {
-        parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
+    // FIX: If AI says "schedule" but scheduling is already in progress, redirect to check_availability
+    if (parsed.action === "schedule" && schedulingInProgress) {
+      console.log("Schedule requested but scheduling already in progress — redirecting to check_availability");
+      parsed.action = "check_availability";
+      // Try to extract datetime from original message
+      if (!parsed.suggested_datetime) {
+        parsed.suggested_datetime = extractDateTimeFromText(content);
+        console.log("Extracted datetime from text:", parsed.suggested_datetime);
       }
     }
 
-    // Fallback: if AI says reject_slots/check_availability but no held slots
+    // FIX: Fallback datetime extraction for check_availability when AI didn't provide it
+    if (parsed.action === "check_availability" && !parsed.suggested_datetime) {
+      const extracted = extractDateTimeFromText(content);
+      if (extracted) {
+        console.log("AI didn't provide suggested_datetime, extracted from text:", extracted);
+        parsed.suggested_datetime = extracted;
+      } else {
+        console.log("check_availability but no datetime could be extracted — falling back to reply asking for specific time");
+        parsed.action = "reply";
+        parsed.reply_message = "Poderia me dizer o dia e horário exato de sua preferência? Assim consigo verificar a disponibilidade.";
+      }
+    }
+
+    // Fallback: if AI says confirm_slot but no held slots exist, reclassify as reply
+    if (parsed.action === "confirm_slot" && heldSlots.length < 2) {
+      console.log("confirm_slot requested but no held slots found — falling back to check_availability or reply");
+      // If scheduling is in progress and there's a datetime, try check_availability
+      if (schedulingInProgress) {
+        parsed.action = "check_availability";
+        if (!parsed.suggested_datetime) {
+          parsed.suggested_datetime = extractDateTimeFromText(content);
+        }
+        if (!parsed.suggested_datetime) {
+          parsed.action = "reply";
+          parsed.reply_message = "Os horários anteriores expiraram. Poderia me dizer sua disponibilidade para que eu verifique novos horários?";
+        }
+      } else {
+        parsed.action = "reply";
+        if (!parsed.reply_message) {
+          parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
+        }
+      }
+    }
+
+    // Fallback: if AI says reject_slots but no held slots
     if (parsed.action === "reject_slots" && heldSlots.length === 0) {
-      console.log(`${parsed.action} requested but no held slots found — falling back to reply`);
-      parsed.action = "reply";
-      if (!parsed.reply_message) {
-        parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
+      if (schedulingInProgress) {
+        // Treat as wanting new slots
+        console.log("reject_slots with no active slots but scheduling in progress — fetching new slots");
+      } else {
+        console.log(`reject_slots requested but no held slots found — falling back to reply`);
+        parsed.action = "reply";
+        if (!parsed.reply_message) {
+          parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
+        }
       }
     }
 
@@ -266,7 +402,7 @@ Analise e decida a ação.`,
     }
 
     // Execute action based on AI decision
-    if (parsed.action === "confirm_slot" && heldSlots.length >= 2) {
+    if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
       // Confirm the selected slot
       const slotIndex = (parsed.selected_slot || 1) - 1;
       const selectedHold = heldSlots[Math.min(slotIndex, heldSlots.length - 1)];
@@ -283,7 +419,6 @@ Analise e decida a ação.`,
 
         if (confirmRes.data?.success) {
           console.log("Booking confirmed successfully");
-          // Format confirmation date for reply
           const dt = new Date(selectedHold.slot_datetime);
           const formattedDate = dt.toLocaleDateString("pt-BR", {
             weekday: "long",
@@ -305,13 +440,12 @@ Analise e decida a ação.`,
         console.error("Error invoking calcom-confirm-booking:", e);
         parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
       }
-    } else if (parsed.action === "reject_slots" && heldSlots.length >= 1) {
+    } else if (parsed.action === "reject_slots") {
       // Cancel all held slots and offer new ones
       console.log(`Rejecting ${heldSlots.length} held slots for lead ${leadData?.id}`);
       const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
 
       for (const slot of heldSlots) {
-        // Cancel reservation on Cal.com
         if (slot.cal_booking_uid && CALCOM_API_KEY) {
           try {
             await fetch(`https://api.cal.com/v2/slots/reservations/${slot.cal_booking_uid}`, {
@@ -325,7 +459,6 @@ Analise e decida a ação.`,
             console.error("Error cancelling reservation:", e);
           }
         }
-        // Mark as cancelled in DB
         await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
       }
 
@@ -495,13 +628,14 @@ Analise e decida a ação.`,
             ? `Ótimo! Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para nossa conversa.`
             : "Ótimo! Me diga sua disponibilidade para a reunião que eu verifico os horários.";
         }
-      }
 
-      if (enrollment) {
-        await supabase
-          .from("cadence_enrollments")
-          .update({ status: "paused", paused_reason: "awaiting_slot_confirmation" } as any)
-          .eq("id", enrollment.id);
+        // FIX: Only pause enrollment inside the schedule block (not when action was overridden)
+        if (enrollment) {
+          await supabase
+            .from("cadence_enrollments")
+            .update({ status: "paused", paused_reason: "awaiting_slot_confirmation" } as any)
+            .eq("id", enrollment.id);
+        }
       }
 
       if (companyId && leadData) {
