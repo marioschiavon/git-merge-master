@@ -102,56 +102,7 @@ function extractDateTimeFromText(text: string): string | null {
   return null;
 }
 
-/**
- * Strip quoted email text from replies (Gmail, Outlook, generic ">").
- */
-function stripQuotedEmail(text: string): string {
-  // First: handle Gmail multi-line citations where "Em ...\n... escreveu:" spans multiple lines
-  const emIndex = text.search(/\r?\n\s*Em\s/im);
-  if (emIndex !== -1) {
-    const afterEm = text.substring(emIndex);
-    if (/escreveu\s*:/i.test(afterEm)) {
-      const cleaned = text.substring(0, emIndex).trim();
-      if (cleaned) return cleaned;
-    }
-  }
-
-  // Same for English "On ... wrote:"
-  const onIndex = text.search(/\r?\n\s*On\s/im);
-  if (onIndex !== -1) {
-    const afterOn = text.substring(onIndex);
-    if (/wrote\s*:/i.test(afterOn)) {
-      const cleaned = text.substring(0, onIndex).trim();
-      if (cleaned) return cleaned;
-    }
-  }
-
-  const patterns = [
-    /\r?\n\s*-{3,}Original Message-{3,}/im,
-    /\r?\n\s*_{10,}/im,
-    /\r?\n\s*From:\s+.+\r?\nSent:\s+/im,
-    /\r?\n\s*De:\s+.+\r?\nEnviado:\s+/im,
-  ];
-
-  let clean = text;
-  for (const p of patterns) {
-    const idx = clean.search(p);
-    if (idx !== -1) {
-      clean = clean.substring(0, idx).trim();
-      break;
-    }
-  }
-
-  // Remove trailing ">" quoted lines
-  const lines = clean.split(/\r?\n/);
-  const filtered: string[] = [];
-  for (const line of lines) {
-    if (/^\s*>/.test(line)) break;
-    filtered.push(line);
-  }
-
-  return filtered.join("\n").trim() || text.trim();
-}
+// stripQuotedEmail imported from _shared/strip-quoted-email.ts
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
