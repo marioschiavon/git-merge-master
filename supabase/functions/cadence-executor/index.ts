@@ -159,12 +159,10 @@ serve(async (req) => {
             });
           }
 
-          // Create conversation + message
-          let { data: conversation } = await supabase.from("conversations").select("id").eq("lead_id", lead.id).eq("cadence_enrollment_id", enrollment.id).maybeSingle();
-          if (!conversation) {
-            const { data: newConv } = await supabase.from("conversations").insert({ lead_id: lead.id, company_id: cadence.company_id, channel: currentStep.channel, cadence_enrollment_id: enrollment.id }).select().single();
-            conversation = newConv;
-          }
+          // Create or get conversation (reuses existing email conv if gmail-sync already created one)
+          const conversation = await findOrCreateConversation(
+            supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+          );
           if (conversation) {
             await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel } });
           }
