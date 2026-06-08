@@ -69,12 +69,12 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
   const { data: activities = [] } = useLeadActivities(lead?.id ?? null);
   const { data: insightData, isLoading: insightsLoading } = useLeadInsights(lead?.id ?? null);
   const analyzeWebsite = useAnalyzeWebsite();
+  const deleteLead = useDeleteLead();
 
   if (!lead) return null;
 
   const insights = insightData?.insights as any;
 
-  const deleteLead = useDeleteLead();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
