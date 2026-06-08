@@ -49,6 +49,7 @@ export default function Leads() {
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
   const isConnected = integration?.status === "active";
+  const deleteLead = useDeleteLead();
 
   const actionButtons = (
     <div className="flex gap-2">
