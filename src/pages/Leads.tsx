@@ -5,11 +5,22 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useLeads, useSyncLeads, useIntegration } from "@/hooks/usePipedrive";
+import { useLeads, useSyncLeads, useIntegration, useDeleteLead } from "@/hooks/usePipedrive";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
-import { RefreshCw, Target, Search, Plus, Upload } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2 } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -38,6 +49,7 @@ export default function Leads() {
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
   const isConnected = integration?.status === "active";
+  const deleteLead = useDeleteLead();
 
   const actionButtons = (
     <div className="flex gap-2">
@@ -141,18 +153,19 @@ export default function Leads() {
                 <TableHead>Website</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Origem</TableHead>
+                <TableHead className="w-12"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                 <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                 <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     Carregando...
                   </TableCell>
                 </TableRow>
               ) : leads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                     Nenhum lead encontrado.
                   </TableCell>
                 </TableRow>
@@ -179,6 +192,32 @@ export default function Leads() {
                       </Badge>
                     </TableCell>
                     <TableCell>{lead.source || "—"}</TableCell>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir lead">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              Isso removerá <strong>{lead.name}</strong>, suas inscrições em cadências, conversas, mensagens e histórico. Esta ação não pode ser desfeita.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                            <AlertDialogAction
+                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                              onClick={() => deleteLead.mutate(lead.id)}
+                            >
+                              Excluir
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </TableCell>
                   </TableRow>
                 ))
               )}

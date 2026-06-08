@@ -2,9 +2,20 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
-import { useLeadActivities } from "@/hooks/usePipedrive";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useLeadActivities, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
-import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2 } from "lucide-react";
+import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2 } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -58,20 +69,51 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
   const { data: activities = [] } = useLeadActivities(lead?.id ?? null);
   const { data: insightData, isLoading: insightsLoading } = useLeadInsights(lead?.id ?? null);
   const analyzeWebsite = useAnalyzeWebsite();
+  const deleteLead = useDeleteLead();
 
   if (!lead) return null;
 
   const insights = insightData?.insights as any;
 
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg overflow-y-auto">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            {lead.name}
-            <Badge className={statusColors[lead.status] || ""}>
-              {statusLabels[lead.status] || lead.status}
-            </Badge>
+          <SheetTitle className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              {lead.name}
+              <Badge className={statusColors[lead.status] || ""}>
+                {statusLabels[lead.status] || lead.status}
+              </Badge>
+            </span>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" title="Excluir lead">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Isso removerá <strong>{lead.name}</strong>, suas inscrições em cadências, conversas, mensagens e todo o histórico. Esta ação não pode ser desfeita.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={async () => {
+                      await deleteLead.mutateAsync(lead.id);
+                      onOpenChange(false);
+                    }}
+                  >
+                    Excluir
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </SheetTitle>
         </SheetHeader>
 
