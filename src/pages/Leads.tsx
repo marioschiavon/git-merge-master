@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLeads, useSyncLeads, useIntegration } from "@/hooks/usePipedrive";
 import { LeadDetail } from "@/components/LeadDetail";
-import { RefreshCw, Target, Search } from "lucide-react";
+import { LeadFormDialog } from "@/components/LeadFormDialog";
+import { LeadImportDialog } from "@/components/LeadImportDialog";
+import { RefreshCw, Target, Search, Plus, Upload } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -29,28 +31,64 @@ export default function Leads() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedLead, setSelectedLead] = useState<any>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const { data: leads = [], isLoading } = useLeads({ status: statusFilter, search });
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
   const isConnected = integration?.status === "active";
 
-  if (!isConnected && leads.length === 0) {
+  const actionButtons = (
+    <div className="flex gap-2">
+      <Button variant="outline" onClick={() => setImportOpen(true)}>
+        <Upload className="mr-2 h-4 w-4" /> Importar CSV
+      </Button>
+      <Button onClick={() => setCreateOpen(true)}>
+        <Plus className="mr-2 h-4 w-4" /> Novo Lead
+      </Button>
+      {isConnected && (
+        <Button
+          variant="outline"
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+        >
+          <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+          {syncMutation.isPending ? "Sincronizando..." : "Sincronizar"}
+        </Button>
+      )}
+    </div>
+  );
+
+  if (!isConnected && leads.length === 0 && !search && statusFilter === "all") {
     return (
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
-          <p className="text-muted-foreground">Gerencie seus leads importados do Pipedrive</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
+            <p className="text-muted-foreground">Gerencie seus leads</p>
+          </div>
+          {actionButtons}
         </div>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Target className="mb-4 h-12 w-12 text-muted-foreground" />
-            <h3 className="text-lg font-medium">Nenhum lead importado</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Conecte seu Pipedrive em Configurações → Integrações para importar leads.
+            <h3 className="text-lg font-medium">Nenhum lead ainda</h3>
+            <p className="mt-1 text-sm text-muted-foreground text-center max-w-md">
+              Cadastre um lead manualmente, importe uma lista via CSV ou conecte seu Pipedrive em Configurações → Integrações.
             </p>
+            <div className="mt-4 flex gap-2">
+              <Button variant="outline" onClick={() => setImportOpen(true)}>
+                <Upload className="mr-2 h-4 w-4" /> Importar CSV
+              </Button>
+              <Button onClick={() => setCreateOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" /> Novo Lead
+              </Button>
+            </div>
           </CardContent>
         </Card>
+        <LeadFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+        <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
       </div>
     );
   }
@@ -62,16 +100,7 @@ export default function Leads() {
           <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
           <p className="text-muted-foreground">{leads.length} leads encontrados</p>
         </div>
-        {isConnected && (
-          <Button
-            variant="outline"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-            {syncMutation.isPending ? "Sincronizando..." : "Sincronizar"}
-          </Button>
-        )}
+        {actionButtons}
       </div>
 
       {/* Filters */}
@@ -163,6 +192,8 @@ export default function Leads() {
         open={!!selectedLead}
         onOpenChange={(open) => !open && setSelectedLead(null)}
       />
+      <LeadFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }

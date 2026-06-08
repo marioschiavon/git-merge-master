@@ -154,3 +154,95 @@ export function useSyncLeads() {
     },
   });
 }
+
+export type LeadInput = {
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  company_name?: string | null;
+  title?: string | null;
+  website?: string | null;
+  address?: string | null;
+  status?: LeadStatus;
+  source?: string | null;
+};
+
+export function useCreateLead() {
+  const queryClient = useQueryClient();
+  const { companyId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (input: LeadInput) => {
+      if (!companyId) throw new Error("Empresa não identificada");
+      const { data, error } = await supabase
+        .from("leads")
+        .insert({
+          company_id: companyId,
+          name: input.name,
+          email: input.email || null,
+          phone: input.phone || null,
+          company_name: input.company_name || null,
+          title: input.title || null,
+          website: input.website || null,
+          address: input.address || null,
+          status: (input.status || "new") as LeadStatus,
+          source: input.source || "manual",
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast({ title: "Lead cadastrado!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao cadastrar lead", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
+export function useImportLeads() {
+  const queryClient = useQueryClient();
+  const { companyId } = useAuth();
+
+  return useMutation({
+    mutationFn: async (leads: LeadInput[]) => {
+      if (!companyId) throw new Error("Empresa não identificada");
+      if (leads.length === 0) throw new Error("Nenhum lead para importar");
+
+      const rows = leads.map((l) => ({
+        company_id: companyId,
+        name: l.name,
+        email: l.email || null,
+        phone: l.phone || null,
+        company_name: l.company_name || null,
+        title: l.title || null,
+        website: l.website || null,
+        address: l.address || null,
+        status: (l.status || "new") as LeadStatus,
+        source: l.source || "csv_import",
+      }));
+
+      // Insert in chunks of 500
+      let inserted = 0;
+      for (let i = 0; i < rows.length; i += 500) {
+        const chunk = rows.slice(i, i + 500);
+        const { error, count } = await supabase
+          .from("leads")
+          .insert(chunk, { count: "exact" });
+        if (error) throw error;
+        inserted += count || chunk.length;
+      }
+      return { inserted };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast({ title: "Importação concluída!", description: `${data.inserted} leads importados.` });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao importar", description: error.message, variant: "destructive" });
+    },
+  });
+}
