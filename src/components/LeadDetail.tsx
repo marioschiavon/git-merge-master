@@ -209,7 +209,36 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
             </div>
           </div>
 
+          {(lead.referral_role || lead.referral_source_lead_id || lead.referral_stage) && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Indicação</h3>
+                {lead.referral_stage && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Estágio: </span>
+                    <span className="font-medium">{referralStageLabels[lead.referral_stage] || lead.referral_stage}</span>
+                  </div>
+                )}
+                {lead.referral_source_lead_id && (
+                  <div className="text-sm text-muted-foreground">
+                    Indicado por outro lead da mesma empresa.
+                  </div>
+                )}
+                {lead.referral_context && (
+                  <p className="text-sm italic text-muted-foreground">"{lead.referral_context}"</p>
+                )}
+                {lead.referral_permission_to_mention !== null && lead.referral_permission_to_mention !== undefined && (
+                  <div className="text-xs text-muted-foreground">
+                    Permissão para citar indicador: {lead.referral_permission_to_mention ? "Sim" : "Não"}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           <Separator />
+
 
           {/* Insights Section */}
           <div>
