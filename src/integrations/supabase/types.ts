@@ -565,6 +565,36 @@ export type Database = {
           },
         ]
       }
+      gmail_account: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          is_active: boolean
+          last_history_id: string | null
+          last_synced_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          is_active?: boolean
+          last_history_id?: string | null
+          last_synced_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          is_active?: boolean
+          last_history_id?: string | null
+          last_synced_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       integrations: {
         Row: {
           api_domain: string | null
@@ -776,8 +806,11 @@ export type Database = {
           content: string
           conversation_id: string
           direction: string
+          gmail_message_id: string | null
+          gmail_thread_id: string | null
           id: string
           metadata: Json | null
+          rfc_message_id: string | null
           sent_at: string
         }
         Insert: {
@@ -785,8 +818,11 @@ export type Database = {
           content?: string
           conversation_id: string
           direction?: string
+          gmail_message_id?: string | null
+          gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
+          rfc_message_id?: string | null
           sent_at?: string
         }
         Update: {
@@ -794,8 +830,11 @@ export type Database = {
           content?: string
           conversation_id?: string
           direction?: string
+          gmail_message_id?: string | null
+          gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
+          rfc_message_id?: string | null
           sent_at?: string
         }
         Relationships: [
@@ -1087,7 +1126,7 @@ export type Database = {
         | "replied"
         | "bounced"
         | "paused"
-      integration_provider: "pipedrive"
+      integration_provider: "pipedrive" | "gmail"
       lead_status:
         | "new"
         | "contacted"
@@ -1240,7 +1279,7 @@ export const Constants = {
         "bounced",
         "paused",
       ],
-      integration_provider: ["pipedrive"],
+      integration_provider: ["pipedrive", "gmail"],
       lead_status: [
         "new",
         "contacted",
