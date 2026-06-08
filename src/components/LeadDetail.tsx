@@ -99,11 +99,20 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
       <SheetContent className="sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-2 flex-wrap">
               {lead.name}
               <Badge className={statusColors[lead.status] || ""}>
                 {statusLabels[lead.status] || lead.status}
               </Badge>
+              {lead.referral_role === "indicador" && (
+                <Badge variant="outline" className="border-amber-300 text-amber-800">Indicador</Badge>
+              )}
+              {lead.referral_role === "gatekeeper" && (
+                <Badge variant="outline" className="border-slate-300 text-slate-700">Gatekeeper</Badge>
+              )}
+              {lead.referral_role === "decisor" && (
+                <Badge variant="outline" className="border-emerald-300 text-emerald-800">Indicado</Badge>
+              )}
             </span>
             <AlertDialog>
               <AlertDialogTrigger asChild>
