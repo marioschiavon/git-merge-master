@@ -192,6 +192,8 @@ export default function Leads() {
         open={!!selectedLead}
         onOpenChange={(open) => !open && setSelectedLead(null)}
       />
+      <LeadFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
