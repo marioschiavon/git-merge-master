@@ -8,6 +8,44 @@ const corsHeaders = {
 
 const TWILIO_GATEWAY_URL = "https://connector-gateway.lovable.dev/twilio";
 
+// Find or create a conversation for (lead, channel), reusing any existing conv
+// for the same (lead, channel) and attaching the enrollment if it's still null.
+// Prevents duplicate convs when gmail-sync-inbox creates one before this runs.
+async function findOrCreateConversation(
+  supabase: any,
+  leadId: string,
+  companyId: string,
+  channel: string,
+  enrollmentId: string,
+): Promise<{ id: string } | null> {
+  // 1. Exact match by enrollment
+  const { data: byEnroll } = await supabase
+    .from("conversations").select("id")
+    .eq("lead_id", leadId).eq("cadence_enrollment_id", enrollmentId).maybeSingle();
+  if (byEnroll) return byEnroll;
+
+  // 2. Reuse any existing conv for same lead+channel (e.g. created by gmail-sync)
+  const { data: byChannel } = await supabase
+    .from("conversations").select("id, cadence_enrollment_id")
+    .eq("lead_id", leadId).eq("channel", channel)
+    .order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (byChannel) {
+    if (!byChannel.cadence_enrollment_id) {
+      await supabase.from("conversations")
+        .update({ cadence_enrollment_id: enrollmentId })
+        .eq("id", byChannel.id);
+    }
+    return { id: byChannel.id };
+  }
+
+  // 3. Create new
+  const { data: newConv } = await supabase
+    .from("conversations")
+    .insert({ lead_id: leadId, company_id: companyId, channel, cadence_enrollment_id: enrollmentId })
+    .select("id").single();
+  return newConv || null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
