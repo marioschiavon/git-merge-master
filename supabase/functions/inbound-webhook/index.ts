@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { stripQuotedEmail } from "../_shared/strip-quoted-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -101,56 +102,7 @@ function extractDateTimeFromText(text: string): string | null {
   return null;
 }
 
-/**
- * Strip quoted email text from replies (Gmail, Outlook, generic ">").
- */
-function stripQuotedEmail(text: string): string {
-  // First: handle Gmail multi-line citations where "Em ...\n... escreveu:" spans multiple lines
-  const emIndex = text.search(/\r?\n\s*Em\s/im);
-  if (emIndex !== -1) {
-    const afterEm = text.substring(emIndex);
-    if (/escreveu\s*:/i.test(afterEm)) {
-      const cleaned = text.substring(0, emIndex).trim();
-      if (cleaned) return cleaned;
-    }
-  }
-
-  // Same for English "On ... wrote:"
-  const onIndex = text.search(/\r?\n\s*On\s/im);
-  if (onIndex !== -1) {
-    const afterOn = text.substring(onIndex);
-    if (/wrote\s*:/i.test(afterOn)) {
-      const cleaned = text.substring(0, onIndex).trim();
-      if (cleaned) return cleaned;
-    }
-  }
-
-  const patterns = [
-    /\r?\n\s*-{3,}Original Message-{3,}/im,
-    /\r?\n\s*_{10,}/im,
-    /\r?\n\s*From:\s+.+\r?\nSent:\s+/im,
-    /\r?\n\s*De:\s+.+\r?\nEnviado:\s+/im,
-  ];
-
-  let clean = text;
-  for (const p of patterns) {
-    const idx = clean.search(p);
-    if (idx !== -1) {
-      clean = clean.substring(0, idx).trim();
-      break;
-    }
-  }
-
-  // Remove trailing ">" quoted lines
-  const lines = clean.split(/\r?\n/);
-  const filtered: string[] = [];
-  for (const line of lines) {
-    if (/^\s*>/.test(line)) break;
-    filtered.push(line);
-  }
-
-  return filtered.join("\n").trim() || text.trim();
-}
+// stripQuotedEmail imported from _shared/strip-quoted-email.ts
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -176,7 +128,7 @@ serve(async (req) => {
       body = await req.json();
     }
 
-    const { from, content, channel, conversation_id, lead_id } = body;
+    const { from, content, channel, conversation_id, lead_id, skip_insert } = body;
 
     if (!content) {
       return new Response(JSON.stringify({ error: "content é obrigatório" }), {
@@ -227,15 +179,17 @@ serve(async (req) => {
 
     // FIX: Strip quoted email content before saving
     const cleanContent = stripQuotedEmail(content);
-    console.log("Original content length:", content.length, "Clean content length:", cleanContent.length);
+    console.log("Original content length:", content.length, "Clean content length:", cleanContent.length, "skip_insert:", !!skip_insert);
 
-    // Save inbound message (with clean content)
-    await supabase.from("messages").insert({
-      conversation_id: convId,
-      content: cleanContent,
-      direction: "inbound",
-      ai_suggested: false,
-    });
+    // Save inbound message (with clean content) — pulado quando a mensagem já foi inserida pelo caller (ex: gmail-sync-inbox)
+    if (!skip_insert) {
+      await supabase.from("messages").insert({
+        conversation_id: convId,
+        content: cleanContent,
+        direction: "inbound",
+        ai_suggested: false,
+      });
+    }
 
     // FIX: Read enrollment state BEFORE overwriting paused_reason
     let originalPausedReason: string | null = null;
