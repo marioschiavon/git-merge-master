@@ -128,7 +128,7 @@ serve(async (req) => {
       body = await req.json();
     }
 
-    const { from, content, channel, conversation_id, lead_id } = body;
+    const { from, content, channel, conversation_id, lead_id, skip_insert } = body;
 
     if (!content) {
       return new Response(JSON.stringify({ error: "content é obrigatório" }), {
@@ -179,15 +179,17 @@ serve(async (req) => {
 
     // FIX: Strip quoted email content before saving
     const cleanContent = stripQuotedEmail(content);
-    console.log("Original content length:", content.length, "Clean content length:", cleanContent.length);
+    console.log("Original content length:", content.length, "Clean content length:", cleanContent.length, "skip_insert:", !!skip_insert);
 
-    // Save inbound message (with clean content)
-    await supabase.from("messages").insert({
-      conversation_id: convId,
-      content: cleanContent,
-      direction: "inbound",
-      ai_suggested: false,
-    });
+    // Save inbound message (with clean content) — pulado quando a mensagem já foi inserida pelo caller (ex: gmail-sync-inbox)
+    if (!skip_insert) {
+      await supabase.from("messages").insert({
+        conversation_id: convId,
+        content: cleanContent,
+        direction: "inbound",
+        ai_suggested: false,
+      });
+    }
 
     // FIX: Read enrollment state BEFORE overwriting paused_reason
     let originalPausedReason: string | null = null;
