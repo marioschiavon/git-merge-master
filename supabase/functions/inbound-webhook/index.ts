@@ -1108,7 +1108,7 @@ Analise a última mensagem e decida a ação.`,
         lead_id: leadData.id,
         type: "referral",
         description: `Indicação detectada (${subtype})${ref.referred_name ? ` → ${ref.referred_name}` : ""}`,
-        metadata: { referral: ref, reasoning: parsed.reasoning },
+        metadata: { referral: ref, reasoning: parsed.reasoning, playbook: parsed.playbook || "neutro" },
       });
 
       // with_contact: create new lead + conversation + 1st outreach
