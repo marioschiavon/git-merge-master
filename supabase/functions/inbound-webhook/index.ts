@@ -418,8 +418,10 @@ Responda APENAS com JSON:
   "selected_slot": null,
   "suggested_datetime": null,
   "reasoning": "explicação breve",
+  "used_facts": ["lista de trechos da BASE DE CONHECIMENTO que embasaram a resposta (vazio se não usou nada da base)"],
   "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
 }${slotContext}`;
+
 
     const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
