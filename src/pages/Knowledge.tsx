@@ -15,6 +15,8 @@ import {
   useUploadKnowledgeDoc,
   useHighlights,
   useSaveHighlights,
+  useAiInstructions,
+  useSaveAiInstructions,
 } from "@/hooks/useKnowledge";
 import {
   BookOpen,
@@ -27,6 +29,7 @@ import {
   Save,
   Pencil,
   Star,
+  Sparkles,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
@@ -50,15 +53,25 @@ export default function Knowledge() {
   const uploadDoc = useUploadKnowledgeDoc();
   const { data: highlightsItem } = useHighlights();
   const saveHighlights = useSaveHighlights();
+  const { data: aiInstructionsItem } = useAiInstructions();
+  const saveAiInstructions = useSaveAiInstructions();
 
   // Highlights state
   const [highlightsText, setHighlightsText] = useState("");
   const [highlightsLoaded, setHighlightsLoaded] = useState(false);
 
+  // AI Instructions state
+  const [aiInstructionsText, setAiInstructionsText] = useState("");
+  const [aiInstructionsLoaded, setAiInstructionsLoaded] = useState(false);
+
   // Load highlights when data arrives
   if (highlightsItem && !highlightsLoaded) {
     setHighlightsText(highlightsItem.content || "");
     setHighlightsLoaded(true);
+  }
+  if (aiInstructionsItem && !aiInstructionsLoaded) {
+    setAiInstructionsText(aiInstructionsItem.content || "");
+    setAiInstructionsLoaded(true);
   }
 
   // Text form
@@ -125,7 +138,7 @@ export default function Knowledge() {
     setEditingId(null);
   };
 
-  const nonHighlightItems = items.filter((i: any) => i.type !== "highlights");
+  const nonHighlightItems = items.filter((i: any) => i.type !== "highlights" && i.type !== "ai_instructions");
   const textItems = nonHighlightItems.filter((i: any) => i.type === "text");
   const docItems = nonHighlightItems.filter((i: any) => i.type === "document");
   const urlItems = nonHighlightItems.filter((i: any) => i.type === "url");
@@ -137,6 +150,13 @@ export default function Knowledge() {
     });
   };
 
+  const handleSaveAiInstructions = async () => {
+    await saveAiInstructions.mutateAsync({
+      content: aiInstructionsText,
+      existingId: aiInstructionsItem?.id,
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -145,6 +165,46 @@ export default function Knowledge() {
           Treine a IA com informações do seu produto para gerar mensagens personalizadas
         </p>
       </div>
+
+      {/* AI Instructions Card */}
+      <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            Instruções de Abordagem da IA
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Diga em linguagem natural como a IA deve se posicionar, quando criar ganchos com o
+            prospect, qual tom usar e o que NUNCA fazer. Use isso para evitar conexões sem sentido
+            (ex: ligar shampoo a problema de articulação).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder={`Ex:
+- Vendemos shampoo profissional para cabelo cacheado. Só faça gancho quando o prospect for salão de beleza, distribuidora de cosméticos ou e-commerce do segmento.
+- NUNCA conecte nosso produto a problemas que não sejam de cuidado capilar.
+- Se o site do prospect não tiver relação com beleza/cosmético, NÃO force gancho — faça uma abordagem neutra de apresentação e pergunte se faz sentido conversar.
+- Tom: brasileiro, descontraído, próximo. Pode usar 1 emoji discreto no WhatsApp.
+- Sempre se referir ao produto como "nossa linha", nunca "shampoo X".`}
+            value={aiInstructionsText}
+            onChange={(e) => setAiInstructionsText(e.target.value)}
+            rows={8}
+          />
+          <Button
+            onClick={handleSaveAiInstructions}
+            disabled={saveAiInstructions.isPending}
+            size="sm"
+          >
+            {saveAiInstructions.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Salvar Instruções
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Highlights Card */}
       <Card className="border-primary/20 bg-primary/5">

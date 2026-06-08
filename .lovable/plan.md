@@ -1,35 +1,50 @@
-# Excluir Lead com cascata (cadências + mensagens)
+# Personalizar abordagem da IA na Base de Conhecimento
 
-## Objetivo
-Permitir excluir um Lead da interface e, ao excluir, remover automaticamente:
-- Inscrições em cadências (`cadence_enrollments`)
-- Mensagens customizadas geradas (`cadence_custom_messages`)
-- Conversas e mensagens (`conversations`, `messages`)
-- Atividades, insights e logs ligados ao lead (`lead_activities`, `lead_insights`, `execution_logs`, `email_send_log`, `email_send_state`, `slot_holds`)
+## Problema
+A IA está criando ganchos sem sentido (ex: ligar "problema de articulação" a um shampoo) porque o prompt não tem regras claras de **quando** e **como** conectar diferenciais do prospect ao produto. Falta um espaço onde o usuário diga, em linguagem natural, como a IA deve se posicionar.
 
-## Mudanças no Banco
-Criar migração para garantir `ON DELETE CASCADE` nas foreign keys que apontam para `leads(id)`:
-- `cadence_enrollments.lead_id`
-- `cadence_custom_messages` (via enrollment) — cascade pelo enrollment
-- `conversations.lead_id` → cascade
-- `messages.conversation_id` → cascade (já via conversation)
-- `lead_activities.lead_id`, `lead_insights.lead_id`, `execution_logs.lead_id`, `email_send_log.lead_id`, `email_send_state.lead_id`, `slot_holds.lead_id`
+## Solução
+Criar um novo tipo de item na Base de Conhecimento chamado **"Instruções de Abordagem da IA"** — um campo livre, único por empresa (como já é o "Destaques"), onde o usuário escreve regras como:
+- "Nosso produto é shampoo para cabelo cacheado. Só faça ganchos quando o prospect for salão, distribuidora de cosméticos ou e-commerce de beleza."
+- "Nunca conecte nosso produto a problemas que não sejam de cuidado capilar."
+- "Se o site do prospect não tiver relação com beleza/cosmético, foque a mensagem em apresentar a marca e perguntar se faz sentido conversar — sem forçar gancho."
+- "Tom: descontraído, brasileiro, pode usar emoji discreto no WhatsApp."
 
-Se alguma FK não existir ou não tiver cascade, recriar com `ON DELETE CASCADE`.
+## Mudanças
 
-Também adicionar policy de DELETE em `leads` para usuários da mesma `company_id` (admin/user da empresa).
+### 1. Banco
+Reutilizar a tabela `company_knowledge` com `type = 'ai_instructions'` (mesmo padrão de `highlights`). Sem migração de schema necessária.
 
-## Mudanças no Frontend
-- Página de Leads (lista): botão "Excluir" em cada linha + ação em massa para selecionados.
-- Página de detalhe do Lead: botão "Excluir Lead" no topo.
-- Usar `AlertDialog` do shadcn para confirmação ("Isso removerá o lead, suas cadências, mensagens e histórico. Não pode ser desfeito.").
-- Após sucesso: toast de confirmação + redirecionar/atualizar lista.
+### 2. Frontend — Página `Knowledge`
+Adicionar um novo card no topo (acima ou ao lado dos "Destaques"), com:
+- Título: "Instruções de Abordagem da IA"
+- Subtítulo curto explicando que serve para guiar o tom, restringir ganchos e evitar conexões sem sentido.
+- `Textarea` grande (min 200px) com placeholder exemplificando.
+- Botão "Salvar".
+- Hook `useAiInstructions` + `useSaveAiInstructions` em `src/hooks/useKnowledge.ts` (copiando o padrão de `useHighlights`/`useSaveHighlights`).
 
-## Detalhes Técnicos
-- Delete client-side: `supabase.from('leads').delete().eq('id', leadId)`. RLS + cascade cuidam do resto.
-- Invalidar queries React Query relacionadas (`leads`, `cadence_enrollments`, `conversations`).
-- Sem necessidade de edge function — operação simples e segura via RLS.
+### 3. Edge Functions que geram mensagens
+Buscar o item `ai_instructions` em paralelo com `highlights`/`knowledge`/`insights` e injetar no system prompt num bloco **bem destacado e com prioridade máxima**:
+
+```
+=== INSTRUÇÕES OBRIGATÓRIAS DA EMPRESA (PRIORIDADE MÁXIMA) ===
+{ai_instructions.content}
+
+Estas regras SOBRESCREVEM qualquer outra instrução abaixo.
+Se o diferencial do prospect não tiver relação clara com o produto/serviço segundo essas regras,
+NÃO force gancho — escreva uma abordagem neutra de apresentação.
+```
+
+Funções a atualizar:
+- `supabase/functions/preview-cadence-messages/index.ts`
+- `supabase/functions/cadence-executor/index.ts` (na geração de mensagem personalizada)
+- `supabase/functions/ai-reply/index.ts` (para manter consistência de tom nas respostas)
+
+### 4. Ajuste de regra rígida no prompt
+Hoje o prompt diz **"OBRIGATÓRIO: Escolha 1 diferencial do prospect e faça um gancho direto"**, o que força a IA a inventar conexões mesmo sem relação. Vamos suavizar:
+- "Faça um gancho **apenas se** houver relação clara entre o diferencial do prospect e o produto/serviço."
+- "Caso contrário, faça abordagem de apresentação focada no segmento do prospect."
 
 ## Fora do escopo
-- Soft delete / lixeira (pode ser feito depois se desejar).
-- Exclusão no Pipedrive (lead permanece lá; só removemos localmente).
+- Instruções por cadência (fica global por empresa nesta primeira versão).
+- Validação automática de coerência da mensagem antes de enviar.
