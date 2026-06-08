@@ -7,7 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLeads, useSyncLeads, useIntegration } from "@/hooks/usePipedrive";
 import { LeadDetail } from "@/components/LeadDetail";
-import { RefreshCw, Target, Search } from "lucide-react";
+import { LeadFormDialog } from "@/components/LeadFormDialog";
+import { LeadImportDialog } from "@/components/LeadImportDialog";
+import { RefreshCw, Target, Search, Plus, Upload } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
