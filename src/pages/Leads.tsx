@@ -100,16 +100,7 @@ export default function Leads() {
           <h1 className="text-2xl font-semibold text-foreground">Leads</h1>
           <p className="text-muted-foreground">{leads.length} leads encontrados</p>
         </div>
-        {isConnected && (
-          <Button
-            variant="outline"
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-          >
-            <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
-            {syncMutation.isPending ? "Sincronizando..." : "Sincronizar"}
-          </Button>
-        )}
+        {actionButtons}
       </div>
 
       {/* Filters */}
