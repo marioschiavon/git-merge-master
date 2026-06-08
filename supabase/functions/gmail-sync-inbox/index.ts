@@ -225,11 +225,12 @@ Deno.serve(async (req) => {
       if (!conversationId) { skipped++; continue; }
       matched++;
 
-      const body = extractBody(msg.payload) || msg.snippet || "";
+      const rawBody = extractBody(msg.payload) || msg.snippet || "";
+      const cleanBody = stripQuotedEmail(rawBody).substring(0, 10000);
 
       await supabase.from("messages").insert({
         conversation_id: conversationId,
-        content: body.substring(0, 10000),
+        content: cleanBody,
         direction: "inbound",
         ai_suggested: false,
         gmail_message_id: mid,
@@ -244,6 +245,22 @@ Deno.serve(async (req) => {
           description: `📨 Resposta recebida: ${subject}`,
           metadata: { gmail_message_id: mid, from: fromEmail },
         });
+      }
+
+      // Dispara o pipeline de IA (análise, reply, agendamento, pausar cadência)
+      // skip_insert=true porque a mensagem já foi gravada acima com metadata do Gmail.
+      try {
+        const { error: aiErr } = await supabase.functions.invoke("inbound-webhook", {
+          body: {
+            conversation_id: conversationId,
+            content: cleanBody,
+            channel: "email",
+            skip_insert: true,
+          },
+        });
+        if (aiErr) console.error(`inbound-webhook invoke error for msg ${mid}:`, aiErr);
+      } catch (err) {
+        console.error(`inbound-webhook invoke threw for msg ${mid}:`, err);
       }
 
       // Mark as read in Gmail
