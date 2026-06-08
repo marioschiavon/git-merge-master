@@ -1002,6 +1002,71 @@ Analise a última mensagem e decida a ação.`,
         .from("cadence_enrollments")
         .update({ status: "paused" })
         .eq("id", enrollment.id);
+    } else if (parsed.action === "request_call" && leadData && companyId) {
+      // Prospect asked to be called. Pause cadence, log a 'call' task with metadata for human/voice agent.
+      console.log(`Call requested for lead ${leadData.id}`);
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "call_requested" } as any)
+          .eq("id", enrollment.id);
+      }
+      const callPhone = parsed.call_phone || leadData.phone || null;
+      const callWindow = parsed.call_window || null;
+      await supabase
+        .from("leads")
+        .update({ call_requested_at: new Date().toISOString() } as any)
+        .eq("id", leadData.id);
+      await supabase.from("lead_activities").insert({
+        company_id: companyId,
+        lead_id: leadData.id,
+        type: "call",
+        description: `📞 Pedido de ligação${callWindow ? ` (${callWindow})` : ""}${callPhone ? ` — ${callPhone}` : ""}`,
+        metadata: {
+          task_type: "call",
+          status: "pending",
+          phone: callPhone,
+          preferred_window: callWindow,
+          source_message: cleanContent.substring(0, 300),
+        },
+      });
+      if (!parsed.reply_message) {
+        parsed.reply_message = callWindow
+          ? `Combinado! Vou agendar a ligação ${callWindow}${callPhone ? ` no ${callPhone}` : ""}. Se precisar ajustar, é só me avisar.`
+          : `Perfeito! Vou pedir para nosso time te ligar${callPhone ? ` no ${callPhone}` : ""}. Tem alguma janela de horário que prefere?`;
+      }
+    } else if (parsed.action === "handoff" && leadData && companyId) {
+      // Human handoff: pause cadence, flag lead, log activity. Keep reply short and honest.
+      console.log(`Handoff requested for lead ${leadData.id}: ${parsed.handoff_reason}`);
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "handoff_required" } as any)
+          .eq("id", enrollment.id);
+      }
+      await supabase
+        .from("leads")
+        .update({
+          handoff_required: true,
+          handoff_reason: parsed.handoff_reason || "Pergunta fora da base de conhecimento",
+          handoff_at: new Date().toISOString(),
+        } as any)
+        .eq("id", leadData.id);
+      await supabase.from("lead_activities").insert({
+        company_id: companyId,
+        lead_id: leadData.id,
+        type: "note",
+        description: `🚨 Handoff humano necessário: ${parsed.handoff_reason || "tema fora da base"}`,
+        metadata: {
+          handoff: true,
+          reason: parsed.handoff_reason,
+          source_message: cleanContent.substring(0, 300),
+          reasoning: parsed.reasoning,
+        },
+      });
+      if (!parsed.reply_message) {
+        parsed.reply_message = "Ótima pergunta! Vou passar para um especialista do nosso time, que retorna em breve com a resposta correta. Obrigado pela paciência!";
+      }
     } else if (parsed.action === "referral" && leadData && companyId) {
       const ref = parsed.referral || {};
       const subtype: string = ref.subtype || "wrong_person";
