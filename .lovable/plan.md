@@ -1,50 +1,42 @@
-# Personalizar abordagem da IA na Base de Conhecimento
-
 ## Problema
-A IA está criando ganchos sem sentido (ex: ligar "problema de articulação" a um shampoo) porque o prompt não tem regras claras de **quando** e **como** conectar diferenciais do prospect ao produto. Falta um espaço onde o usuário diga, em linguagem natural, como a IA deve se posicionar.
+
+Dois bugs no fluxo de respostas recebidas por **Gmail Sync** (`gmail-sync-inbox`):
+
+1. **Texto citado não é removido** — a mensagem é salva com o histórico completo (`> Prezado(a) Juliano...` etc), poluindo a conversa.
+2. **IA não responde** — `gmail-sync-inbox` só insere a mensagem em `messages` e nunca invoca `inbound-webhook`, que é quem roda a análise da IA, agenda, pausa cadência, etc.
+
+(O fluxo via `inbound-email-webhook` — webhook direto Mailgun — já faz strip + invoca `inbound-webhook`. O problema é só no caminho Gmail.)
 
 ## Solução
-Criar um novo tipo de item na Base de Conhecimento chamado **"Instruções de Abordagem da IA"** — um campo livre, único por empresa (como já é o "Destaques"), onde o usuário escreve regras como:
-- "Nosso produto é shampoo para cabelo cacheado. Só faça ganchos quando o prospect for salão, distribuidora de cosméticos ou e-commerce de beleza."
-- "Nunca conecte nosso produto a problemas que não sejam de cuidado capilar."
-- "Se o site do prospect não tiver relação com beleza/cosmético, foque a mensagem em apresentar a marca e perguntar se faz sentido conversar — sem forçar gancho."
-- "Tom: descontraído, brasileiro, pode usar emoji discreto no WhatsApp."
 
-## Mudanças
+### 1. Compartilhar a função de strip
 
-### 1. Banco
-Reutilizar a tabela `company_knowledge` com `type = 'ai_instructions'` (mesmo padrão de `highlights`). Sem migração de schema necessária.
+Extrair `stripQuotedEmail` (hoje duplicada em `inbound-webhook` e `inbound-email-webhook`) para `supabase/functions/_shared/strip-quoted-email.ts` e importar nos 3 lugares (inclusive no novo uso em `gmail-sync-inbox`).
 
-### 2. Frontend — Página `Knowledge`
-Adicionar um novo card no topo (acima ou ao lado dos "Destaques"), com:
-- Título: "Instruções de Abordagem da IA"
-- Subtítulo curto explicando que serve para guiar o tom, restringir ganchos e evitar conexões sem sentido.
-- `Textarea` grande (min 200px) com placeholder exemplificando.
-- Botão "Salvar".
-- Hook `useAiInstructions` + `useSaveAiInstructions` em `src/hooks/useKnowledge.ts` (copiando o padrão de `useHighlights`/`useSaveHighlights`).
+### 2. `gmail-sync-inbox`
 
-### 3. Edge Functions que geram mensagens
-Buscar o item `ai_instructions` em paralelo com `highlights`/`knowledge`/`insights` e injetar no system prompt num bloco **bem destacado e com prioridade máxima**:
+Após extrair `body`:
+- Aplicar `stripQuotedEmail(body)` antes de salvar.
+- Salvar a mensagem como já faz (mantendo `gmail_message_id`, `gmail_thread_id`, `rfc_message_id`, metadata).
+- Em seguida, invocar `inbound-webhook` passando `{ conversation_id, content: cleanBody, channel: "email", skip_insert: true }` para acionar análise da IA, gestão de slots e cadência — **sem** duplicar a inserção.
 
-```
-=== INSTRUÇÕES OBRIGATÓRIAS DA EMPRESA (PRIORIDADE MÁXIMA) ===
-{ai_instructions.content}
+### 3. `inbound-webhook`
 
-Estas regras SOBRESCREVEM qualquer outra instrução abaixo.
-Se o diferencial do prospect não tiver relação clara com o produto/serviço segundo essas regras,
-NÃO force gancho — escreva uma abordagem neutra de apresentação.
-```
+Adicionar suporte ao parâmetro `skip_insert`: quando `true`, pula apenas o `insert` em `messages` (a mensagem já está salva pelo gmail-sync com metadata correta) e segue normalmente com o restante do fluxo (pausa enrollment, análise IA, reply, schedule, etc).
 
-Funções a atualizar:
-- `supabase/functions/preview-cadence-messages/index.ts`
-- `supabase/functions/cadence-executor/index.ts` (na geração de mensagem personalizada)
-- `supabase/functions/ai-reply/index.ts` (para manter consistência de tom nas respostas)
+### 4. Reforçar o strip
 
-### 4. Ajuste de regra rígida no prompt
-Hoje o prompt diz **"OBRIGATÓRIO: Escolha 1 diferencial do prospect e faça um gancho direto"**, o que força a IA a inventar conexões mesmo sem relação. Vamos suavizar:
-- "Faça um gancho **apenas se** houver relação clara entre o diferencial do prospect e o produto/serviço."
-- "Caso contrário, faça abordagem de apresentação focada no segmento do prospect."
+O padrão atual procura `\n\s*Em\s...escreveu:` mas o texto vindo do Gmail às vezes tem a citação começando na primeira linha após uma linha em branco que pode estar ausente. Ajustar a regex para também aceitar `Em ... escreveu:` no início de linha sem newline anterior obrigatório (usar `^|\n`), garantindo que o exemplo do print (`Em seg, 8 de jun. de 2026, 09:30, <flatmardecampas@gmail.com> escreveu:`) seja cortado.
+
+## Arquivos alterados
+
+- `supabase/functions/_shared/strip-quoted-email.ts` (novo)
+- `supabase/functions/inbound-webhook/index.ts` (importa shared + suporta `skip_insert`)
+- `supabase/functions/inbound-email-webhook/index.ts` (importa shared)
+- `supabase/functions/gmail-sync-inbox/index.ts` (strip + invoca inbound-webhook)
 
 ## Fora do escopo
-- Instruções por cadência (fica global por empresa nesta primeira versão).
-- Validação automática de coerência da mensagem antes de enviar.
+
+- Mudar o parser MIME do Gmail (`extractBody`).
+- Alterar o prompt da IA.
+- Mudar lógica de matching de conversa por thread.
