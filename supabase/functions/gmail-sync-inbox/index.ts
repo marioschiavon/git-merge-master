@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { stripQuotedEmail } from "../_shared/strip-quoted-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
