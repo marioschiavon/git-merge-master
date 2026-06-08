@@ -345,8 +345,47 @@ NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
       .order("sent_at", { ascending: true })
       .limit(20);
 
+    // Load company knowledge base (single source of truth — prevents AI hallucination)
+    let knowledgeContext = "";
+    let highlightsContext = "";
+    let aiInstructionsContext = "";
+    if (companyId) {
+      const [knowledgeRes, highlightsRes, aiInstructionsRes] = await Promise.all([
+        supabase.from("company_knowledge").select("title, content").eq("company_id", companyId).not("type", "in", "(highlights,ai_instructions)").limit(10),
+        supabase.from("company_knowledge").select("content").eq("company_id", companyId).eq("type", "highlights").maybeSingle(),
+        supabase.from("company_knowledge").select("content").eq("company_id", companyId).eq("type", "ai_instructions").maybeSingle(),
+      ]);
+      knowledgeContext = (knowledgeRes.data || []).map((k: any) => `## ${k.title}\n${k.content}`).join("\n\n");
+      highlightsContext = highlightsRes.data?.content || "";
+      aiInstructionsContext = aiInstructionsRes.data?.content || "";
+    }
+
+    const hasKnowledge = !!(knowledgeContext || highlightsContext);
+    const knowledgeBlock = hasKnowledge
+      ? `=== BASE DE CONHECIMENTO DA EMPRESA (ÚNICA FONTE DA VERDADE) ===
+${highlightsContext ? `DIFERENCIAIS APROVADOS:\n${highlightsContext}\n\n` : ""}${knowledgeContext ? `INFORMAÇÕES DA EMPRESA/PRODUTO:\n${knowledgeContext}\n\n` : ""}${aiInstructionsContext ? `INSTRUÇÕES DE ABORDAGEM (PRIORIDADE MÁXIMA):\n${aiInstructionsContext}\n` : ""}================================================================
+
+REGRAS ANTI-ALUCINAÇÃO (sobrepõem qualquer outra instrução):
+- Use APENAS fatos, features, números, integrações, casos e nomes presentes na BASE acima.
+- É TERMINANTEMENTE PROIBIDO inventar produto, funcionalidade, métrica, painel, integração, caso de cliente ou qualquer informação que não esteja na BASE.
+- Se o prospect perguntar algo que não está na BASE → responda honestamente ("vou confirmar com o time e te retorno na reunião") e puxe para agendar. NUNCA preencha a lacuna com suposição.
+- Se as INSTRUÇÕES DE ABORDAGEM disserem que o prospect não tem fit, NÃO force gancho — seja honesto.
+`
+      : `=== BASE DE CONHECIMENTO DA EMPRESA ===
+(vazia — empresa ainda não cadastrou informações)
+========================================
+
+REGRAS ANTI-ALUCINAÇÃO:
+- Como a base está vazia, NÃO mencione features, produtos, métricas, integrações ou nomes específicos.
+- Mantenha a resposta neutra, focada em qualificar o prospect e agendar reunião para apresentação detalhada.
+- NUNCA invente o que a empresa faz ou vende.
+`;
+
     // Analyze with AI
-    const systemPrompt = `Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
+    const systemPrompt = `${knowledgeBlock}
+
+Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
+
 
 OBJETIVO PRINCIPAL: Seu objetivo FINAL é sempre agendar uma reunião com o prospect. Todas as interações devem caminhar para isso. Se o prospect demonstra QUALQUER interesse, direcione para agendamento (action = "schedule"). Se ele sugere um horário, use action = "check_availability".
 
