@@ -32,3 +32,7 @@ verify_jwt = false
 
 [functions.reset-test-data]
 verify_jwt = false
+
+[functions.referral-followup-cron]
+verify_jwt = false
+
