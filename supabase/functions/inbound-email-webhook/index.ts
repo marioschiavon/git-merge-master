@@ -1,45 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { stripQuotedEmail } from "../_shared/strip-quoted-email.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-function stripQuotedText(text: string): string {
-  // Gmail PT: "Em dia de mês de ano, às HH:MM, Nome <email> escreveu:"
-  // Gmail EN: "On Mon, Jan 1, 2026 at 10:00 AM Name <email> wrote:"
-  // Outlook: "-----Original Message-----" or "________________________________"
-  // Generic: lines starting with ">"
-
-  const patterns = [
-    /\r?\n\s*Em .+escreveu:\s*$/im,           // Gmail PT
-    /\r?\n\s*On .+wrote:\s*$/im,              // Gmail EN
-    /\r?\n\s*-{3,}Original Message-{3,}/im,   // Outlook
-    /\r?\n\s*_{10,}/im,                        // Outlook separator
-    /\r?\n\s*From:\s+.+\r?\nSent:\s+/im,      // Outlook header block
-    /\r?\n\s*De:\s+.+\r?\nEnviado:\s+/im,     // Outlook PT
-  ];
-
-  let cleanText = text;
-  for (const pattern of patterns) {
-    const match = cleanText.search(pattern);
-    if (match !== -1) {
-      cleanText = cleanText.substring(0, match).trim();
-      break;
-    }
-  }
-
-  // Remove trailing ">" quoted lines
-  const lines = cleanText.split(/\r?\n/);
-  const filtered: string[] = [];
-  for (const line of lines) {
-    if (/^\s*>/.test(line)) break;
-    filtered.push(line);
-  }
-
-  return filtered.join("\n").trim() || text.trim();
-}
+const stripQuotedText = stripQuotedEmail;
 
 function extractPlainText(raw: string): string {
   // Check for MIME multipart boundary
