@@ -958,37 +958,100 @@ Analise a última mensagem e decida a ação.`,
 
     // Send auto-reply if needed
     if (parsed.reply_message) {
-      await supabase.from("messages").insert({
-        conversation_id: convId,
-        content: parsed.reply_message,
-        direction: "outbound",
-        ai_suggested: true,
-        metadata: {
-          auto_reply: true,
-          sentiment: parsed.sentiment,
-          action: parsed.action,
-          reasoning: parsed.reasoning,
-          // FIX: Save offered slot datetimes for future context recovery
-          ...(["schedule", "reject_slots", "reschedule"].includes(parsed.action) ? { offered_slots: (heldSlots || []).map((s: any) => s.slot_datetime) } : {}),
-        },
-      });
-
       const replyChannel = convChannel || channel || "email";
+      const autoReplyMetadata = {
+        auto_reply: true,
+        sentiment: parsed.sentiment,
+        action: parsed.action,
+        reasoning: parsed.reasoning,
+        ...(["schedule", "reject_slots", "reschedule"].includes(parsed.action) ? { offered_slots: (heldSlots || []).map((s: any) => s.slot_datetime) } : {}),
+      };
+
+      let sentViaGmail = false;
 
       if (replyChannel === "email" && leadData?.email) {
-        await supabase.functions.invoke("send-transactional-email", {
-          body: {
-            templateName: "cadence-outreach",
-            recipientEmail: leadData.email,
-            idempotencyKey: `auto-reply-${convId}-${Date.now()}`,
-            templateData: {
-              leadName: leadData.name,
-              subject: `Re: ${leadData.company_name || leadData.name}`,
-              messageBody: parsed.reply_message,
+        // Build threading headers from prior Gmail messages on this conversation
+        const { data: priorMsgs } = await supabase
+          .from("messages")
+          .select("direction, rfc_message_id, gmail_thread_id, metadata, sent_at")
+          .eq("conversation_id", convId)
+          .not("rfc_message_id", "is", null)
+          .order("sent_at", { ascending: true });
+
+        const lastInbound = (priorMsgs || []).slice().reverse().find((m: any) => m.direction === "inbound" && m.rfc_message_id);
+        const allRfcIds = (priorMsgs || []).map((m: any) => m.rfc_message_id).filter(Boolean);
+        const originalSubject = (priorMsgs || [])
+          .map((m: any) => m.metadata?.subject)
+          .find((s: any) => typeof s === "string" && s.length > 0) || `${leadData.company_name || leadData.name}`;
+        const replySubject = /^re:/i.test(originalSubject) ? originalSubject : `Re: ${originalSubject}`;
+
+        // Check Gmail availability for this company
+        const { data: gmailAcc } = await supabase
+          .from("gmail_account")
+          .select("email")
+          .eq("is_active", true)
+          .maybeSingle();
+
+        if (gmailAcc?.email) {
+          try {
+            const { data: sendRes, error: sendErr } = await supabase.functions.invoke("gmail-send", {
+              body: {
+                to: leadData.email,
+                subject: replySubject,
+                text: parsed.reply_message,
+                conversation_id: convId,
+                company_id: companyId,
+                lead_id: leadData.id,
+                in_reply_to_rfc_id: lastInbound?.rfc_message_id || null,
+                references: allRfcIds.length ? allRfcIds.join(" ") : (lastInbound?.rfc_message_id || null),
+              },
+            });
+            if (sendErr) throw sendErr;
+            const gmailMessageId = (sendRes as any)?.gmail_message_id;
+            // Promote the row inserted by gmail-send with our AI metadata
+            if (gmailMessageId) {
+              await supabase
+                .from("messages")
+                .update({ ai_suggested: true, metadata: { ...autoReplyMetadata, subject: replySubject, channel: "email", via: "gmail" } })
+                .eq("gmail_message_id", gmailMessageId);
+            }
+            sentViaGmail = true;
+          } catch (e) {
+            console.error("gmail-send auto-reply failed, falling back to transactional:", e);
+          }
+        }
+
+        if (!sentViaGmail) {
+          // Fallback: transactional email (also save the message row, since gmail-send didn't run)
+          await supabase.from("messages").insert({
+            conversation_id: convId,
+            content: parsed.reply_message,
+            direction: "outbound",
+            ai_suggested: true,
+            metadata: { ...autoReplyMetadata, via: "transactional" },
+          });
+          await supabase.functions.invoke("send-transactional-email", {
+            body: {
+              templateName: "cadence-outreach",
+              recipientEmail: leadData.email,
+              idempotencyKey: `auto-reply-${convId}-${Date.now()}`,
+              templateData: {
+                leadName: leadData.name,
+                subject: replySubject,
+                messageBody: parsed.reply_message,
+              },
             },
-          },
-        });
+          });
+        }
       } else if (replyChannel === "whatsapp" && leadData?.phone) {
+        // Save the message row for non-email channels
+        await supabase.from("messages").insert({
+          conversation_id: convId,
+          content: parsed.reply_message,
+          direction: "outbound",
+          ai_suggested: true,
+          metadata: autoReplyMetadata,
+        });
         const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
         const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
         if (LOVABLE_API_KEY && TWILIO_API_KEY && TWILIO_PHONE) {
@@ -1010,8 +1073,18 @@ Analise a última mensagem e decida a ação.`,
             console.error("Twilio WhatsApp send error:", e);
           }
         }
+      } else {
+        // Unknown channel — still log the message for visibility
+        await supabase.from("messages").insert({
+          conversation_id: convId,
+          content: parsed.reply_message,
+          direction: "outbound",
+          ai_suggested: true,
+          metadata: autoReplyMetadata,
+        });
       }
     }
+
 
     // Log execution
     if (enrollment && leadData && companyId) {
