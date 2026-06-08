@@ -399,6 +399,27 @@ AÇÕES POSSÍVEIS:
 - "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião")
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
 - "pause": prospect rejeitou totalmente → pausar cadência
+- "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
+
+DETECÇÃO DE INDICAÇÃO / ENCAMINHAMENTO (action = "referral"):
+Use quando o prospect:
+- diz que outra pessoa é responsável ("fala com X", "quem cuida disso é Y", "isso é com o marketing/compras/comercial/dono/RT")
+- vai encaminhar internamente ("vou encaminhar", "vou repassar", "vou mandar pro grupo")
+- diz que não é a pessoa certa ("não sou eu", "não cuido disso", "não posso passar contato")
+- é claramente recepção/atendimento respondendo em nome da empresa
+Subtypes (referral.subtype):
+- "with_contact": indicou e passou nome E (email OU telefone) do decisor → o sistema vai criar novo lead
+- "without_contact": indicou alguém mas não passou contato → pedir WhatsApp/e-mail
+- "will_forward": vai encaminhar internamente → enviar texto curto e encaminhável
+- "wrong_person": disse que não é responsável (sem indicar quem é) → perguntar quem é
+- "gatekeeper": recepcionista/atendente → pedir direcionamento ao responsável, NÃO vender
+- "refuses_contact": recusou passar contato → oferecer texto encaminhável e encerrar
+
+REGRAS DE INDICAÇÃO (obrigatórias):
+- NUNCA insistir em vender para quem disse que não é o responsável.
+- Sempre pedir permissão para citar quem indicou (se ainda não autorizou explicitamente).
+- Mensagens curtas, sem pressão, agradecendo a ajuda.
+- Para "with_contact": no campo new_outreach_message gere a 1ª abordagem para o lead indicado, contextualizando a indicação (use o nome de quem indicou se permission_to_mention=true, caso contrário use frase neutra "Falei com a equipe da {empresa} e me indicaram você"). Use a BASE DE CONHECIMENTO para a tagline da empresa. Termine com pergunta leve sobre disponibilidade para conversa rápida. NUNCA inclua dia/hora.
 
 REGRAS:
 - REGRA CRÍTICA: NUNCA sugira horários específicos (dia/hora) no reply_message. Se o prospect quer agendar reunião, use action = "schedule" para que o sistema busque horários reais no calendário. O reply_message NUNCA deve conter dias da semana ou horários.
@@ -413,12 +434,23 @@ REGRAS:
 
 Responda APENAS com JSON:
 {
-  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause",
+  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause|referral",
   "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
   "selected_slot": null,
   "suggested_datetime": null,
   "reasoning": "explicação breve",
   "used_facts": ["lista de trechos da BASE DE CONHECIMENTO que embasaram a resposta (vazio se não usou nada da base)"],
+  "referral": {
+    "subtype": "with_contact|without_contact|will_forward|wrong_person|gatekeeper|refuses_contact",
+    "referred_name": null,
+    "referred_role": null,
+    "referred_email": null,
+    "referred_phone": null,
+    "referred_channel": null,
+    "permission_to_mention": null,
+    "context": null
+  },
+  "new_outreach_message": "1ª mensagem para o lead indicado (apenas quando referral.subtype = with_contact, senão null)",
   "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
 }${slotContext}`;
 
