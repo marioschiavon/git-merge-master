@@ -82,16 +82,14 @@ serve(async (req) => {
           // === CHANNEL-SPECIFIC SENDING (same logic as below) ===
           if (currentStep.channel === "email" && lead.email) {
             try {
-              const { error: sendError } = await supabase.functions.invoke("send-transactional-email", {
+              const { error: sendError } = await supabase.functions.invoke("gmail-send", {
                 body: {
-                  templateName: "cadence-outreach",
-                  recipientEmail: lead.email,
-                  idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}-${Date.now()}`,
-                  templateData: {
-                    leadName: lead.name,
-                    subject: parsed.subject || `Mensagem para ${lead.name}`,
-                    messageBody: parsed.message,
-                  },
+                  to: lead.email,
+                  subject: parsed.subject || `Mensagem para ${lead.name}`,
+                  html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${parsed.message.replace(/\n/g, "<br>")}</div>`,
+                  text: parsed.message,
+                  lead_id: lead.id,
+                  company_id: cadence.company_id,
                 },
               });
               if (sendError) { sendAction = "failed"; }
@@ -273,24 +271,22 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         // === CHANNEL-SPECIFIC SENDING ===
         if (currentStep.channel === "email" && lead.email) {
           try {
-            const { error: sendError } = await supabase.functions.invoke("send-transactional-email", {
+            const { error: sendError } = await supabase.functions.invoke("gmail-send", {
               body: {
-                templateName: "cadence-outreach",
-                recipientEmail: lead.email,
-                idempotencyKey: `cadence-${enrollment.id}-step-${currentStep.step_order}-${Date.now()}`,
-                templateData: {
-                  leadName: lead.name,
-                  subject: parsed.subject || `Mensagem para ${lead.name}`,
-                  messageBody: parsed.message,
-                },
+                to: lead.email,
+                subject: parsed.subject || `Mensagem para ${lead.name}`,
+                html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${parsed.message.replace(/\n/g, "<br>")}</div>`,
+                text: parsed.message,
+                lead_id: lead.id,
+                company_id: cadence.company_id,
               },
             });
             if (sendError) {
-              console.error(`Email send error for enrollment ${enrollment.id}:`, sendError);
+              console.error(`Gmail send error for enrollment ${enrollment.id}:`, sendError);
               sendAction = "failed";
             }
           } catch (emailErr) {
-            console.error(`Email send exception for enrollment ${enrollment.id}:`, emailErr);
+            console.error(`Gmail send exception for enrollment ${enrollment.id}:`, emailErr);
             sendAction = "failed";
           }
         } else if (currentStep.channel === "whatsapp" && lead.phone) {
