@@ -400,6 +400,8 @@ AÇÕES POSSÍVEIS:
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
 - "pause": prospect rejeitou totalmente → pausar cadência
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
+- "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
+- "handoff": prospect fez pergunta TÉCNICA, REGULATÓRIA, JURÍDICA, CLÍNICA ou COMERCIAL ESPECÍFICA que NÃO está na BASE DE CONHECIMENTO e exige especialista humano (ex: dosagem, posologia, contrato, NF-e, certificações ANVISA/MAPA, condições especiais de pagamento, integrações customizadas) → passar para humano. NÃO invente resposta. Use reply_message curto avisando que um especialista vai retornar.
 
 DETECÇÃO DE INDICAÇÃO / ENCAMINHAMENTO (action = "referral"):
 Use quando o prospect:
@@ -421,6 +423,15 @@ REGRAS DE INDICAÇÃO (obrigatórias):
 - Mensagens curtas, sem pressão, agradecendo a ajuda.
 - Para "with_contact": no campo new_outreach_message gere a 1ª abordagem para o lead indicado, contextualizando a indicação (use o nome de quem indicou se permission_to_mention=true, caso contrário use frase neutra "Falei com a equipe da {empresa} e me indicaram você"). Use a BASE DE CONHECIMENTO para a tagline da empresa. Termine com pergunta leve sobre disponibilidade para conversa rápida. NUNCA inclua dia/hora.
 
+PLAYBOOKS POR CARGO (adapte o tom da new_outreach_message e de qualquer reply ao indicado de acordo com referred_role):
+- "tecnico" | "responsavel_tecnico" | "veterinario" | "rt" | "farmaceutico" → tom técnico, focar em conformidade, eficácia, evidências, estudos, fichas técnicas. Evitar argumentos comerciais agressivos.
+- "compras" | "suprimentos" | "procurement" → focar em condições comerciais, prazo de entrega, MOQ, oferecer apresentação/catálogo. Tom direto e objetivo.
+- "marketing" | "trade" → focar em posicionamento, cases, co-marketing, geração de demanda. Tom criativo.
+- "comercial" | "vendas" | "sales" → focar em parceria, comissionamento, volume, ticket médio. Tom de igual para igual.
+- "socio" | "dono" | "ceo" | "diretor" | "founder" → focar em ROI, visão estratégica, tempo curto (1 frase + CTA). Tom executivo.
+- desconhecido/null → tom neutro consultivo padrão.
+Use o campo "playbook" (string) na saída JSON para registrar qual playbook aplicou ("tecnico"|"compras"|"marketing"|"comercial"|"socio"|"neutro").
+
 REGRAS:
 - REGRA CRÍTICA: NUNCA sugira horários específicos (dia/hora) no reply_message. Se o prospect quer agendar reunião, use action = "schedule" para que o sistema busque horários reais no calendário. O reply_message NUNCA deve conter dias da semana ou horários.
 - Se o prospect menciona "reunião", "agendar", "conversar", "demo", "horário" E NÃO há slots pendentes → action = "schedule"
@@ -429,17 +440,22 @@ REGRAS:
 - Se há slots pendentes e o prospect sugeriu outro horário → action = "check_availability" com suggested_datetime
 - Se o prospect diz "não tenho interesse", "não quero", "remova", "pare" → action = "pause"
 - Se objeção (preço, timing, concorrente) → contorne com empatia + prova social
-- Se dúvida → responda objetivamente + CTA para reunião
+- Se dúvida que ESTÁ na BASE → responda objetivamente + CTA para reunião
+- Se dúvida técnica/regulatória que NÃO está na BASE → action = "handoff" (NÃO invente).
 - Mensagens curtas e naturais
 
 Responda APENAS com JSON:
 {
-  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause|referral",
+  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause|referral|request_call|handoff",
   "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
   "selected_slot": null,
   "suggested_datetime": null,
   "reasoning": "explicação breve",
   "used_facts": ["lista de trechos da BASE DE CONHECIMENTO que embasaram a resposta (vazio se não usou nada da base)"],
+  "playbook": "tecnico|compras|marketing|comercial|socio|neutro",
+  "handoff_reason": "motivo do handoff (apenas quando action=handoff, senão null)",
+  "call_window": "janela preferida pelo prospect (apenas quando action=request_call, senão null)",
+  "call_phone": "telefone informado (apenas quando action=request_call, senão null)",
   "referral": {
     "subtype": "with_contact|without_contact|will_forward|wrong_person|gatekeeper|refuses_contact",
     "referred_name": null,
@@ -986,6 +1002,71 @@ Analise a última mensagem e decida a ação.`,
         .from("cadence_enrollments")
         .update({ status: "paused" })
         .eq("id", enrollment.id);
+    } else if (parsed.action === "request_call" && leadData && companyId) {
+      // Prospect asked to be called. Pause cadence, log a 'call' task with metadata for human/voice agent.
+      console.log(`Call requested for lead ${leadData.id}`);
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "call_requested" } as any)
+          .eq("id", enrollment.id);
+      }
+      const callPhone = parsed.call_phone || leadData.phone || null;
+      const callWindow = parsed.call_window || null;
+      await supabase
+        .from("leads")
+        .update({ call_requested_at: new Date().toISOString() } as any)
+        .eq("id", leadData.id);
+      await supabase.from("lead_activities").insert({
+        company_id: companyId,
+        lead_id: leadData.id,
+        type: "call",
+        description: `📞 Pedido de ligação${callWindow ? ` (${callWindow})` : ""}${callPhone ? ` — ${callPhone}` : ""}`,
+        metadata: {
+          task_type: "call",
+          status: "pending",
+          phone: callPhone,
+          preferred_window: callWindow,
+          source_message: cleanContent.substring(0, 300),
+        },
+      });
+      if (!parsed.reply_message) {
+        parsed.reply_message = callWindow
+          ? `Combinado! Vou agendar a ligação ${callWindow}${callPhone ? ` no ${callPhone}` : ""}. Se precisar ajustar, é só me avisar.`
+          : `Perfeito! Vou pedir para nosso time te ligar${callPhone ? ` no ${callPhone}` : ""}. Tem alguma janela de horário que prefere?`;
+      }
+    } else if (parsed.action === "handoff" && leadData && companyId) {
+      // Human handoff: pause cadence, flag lead, log activity. Keep reply short and honest.
+      console.log(`Handoff requested for lead ${leadData.id}: ${parsed.handoff_reason}`);
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "handoff_required" } as any)
+          .eq("id", enrollment.id);
+      }
+      await supabase
+        .from("leads")
+        .update({
+          handoff_required: true,
+          handoff_reason: parsed.handoff_reason || "Pergunta fora da base de conhecimento",
+          handoff_at: new Date().toISOString(),
+        } as any)
+        .eq("id", leadData.id);
+      await supabase.from("lead_activities").insert({
+        company_id: companyId,
+        lead_id: leadData.id,
+        type: "note",
+        description: `🚨 Handoff humano necessário: ${parsed.handoff_reason || "tema fora da base"}`,
+        metadata: {
+          handoff: true,
+          reason: parsed.handoff_reason,
+          source_message: cleanContent.substring(0, 300),
+          reasoning: parsed.reasoning,
+        },
+      });
+      if (!parsed.reply_message) {
+        parsed.reply_message = "Ótima pergunta! Vou passar para um especialista do nosso time, que retorna em breve com a resposta correta. Obrigado pela paciência!";
+      }
     } else if (parsed.action === "referral" && leadData && companyId) {
       const ref = parsed.referral || {};
       const subtype: string = ref.subtype || "wrong_person";
@@ -1027,7 +1108,7 @@ Analise a última mensagem e decida a ação.`,
         lead_id: leadData.id,
         type: "referral",
         description: `Indicação detectada (${subtype})${ref.referred_name ? ` → ${ref.referred_name}` : ""}`,
-        metadata: { referral: ref, reasoning: parsed.reasoning },
+        metadata: { referral: ref, reasoning: parsed.reasoning, playbook: parsed.playbook || "neutro" },
       });
 
       // with_contact: create new lead + conversation + 1st outreach
@@ -1302,6 +1383,8 @@ Analise a última mensagem e decida a ação.`,
           reschedule: "rescheduled",
           pause: "paused",
           referral: "referral_detected",
+          request_call: "call_requested",
+          handoff: "handoff_required",
         };
         await supabase.from("execution_logs").insert({
           company_id: companyId,

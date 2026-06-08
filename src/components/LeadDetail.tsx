@@ -74,6 +74,10 @@ interface Lead {
   referral_context?: string | null;
   referral_permission_to_mention?: boolean | null;
   preferred_channel?: string | null;
+  handoff_required?: boolean | null;
+  handoff_reason?: string | null;
+  handoff_at?: string | null;
+  call_requested_at?: string | null;
 }
 
 
@@ -112,6 +116,12 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
               )}
               {lead.referral_role === "decisor" && (
                 <Badge variant="outline" className="border-emerald-300 text-emerald-800">Indicado</Badge>
+              )}
+              {lead.handoff_required && (
+                <Badge variant="destructive" title={lead.handoff_reason || undefined}>🚨 Handoff humano</Badge>
+              )}
+              {lead.call_requested_at && (
+                <Badge variant="outline" className="border-blue-300 text-blue-800">📞 Pediu ligação</Badge>
               )}
             </span>
             <AlertDialog>

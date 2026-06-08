@@ -735,10 +735,14 @@ export type Database = {
       leads: {
         Row: {
           address: string | null
+          call_requested_at: string | null
           company_id: string
           company_name: string | null
           created_at: string
           email: string | null
+          handoff_at: string | null
+          handoff_reason: string | null
+          handoff_required: boolean
           id: string
           last_synced_at: string | null
           name: string
@@ -747,6 +751,7 @@ export type Database = {
           pipedrive_id: number | null
           preferred_channel: string | null
           referral_context: string | null
+          referral_followup_sent_at: string | null
           referral_permission_to_mention: boolean | null
           referral_role: string | null
           referral_source_lead_id: string | null
@@ -760,10 +765,14 @@ export type Database = {
         }
         Insert: {
           address?: string | null
+          call_requested_at?: string | null
           company_id: string
           company_name?: string | null
           created_at?: string
           email?: string | null
+          handoff_at?: string | null
+          handoff_reason?: string | null
+          handoff_required?: boolean
           id?: string
           last_synced_at?: string | null
           name: string
@@ -772,6 +781,7 @@ export type Database = {
           pipedrive_id?: number | null
           preferred_channel?: string | null
           referral_context?: string | null
+          referral_followup_sent_at?: string | null
           referral_permission_to_mention?: boolean | null
           referral_role?: string | null
           referral_source_lead_id?: string | null
@@ -785,10 +795,14 @@ export type Database = {
         }
         Update: {
           address?: string | null
+          call_requested_at?: string | null
           company_id?: string
           company_name?: string | null
           created_at?: string
           email?: string | null
+          handoff_at?: string | null
+          handoff_reason?: string | null
+          handoff_required?: boolean
           id?: string
           last_synced_at?: string | null
           name?: string
@@ -797,6 +811,7 @@ export type Database = {
           pipedrive_id?: number | null
           preferred_channel?: string | null
           referral_context?: string | null
+          referral_followup_sent_at?: string | null
           referral_permission_to_mention?: boolean | null
           referral_role?: string | null
           referral_source_lead_id?: string | null
