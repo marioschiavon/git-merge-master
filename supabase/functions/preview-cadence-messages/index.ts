@@ -81,10 +81,11 @@ serve(async (req) => {
       });
     }
 
-    // Fetch knowledge, highlights, and insights in parallel
-    const [knowledgeRes, highlightsRes, insightRes] = await Promise.all([
-      supabase.from("company_knowledge").select("title, content").eq("company_id", cadence.company_id).neq("type", "highlights").limit(10),
+    // Fetch knowledge, highlights, ai_instructions and insights in parallel
+    const [knowledgeRes, highlightsRes, aiInstructionsRes, insightRes] = await Promise.all([
+      supabase.from("company_knowledge").select("title, content").eq("company_id", cadence.company_id).not("type", "in", "(highlights,ai_instructions)").limit(10),
       supabase.from("company_knowledge").select("content").eq("company_id", cadence.company_id).eq("type", "highlights").maybeSingle(),
+      supabase.from("company_knowledge").select("content").eq("company_id", cadence.company_id).eq("type", "ai_instructions").maybeSingle(),
       supabase.from("lead_insights").select("insights, raw_summary").eq("lead_id", lead_id).maybeSingle(),
     ]);
 
@@ -164,7 +165,12 @@ serve(async (req) => {
               role: "system",
               content: `Você é um SDR especialista em vendas B2B no Brasil. Seu objetivo PRINCIPAL é agendar uma reunião com o prospect.
 
-=== SEU PRODUTO/SERVIÇO (o que você vende) ===
+${aiInstructionsRes.data?.content ? `=== INSTRUÇÕES OBRIGATÓRIAS DA EMPRESA (PRIORIDADE MÁXIMA — sobrescrevem qualquer outra regra abaixo) ===
+${aiInstructionsRes.data.content}
+
+Se as regras acima disserem que o prospect não tem fit com seu produto/serviço, NÃO force gancho — escreva uma abordagem neutra de apresentação e pergunte se faz sentido conversar.
+
+` : ""}=== SEU PRODUTO/SERVIÇO (o que você vende) ===
 ${knowledgeContext || "Sem informações adicionais do produto."}
 ${stepHighlights}
 
@@ -178,11 +184,11 @@ ${step.template || "Sem template definido."}
 CANAL: ${step.channel}
 STEP: ${step.step_order} de ${steps.length}
 
-REGRAS DE PERSONALIZAÇÃO (OBRIGATÓRIAS quando há diferenciais do prospect):
-- OBRIGATÓRIO: Escolha 1 diferencial do prospect e faça um gancho direto com 1 benefício/produto específico da base de conhecimento acima
-- Estrutura do gancho: "Vi que vocês [diferencial do prospect] → nosso [produto/solução] potencializa isso porque [benefício concreto]"
-- Nunca seja genérico — cada mensagem deve parecer escrita à mão para aquele prospect
-- O gancho deve conectar naturalmente o que o prospect faz de melhor com o que você oferece
+REGRAS DE PERSONALIZAÇÃO:
+- Faça um gancho com 1 diferencial do prospect APENAS SE houver relação clara e coerente com o produto/serviço (respeitando as INSTRUÇÕES OBRIGATÓRIAS DA EMPRESA acima)
+- Se houver fit: estrutura sugerida — "Vi que vocês [diferencial do prospect] → nosso [produto/solução] potencializa isso porque [benefício concreto]"
+- Se NÃO houver fit claro: NÃO invente conexão. Faça abordagem neutra focada no segmento do prospect e termine perguntando se faz sentido conversar.
+- Nunca seja genérico, mas também nunca force uma ligação sem sentido
 
 REGRAS GERAIS:
 - Mantenha o tom profissional mas humano
