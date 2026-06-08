@@ -74,6 +74,10 @@ interface Lead {
   referral_context?: string | null;
   referral_permission_to_mention?: boolean | null;
   preferred_channel?: string | null;
+  handoff_required?: boolean | null;
+  handoff_reason?: string | null;
+  handoff_at?: string | null;
+  call_requested_at?: string | null;
 }
 
 
