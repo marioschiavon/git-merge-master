@@ -210,12 +210,23 @@ Deno.serve(async (req) => {
           companyId = lead.company_id;
           const { data: existingConv } = await supabase
             .from("conversations").select("id")
-            .eq("lead_id", leadId!).eq("channel", "email").maybeSingle();
+            .eq("lead_id", leadId!).eq("channel", "email")
+            .order("created_at", { ascending: true }).limit(1).maybeSingle();
           if (existingConv) conversationId = existingConv.id;
           else {
+            // Attach active enrollment if any, so cadence-executor reuses this conv
+            const { data: activeEnroll } = await supabase
+              .from("cadence_enrollments").select("id")
+              .eq("lead_id", leadId!).in("status", ["active", "paused"])
+              .order("created_at", { ascending: false }).limit(1).maybeSingle();
             const { data: newConv } = await supabase
               .from("conversations")
-              .insert({ lead_id: leadId, company_id: companyId, channel: "email" })
+              .insert({
+                lead_id: leadId,
+                company_id: companyId,
+                channel: "email",
+                cadence_enrollment_id: activeEnroll?.id || null,
+              })
               .select("id").single();
             conversationId = newConv?.id || null;
           }
