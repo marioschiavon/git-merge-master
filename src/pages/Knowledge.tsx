@@ -166,6 +166,46 @@ export default function Knowledge() {
         </p>
       </div>
 
+      {/* AI Instructions Card */}
+      <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            Instruções de Abordagem da IA
+          </CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Diga em linguagem natural como a IA deve se posicionar, quando criar ganchos com o
+            prospect, qual tom usar e o que NUNCA fazer. Use isso para evitar conexões sem sentido
+            (ex: ligar shampoo a problema de articulação).
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder={`Ex:
+- Vendemos shampoo profissional para cabelo cacheado. Só faça gancho quando o prospect for salão de beleza, distribuidora de cosméticos ou e-commerce do segmento.
+- NUNCA conecte nosso produto a problemas que não sejam de cuidado capilar.
+- Se o site do prospect não tiver relação com beleza/cosmético, NÃO force gancho — faça uma abordagem neutra de apresentação e pergunte se faz sentido conversar.
+- Tom: brasileiro, descontraído, próximo. Pode usar 1 emoji discreto no WhatsApp.
+- Sempre se referir ao produto como "nossa linha", nunca "shampoo X".`}
+            value={aiInstructionsText}
+            onChange={(e) => setAiInstructionsText(e.target.value)}
+            rows={8}
+          />
+          <Button
+            onClick={handleSaveAiInstructions}
+            disabled={saveAiInstructions.isPending}
+            size="sm"
+          >
+            {saveAiInstructions.isPending ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="mr-2 h-4 w-4" />
+            )}
+            Salvar Instruções
+          </Button>
+        </CardContent>
+      </Card>
+
       {/* Highlights Card */}
       <Card className="border-primary/20 bg-primary/5">
         <CardHeader className="pb-3">
