@@ -40,6 +40,17 @@ const activityLabels: Record<string, string> = {
   linkedin: "LinkedIn",
   note: "Nota",
   meeting: "Reunião",
+  referral: "Indicação",
+};
+
+const referralStageLabels: Record<string, string> = {
+  novo_indicado: "Novo indicado",
+  encaminhado_para_decisor: "Encaminhado ao decisor",
+  aguardando_contato_decisor: "Aguardando contato do decisor",
+  aguardando_encaminhamento_interno: "Aguardando encaminhamento",
+  contato_errado: "Contato errado",
+  tentando_identificar_decisor: "Identificando decisor",
+  sem_acesso_decisor: "Sem acesso ao decisor",
 };
 
 interface Lead {
@@ -57,7 +68,14 @@ interface Lead {
   last_synced_at: string | null;
   created_at: string;
   pipedrive_data: any;
+  referral_source_lead_id?: string | null;
+  referral_role?: string | null;
+  referral_stage?: string | null;
+  referral_context?: string | null;
+  referral_permission_to_mention?: boolean | null;
+  preferred_channel?: string | null;
 }
+
 
 interface LeadDetailProps {
   lead: Lead | null;
