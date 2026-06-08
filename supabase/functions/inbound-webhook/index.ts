@@ -1383,6 +1383,8 @@ Analise a última mensagem e decida a ação.`,
           reschedule: "rescheduled",
           pause: "paused",
           referral: "referral_detected",
+          request_call: "call_requested",
+          handoff: "handoff_required",
         };
         await supabase.from("execution_logs").insert({
           company_id: companyId,
