@@ -74,15 +74,46 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
 
   const insights = insightData?.insights as any;
 
+  const deleteLead = useDeleteLead();
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-lg overflow-y-auto">
         <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            {lead.name}
-            <Badge className={statusColors[lead.status] || ""}>
-              {statusLabels[lead.status] || lead.status}
-            </Badge>
+          <SheetTitle className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              {lead.name}
+              <Badge className={statusColors[lead.status] || ""}>
+                {statusLabels[lead.status] || lead.status}
+              </Badge>
+            </span>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" title="Excluir lead">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Isso removerá <strong>{lead.name}</strong>, suas inscrições em cadências, conversas, mensagens e todo o histórico. Esta ação não pode ser desfeita.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={async () => {
+                      await deleteLead.mutateAsync(lead.id);
+                      onOpenChange(false);
+                    }}
+                  >
+                    Excluir
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </SheetTitle>
         </SheetHeader>
 
