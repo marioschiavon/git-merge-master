@@ -53,7 +53,8 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
 
   const onSubmit = async (values: FormValues) => {
     await createLead.mutateAsync({
-      ...values,
+      name: values.name,
+      status: values.status,
       email: values.email || null,
       phone: values.phone || null,
       company_name: values.company_name || null,
