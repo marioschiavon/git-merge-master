@@ -212,6 +212,9 @@ export default function Integrations() {
         </CardContent>
       </Card>
 
+      {/* Gmail Card */}
+      <GmailCard />
+
       {/* Cal.com Card */}
       <CalComCard />
 
