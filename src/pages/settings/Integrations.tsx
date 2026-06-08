@@ -1,17 +1,89 @@
 import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { useIntegration, useConnectPipedrive, useDisconnectPipedrive, useSyncLeads } from "@/hooks/usePipedrive";
-import { RefreshCw, Plug, Unplug, ExternalLink } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
+import { RefreshCw, Plug, Unplug, ExternalLink, Mail } from "lucide-react";
 
 const otherIntegrations = [
   { name: "WhatsApp Business", description: "Envie mensagens via WhatsApp", connected: false },
   { name: "LinkedIn", description: "Conecte e envie mensagens no LinkedIn", connected: false },
-  { name: "Email (SMTP)", description: "Configure o envio de emails", connected: false },
   { name: "Twilio (Ligações)", description: "Faça e receba ligações VoIP", connected: false },
 ];
+
+const GmailCard = () => {
+  const queryClient = useQueryClient();
+  const { data: account, isLoading } = useQuery({
+    queryKey: ["gmail_account"],
+    queryFn: async () => {
+      const { data } = await supabase.from("gmail_account").select("*").eq("is_active", true).maybeSingle();
+      return data;
+    },
+  });
+
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("gmail-sync-inbox", { body: {} });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["gmail_account"] });
+      const msg = data?.bootstrapped
+        ? `Conta ${data.email} conectada.`
+        : `${data?.processed || 0} respostas processadas (${data?.matched || 0} casadas com leads).`;
+      toast({ title: "Sincronização Gmail", description: msg });
+    },
+    onError: (e: Error) => toast({ title: "Erro no Gmail", description: e.message, variant: "destructive" }),
+  });
+
+  const isConnected = !!account;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mail className="h-4 w-4" /> Gmail (envio + recebimento)
+          </CardTitle>
+          <Badge variant={isConnected ? "default" : "secondary"}>
+            {isLoading ? "Carregando..." : isConnected ? "Conectado" : "Não inicializado"}
+          </Badge>
+        </div>
+        <CardDescription>
+          Envia emails das cadências e recebe respostas dos leads dentro de Conversations.
+          {isConnected && (
+            <span className="block mt-1 text-xs">
+              Conta: <strong>{account!.email}</strong>
+              {account!.last_synced_at && ` · última sync: ${new Date(account!.last_synced_at).toLocaleString("pt-BR")}`}
+            </span>
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!isConnected && (
+          <p className="text-xs text-muted-foreground">
+            Clique em "Inicializar / Sincronizar" para registrar a conta Gmail conectada ao workspace.
+          </p>
+        )}
+        <Button
+          variant="outline"
+          onClick={() => syncMutation.mutate()}
+          disabled={syncMutation.isPending}
+        >
+          <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
+          {syncMutation.isPending ? "Sincronizando..." : isConnected ? "Sincronizar agora" : "Inicializar / Sincronizar"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+};
+
 
 const CalComCard = () => {
   const [configured, setConfigured] = useState(false);
