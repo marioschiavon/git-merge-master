@@ -15,6 +15,8 @@ import {
   useUploadKnowledgeDoc,
   useHighlights,
   useSaveHighlights,
+  useAiInstructions,
+  useSaveAiInstructions,
 } from "@/hooks/useKnowledge";
 import {
   BookOpen,
@@ -27,6 +29,7 @@ import {
   Save,
   Pencil,
   Star,
+  Sparkles,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
@@ -50,15 +53,25 @@ export default function Knowledge() {
   const uploadDoc = useUploadKnowledgeDoc();
   const { data: highlightsItem } = useHighlights();
   const saveHighlights = useSaveHighlights();
+  const { data: aiInstructionsItem } = useAiInstructions();
+  const saveAiInstructions = useSaveAiInstructions();
 
   // Highlights state
   const [highlightsText, setHighlightsText] = useState("");
   const [highlightsLoaded, setHighlightsLoaded] = useState(false);
 
+  // AI Instructions state
+  const [aiInstructionsText, setAiInstructionsText] = useState("");
+  const [aiInstructionsLoaded, setAiInstructionsLoaded] = useState(false);
+
   // Load highlights when data arrives
   if (highlightsItem && !highlightsLoaded) {
     setHighlightsText(highlightsItem.content || "");
     setHighlightsLoaded(true);
+  }
+  if (aiInstructionsItem && !aiInstructionsLoaded) {
+    setAiInstructionsText(aiInstructionsItem.content || "");
+    setAiInstructionsLoaded(true);
   }
 
   // Text form
@@ -125,7 +138,7 @@ export default function Knowledge() {
     setEditingId(null);
   };
 
-  const nonHighlightItems = items.filter((i: any) => i.type !== "highlights");
+  const nonHighlightItems = items.filter((i: any) => i.type !== "highlights" && i.type !== "ai_instructions");
   const textItems = nonHighlightItems.filter((i: any) => i.type === "text");
   const docItems = nonHighlightItems.filter((i: any) => i.type === "document");
   const urlItems = nonHighlightItems.filter((i: any) => i.type === "url");
@@ -134,6 +147,13 @@ export default function Knowledge() {
     await saveHighlights.mutateAsync({
       content: highlightsText,
       existingId: highlightsItem?.id,
+    });
+  };
+
+  const handleSaveAiInstructions = async () => {
+    await saveAiInstructions.mutateAsync({
+      content: aiInstructionsText,
+      existingId: aiInstructionsItem?.id,
     });
   };
 
