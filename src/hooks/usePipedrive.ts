@@ -246,3 +246,24 @@ export function useImportLeads() {
     },
   });
 }
+
+export function useDeleteLead() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (leadId: string) => {
+      const { error } = await supabase.rpc("delete_lead_cascade" as any, { p_lead_id: leadId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["lead-activities"] });
+      queryClient.invalidateQueries({ queryKey: ["conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["cadence-enrollments"] });
+      toast({ title: "Lead excluído", description: "Cadências e mensagens removidas." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao excluir lead", description: error.message, variant: "destructive" });
+    },
+  });
+}
