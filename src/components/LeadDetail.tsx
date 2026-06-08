@@ -40,6 +40,17 @@ const activityLabels: Record<string, string> = {
   linkedin: "LinkedIn",
   note: "Nota",
   meeting: "Reunião",
+  referral: "Indicação",
+};
+
+const referralStageLabels: Record<string, string> = {
+  novo_indicado: "Novo indicado",
+  encaminhado_para_decisor: "Encaminhado ao decisor",
+  aguardando_contato_decisor: "Aguardando contato do decisor",
+  aguardando_encaminhamento_interno: "Aguardando encaminhamento",
+  contato_errado: "Contato errado",
+  tentando_identificar_decisor: "Identificando decisor",
+  sem_acesso_decisor: "Sem acesso ao decisor",
 };
 
 interface Lead {
@@ -57,7 +68,14 @@ interface Lead {
   last_synced_at: string | null;
   created_at: string;
   pipedrive_data: any;
+  referral_source_lead_id?: string | null;
+  referral_role?: string | null;
+  referral_stage?: string | null;
+  referral_context?: string | null;
+  referral_permission_to_mention?: boolean | null;
+  preferred_channel?: string | null;
 }
+
 
 interface LeadDetailProps {
   lead: Lead | null;
@@ -81,11 +99,20 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
       <SheetContent className="sm:max-w-lg overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-2 flex-wrap">
               {lead.name}
               <Badge className={statusColors[lead.status] || ""}>
                 {statusLabels[lead.status] || lead.status}
               </Badge>
+              {lead.referral_role === "indicador" && (
+                <Badge variant="outline" className="border-amber-300 text-amber-800">Indicador</Badge>
+              )}
+              {lead.referral_role === "gatekeeper" && (
+                <Badge variant="outline" className="border-slate-300 text-slate-700">Gatekeeper</Badge>
+              )}
+              {lead.referral_role === "decisor" && (
+                <Badge variant="outline" className="border-emerald-300 text-emerald-800">Indicado</Badge>
+              )}
             </span>
             <AlertDialog>
               <AlertDialogTrigger asChild>
@@ -182,7 +209,36 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
             </div>
           </div>
 
+          {(lead.referral_role || lead.referral_source_lead_id || lead.referral_stage) && (
+            <>
+              <Separator />
+              <div className="space-y-2">
+                <h3 className="text-sm font-semibold">Indicação</h3>
+                {lead.referral_stage && (
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Estágio: </span>
+                    <span className="font-medium">{referralStageLabels[lead.referral_stage] || lead.referral_stage}</span>
+                  </div>
+                )}
+                {lead.referral_source_lead_id && (
+                  <div className="text-sm text-muted-foreground">
+                    Indicado por outro lead da mesma empresa.
+                  </div>
+                )}
+                {lead.referral_context && (
+                  <p className="text-sm italic text-muted-foreground">"{lead.referral_context}"</p>
+                )}
+                {lead.referral_permission_to_mention !== null && lead.referral_permission_to_mention !== undefined && (
+                  <div className="text-xs text-muted-foreground">
+                    Permissão para citar indicador: {lead.referral_permission_to_mention ? "Sim" : "Não"}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           <Separator />
+
 
           {/* Insights Section */}
           <div>

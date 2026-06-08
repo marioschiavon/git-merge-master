@@ -399,6 +399,27 @@ AÇÕES POSSÍVEIS:
 - "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião")
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
 - "pause": prospect rejeitou totalmente → pausar cadência
+- "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
+
+DETECÇÃO DE INDICAÇÃO / ENCAMINHAMENTO (action = "referral"):
+Use quando o prospect:
+- diz que outra pessoa é responsável ("fala com X", "quem cuida disso é Y", "isso é com o marketing/compras/comercial/dono/RT")
+- vai encaminhar internamente ("vou encaminhar", "vou repassar", "vou mandar pro grupo")
+- diz que não é a pessoa certa ("não sou eu", "não cuido disso", "não posso passar contato")
+- é claramente recepção/atendimento respondendo em nome da empresa
+Subtypes (referral.subtype):
+- "with_contact": indicou e passou nome E (email OU telefone) do decisor → o sistema vai criar novo lead
+- "without_contact": indicou alguém mas não passou contato → pedir WhatsApp/e-mail
+- "will_forward": vai encaminhar internamente → enviar texto curto e encaminhável
+- "wrong_person": disse que não é responsável (sem indicar quem é) → perguntar quem é
+- "gatekeeper": recepcionista/atendente → pedir direcionamento ao responsável, NÃO vender
+- "refuses_contact": recusou passar contato → oferecer texto encaminhável e encerrar
+
+REGRAS DE INDICAÇÃO (obrigatórias):
+- NUNCA insistir em vender para quem disse que não é o responsável.
+- Sempre pedir permissão para citar quem indicou (se ainda não autorizou explicitamente).
+- Mensagens curtas, sem pressão, agradecendo a ajuda.
+- Para "with_contact": no campo new_outreach_message gere a 1ª abordagem para o lead indicado, contextualizando a indicação (use o nome de quem indicou se permission_to_mention=true, caso contrário use frase neutra "Falei com a equipe da {empresa} e me indicaram você"). Use a BASE DE CONHECIMENTO para a tagline da empresa. Termine com pergunta leve sobre disponibilidade para conversa rápida. NUNCA inclua dia/hora.
 
 REGRAS:
 - REGRA CRÍTICA: NUNCA sugira horários específicos (dia/hora) no reply_message. Se o prospect quer agendar reunião, use action = "schedule" para que o sistema busque horários reais no calendário. O reply_message NUNCA deve conter dias da semana ou horários.
@@ -413,12 +434,23 @@ REGRAS:
 
 Responda APENAS com JSON:
 {
-  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause",
+  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause|referral",
   "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
   "selected_slot": null,
   "suggested_datetime": null,
   "reasoning": "explicação breve",
   "used_facts": ["lista de trechos da BASE DE CONHECIMENTO que embasaram a resposta (vazio se não usou nada da base)"],
+  "referral": {
+    "subtype": "with_contact|without_contact|will_forward|wrong_person|gatekeeper|refuses_contact",
+    "referred_name": null,
+    "referred_role": null,
+    "referred_email": null,
+    "referred_phone": null,
+    "referred_channel": null,
+    "permission_to_mention": null,
+    "context": null
+  },
+  "new_outreach_message": "1ª mensagem para o lead indicado (apenas quando referral.subtype = with_contact, senão null)",
   "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
 }${slotContext}`;
 
@@ -954,6 +986,173 @@ Analise a última mensagem e decida a ação.`,
         .from("cadence_enrollments")
         .update({ status: "paused" })
         .eq("id", enrollment.id);
+    } else if (parsed.action === "referral" && leadData && companyId) {
+      const ref = parsed.referral || {};
+      const subtype: string = ref.subtype || "wrong_person";
+      console.log(`Referral detected (subtype=${subtype}) for lead ${leadData.id}`);
+
+      // Always pause active cadence for the original contact when a referral is detected
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: `referral_${subtype}` } as any)
+          .eq("id", enrollment.id);
+      }
+
+      // Map subtype → stage / role
+      const stageMap: Record<string, string> = {
+        with_contact: "encaminhado_para_decisor",
+        without_contact: "aguardando_contato_decisor",
+        will_forward: "aguardando_encaminhamento_interno",
+        wrong_person: "contato_errado",
+        gatekeeper: "tentando_identificar_decisor",
+        refuses_contact: "sem_acesso_decisor",
+      };
+
+      // Mark current lead as indicador/gatekeeper
+      const originalRole = subtype === "gatekeeper" ? "gatekeeper" : "indicador";
+      await supabase
+        .from("leads")
+        .update({
+          referral_role: originalRole,
+          referral_stage: stageMap[subtype] || null,
+          referral_context: ref.context || null,
+          referral_permission_to_mention: ref.permission_to_mention ?? null,
+        } as any)
+        .eq("id", leadData.id);
+
+      // Audit activity
+      await supabase.from("lead_activities").insert({
+        company_id: companyId,
+        lead_id: leadData.id,
+        type: "referral",
+        description: `Indicação detectada (${subtype})${ref.referred_name ? ` → ${ref.referred_name}` : ""}`,
+        metadata: { referral: ref, reasoning: parsed.reasoning },
+      });
+
+      // with_contact: create new lead + conversation + 1st outreach
+      if (subtype === "with_contact" && ref.referred_name && (ref.referred_email || ref.referred_phone)) {
+        // Avoid duplicates by email within same company
+        let newLeadId: string | null = null;
+        if (ref.referred_email) {
+          const { data: existing } = await supabase
+            .from("leads")
+            .select("id")
+            .eq("company_id", companyId)
+            .eq("email", String(ref.referred_email).toLowerCase().trim())
+            .maybeSingle();
+          if (existing?.id) newLeadId = existing.id;
+        }
+
+        if (!newLeadId) {
+          const insertRow: any = {
+            company_id: companyId,
+            name: ref.referred_name,
+            email: ref.referred_email ? String(ref.referred_email).toLowerCase().trim() : null,
+            phone: ref.referred_phone || null,
+            company_name: leadData.company_name || null,
+            title: ref.referred_role || null,
+            source: "referral",
+            status: "new",
+            referral_source_lead_id: leadData.id,
+            referral_role: "decisor",
+            referral_stage: "novo_indicado",
+            referral_context: ref.context || null,
+            referral_permission_to_mention: ref.permission_to_mention ?? null,
+            preferred_channel: ref.referred_channel || (ref.referred_email ? "email" : "whatsapp"),
+          };
+          const { data: newLead, error: newLeadErr } = await supabase
+            .from("leads")
+            .insert(insertRow)
+            .select("id")
+            .single();
+          if (newLeadErr) {
+            console.error("Failed to create referred lead:", newLeadErr);
+          } else {
+            newLeadId = newLead.id;
+          }
+        }
+
+        // Create conversation + first outbound message and send via available channel
+        if (newLeadId && parsed.new_outreach_message) {
+          const newChannel = (ref.referred_channel || (ref.referred_email ? "email" : "whatsapp")) as string;
+          const { data: newConv } = await supabase
+            .from("conversations")
+            .insert({
+              company_id: companyId,
+              lead_id: newLeadId,
+              channel: newChannel as any,
+            })
+            .select("id")
+            .single();
+
+          const newConvId = newConv?.id;
+          const outreachMeta = {
+            referral_outreach: true,
+            referral_source_lead_id: leadData.id,
+            referral_source_name: leadData.name,
+            permission_to_mention: ref.permission_to_mention ?? null,
+          };
+
+          // Email path → use gmail-send when available, else transactional
+          if (newChannel === "email" && ref.referred_email && newConvId) {
+            const subject = `${leadData.company_name || "Indicação"} — apresentação`;
+            const { data: gmailAcc } = await supabase
+              .from("gmail_account")
+              .select("email")
+              .eq("is_active", true)
+              .maybeSingle();
+            let sent = false;
+            if (gmailAcc?.email) {
+              try {
+                const { error: sendErr } = await supabase.functions.invoke("gmail-send", {
+                  body: {
+                    to: ref.referred_email,
+                    subject,
+                    text: parsed.new_outreach_message,
+                    conversation_id: newConvId,
+                    company_id: companyId,
+                    lead_id: newLeadId,
+                  },
+                });
+                if (!sendErr) sent = true;
+              } catch (e) {
+                console.error("gmail-send for referral failed:", e);
+              }
+            }
+            if (!sent) {
+              await supabase.from("messages").insert({
+                conversation_id: newConvId,
+                content: parsed.new_outreach_message,
+                direction: "outbound",
+                ai_suggested: true,
+                metadata: { ...outreachMeta, subject, via: "transactional" },
+              });
+              await supabase.functions.invoke("send-transactional-email", {
+                body: {
+                  templateName: "cadence-outreach",
+                  recipientEmail: ref.referred_email,
+                  idempotencyKey: `referral-${newLeadId}-${Date.now()}`,
+                  templateData: {
+                    leadName: ref.referred_name,
+                    subject,
+                    messageBody: parsed.new_outreach_message,
+                  },
+                },
+              });
+            }
+          } else if (newConvId) {
+            // WhatsApp/other: just log message (sending happens via cadence/manual until Twilio is wired here)
+            await supabase.from("messages").insert({
+              conversation_id: newConvId,
+              content: parsed.new_outreach_message,
+              direction: "outbound",
+              ai_suggested: true,
+              metadata: { ...outreachMeta, channel: newChannel, pending_send: newChannel !== "email" },
+            });
+          }
+        }
+      }
     }
 
     // Send auto-reply if needed
@@ -1102,6 +1301,7 @@ Analise a última mensagem e decida a ação.`,
           check_availability: "availability_checked",
           reschedule: "rescheduled",
           pause: "paused",
+          referral: "referral_detected",
         };
         await supabase.from("execution_logs").insert({
           company_id: companyId,

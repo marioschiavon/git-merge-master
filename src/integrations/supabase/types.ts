@@ -745,6 +745,12 @@ export type Database = {
           phone: string | null
           pipedrive_data: Json | null
           pipedrive_id: number | null
+          preferred_channel: string | null
+          referral_context: string | null
+          referral_permission_to_mention: boolean | null
+          referral_role: string | null
+          referral_source_lead_id: string | null
+          referral_stage: string | null
           score: number | null
           source: string | null
           status: Database["public"]["Enums"]["lead_status"]
@@ -764,6 +770,12 @@ export type Database = {
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
+          preferred_channel?: string | null
+          referral_context?: string | null
+          referral_permission_to_mention?: boolean | null
+          referral_role?: string | null
+          referral_source_lead_id?: string | null
+          referral_stage?: string | null
           score?: number | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
@@ -783,6 +795,12 @@ export type Database = {
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
+          preferred_channel?: string | null
+          referral_context?: string | null
+          referral_permission_to_mention?: boolean | null
+          referral_role?: string | null
+          referral_source_lead_id?: string | null
+          referral_stage?: string | null
           score?: number | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
@@ -796,6 +814,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_referral_source_lead_id_fkey"
+            columns: ["referral_source_lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
             referencedColumns: ["id"]
           },
         ]
@@ -1117,6 +1142,7 @@ export type Database = {
         | "linkedin"
         | "note"
         | "meeting"
+        | "referral"
       app_role: "master_admin" | "company_admin" | "user"
       cadence_status: "draft" | "active" | "paused" | "archived"
       cadence_type: "email" | "whatsapp" | "linkedin" | "multi_channel"
@@ -1268,6 +1294,7 @@ export const Constants = {
         "linkedin",
         "note",
         "meeting",
+        "referral",
       ],
       app_role: ["master_admin", "company_admin", "user"],
       cadence_status: ["draft", "active", "paused", "archived"],
