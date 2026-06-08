@@ -43,28 +43,61 @@ serve(async (req) => {
       });
     }
 
-    // Fetch website content
+    // Fetch website content (best-effort: site é opcional, IA prossegue mesmo sem ele)
     let websiteUrl = lead.website.trim();
     if (!websiteUrl.startsWith("http")) websiteUrl = `https://${websiteUrl}`;
 
-    let pageContent = "";
+    async function tryFetch(url: string): Promise<string | null> {
+      const controller = new AbortController();
+      const t = setTimeout(() => controller.abort(), 12000);
+      try {
+        const res = await fetch(url, {
+          redirect: "follow",
+          signal: controller.signal,
+          headers: {
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+          },
+        });
+        if (!res.ok) {
+          await res.body?.cancel();
+          return null;
+        }
+        return await res.text();
+      } catch (_) {
+        return null;
+      } finally {
+        clearTimeout(t);
+      }
+    }
+
+    const candidates = [websiteUrl];
     try {
-      const pageRes = await fetch(websiteUrl, {
-        headers: { "User-Agent": "Mozilla/5.0 (compatible; SDRAuto/1.0)" },
-      });
-      pageContent = await pageRes.text();
-      pageContent = pageContent
+      const u = new URL(websiteUrl);
+      if (!u.hostname.startsWith("www.")) candidates.push(`${u.protocol}//www.${u.hostname}${u.pathname}`);
+      if (u.protocol === "https:") candidates.push(`http://${u.hostname}${u.pathname}`);
+    } catch (_) { /* ignore */ }
+
+    let raw: string | null = null;
+    for (const c of candidates) {
+      raw = await tryFetch(c);
+      if (raw) break;
+    }
+
+    let pageContent = "";
+    if (raw) {
+      pageContent = raw
         .replace(/<script[\s\S]*?<\/script>/gi, "")
         .replace(/<style[\s\S]*?<\/style>/gi, "")
         .replace(/<[^>]+>/g, " ")
         .replace(/\s+/g, " ")
         .trim()
         .slice(0, 15000);
-    } catch {
-      return new Response(JSON.stringify({ error: "Não foi possível acessar o website" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    } else {
+      console.warn(`Não foi possível acessar ${websiteUrl} — prosseguindo apenas com nome da empresa`);
+      pageContent = `(Conteúdo do site indisponível. Gere insights com base no nome da empresa e domínio: ${websiteUrl})`;
     }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
