@@ -5,6 +5,8 @@ import { routeAndEnqueue } from "../_shared/route-intent.ts";
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
+import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1559,36 +1561,31 @@ Analise a última mensagem e decida a ação.`,
             },
           });
         }
-      } else if (replyChannel === "whatsapp" && leadData?.phone) {
-        // Save the message row for non-email channels
+      } else if (replyChannel === "whatsapp" && (leadData?.whatsapp || leadData?.phone)) {
+        const toNumber = leadData.whatsapp || leadData.phone;
+        const twCfg = companyId ? await getTwilioConfig(supabase, companyId) : null;
+        let deliveryMeta: Record<string, unknown> = { ...autoReplyMetadata };
+
+        if (!twCfg) {
+          deliveryMeta = { ...deliveryMeta, delivery_status: "pending_manual", delivery_error: "Twilio não configurado para a empresa" };
+          console.warn("inbound-webhook: Twilio not configured for company", companyId);
+        } else {
+          const r = await sendWhatsAppViaTwilio(twCfg, toNumber, parsed.reply_message);
+          if (!r.ok) {
+            deliveryMeta = { ...deliveryMeta, delivery_status: "failed", twilio_status: r.status, twilio_error: r.error };
+            console.error("inbound-webhook: Twilio WhatsApp send failed:", r.error);
+          } else {
+            deliveryMeta = { ...deliveryMeta, delivery_status: "sent", twilio_sid: r.sid };
+          }
+        }
+
         await supabase.from("messages").insert({
           conversation_id: convId,
           content: parsed.reply_message,
           direction: "outbound",
           ai_suggested: true,
-          metadata: autoReplyMetadata,
+          metadata: deliveryMeta,
         });
-        const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
-        const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
-        if (LOVABLE_API_KEY && TWILIO_API_KEY && TWILIO_PHONE) {
-          try {
-            await fetch("https://connector-gateway.lovable.dev/twilio/Messages.json", {
-              method: "POST",
-              headers: {
-                Authorization: `Bearer ${LOVABLE_API_KEY}`,
-                "X-Connection-Api-Key": TWILIO_API_KEY,
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({
-                To: `whatsapp:${leadData.phone}`,
-                From: `whatsapp:${TWILIO_PHONE}`,
-                Body: parsed.reply_message,
-              }),
-            });
-          } catch (e) {
-            console.error("Twilio WhatsApp send error:", e);
-          }
-        }
       } else {
         // Unknown channel — still log the message for visibility
         await supabase.from("messages").insert({
@@ -1596,9 +1593,10 @@ Analise a última mensagem e decida a ação.`,
           content: parsed.reply_message,
           direction: "outbound",
           ai_suggested: true,
-          metadata: autoReplyMetadata,
+          metadata: { ...autoReplyMetadata, delivery_status: "pending_manual", delivery_error: `Canal '${replyChannel}' sem destinatário válido` },
         });
       }
+
     }
 
 
