@@ -402,6 +402,22 @@ NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
       aiInstructionsContext = aiInstructionsRes.data?.content || "";
     }
 
+    // Pre-fetch confirmed booking for this lead (used by prompt + double-booking guard)
+    let confirmedSlotForPrompt: { id: string; slot_datetime: string } | null = null;
+    if (leadData?.id) {
+      const { data: cs } = await supabase
+        .from("slot_holds")
+        .select("id, slot_datetime")
+        .eq("lead_id", leadData.id)
+        .eq("status", "confirmed")
+        .order("slot_datetime", { ascending: false })
+        .limit(1);
+      if (cs?.length) confirmedSlotForPrompt = cs[0] as any;
+    }
+    const confirmedBookingBlock = confirmedSlotForPrompt
+      ? `\n=== REUNIÃO ATUALMENTE CONFIRMADA ===\n${formatDateTimeBrt(confirmedSlotForPrompt.slot_datetime)}\n→ Se o prospect pedir para TROCAR/ALTERAR/MOVER/REMARCAR esse horário (com ou sem nova data), use action = "reschedule" e preencha "suggested_datetime" se ele indicou um novo horário.\n→ NUNCA use "check_availability" quando já existe reunião confirmada — sempre use "reschedule".\n→ Se ele quiser CANCELAR sem remarcar, use "cancel".\n=====================================\n`
+      : "";
+
     const hasKnowledge = !!(knowledgeContext || highlightsContext);
     const knowledgeBlock = hasKnowledge
       ? `=== BASE DE CONHECIMENTO DA EMPRESA (ÚNICA FONTE DA VERDADE) ===
@@ -424,7 +440,7 @@ REGRAS ANTI-ALUCINAÇÃO:
 `;
 
     // Analyze with AI
-    const systemPrompt = `${knowledgeBlock}
+    const systemPrompt = `${knowledgeBlock}${confirmedBookingBlock}
 
 Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
 
@@ -668,22 +684,24 @@ Analise a última mensagem e decida a ação.`,
       parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
     }
 
-    // Guard: prevent double-booking — if lead already has a confirmed slot, block scheduling actions
-    if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action) && parsed.action !== "reschedule") {
-      const { data: confirmedSlots } = await supabase
-        .from("slot_holds")
-        .select("id, slot_datetime")
-        .eq("lead_id", leadData.id)
-        .eq("status", "confirmed")
-        .limit(1);
+    // Guard: prevent double-booking — if lead already has a confirmed slot, handle scheduling actions carefully
+    if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action)) {
+      const confirmedSlots = confirmedSlotForPrompt ? [confirmedSlotForPrompt] : [];
 
-      if (confirmedSlots?.length) {
-        const formatted = formatDateTimeBrt(confirmedSlots[0].slot_datetime);
-        console.log(`Double-booking guard: lead already has confirmed slot at ${confirmedSlots[0].slot_datetime}`);
-        parsed.action = "reply";
-        parsed.reply_message = `Já temos uma reunião confirmada para ${formatted}! Caso precise reagendar, é só me avisar.`;
+      if (confirmedSlots.length) {
+        // If the prospect proposed a new datetime, treat as reschedule instead of bouncing
+        if (parsed.action === "check_availability" && parsed.suggested_datetime) {
+          console.log(`Guard: converting check_availability → reschedule (existing booking + suggested_datetime=${parsed.suggested_datetime})`);
+          parsed.action = "reschedule";
+        } else {
+          const formatted = formatDateTimeBrt(confirmedSlots[0].slot_datetime);
+          console.log(`Double-booking guard: lead already has confirmed slot at ${confirmedSlots[0].slot_datetime}`);
+          parsed.action = "reply";
+          parsed.reply_message = `Já temos uma reunião confirmada para ${formatted}! Caso precise reagendar, é só me avisar.`;
+        }
       }
     }
+
 
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
