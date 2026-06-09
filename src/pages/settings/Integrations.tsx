@@ -7,13 +7,18 @@ import { Input } from "@/components/ui/input";
 import { useIntegration, useConnectPipedrive, useDisconnectPipedrive, useSyncLeads } from "@/hooks/usePipedrive";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { RefreshCw, Plug, Unplug, ExternalLink, Mail } from "lucide-react";
+import { RefreshCw, Plug, Unplug, ExternalLink, Mail, MessageCircle, Copy, Check } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+
+const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
+const TWILIO_WEBHOOK_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/twilio-whatsapp-webhook`;
 
 const otherIntegrations = [
-  { name: "WhatsApp Business", description: "Envie mensagens via WhatsApp", connected: false },
   { name: "LinkedIn", description: "Conecte e envie mensagens no LinkedIn", connected: false },
   { name: "Twilio (Ligações)", description: "Faça e receba ligações VoIP", connected: false },
 ];
+
 
 const GmailCard = () => {
   const queryClient = useQueryClient();
@@ -215,8 +220,12 @@ export default function Integrations() {
       {/* Gmail Card */}
       <GmailCard />
 
+      {/* Twilio WhatsApp Card */}
+      <TwilioWhatsAppCard />
+
       {/* Cal.com Card */}
       <CalComCard />
+
 
       {/* Other integrations */}
       <div className="grid gap-4 md:grid-cols-2">
