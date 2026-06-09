@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useLeadActivities, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
-import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2 } from "lucide-react";
+import { SlotHoldsCard } from "@/components/SlotHoldsCard";
+import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -371,6 +372,17 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
                 )}
               </div>
             )}
+          </div>
+
+          <Separator />
+
+          {/* Slot holds / agendamento */}
+          <div>
+            <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+              <CalendarClock className="h-4 w-4" />
+              Horários oferecidos (Cal.com)
+            </h3>
+            <SlotHoldsCard leadId={lead.id} />
           </div>
 
           <Separator />

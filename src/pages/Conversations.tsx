@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useConversations, useMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
+import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
@@ -100,6 +101,8 @@ export default function Conversations() {
             <p className="text-xs text-muted-foreground">{(selectedConv as any)?.leads?.company_name} · {(selectedConv as any)?.channel}</p>
           </div>
         </div>
+
+        <SlotHoldsCard leadId={(selectedConv as any)?.leads?.id || (selectedConv as any)?.lead_id} compact />
 
         <div className="flex-1 overflow-y-auto space-y-3 mb-4 min-h-0">
           {messages.length === 0 ? (
