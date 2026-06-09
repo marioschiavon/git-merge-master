@@ -2,6 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { stripQuotedEmail } from "../_shared/strip-quoted-email.ts";
 import { routeAndEnqueue } from "../_shared/route-intent.ts";
+import { extractDateRangeFromText } from "../_shared/date-range.ts";
+import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
+import { formatBRTLong } from "../_shared/datetime.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,10 +24,7 @@ function toBrtIso(year: number, month: number, day: number, hour: number, minute
 
 /** Format a UTC ISO datetime string as a human-readable BRT string */
 function formatDateTimeBrt(isoString: string): string {
-  const dt = new Date(isoString);
-  const brt = new Date(dt.getTime() - BRT_OFFSET_HOURS * 3600000);
-  return brt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
-    + " às " + brt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return formatBRTLong(isoString);
 }
 
 /**
@@ -438,9 +438,10 @@ AÇÕES POSSÍVEIS:
 - "reject_slots": prospect rejeitou ambos os horários oferecidos (ex: "nenhum funciona", "tenho compromisso nesses dias")
 - "check_availability": prospect sugeriu um horário alternativo próprio (ex: "pode ser terça às 14h?")
   → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
-- "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião")
+- "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião", "trocar o horário")
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
-- "pause": prospect rejeitou totalmente → pausar cadência
+- "cancel": prospect quer CANCELAR uma reunião já confirmada SEM remarcar (ex: "não vou poder", "preciso cancelar a reunião", "vamos cancelar", "não tenho mais interesse na reunião"). NÃO usar para rejeição geral do produto (use "pause").
+- "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
 - "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
 - "handoff": prospect fez pergunta TÉCNICA, REGULATÓRIA, JURÍDICA, CLÍNICA ou COMERCIAL ESPECÍFICA que NÃO está na BASE DE CONHECIMENTO e exige especialista humano (ex: dosagem, posologia, contrato, NF-e, certificações ANVISA/MAPA, condições especiais de pagamento, integrações customizadas) → passar para humano. NÃO invente resposta. Use reply_message curto avisando que um especialista vai retornar.
@@ -488,7 +489,7 @@ REGRAS:
 
 Responda APENAS com JSON:
 {
-  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|pause|referral|request_call|handoff",
+  "action": "reply|schedule|confirm_slot|reject_slots|check_availability|reschedule|cancel|pause|referral|request_call|handoff",
   "sentiment": "interesse|objeção|dúvida|rejeição|neutro",
   "selected_slot": null,
   "suggested_datetime": null,
