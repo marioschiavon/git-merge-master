@@ -23,6 +23,19 @@ function toBrtIso(year: number, month: number, day: number, hour: number, minute
 }
 
 /** Format a UTC ISO datetime string as a human-readable BRT string */
+function escapeHtml(s: string): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function toEmailHtml(text: string): string {
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
+}
+
 function formatDateTimeBrt(isoString: string): string {
   return formatBRTLong(isoString);
 }
