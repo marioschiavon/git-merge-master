@@ -1417,6 +1417,7 @@ Analise a última mensagem e decida a ação.`,
                   body: {
                     to: ref.referred_email,
                     subject,
+                    html: toEmailHtml(parsed.new_outreach_message),
                     text: parsed.new_outreach_message,
                     conversation_id: newConvId,
                     company_id: companyId,
