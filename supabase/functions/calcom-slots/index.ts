@@ -57,7 +57,7 @@ serve(async (req) => {
     const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY);
 
     const body = await req.json();
-    const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel, check_datetime, exclude_datetimes } = body;
+    const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel, check_datetime, exclude_datetimes, start_after, end_before } = body;
 
     // Parse exclusion list (array of ISO datetime strings to skip)
     const excludeSet = new Set<number>();
@@ -76,10 +76,27 @@ serve(async (req) => {
       });
     }
 
-    // Fetch available slots from Cal.com v2 for the next 7 days
-    const startDate = new Date();
-    const endDate = new Date();
-    endDate.setDate(endDate.getDate() + 7);
+    // Window selection — enforce a minimum lead time so we never offer "in 30 minutes"
+    const MIN_LEAD_HOURS = Number(Deno.env.get("CALCOM_MIN_LEAD_HOURS") || 24);
+    const DEFAULT_WINDOW_DAYS = Number(Deno.env.get("CALCOM_WINDOW_DAYS") || 14);
+    const MIN_SPREAD_HOURS = Number(Deno.env.get("CALCOM_MIN_SPREAD_HOURS") || 48);
+
+    const earliestStart = new Date(Date.now() + MIN_LEAD_HOURS * 3600000);
+    let startDate = earliestStart;
+    if (start_after) {
+      const sa = new Date(start_after);
+      if (!isNaN(sa.getTime()) && sa.getTime() > startDate.getTime()) startDate = sa;
+    }
+    let endDate: Date;
+    if (end_before) {
+      const eb = new Date(end_before);
+      endDate = !isNaN(eb.getTime()) && eb.getTime() > startDate.getTime()
+        ? eb
+        : new Date(startDate.getTime() + DEFAULT_WINDOW_DAYS * 86400000);
+    } else {
+      endDate = new Date(startDate.getTime() + DEFAULT_WINDOW_DAYS * 86400000);
+    }
+    console.log(`Slot window: ${startDate.toISOString()} → ${endDate.toISOString()} (min lead ${MIN_LEAD_HOURS}h, spread ${MIN_SPREAD_HOURS}h)`);
 
     const slotsUrl = new URL("https://api.cal.com/v2/slots");
     slotsUrl.searchParams.set("eventTypeId", String(eventTypeId));
