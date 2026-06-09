@@ -14,6 +14,7 @@ import {
   BookOpen,
   Activity,
   Workflow,
+  Calendar,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -48,12 +49,14 @@ const companyItems = [
   { title: "Base de Conhecimento", url: "/knowledge", icon: BookOpen },
   { title: "Conversas", url: "/conversations", icon: Inbox },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
+  { title: "Reuniões", url: "/bookings", icon: Calendar },
 ];
 
 const settingsItems = [
   { title: "Equipe", url: "/settings/team", icon: Users },
   { title: "Integrações", url: "/settings/integrations", icon: Link },
   { title: "Intents & Ações", url: "/settings/intents", icon: Workflow },
+  { title: "Cal.com", url: "/settings/calcom", icon: Calendar },
   { title: "Configurações", url: "/settings", icon: Settings },
 ];
 
