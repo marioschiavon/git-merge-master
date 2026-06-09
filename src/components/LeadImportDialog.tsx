@@ -18,6 +18,8 @@ const FIELD_ALIASES: Record<keyof LeadInput, string[]> = {
   name: ["name", "nome", "full name", "lead", "contato"],
   email: ["email", "e-mail", "mail"],
   phone: ["phone", "telefone", "celular", "tel", "mobile"],
+  whatsapp: ["whatsapp", "whats", "zap", "wpp"],
+
   company_name: ["company", "company_name", "empresa", "organização", "organizacao"],
   title: ["title", "cargo", "job_title", "job"],
   website: ["website", "site", "url", "web"],
