@@ -33,8 +33,39 @@ const sentimentColors: Record<string, string> = {
 
 export default function Conversations() {
   const { data: conversations = [], isLoading, refetch } = useConversations();
-  const { isMasterAdmin, isCompanyAdmin } = useAuth();
+  const { isMasterAdmin, isCompanyAdmin, companyId } = useAuth();
+  const queryClient = useQueryClient();
   const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+
+  // Realtime: atualiza lista de conversas e mensagens da conversa aberta
+  useEffect(() => {
+    if (!companyId) return;
+    const channel = supabase
+      .channel(`conv-realtime-${companyId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "messages" },
+        (payload: any) => {
+          const convId = payload.new?.conversation_id || payload.old?.conversation_id;
+          if (convId) {
+            queryClient.invalidateQueries({ queryKey: ["messages", convId] });
+          }
+          queryClient.invalidateQueries({ queryKey: ["conversations", companyId] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations", filter: `company_id=eq.${companyId}` },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["conversations", companyId] });
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [companyId, queryClient]);
+
   const { data: messages = [] } = useMessages(selectedConvId);
   const sendMessage = useSendMessage();
   const aiReply = useAiReply();
