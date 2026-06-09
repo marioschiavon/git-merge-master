@@ -1114,15 +1114,17 @@ Analise a última mensagem e decida a ação.`,
       if (parsed.action === "schedule") {
         try {
           const channelLabel = convChannel || channel || "email";
-          const slotsRes = await supabase.functions.invoke("calcom-slots", {
-            body: {
-              company_id: companyId,
-              lead_id: leadData?.id,
-              enrollment_id: enrollment?.id,
-              conversation_id: convId,
-              preferred_channel: channelLabel,
-            },
-          });
+          const rangeHint = extractDateRangeFromText(cleanContent);
+          const slotsBody: any = {
+            company_id: companyId,
+            lead_id: leadData?.id,
+            enrollment_id: enrollment?.id,
+            conversation_id: convId,
+            preferred_channel: channelLabel,
+          };
+          if (rangeHint?.start_after) slotsBody.start_after = rangeHint.start_after;
+          if (rangeHint?.end_before) slotsBody.end_before = rangeHint.end_before;
+          const slotsRes = await supabase.functions.invoke("calcom-slots", { body: slotsBody });
 
           const slotCount = slotsRes.data?.formatted?.length || 0;
           // FIX: Capture offered slot datetimes for metadata
