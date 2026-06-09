@@ -539,7 +539,7 @@ Responda APENAS com JSON:
     "context": null
   },
   "new_outreach_message": "1ª mensagem para o lead indicado (apenas quando referral.subtype = with_contact, senão null)",
-  "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
+  "reply_message": "mensagem para enviar ao prospect (obrigatória inclusive em action=pause — agradecimento curto + porta aberta)"
 }${slotContext}`;
 
 
