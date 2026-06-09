@@ -13,6 +13,7 @@ import {
   LogOut,
   BookOpen,
   Activity,
+  Workflow,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -52,6 +53,7 @@ const companyItems = [
 const settingsItems = [
   { title: "Equipe", url: "/settings/team", icon: Users },
   { title: "Integrações", url: "/settings/integrations", icon: Link },
+  { title: "Intents & Ações", url: "/settings/intents", icon: Workflow },
   { title: "Configurações", url: "/settings", icon: Settings },
 ];
 
