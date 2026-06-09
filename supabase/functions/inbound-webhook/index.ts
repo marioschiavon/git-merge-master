@@ -470,7 +470,7 @@ AÇÕES POSSÍVEIS:
 - "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião", "trocar o horário")
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
 - "cancel": prospect quer CANCELAR uma reunião já confirmada SEM remarcar (ex: "não vou poder", "preciso cancelar a reunião", "vamos cancelar", "não tenho mais interesse na reunião"). NÃO usar para rejeição geral do produto (use "pause").
-- "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência
+- "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência E enviar mensagem curta de agradecimento + porta aberta para retorno futuro
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
 - "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
 - "handoff": prospect fez pergunta TÉCNICA, REGULATÓRIA, JURÍDICA, CLÍNICA ou COMERCIAL ESPECÍFICA que NÃO está na BASE DE CONHECIMENTO e exige especialista humano (ex: dosagem, posologia, contrato, NF-e, certificações ANVISA/MAPA, condições especiais de pagamento, integrações customizadas) → passar para humano. NÃO invente resposta. Use reply_message curto avisando que um especialista vai retornar.
