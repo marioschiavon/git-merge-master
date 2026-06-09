@@ -1,64 +1,48 @@
-## Dois problemas
+## O que aconteceu
 
-### 1. Emails de resposta do SDR vão sem formatação
+Lead Juliano respondeu **"Mudei de ideia. Nao me interesso mais pelo produto. Agradeço sua atenção."**
 
-O 1º email (cadência) é enviado por `cadence-executor`, que monta HTML com `\n → <br>`:
-```ts
-html: `<div ...>${parsed.message.replace(/\n/g, "<br>")}</div>`
-```
+Dois sistemas processaram a mensagem:
 
-Já as respostas automáticas do SDR são enviadas por `inbound-webhook` (linhas ~1491-1502), que só passa `text` para `gmail-send`. Dentro do `gmail-send`, o fallback é:
-```ts
-const finalHtml = html || `<p>${escapeHtml(text)}</p>`;
-```
-→ um único `<p>` com todo o conteúdo, sem quebra de linha → email visualmente "corrido", sem parágrafos.
+1. **Pipeline de Intents** classificou como `rejection / not_interested` e disparou a regra da empresa (`intent_action_rules`), cujas ações são: `send_reply (tone=polite)`, `stop_sequence`, `disqualify_lead`.
+   - `stop_sequence` e `disqualify_lead` foram executados (status=done).
+   - **`send_reply` foi pulado** pelo `routeAndEnqueue` (linha 77 de `_shared/route-intent.ts`): por design, qualquer ação que gera resposta (set `REPLY_ACTIONS`) é ignorada pelo pipeline para não duplicar mensagem com o inbound-webhook legacy.
 
-**Correção:** em `inbound-webhook/index.ts` (chamada de auto-reply, ~linha 1491), passar `html` formatado igual ao cadence-executor:
-```ts
-html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${escapeHtml(parsed.reply_message).replace(/\n/g, "<br>")}</div>`,
-text: parsed.reply_message,
-```
-(precisa de um helper `escapeHtml` local, ou reaproveitar o que já existe em `gmail-send`.)
+2. **`inbound-webhook` (caminho legacy)** classificou a ação como `pause` (prompt diz: "rejeição geral do produto → use pause; NÃO cancel"). O ramo `pause` (linhas 1227-1231) **apenas pausa a cadência** — não envia nenhuma mensagem. O prompt inclusive instrui a IA: *"reply_message: null se action=pause e não precisa responder"*. Resultado: nenhuma resposta sai.
 
-Bônus: aplicar o mesmo padrão na chamada de referral (~linha 1403), que também passa só `text`.
+A reunião foi cancelada via outra ação (`cancel_booking`) que ficou pendente desde mensagens anteriores e rodou nesse momento, daí o system message de cancelamento. Mas o agradecimento ao lead simplesmente não existe nesse fluxo.
 
-### 2. Página de Conversas não atualiza em tempo real
+Resposta à sua pergunta: **não é a regra de intent que silenciou** — a regra até pede send_reply. O webhook é que está configurado para nunca responder em `pause`.
 
-Hoje `useConversations` / `useMessages` só consultam via React Query no mount; não há subscription Realtime. Quando uma nova mensagem chega (inbound webhook ou auto-reply), o usuário precisa trocar de página para ver.
+## Mudança
 
-**Correção:**
-1. Migração para habilitar Realtime nas tabelas relevantes:
-   ```sql
-   ALTER TABLE public.messages REPLICA IDENTITY FULL;
-   ALTER TABLE public.conversations REPLICA IDENTITY FULL;
-   ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
-   ALTER PUBLICATION supabase_realtime ADD TABLE public.conversations;
+### `supabase/functions/inbound-webhook/index.ts`
+
+1. **Ajustar o prompt da IA** (linhas ~473 e ~542):
+   - `pause`: alterar para "prospect rejeitou totalmente a abordagem/produto → pausar cadência **E enviar mensagem curta de agradecimento + porta aberta**".
+   - Atualizar o exemplo do JSON: `reply_message: "mensagem para enviar ao prospect (obrigatória também em pause — agradecimento + porta aberta)"`.
+   - Acrescentar regra: *"Para action=pause, reply_message DEVE ser uma mensagem curta, gentil, agradecendo a sinceridade e deixando a porta aberta para retorno futuro. Sem insistir, sem CTA de venda."*
+
+2. **Garantir fallback no branch `pause`** (linhas 1227-1231):
+   ```ts
+   } else if (parsed.action === "pause") {
+     if (enrollment) {
+       await supabase.from("cadence_enrollments")
+         .update({ status: "paused", paused_reason: "lead_rejected" } as any)
+         .eq("id", enrollment.id);
+     }
+     if (!parsed.reply_message) {
+       parsed.reply_message = "Tudo bem, agradeço muito pelo seu retorno e pelo tempo até aqui! Vou pausar nosso contato por aqui. Se mudar de ideia ou quiser conversar mais pra frente, é só me chamar. 👋";
+     }
+   }
    ```
-2. Em `src/pages/Conversations.tsx` (ou diretamente nos hooks), adicionar `useEffect` com:
-   - Canal `messages-changes` escutando `INSERT/UPDATE` em `public.messages` → `queryClient.invalidateQueries(["messages", conversationId])` quando o `conversation_id` do payload bater com o aberto, e sempre invalidar `["conversations"]` para atualizar o snippet/horário da lista.
-   - Canal `conversations-changes` escutando `INSERT/UPDATE` em `public.conversations` filtrado por `company_id` → invalidar `["conversations", companyId]`.
-   - Cleanup com `supabase.removeChannel(channel)` no unmount.
+   (Hoje só roda se `enrollment` existir, mesmo bug.)
 
-## Arquivos tocados
-
-```text
-supabase/functions/inbound-webhook/index.ts
-  ├── helper escapeHtml local
-  ├── chamada auto-reply: passar html (\n→<br>) além de text
-  └── chamada referral email: idem
-
-supabase/migrations/<timestamp>_realtime_conversations.sql
-  └── REPLICA IDENTITY FULL + ADD TABLE em supabase_realtime para messages e conversations
-
-src/pages/Conversations.tsx
-  └── useEffect com subscriptions Realtime invalidando React Query
-```
-
-## Fora de escopo
-- Mudar estilo/template do HTML do email além de quebra de linha.
-- Reescrever a UI da página de conversas.
-- Realtime em outras telas (Leads, Bookings).
+### Fora de escopo
+- Mudar `routeAndEnqueue` para deixar de pular `send_reply` (mexer ali corre risco de duplicar mensagem em todos os outros intents).
+- Adicionar template de agradecimento configurável por empresa (pode ser feito num próximo passo).
+- Alterar a regra de intent no banco.
 
 ## Resultado esperado
-- Respostas do SDR por email chegam com parágrafos preservados, como o 1º email da cadência.
-- Página `/conversations` mostra novas mensagens automaticamente, sem precisar trocar de tela.
+
+Lead diz "Não tenho mais interesse" → cadência pausa, reunião cancelada (já funciona) **e** o SDR responde algo como: *"Tudo bem, agradeço muito pelo seu retorno! Pausei nosso contato por aqui. Se mudar de ideia, é só me chamar. 👋"*

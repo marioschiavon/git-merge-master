@@ -470,7 +470,7 @@ AÇÕES POSSÍVEIS:
 - "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião", "trocar o horário")
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
 - "cancel": prospect quer CANCELAR uma reunião já confirmada SEM remarcar (ex: "não vou poder", "preciso cancelar a reunião", "vamos cancelar", "não tenho mais interesse na reunião"). NÃO usar para rejeição geral do produto (use "pause").
-- "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência
+- "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência E enviar mensagem curta de agradecimento + porta aberta para retorno futuro
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
 - "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
 - "handoff": prospect fez pergunta TÉCNICA, REGULATÓRIA, JURÍDICA, CLÍNICA ou COMERCIAL ESPECÍFICA que NÃO está na BASE DE CONHECIMENTO e exige especialista humano (ex: dosagem, posologia, contrato, NF-e, certificações ANVISA/MAPA, condições especiais de pagamento, integrações customizadas) → passar para humano. NÃO invente resposta. Use reply_message curto avisando que um especialista vai retornar.
@@ -510,7 +510,7 @@ REGRAS:
 - Se há slots pendentes e o prospect está escolhendo um deles → action = "confirm_slot" com selected_slot = 1 ou 2
 - Se há slots pendentes e o prospect recusou ambos → action = "reject_slots"
 - Se há slots pendentes e o prospect sugeriu outro horário → action = "check_availability" com suggested_datetime
-- Se o prospect diz "não tenho interesse", "não quero", "remova", "pare" → action = "pause"
+- Se o prospect diz "não tenho interesse", "não quero", "remova", "pare" → action = "pause" (reply_message OBRIGATÓRIO: agradecer a sinceridade, dizer que vai pausar o contato, deixar porta aberta para retorno futuro — sem insistir, sem CTA de venda, sem perguntas)
 - Se objeção (preço, timing, concorrente) → contorne com empatia + prova social
 - Se dúvida que ESTÁ na BASE → responda objetivamente + CTA para reunião
 - Se dúvida técnica/regulatória que NÃO está na BASE → action = "handoff" (NÃO invente).
@@ -539,7 +539,7 @@ Responda APENAS com JSON:
     "context": null
   },
   "new_outreach_message": "1ª mensagem para o lead indicado (apenas quando referral.subtype = with_contact, senão null)",
-  "reply_message": "mensagem para enviar ao prospect (null se action=pause e não precisa responder)"
+  "reply_message": "mensagem para enviar ao prospect (obrigatória inclusive em action=pause — agradecimento curto + porta aberta)"
 }${slotContext}`;
 
 
@@ -1224,11 +1224,16 @@ Analise a última mensagem e decida a ação.`,
           metadata: { auto_scheduled: true, sentiment: parsed.sentiment },
         });
       }
-    } else if (parsed.action === "pause" && enrollment) {
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "paused" })
-        .eq("id", enrollment.id);
+    } else if (parsed.action === "pause") {
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "lead_rejected" } as any)
+          .eq("id", enrollment.id);
+      }
+      if (!parsed.reply_message) {
+        parsed.reply_message = "Tudo bem, agradeço muito pelo seu retorno e pelo tempo até aqui! Vou pausar nosso contato por aqui. Se mudar de ideia ou quiser conversar mais pra frente, é só me chamar. 👋";
+      }
     } else if (parsed.action === "request_call" && leadData && companyId) {
       // Prospect asked to be called. Pause cadence, log a 'call' task with metadata for human/voice agent.
       console.log(`Call requested for lead ${leadData.id}`);
