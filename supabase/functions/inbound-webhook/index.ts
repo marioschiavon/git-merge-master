@@ -684,22 +684,24 @@ Analise a última mensagem e decida a ação.`,
       parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
     }
 
-    // Guard: prevent double-booking — if lead already has a confirmed slot, block scheduling actions
-    if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action) && parsed.action !== "reschedule") {
-      const { data: confirmedSlots } = await supabase
-        .from("slot_holds")
-        .select("id, slot_datetime")
-        .eq("lead_id", leadData.id)
-        .eq("status", "confirmed")
-        .limit(1);
+    // Guard: prevent double-booking — if lead already has a confirmed slot, handle scheduling actions carefully
+    if (leadData?.id && ["schedule", "check_availability", "confirm_slot"].includes(parsed.action)) {
+      const confirmedSlots = confirmedSlotForPrompt ? [confirmedSlotForPrompt] : [];
 
-      if (confirmedSlots?.length) {
-        const formatted = formatDateTimeBrt(confirmedSlots[0].slot_datetime);
-        console.log(`Double-booking guard: lead already has confirmed slot at ${confirmedSlots[0].slot_datetime}`);
-        parsed.action = "reply";
-        parsed.reply_message = `Já temos uma reunião confirmada para ${formatted}! Caso precise reagendar, é só me avisar.`;
+      if (confirmedSlots.length) {
+        // If the prospect proposed a new datetime, treat as reschedule instead of bouncing
+        if (parsed.action === "check_availability" && parsed.suggested_datetime) {
+          console.log(`Guard: converting check_availability → reschedule (existing booking + suggested_datetime=${parsed.suggested_datetime})`);
+          parsed.action = "reschedule";
+        } else {
+          const formatted = formatDateTimeBrt(confirmedSlots[0].slot_datetime);
+          console.log(`Double-booking guard: lead already has confirmed slot at ${confirmedSlots[0].slot_datetime}`);
+          parsed.action = "reply";
+          parsed.reply_message = `Já temos uma reunião confirmada para ${formatted}! Caso precise reagendar, é só me avisar.`;
+        }
       }
     }
+
 
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
