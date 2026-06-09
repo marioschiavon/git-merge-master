@@ -440,7 +440,7 @@ REGRAS ANTI-ALUCINAÇÃO:
 `;
 
     // Analyze with AI
-    const systemPrompt = `${knowledgeBlock}
+    const systemPrompt = `${knowledgeBlock}${confirmedBookingBlock}
 
 Você é um SDR autônomo de vendas B2B. Analise a resposta do prospect e decida a ação.
 
