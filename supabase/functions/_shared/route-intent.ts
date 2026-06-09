@@ -16,6 +16,14 @@ const REPLY_ACTIONS = new Set([
   "send_email",
   "send_material",
   "recover_no_show",
+  "ask_cancel_reason",
+  "offer_reschedule_instead",
+  "send_booking_confirmation",
+  "offer_event_types",
+  "collect_booking_info",
+  "detect_timezone",
+  "send_meeting_recap",
+  "request_feedback",
 ]);
 
 export type RouteOptions = {
