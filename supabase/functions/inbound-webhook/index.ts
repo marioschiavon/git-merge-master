@@ -23,6 +23,19 @@ function toBrtIso(year: number, month: number, day: number, hour: number, minute
 }
 
 /** Format a UTC ISO datetime string as a human-readable BRT string */
+function escapeHtml(s: string): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function toEmailHtml(text: string): string {
+  return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
+}
+
 function formatDateTimeBrt(isoString: string): string {
   return formatBRTLong(isoString);
 }
@@ -1404,6 +1417,7 @@ Analise a última mensagem e decida a ação.`,
                   body: {
                     to: ref.referred_email,
                     subject,
+                    html: toEmailHtml(parsed.new_outreach_message),
                     text: parsed.new_outreach_message,
                     conversation_id: newConvId,
                     company_id: companyId,
@@ -1492,6 +1506,7 @@ Analise a última mensagem e decida a ação.`,
               body: {
                 to: leadData.email,
                 subject: replySubject,
+                html: toEmailHtml(parsed.reply_message),
                 text: parsed.reply_message,
                 conversation_id: convId,
                 company_id: companyId,
