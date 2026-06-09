@@ -1,48 +1,58 @@
-## O que aconteceu
+# WhatsApp (Twilio) + Inbox unificada
 
-Lead Juliano respondeu **"Mudei de ideia. Nao me interesso mais pelo produto. Agradeço sua atenção."**
+## O que já existe (não precisa refazer)
+- `cadence-executor` já envia WhatsApp via Twilio gateway quando `step.channel = "whatsapp"` e há `TWILIO_API_KEY` + `TWILIO_WHATSAPP_NUMBER`.
+- `inbound-webhook` já consegue **responder** por WhatsApp quando o canal da conversa é whatsapp.
+- Cadências já permitem misturar steps de email e whatsapp (UI `CadenceStepCard` + select de canal).
+- Email já entra na inbox via `gmail-sync-inbox` → `inbound-webhook`.
 
-Dois sistemas processaram a mensagem:
+## O que falta (escopo deste plano)
 
-1. **Pipeline de Intents** classificou como `rejection / not_interested` e disparou a regra da empresa (`intent_action_rules`), cujas ações são: `send_reply (tone=polite)`, `stop_sequence`, `disqualify_lead`.
-   - `stop_sequence` e `disqualify_lead` foram executados (status=done).
-   - **`send_reply` foi pulado** pelo `routeAndEnqueue` (linha 77 de `_shared/route-intent.ts`): por design, qualquer ação que gera resposta (set `REPLY_ACTIONS`) é ignorada pelo pipeline para não duplicar mensagem com o inbound-webhook legacy.
+### 1. Conectar Twilio
+- Linkar o connector **Twilio** (gateway-enabled). Isso injeta `TWILIO_API_KEY` automaticamente.
+- Adicionar secret `TWILIO_WHATSAPP_NUMBER`. Para o sandbox: `+14155238886`.
+- Card no `settings/Integrations.tsx` para mostrar status "Conectado / Pendente" do WhatsApp e instruir o usuário a:
+  - juntar o número do celular ao sandbox via código (`join <palavra>`);
+  - configurar o webhook do sandbox apontando para a edge function (URL exibida pronta para copiar).
 
-2. **`inbound-webhook` (caminho legacy)** classificou a ação como `pause` (prompt diz: "rejeição geral do produto → use pause; NÃO cancel"). O ramo `pause` (linhas 1227-1231) **apenas pausa a cadência** — não envia nenhuma mensagem. O prompt inclusive instrui a IA: *"reply_message: null se action=pause e não precisa responder"*. Resultado: nenhuma resposta sai.
+### 2. Receber respostas do WhatsApp — nova edge function `twilio-whatsapp-webhook`
+- `verify_jwt = false`, recebe `application/x-www-form-urlencoded` do Twilio.
+- Campos usados: `From` (ex.: `whatsapp:+5511...`), `Body`, `MessageSid`, `NumMedia`.
+- Normalizar o telefone (remover `whatsapp:`), achar o `lead` por `phone` (multi-tenant: tentar match exato e variações de máscara/DDI).
+- Encaminhar para `inbound-webhook` com `{ lead_id, content: Body, channel: "whatsapp" }` — mesmo pipeline do email, então toda a lógica de intents/IA/cadência se aplica igualzinho.
+- Se não achar lead, retornar 200 + log (não falhar pro Twilio).
 
-A reunião foi cancelada via outra ação (`cancel_booking`) que ficou pendente desde mensagens anteriores e rodou nesse momento, daí o system message de cancelamento. Mas o agradecimento ao lead simplesmente não existe nesse fluxo.
+### 3. Inbox unificada por lead com flags de canal
+Hoje `conversations` é por `(lead, channel)` — gera threads separadas para email e whatsapp do mesmo lead. Mudança:
 
-Resposta à sua pergunta: **não é a regra de intent que silenciou** — a regra até pede send_reply. O webhook é que está configurado para nunca responder em `pause`.
+- **Migração**: adicionar `messages.channel` (`email | whatsapp | linkedin | system`), backfill a partir de `conversations.channel`. Tornar `conversations.channel` opcional/"multi" (não dropar pra não quebrar histórico).
+- **Backend**:
+  - `cadence-executor` `findOrCreateConversation`: deixar de filtrar por `channel`, passa a ser **uma conversa por lead**. Inserir o `channel` real no `messages.channel`.
+  - `inbound-webhook` (email e whatsapp) + `gmail-sync-inbox`: idem — reusar a conversa única do lead, preencher `messages.channel` conforme a origem.
+  - Script de unificação: para leads com múltiplas conversas, manter a mais antiga, remapear `messages.conversation_id` das demais e apagar as órfãs.
+- **Frontend `Conversations.tsx`**:
+  - Lista lateral: 1 linha por lead (não por canal). Mostrar mini-badges dos canais já usados (✉ / 📱) e o canal da última mensagem.
+  - Thread: cada bolha de mensagem ganha um ícone/badge do canal (Mail / MessageCircle) à esquerda do timestamp.
+  - Composer: dropdown para escolher o canal do envio manual (default = canal da última mensagem recebida). Já existe envio por whatsapp no `inbound-webhook`; aqui é só uma chamada direta à função `twilio-whatsapp-send` (extraída) ou ao `gmail-send`.
+  - Realtime (já implementado) continua funcionando — só muda o agrupamento.
 
-## Mudança
+### 4. Cadências mistas — ajuste pequeno
+- O executor já trata os canais um a um. Adicionar validação na criação de step de whatsapp: avisar se `lead.phone` está vazio ao enrolar leads (warning na UI, não bloqueia).
 
-### `supabase/functions/inbound-webhook/index.ts`
+## Fora de escopo
+- Sair do sandbox / aprovar template Meta para envio fora da janela de 24h (depende de aprovação do Twilio, não dá pra automatizar).
+- Mídia (imagem/áudio) entrando pelo WhatsApp — só texto nesta entrega.
+- Migrar `conversations.channel` para enum novo "multi" (mantemos o campo como está pra compatibilidade).
 
-1. **Ajustar o prompt da IA** (linhas ~473 e ~542):
-   - `pause`: alterar para "prospect rejeitou totalmente a abordagem/produto → pausar cadência **E enviar mensagem curta de agradecimento + porta aberta**".
-   - Atualizar o exemplo do JSON: `reply_message: "mensagem para enviar ao prospect (obrigatória também em pause — agradecimento + porta aberta)"`.
-   - Acrescentar regra: *"Para action=pause, reply_message DEVE ser uma mensagem curta, gentil, agradecendo a sinceridade e deixando a porta aberta para retorno futuro. Sem insistir, sem CTA de venda."*
+## Ordem de execução
+1. Conectar Twilio (connector) + pedir `TWILIO_WHATSAPP_NUMBER`.
+2. Migração `messages.channel` + backfill + unificação de conversas por lead.
+3. Criar `twilio-whatsapp-webhook` e atualizar `config.toml` (`verify_jwt = false`).
+4. Ajustar `cadence-executor`, `inbound-webhook`, `gmail-sync-inbox` para usar conversa única + setar `messages.channel`.
+5. Refatorar UI `Conversations.tsx` (lista por lead + badges de canal por mensagem + seletor de canal no envio).
+6. Card de status Twilio em `settings/Integrations.tsx` com URL do webhook pronta pra copiar.
 
-2. **Garantir fallback no branch `pause`** (linhas 1227-1231):
-   ```ts
-   } else if (parsed.action === "pause") {
-     if (enrollment) {
-       await supabase.from("cadence_enrollments")
-         .update({ status: "paused", paused_reason: "lead_rejected" } as any)
-         .eq("id", enrollment.id);
-     }
-     if (!parsed.reply_message) {
-       parsed.reply_message = "Tudo bem, agradeço muito pelo seu retorno e pelo tempo até aqui! Vou pausar nosso contato por aqui. Se mudar de ideia ou quiser conversar mais pra frente, é só me chamar. 👋";
-     }
-   }
-   ```
-   (Hoje só roda se `enrollment` existir, mesmo bug.)
-
-### Fora de escopo
-- Mudar `routeAndEnqueue` para deixar de pular `send_reply` (mexer ali corre risco de duplicar mensagem em todos os outros intents).
-- Adicionar template de agradecimento configurável por empresa (pode ser feito num próximo passo).
-- Alterar a regra de intent no banco.
-
-## Resultado esperado
-
-Lead diz "Não tenho mais interesse" → cadência pausa, reunião cancelada (já funciona) **e** o SDR responde algo como: *"Tudo bem, agradeço muito pelo seu retorno! Pausei nosso contato por aqui. Se mudar de ideia, é só me chamar. 👋"*
+## Resultado
+- Lead responde no WhatsApp → cai na mesma thread do email, com badge 📱 na bolha.
+- Cadência mistura email e whatsapp normalmente.
+- Você vê tudo em um só lugar e sabe de onde veio cada mensagem.
