@@ -402,6 +402,22 @@ NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
       aiInstructionsContext = aiInstructionsRes.data?.content || "";
     }
 
+    // Pre-fetch confirmed booking for this lead (used by prompt + double-booking guard)
+    let confirmedSlotForPrompt: { id: string; slot_datetime: string } | null = null;
+    if (leadData?.id) {
+      const { data: cs } = await supabase
+        .from("slot_holds")
+        .select("id, slot_datetime")
+        .eq("lead_id", leadData.id)
+        .eq("status", "confirmed")
+        .order("slot_datetime", { ascending: false })
+        .limit(1);
+      if (cs?.length) confirmedSlotForPrompt = cs[0] as any;
+    }
+    const confirmedBookingBlock = confirmedSlotForPrompt
+      ? `\n=== REUNIÃO ATUALMENTE CONFIRMADA ===\n${formatDateTimeBrt(confirmedSlotForPrompt.slot_datetime)}\n→ Se o prospect pedir para TROCAR/ALTERAR/MOVER/REMARCAR esse horário (com ou sem nova data), use action = "reschedule" e preencha "suggested_datetime" se ele indicou um novo horário.\n→ NUNCA use "check_availability" quando já existe reunião confirmada — sempre use "reschedule".\n→ Se ele quiser CANCELAR sem remarcar, use "cancel".\n=====================================\n`
+      : "";
+
     const hasKnowledge = !!(knowledgeContext || highlightsContext);
     const knowledgeBlock = hasKnowledge
       ? `=== BASE DE CONHECIMENTO DA EMPRESA (ÚNICA FONTE DA VERDADE) ===
