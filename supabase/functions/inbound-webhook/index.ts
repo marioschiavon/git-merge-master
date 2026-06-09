@@ -1506,6 +1506,7 @@ Analise a última mensagem e decida a ação.`,
               body: {
                 to: leadData.email,
                 subject: replySubject,
+                html: toEmailHtml(parsed.reply_message),
                 text: parsed.reply_message,
                 conversation_id: convId,
                 company_id: companyId,
