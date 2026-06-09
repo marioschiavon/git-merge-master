@@ -1037,20 +1037,43 @@ Analise a última mensagem e decida a ação.`,
 
       try {
         const channelLabel = convChannel || channel || "email";
-        const slotsRes = await supabase.functions.invoke("calcom-slots", {
-          body: {
-            company_id: companyId,
-            lead_id: leadData?.id,
-            enrollment_id: enrollment?.id,
-            conversation_id: convId,
-            preferred_channel: channelLabel,
-            check_datetime: parsed.suggested_datetime,
-            exclude_datetimes: [
-              ...heldSlots.map((s: any) => s.slot_datetime),
-              ...lastOfferedSlots,
-            ],
-          },
-        });
+
+        // Anchor alternatives to the lead's preferred window: start at 00:00 BRT
+        // of the suggested day, end 7 days later at 23:59 BRT. A more specific
+        // range hint extracted from the text takes priority.
+        let anchorStart: string | undefined;
+        let anchorEnd: string | undefined;
+        try {
+          const suggested = new Date(parsed.suggested_datetime);
+          if (!isNaN(suggested.getTime())) {
+            // BRT = UTC-3 (no DST in Brazil). Compute day start/end in BRT.
+            const BRT_OFFSET_MS = 3 * 3600000;
+            const brtMs = suggested.getTime() - BRT_OFFSET_MS;
+            const dayStartBrt = Math.floor(brtMs / 86400000) * 86400000;
+            anchorStart = new Date(dayStartBrt + BRT_OFFSET_MS).toISOString();
+            anchorEnd = new Date(dayStartBrt + 7 * 86400000 + BRT_OFFSET_MS - 60000).toISOString();
+          }
+        } catch (_) { /* ignore */ }
+        const rangeHint = extractDateRangeFromText(cleanContent);
+        if (rangeHint?.start_after) anchorStart = rangeHint.start_after;
+        if (rangeHint?.end_before) anchorEnd = rangeHint.end_before;
+
+        const slotsBody: any = {
+          company_id: companyId,
+          lead_id: leadData?.id,
+          enrollment_id: enrollment?.id,
+          conversation_id: convId,
+          preferred_channel: channelLabel,
+          check_datetime: parsed.suggested_datetime,
+          exclude_datetimes: [
+            ...heldSlots.map((s: any) => s.slot_datetime),
+            ...lastOfferedSlots,
+          ],
+        };
+        if (anchorStart) slotsBody.start_after = anchorStart;
+        if (anchorEnd) slotsBody.end_before = anchorEnd;
+
+        const slotsRes = await supabase.functions.invoke("calcom-slots", { body: slotsBody });
 
         if (slotsRes.data?.available) {
           // Slot is available — confirm booking directly
@@ -1068,9 +1091,12 @@ Analise a última mensagem e decida a ação.`,
             }
           }
         } else {
-          // Not available — offer 2 alternatives
-          if (slotsRes.data?.formatted?.length >= 2) {
-            parsed.reply_message = `Infelizmente esse horário não está disponível. Que tal uma dessas opções?\n\n📅 ${slotsRes.data.formatted[0]}\n📅 ${slotsRes.data.formatted[1]}\n\nQual funciona melhor?`;
+          // Not available — offer alternatives anchored to lead's preferred window
+          const formatted = slotsRes.data?.formatted || [];
+          if (formatted.length >= 2) {
+            parsed.reply_message = `Infelizmente esse horário não está disponível. Que tal uma dessas opções?\n\n📅 ${formatted[0]}\n📅 ${formatted[1]}\n\nQual funciona melhor?`;
+          } else if (formatted.length === 1) {
+            parsed.reply_message = `Infelizmente esse horário exato não está disponível. Tenho ${formatted[0]} — funciona para você?`;
           } else {
             const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
             parsed.reply_message = CALCOM_BOOKING_LINK

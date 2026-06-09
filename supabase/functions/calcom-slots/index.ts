@@ -243,8 +243,36 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } else {
-        // Not available — pick 2 alternatives spread apart
-        const selectedSlots = pickSpreadSlots(slotsData, excludeSet, MIN_SPREAD_HOURS);
+        // Not available — pick 2 alternatives spread apart, anchored to the
+        // requested window. If nothing fits, expand the window by +14 days
+        // and refetch once before giving up.
+        let workingSlotsData = slotsData;
+        let selectedSlots = pickSpreadSlots(workingSlotsData, excludeSet, MIN_SPREAD_HOURS);
+
+        if (selectedSlots.length === 0) {
+          const expandedEnd = new Date(endDate.getTime() + 14 * 86400000);
+          console.log(`No alternatives in window — expanding end to ${expandedEnd.toISOString()}`);
+          const expandedUrl = new URL("https://api.cal.com/v2/slots");
+          expandedUrl.searchParams.set("eventTypeId", String(eventTypeId));
+          expandedUrl.searchParams.set("start", startDate.toISOString());
+          expandedUrl.searchParams.set("end", expandedEnd.toISOString());
+          try {
+            const r = await fetch(expandedUrl.toString(), {
+              method: "GET",
+              headers: {
+                "Authorization": `Bearer ${CALCOM_API_KEY}`,
+                "cal-api-version": CALCOM_SLOTS_API_VERSION,
+              },
+            });
+            if (r.ok) {
+              const j = await r.json();
+              workingSlotsData = j.data || {};
+              selectedSlots = pickSpreadSlots(workingSlotsData, excludeSet, MIN_SPREAD_HOURS);
+            }
+          } catch (e) {
+            console.error("Expanded fetch error:", e);
+          }
+        }
 
         // Reserve alternatives
         const expiresAt = new Date();
