@@ -14,6 +14,116 @@ export type Database = {
   }
   public: {
     Tables: {
+      bookings: {
+        Row: {
+          attendees: Json | null
+          calcom_booking_id: number | null
+          calcom_booking_uid: string | null
+          calcom_event_type_id: number | null
+          calcom_reschedule_uid: string | null
+          cancel_reason: string | null
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          duration_minutes: number | null
+          end_at: string | null
+          id: string
+          lead_id: string | null
+          location: string | null
+          meeting_url: string | null
+          owner_user_id: string | null
+          previous_booking_id: string | null
+          raw_payload: Json | null
+          reschedule_reason: string | null
+          scheduled_at: string | null
+          status: Database["public"]["Enums"]["booking_status"]
+          timezone: string | null
+          title: string | null
+          updated_at: string
+        }
+        Insert: {
+          attendees?: Json | null
+          calcom_booking_id?: number | null
+          calcom_booking_uid?: string | null
+          calcom_event_type_id?: number | null
+          calcom_reschedule_uid?: string | null
+          cancel_reason?: string | null
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          end_at?: string | null
+          id?: string
+          lead_id?: string | null
+          location?: string | null
+          meeting_url?: string | null
+          owner_user_id?: string | null
+          previous_booking_id?: string | null
+          raw_payload?: Json | null
+          reschedule_reason?: string | null
+          scheduled_at?: string | null
+          status?: Database["public"]["Enums"]["booking_status"]
+          timezone?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attendees?: Json | null
+          calcom_booking_id?: number | null
+          calcom_booking_uid?: string | null
+          calcom_event_type_id?: number | null
+          calcom_reschedule_uid?: string | null
+          cancel_reason?: string | null
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          end_at?: string | null
+          id?: string
+          lead_id?: string | null
+          location?: string | null
+          meeting_url?: string | null
+          owner_user_id?: string | null
+          previous_booking_id?: string | null
+          raw_payload?: Json | null
+          reschedule_reason?: string | null
+          scheduled_at?: string | null
+          status?: Database["public"]["Enums"]["booking_status"]
+          timezone?: string | null
+          title?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bookings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bookings_previous_booking_id_fkey"
+            columns: ["previous_booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cadence_custom_messages: {
         Row: {
           company_id: string
@@ -249,8 +359,117 @@ export type Database = {
           },
         ]
       }
+      calcom_event_types: {
+        Row: {
+          active: boolean
+          calcom_id: number
+          company_id: string
+          created_at: string
+          default_for_intent: string | null
+          description: string | null
+          id: string
+          length_minutes: number | null
+          raw: Json | null
+          slug: string | null
+          synced_at: string
+          team_id: number | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          calcom_id: number
+          company_id: string
+          created_at?: string
+          default_for_intent?: string | null
+          description?: string | null
+          id?: string
+          length_minutes?: number | null
+          raw?: Json | null
+          slug?: string | null
+          synced_at?: string
+          team_id?: number | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          calcom_id?: number
+          company_id?: string
+          created_at?: string
+          default_for_intent?: string | null
+          description?: string | null
+          id?: string
+          length_minutes?: number | null
+          raw?: Json | null
+          slug?: string | null
+          synced_at?: string
+          team_id?: number | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calcom_event_types_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      calcom_webhook_log: {
+        Row: {
+          booking_uid: string | null
+          company_id: string | null
+          created_at: string
+          error: string | null
+          event_type: string
+          id: string
+          payload: Json
+          processed: boolean
+          processed_at: string | null
+          signature_valid: boolean | null
+        }
+        Insert: {
+          booking_uid?: string | null
+          company_id?: string | null
+          created_at?: string
+          error?: string | null
+          event_type: string
+          id?: string
+          payload: Json
+          processed?: boolean
+          processed_at?: string | null
+          signature_valid?: boolean | null
+        }
+        Update: {
+          booking_uid?: string | null
+          company_id?: string | null
+          created_at?: string
+          error?: string | null
+          event_type?: string
+          id?: string
+          payload?: Json
+          processed?: boolean
+          processed_at?: string | null
+          signature_valid?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calcom_webhook_log_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
+          calcom_default_event_type_id: number | null
+          calcom_round_robin_enabled: boolean
+          calcom_team_id: number | null
           created_at: string
           id: string
           logo_url: string | null
@@ -262,6 +481,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          calcom_default_event_type_id?: number | null
+          calcom_round_robin_enabled?: boolean
+          calcom_team_id?: number | null
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -273,6 +495,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          calcom_default_event_type_id?: number | null
+          calcom_round_robin_enabled?: boolean
+          calcom_team_id?: number | null
           created_at?: string
           id?: string
           logo_url?: string | null
@@ -1389,6 +1614,18 @@ export type Database = {
         | "disqualify_lead"
         | "recover_no_show"
         | "request_info_from_lead"
+        | "fetch_existing_booking"
+        | "reschedule_booking"
+        | "cancel_booking"
+        | "ask_cancel_reason"
+        | "offer_reschedule_instead"
+        | "send_booking_confirmation"
+        | "offer_event_types"
+        | "collect_booking_info"
+        | "detect_timezone"
+        | "send_meeting_recap"
+        | "request_feedback"
+        | "mark_meeting_attended"
       activity_type:
         | "email"
         | "call"
@@ -1398,6 +1635,13 @@ export type Database = {
         | "meeting"
         | "referral"
       app_role: "master_admin" | "company_admin" | "user"
+      booking_status:
+        | "pending"
+        | "confirmed"
+        | "rescheduled"
+        | "cancelled"
+        | "no_show"
+        | "completed"
       cadence_status: "draft" | "active" | "paused" | "archived"
       cadence_type: "email" | "whatsapp" | "linkedin" | "multi_channel"
       company_status: "active" | "inactive" | "trial"
@@ -1572,6 +1816,18 @@ export const Constants = {
         "disqualify_lead",
         "recover_no_show",
         "request_info_from_lead",
+        "fetch_existing_booking",
+        "reschedule_booking",
+        "cancel_booking",
+        "ask_cancel_reason",
+        "offer_reschedule_instead",
+        "send_booking_confirmation",
+        "offer_event_types",
+        "collect_booking_info",
+        "detect_timezone",
+        "send_meeting_recap",
+        "request_feedback",
+        "mark_meeting_attended",
       ],
       activity_type: [
         "email",
@@ -1583,6 +1839,14 @@ export const Constants = {
         "referral",
       ],
       app_role: ["master_admin", "company_admin", "user"],
+      booking_status: [
+        "pending",
+        "confirmed",
+        "rescheduled",
+        "cancelled",
+        "no_show",
+        "completed",
+      ],
       cadence_status: ["draft", "active", "paused", "archived"],
       cadence_type: ["email", "whatsapp", "linkedin", "multi_channel"],
       company_status: ["active", "inactive", "trial"],
