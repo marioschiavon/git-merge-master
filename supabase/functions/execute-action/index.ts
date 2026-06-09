@@ -412,6 +412,165 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
     await logActivity(ctx, "note", `🔄 Mensagem de recuperação de no-show enviada`);
     return { sent: true };
   },
+
+  /* ─── Cal.com scheduling handlers ─────────────────────────────────── */
+  async fetch_existing_booking(ctx) {
+    const lead = await loadLead(ctx);
+    const { data, error } = await ctx.supabase.functions.invoke("calcom-booking-fetch", {
+      body: { lead_id: ctx.lead_id, email: lead?.email },
+    });
+    if (error) throw new Error(error.message);
+    await logActivity(ctx, "note", `🔍 Reservas existentes consultadas (${(data as any)?.bookings?.length || 0})`);
+    return data;
+  },
+
+  async reschedule_booking(ctx) {
+    const { booking_uid, start, reason } = ctx.params;
+    let uid = booking_uid as string | undefined;
+    if (!uid) {
+      const { data: existing } = await ctx.supabase
+        .from("bookings").select("calcom_booking_uid")
+        .eq("lead_id", ctx.lead_id).in("status", ["confirmed", "pending", "rescheduled"])
+        .order("scheduled_at", { ascending: false }).limit(1).maybeSingle();
+      uid = existing?.calcom_booking_uid;
+    }
+    if (!uid || !start) throw new Error("reschedule_booking requer booking_uid e start");
+    const { data, error } = await ctx.supabase.functions.invoke("calcom-booking-reschedule", {
+      body: { booking_uid: uid, start, reason, lead_id: ctx.lead_id },
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async cancel_booking(ctx) {
+    const { booking_uid, reason } = ctx.params;
+    let uid = booking_uid as string | undefined;
+    if (!uid) {
+      const { data: existing } = await ctx.supabase
+        .from("bookings").select("calcom_booking_uid")
+        .eq("lead_id", ctx.lead_id).in("status", ["confirmed", "pending", "rescheduled"])
+        .order("scheduled_at", { ascending: false }).limit(1).maybeSingle();
+      uid = existing?.calcom_booking_uid;
+    }
+    if (!uid) throw new Error("cancel_booking: nenhuma reserva ativa encontrada");
+    const { data, error } = await ctx.supabase.functions.invoke("calcom-booking-cancel", {
+      body: { booking_uid: uid, reason },
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+
+  async ask_cancel_reason(ctx) {
+    const reply = await generateReply(ctx, {
+      tone: "pergunte com empatia o motivo do cancelamento, sem ser invasivo",
+      category: "scheduling", sub_intent: "cancel_request",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "ask_cancel_reason" });
+    await logActivity(ctx, "note", `❓ Motivo do cancelamento solicitado`);
+    return { sent: true };
+  },
+
+  async offer_reschedule_instead(ctx) {
+    const reply = await generateReply(ctx, {
+      tone: "ofereça remarcar para um novo horário antes de cancelar definitivamente; sugira 2 horários",
+      category: "scheduling", sub_intent: "offer_reschedule",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "offer_reschedule_instead" });
+    await logActivity(ctx, "note", `🔄 Oferta de remarcação enviada`);
+    return { sent: true };
+  },
+
+  async send_booking_confirmation(ctx) {
+    const { booking_uid, rescheduled } = ctx.params;
+    const { data: booking } = await ctx.supabase.from("bookings").select("*").eq("calcom_booking_uid", booking_uid).maybeSingle();
+    if (!booking) throw new Error("booking não encontrado");
+    const when = booking.scheduled_at ? new Date(booking.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "horário a confirmar";
+    const lead = await loadLead(ctx);
+    const verb = rescheduled ? "remarcada" : "confirmada";
+    const link = booking.meeting_url ? `\n\nLink: ${booking.meeting_url}` : "";
+    const message = `Oi ${lead?.name?.split(" ")[0] || ""}, sua reunião foi ${verb} para **${when}** (horário de Brasília).${link}\n\nNos vemos lá!`;
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, message, `Reunião ${verb}`, channel, { action: "send_booking_confirmation", booking_uid });
+    await logActivity(ctx, "meeting", `✉️ Confirmação enviada para ${when}`);
+    return { sent: true };
+  },
+
+  async offer_event_types(ctx) {
+    const { data: types } = await ctx.supabase
+      .from("calcom_event_types").select("title, length_minutes, slug, calcom_id")
+      .eq("company_id", ctx.company_id).eq("active", true).limit(5);
+    if (!types || !types.length) {
+      await logActivity(ctx, "note", `⚠️ Nenhum tipo de evento ativo para oferecer`);
+      return { skipped: "no event types" };
+    }
+    const list = types.map((t: any) => `• **${t.title}** (${t.length_minutes || "?"} min)`).join("\n");
+    const reply = await generateReply(ctx, {
+      tone: `apresente os tipos de reunião disponíveis e pergunte qual encaixa melhor:\n${list}`,
+      category: "scheduling", sub_intent: "event_type_question",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "offer_event_types", types });
+    await logActivity(ctx, "note", `📋 ${types.length} tipos de reunião oferecidos`);
+    return { sent: true, types };
+  },
+
+  async collect_booking_info(ctx) {
+    const missing = ctx.params.missing_fields || ["nome completo", "e-mail", "fuso horário"];
+    const reply = await generateReply(ctx, {
+      tone: `peça gentilmente: ${(missing as string[]).join(", ")} para confirmar o agendamento`,
+      category: "scheduling", sub_intent: "collect_info",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "collect_booking_info", missing });
+    await logActivity(ctx, "note", `📋 Coletando dados de agendamento: ${(missing as string[]).join(", ")}`);
+    return { sent: true };
+  },
+
+  async detect_timezone(ctx) {
+    const reply = await generateReply(ctx, {
+      tone: "pergunte de qual cidade/fuso horário a pessoa está, de forma natural",
+      category: "scheduling", sub_intent: "timezone_question",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "detect_timezone" });
+    await logActivity(ctx, "note", `🌍 Pergunta de fuso horário enviada`);
+    return { sent: true };
+  },
+
+  async send_meeting_recap(ctx) {
+    const { booking_uid } = ctx.params;
+    const reply = await generateReply(ctx, {
+      tone: "envie um resumo curto da reunião, agradecendo e listando os próximos passos acordados",
+      category: "scheduling", sub_intent: "meeting_recap",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? "Resumo da nossa reunião", channel, { action: "send_meeting_recap", booking_uid });
+    await logActivity(ctx, "note", `📝 Recap de reunião enviado`);
+    return { sent: true };
+  },
+
+  async request_feedback(ctx) {
+    const { booking_uid } = ctx.params;
+    const reply = await generateReply(ctx, {
+      tone: "peça feedback rápido (1-5) sobre a reunião e o que pode melhorar",
+      category: "scheduling", sub_intent: "feedback_request",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? "Como foi nossa conversa?", channel, { action: "request_feedback", booking_uid });
+    await logActivity(ctx, "note", `⭐ Feedback solicitado`);
+    return { sent: true };
+  },
+
+  async mark_meeting_attended(ctx) {
+    const { booking_uid, attended } = ctx.params;
+    const { data: booking } = await ctx.supabase.from("bookings").select("id").eq("calcom_booking_uid", booking_uid).maybeSingle();
+    if (!booking) throw new Error("booking não encontrado");
+    await ctx.supabase.from("bookings").update({ status: attended === false ? "no_show" : "completed" }).eq("id", booking.id);
+    await logActivity(ctx, "meeting", attended === false ? `❌ No-show registrado` : `✅ Presença confirmada`);
+    return { ok: true };
+  },
 };
 
 /* ─── Server ─────────────────────────────────────────────────────────── */
