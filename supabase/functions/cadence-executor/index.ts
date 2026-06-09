@@ -326,39 +326,19 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
             sendAction = "failed";
           }
         } else if (currentStep.channel === "whatsapp" && lead.phone) {
-          // Send via Twilio WhatsApp Gateway
-          const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
-          const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
-
-          if (TWILIO_API_KEY && TWILIO_PHONE) {
-            try {
-              const twilioRes = await fetch(`${TWILIO_GATEWAY_URL}/Messages.json`, {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${LOVABLE_API_KEY}`,
-                  "X-Connection-Api-Key": TWILIO_API_KEY,
-                  "Content-Type": "application/x-www-form-urlencoded",
-                },
-                body: new URLSearchParams({
-                  To: `whatsapp:${lead.phone}`,
-                  From: `whatsapp:${TWILIO_PHONE}`,
-                  Body: parsed.message,
-                }),
-              });
-
-              if (!twilioRes.ok) {
-                const errData = await twilioRes.text();
-                console.error(`Twilio WhatsApp error for ${enrollment.id}:`, errData);
-                sendAction = "failed";
-              }
-            } catch (e) {
-              console.error(`Twilio WhatsApp exception for ${enrollment.id}:`, e);
+          // Send via Twilio com credenciais por empresa
+          const twCfg = await getTwilioConfig(supabase, cadence.company_id);
+          if (twCfg) {
+            const r = await sendWhatsAppViaTwilio(twCfg, lead.phone, parsed.message);
+            if (!r.ok) {
+              console.error(`Twilio WhatsApp error for ${enrollment.id}:`, r.error);
               sendAction = "failed";
             }
           } else {
-            // Twilio not configured — register as manual task
+            // Twilio não configurado — registra como tarefa manual
             sendAction = "pending_manual";
           }
+
         } else if (currentStep.channel === "linkedin") {
           // LinkedIn has no API — register as manual task
           sendAction = "pending_manual";
