@@ -133,13 +133,14 @@ serve(async (req) => {
               });
               if (sendError) { sendAction = "failed"; }
             } catch { sendAction = "failed"; }
-          } else if (currentStep.channel === "whatsapp" && lead.phone) {
+          } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
             const twCfg = await getTwilioConfig(supabase, cadence.company_id);
             if (twCfg) {
-              const r = await sendWhatsAppViaTwilio(twCfg, lead.phone, parsed.message);
+              const r = await sendWhatsAppViaTwilio(twCfg, lead.whatsapp || lead.phone, parsed.message);
               if (!r.ok) { console.error("Twilio send failed:", r.error); sendAction = "failed"; }
             } else { sendAction = "pending_manual"; }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
+
 
 
           // Log activity
@@ -325,11 +326,11 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
             console.error(`Gmail send exception for enrollment ${enrollment.id}:`, emailErr);
             sendAction = "failed";
           }
-        } else if (currentStep.channel === "whatsapp" && lead.phone) {
+        } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
           // Send via Twilio com credenciais por empresa
           const twCfg = await getTwilioConfig(supabase, cadence.company_id);
           if (twCfg) {
-            const r = await sendWhatsAppViaTwilio(twCfg, lead.phone, parsed.message);
+            const r = await sendWhatsAppViaTwilio(twCfg, lead.whatsapp || lead.phone, parsed.message);
             if (!r.ok) {
               console.error(`Twilio WhatsApp error for ${enrollment.id}:`, r.error);
               sendAction = "failed";
@@ -338,6 +339,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
             // Twilio não configurado — registra como tarefa manual
             sendAction = "pending_manual";
           }
+
 
         } else if (currentStep.channel === "linkedin") {
           // LinkedIn has no API — register as manual task

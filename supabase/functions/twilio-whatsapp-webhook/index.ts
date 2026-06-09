@@ -69,18 +69,18 @@ serve(async (req) => {
       });
     }
 
-    // Encontrar lead pelo telefone dentro da empresa
-    const phoneVariants = [fromPhone, fromPhone.replace(/^\+/, ""), fromPhone.replace(/\D/g, "")];
+    // Encontrar lead pelo whatsapp ou telefone dentro da empresa
     const { data: leads } = await supabase
       .from("leads")
-      .select("id, phone")
+      .select("id, phone, whatsapp")
       .eq("company_id", companyId)
-      .not("phone", "is", null);
+      .or("phone.not.is.null,whatsapp.not.is.null");
 
     const lead = (leads || []).find((l: any) => {
-      const lp = normalizePhone(l.phone);
-      return lp && (lp === fromPhone || lp.endsWith(fromPhone.slice(-10)));
+      const candidates = [l.whatsapp, l.phone].filter(Boolean).map(normalizePhone);
+      return candidates.some((c) => c === fromPhone || (c && c.endsWith(fromPhone.slice(-10))));
     });
+
 
     if (!lead) {
       console.warn("Lead não encontrado para telefone:", fromPhone, "company:", companyId);

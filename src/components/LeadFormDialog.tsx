@@ -8,12 +8,13 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useCreateLead } from "@/hooks/usePipedrive";
+import { useCreateLead, useUpdateLead } from "@/hooks/usePipedrive";
 
 const schema = z.object({
   name: z.string().trim().min(1, "Nome obrigatório").max(150),
   email: z.string().trim().max(255).email("Email inválido").optional().or(z.literal("")),
   phone: z.string().trim().max(50).optional().or(z.literal("")),
+  whatsapp: z.string().trim().max(50).optional().or(z.literal("")),
   company_name: z.string().trim().max(150).optional().or(z.literal("")),
   title: z.string().trim().max(150).optional().or(z.literal("")),
   website: z.string().trim().max(255).optional().or(z.literal("")),
@@ -24,13 +25,30 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+export interface LeadFormLead {
+  id: string;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  company_name?: string | null;
+  title?: string | null;
+  website?: string | null;
+  address?: string | null;
+  status?: string | null;
+  source?: string | null;
+}
+
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  lead?: LeadFormLead | null;
 }
 
-export function LeadFormDialog({ open, onOpenChange }: Props) {
+export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
   const createLead = useCreateLead();
+  const updateLead = useUpdateLead();
+  const isEdit = !!lead?.id;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -38,6 +56,7 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
       name: "",
       email: "",
       phone: "",
+      whatsapp: "",
       company_name: "",
       title: "",
       website: "",
@@ -48,29 +67,54 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
   });
 
   useEffect(() => {
-    if (!open) form.reset();
-  }, [open, form]);
+    if (!open) {
+      form.reset();
+      return;
+    }
+    if (lead) {
+      form.reset({
+        name: lead.name || "",
+        email: lead.email || "",
+        phone: lead.phone || "",
+        whatsapp: lead.whatsapp || "",
+        company_name: lead.company_name || "",
+        title: lead.title || "",
+        website: lead.website || "",
+        address: lead.address || "",
+        status: (lead.status as FormValues["status"]) || "new",
+        source: lead.source || "manual",
+      });
+    }
+  }, [open, lead, form]);
 
   const onSubmit = async (values: FormValues) => {
-    await createLead.mutateAsync({
+    const payload = {
       name: values.name,
       status: values.status,
       email: values.email || null,
       phone: values.phone || null,
+      whatsapp: values.whatsapp || null,
       company_name: values.company_name || null,
       title: values.title || null,
       website: values.website || null,
       address: values.address || null,
       source: values.source || "manual",
-    });
+    };
+    if (isEdit && lead?.id) {
+      await updateLead.mutateAsync({ id: lead.id, ...payload });
+    } else {
+      await createLead.mutateAsync(payload);
+    }
     onOpenChange(false);
   };
+
+  const pending = createLead.isPending || updateLead.isPending;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Novo Lead</DialogTitle>
+          <DialogTitle>{isEdit ? "Editar Lead" : "Novo Lead"}</DialogTitle>
         </DialogHeader>
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
@@ -92,7 +136,14 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
               <FormField control={form.control} name="phone" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Telefone</FormLabel>
-                  <FormControl><Input {...field} /></FormControl>
+                  <FormControl><Input placeholder="+5511999998888" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="whatsapp" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>WhatsApp</FormLabel>
+                  <FormControl><Input placeholder="+5511999998888" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -150,8 +201,8 @@ export function LeadFormDialog({ open, onOpenChange }: Props) {
             </div>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
-              <Button type="submit" disabled={createLead.isPending}>
-                {createLead.isPending ? "Salvando..." : "Salvar lead"}
+              <Button type="submit" disabled={pending}>
+                {pending ? "Salvando..." : isEdit ? "Salvar alterações" : "Salvar lead"}
               </Button>
             </DialogFooter>
           </form>

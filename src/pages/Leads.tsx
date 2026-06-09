@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Target, Search, Plus, Upload, Trash2 } from "lucide-react";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -44,6 +44,8 @@ export default function Leads() {
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState<any>(null);
+
 
   const { data: leads = [], isLoading } = useLeads({ status: statusFilter, search });
   const syncMutation = useSyncLeads();
@@ -193,31 +195,43 @@ export default function Leads() {
                     </TableCell>
                     <TableCell>{lead.source || "—"}</TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir lead">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Isso removerá <strong>{lead.name}</strong>, suas inscrições em cadências, conversas, mensagens e histórico. Esta ação não pode ser desfeita.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              onClick={() => deleteLead.mutate(lead.id)}
-                            >
-                              Excluir
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="text-muted-foreground hover:text-primary"
+                          title="Editar lead"
+                          onClick={() => setEditingLead(lead)}
+                        >
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive" title="Excluir lead">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir lead?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Isso removerá <strong>{lead.name}</strong>, suas inscrições em cadências, conversas, mensagens e histórico. Esta ação não pode ser desfeita.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => deleteLead.mutate(lead.id)}
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </TableCell>
+
                   </TableRow>
                 ))
               )}
@@ -232,7 +246,13 @@ export default function Leads() {
         onOpenChange={(open) => !open && setSelectedLead(null)}
       />
       <LeadFormDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <LeadFormDialog
+        open={!!editingLead}
+        onOpenChange={(open) => !open && setEditingLead(null)}
+        lead={editingLead}
+      />
       <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
+
