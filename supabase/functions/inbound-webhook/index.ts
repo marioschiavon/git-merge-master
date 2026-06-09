@@ -786,37 +786,77 @@ Analise a última mensagem e decida a ação.`,
         });
       }
     } else if (parsed.action === "reschedule") {
-      // Reschedule: cancel existing confirmed booking and offer new slots
+      // Reschedule: cancel existing booking + held slots, then offer new ones
       console.log(`Reschedule requested for lead ${leadData?.id}`);
       const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
 
-      // Find and cancel confirmed slot
-      const { data: confirmedSlots } = await supabase
+      // 1) Cancel any held or confirmed slots in slot_holds
+      const { data: liveSlots } = await supabase
         .from("slot_holds")
-        .select("id, slot_datetime, cal_booking_uid")
+        .select("id, slot_datetime, cal_booking_uid, status")
         .eq("lead_id", leadData.id)
-        .eq("status", "confirmed");
+        .in("status", ["held", "confirmed"]);
 
-      for (const slot of (confirmedSlots || [])) {
-        // Cancel Cal.com booking
+      let cancelledBookingUid: string | null = null;
+      let cancelledScheduledAt: string | null = null;
+      for (const slot of (liveSlots || [])) {
         if (slot.cal_booking_uid && CALCOM_API_KEY) {
+          const endpoint = slot.status === "confirmed"
+            ? `https://api.cal.com/v2/bookings/${slot.cal_booking_uid}/cancel`
+            : `https://api.cal.com/v2/slots/reservations/${slot.cal_booking_uid}`;
+          const apiVersion = slot.status === "confirmed" ? "2024-04-15" : "2024-09-04";
           try {
-            await fetch(`https://api.cal.com/v2/bookings/${slot.cal_booking_uid}/cancel`, {
+            await fetch(endpoint, {
               method: "DELETE",
-              headers: {
-                "Authorization": `Bearer ${CALCOM_API_KEY}`,
-                "cal-api-version": "2024-04-15",
-              },
+              headers: { "Authorization": `Bearer ${CALCOM_API_KEY}`, "cal-api-version": apiVersion },
             });
-            console.log("Cancelled Cal.com booking:", slot.cal_booking_uid);
           } catch (e) {
-            console.error("Error cancelling Cal.com booking:", e);
+            console.error("Error cancelling Cal.com entry:", e);
+          }
+          if (slot.status === "confirmed") {
+            cancelledBookingUid = slot.cal_booking_uid;
+            cancelledScheduledAt = slot.slot_datetime;
           }
         }
         await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
       }
 
-      // Reset enrollment
+      // 2) Update bookings row immediately so UI reflects the change (don't wait for webhook)
+      const { data: activeBookings } = await supabase
+        .from("bookings")
+        .select("id, calcom_booking_uid, scheduled_at, status")
+        .eq("lead_id", leadData.id)
+        .neq("status", "cancelled")
+        .order("created_at", { ascending: false });
+      for (const b of (activeBookings || [])) {
+        if (CALCOM_API_KEY && b.calcom_booking_uid && b.calcom_booking_uid !== cancelledBookingUid) {
+          // Cancel orphan Cal.com booking that wasn't tied to a slot_hold row
+          try {
+            await fetch(`https://api.cal.com/v2/bookings/${b.calcom_booking_uid}/cancel`, {
+              method: "DELETE",
+              headers: { "Authorization": `Bearer ${CALCOM_API_KEY}`, "cal-api-version": "2024-04-15" },
+            });
+          } catch (e) {
+            console.error("Error cancelling orphan booking:", e);
+          }
+        }
+        await supabase.from("bookings").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", b.id);
+        cancelledBookingUid = cancelledBookingUid || b.calcom_booking_uid;
+        cancelledScheduledAt = cancelledScheduledAt || b.scheduled_at;
+      }
+
+      // 3) System message in the conversation
+      if (companyId && leadData) {
+        await insertBookingSystemMessage(supabase, {
+          lead_id: leadData.id,
+          company_id: companyId,
+          event_type: "booking_rescheduled",
+          booking_uid: cancelledBookingUid,
+          previous_scheduled_at: cancelledScheduledAt,
+        });
+      }
+
+      // 4) Reset enrollment
       if (enrollment) {
         await supabase
           .from("cadence_enrollments")
@@ -829,9 +869,10 @@ Analise a última mensagem e decida a ação.`,
           .eq("id", enrollmentId);
       }
 
-      // Now fetch new slots — either check suggested datetime or offer 2 new ones
+      // 5) Fetch new slots — honour any date hint from the lead's message
       try {
         const channelLabel = convChannel || channel || "email";
+        const rangeHint = extractDateRangeFromText(cleanContent);
         const slotsBody: any = {
           company_id: companyId,
           lead_id: leadData?.id,
@@ -839,10 +880,9 @@ Analise a última mensagem e decida a ação.`,
           conversation_id: convId,
           preferred_channel: channelLabel,
         };
-
-        if (parsed.suggested_datetime) {
-          slotsBody.check_datetime = parsed.suggested_datetime;
-        }
+        if (parsed.suggested_datetime) slotsBody.check_datetime = parsed.suggested_datetime;
+        if (rangeHint?.start_after) slotsBody.start_after = rangeHint.start_after;
+        if (rangeHint?.end_before) slotsBody.end_before = rangeHint.end_before;
 
         const slotsRes = await supabase.functions.invoke("calcom-slots", { body: slotsBody });
 
@@ -858,7 +898,6 @@ Analise a última mensagem e decida a ação.`,
             parsed.reply_message = "Vou verificar a disponibilidade e retorno em seguida!";
           }
         } else if (slotsRes.data?.formatted?.length >= 2) {
-          // Offer 2 alternatives
           if (slotsRes.data?.slots) heldSlots = slotsRes.data.slots;
           const prefix = parsed.suggested_datetime
             ? "Infelizmente esse horário não está disponível. Que tal uma dessas opções?"
@@ -885,6 +924,92 @@ Analise a última mensagem e decida a ação.`,
           type: "meeting",
           description: "🔄 Reunião reagendada a pedido do prospect",
           metadata: { action: "reschedule", suggested: parsed.suggested_datetime },
+        });
+      }
+    } else if (parsed.action === "cancel") {
+      // Cancel: drop existing booking + held slots, no new offer
+      console.log(`Cancel requested for lead ${leadData?.id}`);
+      const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
+
+      const { data: liveSlots } = await supabase
+        .from("slot_holds")
+        .select("id, slot_datetime, cal_booking_uid, status")
+        .eq("lead_id", leadData.id)
+        .in("status", ["held", "confirmed"]);
+
+      let cancelledBookingUid: string | null = null;
+      let cancelledScheduledAt: string | null = null;
+      for (const slot of (liveSlots || [])) {
+        if (slot.cal_booking_uid && CALCOM_API_KEY) {
+          const endpoint = slot.status === "confirmed"
+            ? `https://api.cal.com/v2/bookings/${slot.cal_booking_uid}/cancel`
+            : `https://api.cal.com/v2/slots/reservations/${slot.cal_booking_uid}`;
+          const apiVersion = slot.status === "confirmed" ? "2024-04-15" : "2024-09-04";
+          try {
+            await fetch(endpoint, {
+              method: "DELETE",
+              headers: { "Authorization": `Bearer ${CALCOM_API_KEY}`, "cal-api-version": apiVersion },
+            });
+          } catch (e) {
+            console.error("Error cancelling Cal.com entry:", e);
+          }
+          if (slot.status === "confirmed") {
+            cancelledBookingUid = slot.cal_booking_uid;
+            cancelledScheduledAt = slot.slot_datetime;
+          }
+        }
+        await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
+      }
+
+      const { data: activeBookings } = await supabase
+        .from("bookings")
+        .select("id, calcom_booking_uid, scheduled_at, status")
+        .eq("lead_id", leadData.id)
+        .neq("status", "cancelled");
+      for (const b of (activeBookings || [])) {
+        if (CALCOM_API_KEY && b.calcom_booking_uid && b.calcom_booking_uid !== cancelledBookingUid) {
+          try {
+            await fetch(`https://api.cal.com/v2/bookings/${b.calcom_booking_uid}/cancel`, {
+              method: "DELETE",
+              headers: { "Authorization": `Bearer ${CALCOM_API_KEY}`, "cal-api-version": "2024-04-15" },
+            });
+          } catch (e) {
+            console.error("Error cancelling orphan booking:", e);
+          }
+        }
+        await supabase.from("bookings").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", b.id);
+        cancelledBookingUid = cancelledBookingUid || b.calcom_booking_uid;
+        cancelledScheduledAt = cancelledScheduledAt || b.scheduled_at;
+      }
+
+      if (companyId && leadData) {
+        await insertBookingSystemMessage(supabase, {
+          lead_id: leadData.id,
+          company_id: companyId,
+          event_type: "booking_cancelled",
+          booking_uid: cancelledBookingUid,
+          scheduled_at: cancelledScheduledAt,
+        });
+      }
+
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ meeting_scheduled: false, status: "cancelled", paused_reason: "meeting_cancelled_by_lead" } as any)
+          .eq("id", enrollment.id);
+      }
+
+      if (!parsed.reply_message) {
+        parsed.reply_message = "Sem problemas, cancelei nossa reunião! Se mudar de ideia ou quiser reagendar, é só me chamar por aqui. 👋";
+      }
+
+      if (companyId && leadData) {
+        await supabase.from("lead_activities").insert({
+          company_id: companyId,
+          lead_id: leadData.id,
+          type: "meeting",
+          description: "❌ Reunião cancelada a pedido do prospect",
+          metadata: { action: "cancel", source_message: cleanContent.substring(0, 200) },
         });
       }
     } else if (parsed.action === "check_availability" && parsed.suggested_datetime) {
