@@ -16,7 +16,7 @@ Sub-intents possíveis (escolha UM ou null):
 - interest: greeting, interested, positive_but_unclear, asks_how_it_works
 - info_request: asks_more_info, asks_material, asks_case_study, technical_question, clinical_question, regulatory_question, asks_contract, asks_proposal
 - pricing: asks_price
-- scheduling: wants_meeting, asks_time_options, gives_time_preference, selected_time, asks_calendar_link, reschedule_request, cancel_meeting, abandoned_scheduling
+- scheduling: wants_meeting, new_booking, asks_time_options, gives_time_preference, selected_time, asks_calendar_link, reschedule_request, cancel_request, cancel_meeting, abandoned_scheduling, no_show_response, timezone_question, event_type_question, confirms_attendance
 - rejection: not_interested, already_has_solution, bad_timing, no_time, no_fit, negative_but_polite
 - routing: not_responsible, gatekeeper, wrong_person, wrong_company, referral_with_contact, referral_without_contact, will_forward, refuses_to_share_contact, asks_contact_source
 - channel_switch: send_by_email, call_me
@@ -26,7 +26,16 @@ Sub-intents possíveis (escolha UM ou null):
 
 const SYSTEM_PROMPT = `Você é um classificador de mensagens de prospects B2B em português brasileiro.
 Dada a última mensagem do prospect e o histórico curto, classifique em UMA categoria (10 opções) e opcionalmente um sub-intent.
-Extraia entidades quando relevante: data/hora mencionada (ISO 8601 BRT-3 se possível), e-mail de contato referido, nome de pessoa referida, empresa referida.
+
+Para mensagens de scheduling, distinga claramente:
+- new_booking: pessoa quer marcar PELA PRIMEIRA VEZ
+- reschedule_request: pessoa JÁ TEM reunião marcada e quer mudar horário
+- cancel_request: pessoa quer cancelar definitivamente
+- no_show_response: pessoa responde após não comparecer
+- timezone_question: dúvida sobre fuso horário
+- event_type_question: pergunta sobre qual tipo de reunião
+
+Extraia entidades quando relevante: data/hora mencionada (ISO 8601 BRT-3 se possível), e-mail/nome/empresa referidos, motivo de cancelamento, fuso horário.
 
 Categorias: ${CATEGORIES.join(", ")}
 
@@ -40,7 +49,16 @@ Responda APENAS JSON válido (sem markdown):
   "sub_intent": "<sub-intent ou null>",
   "sentiment": "<sentimento>",
   "confidence": <0.0 a 1.0>,
-  "entities": { "datetime": null, "referred_email": null, "referred_name": null, "referred_company": null },
+  "entities": {
+    "datetime": null,
+    "target_date": null,
+    "target_time": null,
+    "timezone": null,
+    "cancel_reason": null,
+    "referred_email": null,
+    "referred_name": null,
+    "referred_company": null
+  },
   "reasoning": "<1 frase curta explicando>"
 }`;
 
