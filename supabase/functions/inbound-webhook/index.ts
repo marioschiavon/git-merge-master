@@ -467,7 +467,7 @@ AÇÕES POSSÍVEIS:
 - "reject_slots": prospect rejeitou ambos os horários oferecidos (ex: "nenhum funciona", "tenho compromisso nesses dias")
 - "check_availability": prospect sugeriu um horário alternativo próprio (ex: "pode ser terça às 14h?")
   → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
-- "reschedule": prospect quer remarcar/reagendar uma reunião já confirmada (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião", "trocar o horário")
+- "reschedule": prospect quer remarcar/reagendar uma reunião JÁ CONFIRMADA anteriormente (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião", "trocar o horário"). NÃO use "reschedule" se não houver reunião confirmada — nesse caso use "check_availability".
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
 - "cancel": prospect quer CANCELAR uma reunião já confirmada SEM remarcar (ex: "não vou poder", "preciso cancelar a reunião", "vamos cancelar", "não tenho mais interesse na reunião"). NÃO usar para rejeição geral do produto (use "pause").
 - "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência E enviar mensagem curta de agradecimento + porta aberta para retorno futuro
@@ -876,8 +876,10 @@ Analise a última mensagem e decida a ação.`,
         cancelledScheduledAt = cancelledScheduledAt || b.scheduled_at;
       }
 
-      // 3) System message in the conversation
-      if (companyId && leadData) {
+      // 3) System message in the conversation — only when a CONFIRMED booking was actually cancelled.
+      // Prospects that simply suggest a new time without a prior confirmed booking shouldn't trigger
+      // a "Reunião remarcada" system entry.
+      if (companyId && leadData && (cancelledBookingUid || cancelledScheduledAt)) {
         await insertBookingSystemMessage(supabase, {
           lead_id: leadData.id,
           company_id: companyId,
