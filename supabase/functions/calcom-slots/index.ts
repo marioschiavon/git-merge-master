@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { formatBRTLong } from "../_shared/datetime.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -221,12 +222,7 @@ serve(async (req) => {
           await supabase.from("slot_holds").insert(holdsToInsert).select();
         }
 
-        const BRT_OFFSET = 3 * 3600000;
-        const formattedSlots = selectedSlots.map(s => {
-          const brt = new Date(new Date(s.start).getTime() - BRT_OFFSET);
-          return brt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
-            + " às " + brt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        });
+        const formattedSlots = selectedSlots.map(s => formatBRTLong(s.start));
 
         return new Response(JSON.stringify({
           success: true,
@@ -322,19 +318,8 @@ serve(async (req) => {
 
     if (insertError) throw insertError;
 
-    // Format slots for display in messages (BRT)
-    const BRT_OFFSET_MAIN = 3 * 3600000;
-    const formattedSlots = selectedSlots.map(s => {
-      const brt = new Date(new Date(s.start).getTime() - BRT_OFFSET_MAIN);
-      return brt.toLocaleDateString("pt-BR", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-      }) + " às " + brt.toLocaleTimeString("pt-BR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    });
+    // Format slots for display in messages (America/Sao_Paulo)
+    const formattedSlots = selectedSlots.map(s => formatBRTLong(s.start));
 
     return new Response(JSON.stringify({
       success: true,

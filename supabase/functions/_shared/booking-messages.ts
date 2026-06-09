@@ -7,15 +7,9 @@ export type BookingEventType =
   | "booking_no_show"
   | "booking_completed";
 
-function formatBRT(iso: string) {
-  const BRT_OFFSET = 3 * 3600000;
-  const d = new Date(new Date(iso).getTime() - BRT_OFFSET);
-  return (
-    d.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long" }) +
-    " às " +
-    d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-  );
-}
+import { formatBRTLong } from "./datetime.ts";
+
+const formatBRT = formatBRTLong;
 
 function buildContent(event: BookingEventType, scheduled_at?: string | null, previous?: string | null) {
   switch (event) {

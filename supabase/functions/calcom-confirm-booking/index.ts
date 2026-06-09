@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
+import { formatBRTLong } from "../_shared/datetime.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -193,16 +194,7 @@ serve(async (req) => {
 
     // Log activity
     if (selectedHold.company_id) {
-      const BRT_OFFSET = 3 * 3600000;
-      const brt = new Date(new Date(selectedHold.slot_datetime).getTime() - BRT_OFFSET);
-      const formattedDate = brt.toLocaleDateString("pt-BR", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-      }) + " às " + brt.toLocaleTimeString("pt-BR", {
-        hour: "2-digit",
-        minute: "2-digit",
-      });
+      const formattedDate = formatBRTLong(selectedHold.slot_datetime);
 
       await supabase.from("lead_activities").insert({
         company_id: selectedHold.company_id,
