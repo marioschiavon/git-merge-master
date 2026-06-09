@@ -1,12 +1,13 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const TWILIO_GATEWAY_URL = "https://connector-gateway.lovable.dev/twilio";
+
 
 // Find or create a conversation for (lead, channel), reusing any existing conv
 // for the same (lead, channel) and attaching the enrollment if it's still null.
@@ -133,19 +134,13 @@ serve(async (req) => {
               if (sendError) { sendAction = "failed"; }
             } catch { sendAction = "failed"; }
           } else if (currentStep.channel === "whatsapp" && lead.phone) {
-            const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
-            const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
-            if (TWILIO_API_KEY && TWILIO_PHONE) {
-              try {
-                const twilioRes = await fetch(`${TWILIO_GATEWAY_URL}/Messages.json`, {
-                  method: "POST",
-                  headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "X-Connection-Api-Key": TWILIO_API_KEY, "Content-Type": "application/x-www-form-urlencoded" },
-                  body: new URLSearchParams({ To: `whatsapp:${lead.phone}`, From: `whatsapp:${TWILIO_PHONE}`, Body: parsed.message }),
-                });
-                if (!twilioRes.ok) { await twilioRes.text(); sendAction = "failed"; }
-              } catch { sendAction = "failed"; }
+            const twCfg = await getTwilioConfig(supabase, cadence.company_id);
+            if (twCfg) {
+              const r = await sendWhatsAppViaTwilio(twCfg, lead.phone, parsed.message);
+              if (!r.ok) { console.error("Twilio send failed:", r.error); sendAction = "failed"; }
             } else { sendAction = "pending_manual"; }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
+
 
           // Log activity
           if (cadence.company_id && lead.id) {
