@@ -39,6 +39,18 @@ export const ACTION_LABELS: Record<string, string> = {
   disqualify_lead: "Desqualificar lead",
   recover_no_show: "Recuperar no-show",
   request_info_from_lead: "Solicitar info ao lead",
+  fetch_existing_booking: "Buscar reserva existente",
+  reschedule_booking: "Remarcar reunião",
+  cancel_booking: "Cancelar reunião",
+  ask_cancel_reason: "Perguntar motivo do cancelamento",
+  offer_reschedule_instead: "Oferecer remarcação",
+  send_booking_confirmation: "Enviar confirmação de reunião",
+  offer_event_types: "Oferecer tipos de reunião",
+  collect_booking_info: "Coletar dados de agendamento",
+  detect_timezone: "Detectar fuso horário",
+  send_meeting_recap: "Enviar resumo da reunião",
+  request_feedback: "Pedir feedback",
+  mark_meeting_attended: "Marcar presença / no-show",
 };
 
 export function useIntentRules() {
