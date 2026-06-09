@@ -876,8 +876,10 @@ Analise a última mensagem e decida a ação.`,
         cancelledScheduledAt = cancelledScheduledAt || b.scheduled_at;
       }
 
-      // 3) System message in the conversation
-      if (companyId && leadData) {
+      // 3) System message in the conversation — only when a CONFIRMED booking was actually cancelled.
+      // Prospects that simply suggest a new time without a prior confirmed booking shouldn't trigger
+      // a "Reunião remarcada" system entry.
+      if (companyId && leadData && (cancelledBookingUid || cancelledScheduledAt)) {
         await insertBookingSystemMessage(supabase, {
           lead_id: leadData.id,
           company_id: companyId,
