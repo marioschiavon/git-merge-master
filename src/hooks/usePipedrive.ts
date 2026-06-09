@@ -159,6 +159,7 @@ export type LeadInput = {
   name: string;
   email?: string | null;
   phone?: string | null;
+  whatsapp?: string | null;
   company_name?: string | null;
   title?: string | null;
   website?: string | null;
@@ -166,6 +167,7 @@ export type LeadInput = {
   status?: LeadStatus;
   source?: string | null;
 };
+
 
 export function useCreateLead() {
   const queryClient = useQueryClient();
@@ -181,6 +183,7 @@ export function useCreateLead() {
           name: input.name,
           email: input.email || null,
           phone: input.phone || null,
+          whatsapp: input.whatsapp || null,
           company_name: input.company_name || null,
           title: input.title || null,
           website: input.website || null,
@@ -188,6 +191,7 @@ export function useCreateLead() {
           status: (input.status || "new") as LeadStatus,
           source: input.source || "manual",
         })
+
         .select()
         .single();
       if (error) throw error;
@@ -247,7 +251,43 @@ export function useImportLeads() {
   });
 }
 
+export function useUpdateLead() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ id, ...input }: LeadInput & { id: string }) => {
+      const { data, error } = await supabase
+        .from("leads")
+        .update({
+          name: input.name,
+          email: input.email || null,
+          phone: input.phone || null,
+          whatsapp: input.whatsapp || null,
+          company_name: input.company_name || null,
+          title: input.title || null,
+          website: input.website || null,
+          address: input.address || null,
+          status: (input.status || "new") as LeadStatus,
+          source: input.source || null,
+        } as any)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["leads"] });
+      toast({ title: "Lead atualizado!" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Erro ao atualizar lead", description: error.message, variant: "destructive" });
+    },
+  });
+}
+
 export function useDeleteLead() {
+
   const queryClient = useQueryClient();
 
   return useMutation({
