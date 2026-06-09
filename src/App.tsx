@@ -20,6 +20,7 @@ import Companies from "@/pages/master/Companies";
 import Team from "@/pages/settings/Team";
 import Integrations from "@/pages/settings/Integrations";
 import SettingsPage from "@/pages/settings/Settings";
+import Intents from "@/pages/settings/Intents";
 import Unsubscribe from "@/pages/Unsubscribe";
 import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/NotFound";
@@ -54,6 +55,7 @@ const App = () => (
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/settings/team" element={<Team />} />
               <Route path="/settings/integrations" element={<Integrations />} />
+              <Route path="/settings/intents" element={<Intents />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

@@ -1,106 +1,136 @@
-## Minha opinião
 
-Sua estrutura está excelente — concordo 100% que indicação é avanço de funil, não perda. Mas, em vez de programar 15 fluxos rígidos, recomendo modelar **um intent unificado de "referral"** com slots de dados extraídos pela IA, e deixar 4 sub-fluxos operacionais cuidarem da execução. Mais simples de manter, mais robusto, e a IA (que já tem a Base de Conhecimento) escolhe o tom do novo outreach por canal/cargo sem precisarmos hard-codar 15 templates.
+# Plano: IA estruturada para resposta a leads
 
-Proponho entregar em 2 fases. Fase 1 cobre 90% do valor; Fase 2 é refinamento.
+Objetivo: substituir o prompt monolítico do `inbound-webhook` por um pipeline determinístico de 5 etapas (intent → state → routing → reply → next action), com intents agrupadas, regras editáveis e histórico completo para análise.
 
----
+## Etapa 1 — Schema (1 migration)
 
-## Fase 1 — Detectar indicação, criar novo lead e abordar (MVP)
+### `lead_intents_log` (toda classificação fica registrada)
+Campos de domínio: `lead_id`, `conversation_id`, `message_id`, `category` (enum 10 valores), `sub_intent` (text, livre), `sentiment` (interesse/objeção/dúvida/rejeição/neutro), `confidence` (numeric 0-1), `entities` (jsonb: data/hora detectada, e-mail referido, nome de pessoa, etc.), `model_used`, `latency_ms`, `raw_response` (jsonb).
 
-### 1. Schema (uma migration)
+### `intent_action_rules` (regras editáveis por empresa)
+Campos: `company_id`, `category`, `sub_intent` (nullable = match qualquer), `priority` (int), `actions` (jsonb array de ações com parâmetros), `auto_execute` (bool — se false, sugere e espera humano), `requires_confidence_above` (numeric, default 0.7), `enabled` (bool).
 
-Adicionar em `public.leads`:
-- `referral_source_lead_id uuid` (FK → leads.id) — quem indicou
-- `referral_role text` — "indicador" | "decisor" | null (default null)
-- `referral_context text` — frase livre com contexto da indicação
-- `referral_permission_to_mention boolean` — autorização para citar quem indicou
+Seed com regras default por categoria.
 
-Adicionar valores ao enum `lead_status` (ou criar coluna textual auxiliar se o enum estiver travado):
-- `indicador`, `aguardando_contato_decisor`, `encaminhado_para_decisor`, `aguardando_encaminhamento_interno`, `contato_errado`, `sem_acesso_decisor`
+### `lead_action_queue` (próximas ações agendadas)
+Campos: `lead_id`, `action_type` (enum 17 ações), `params` (jsonb), `scheduled_for` (timestamptz), `status` (pending/done/failed/cancelled), `triggered_by` (intent_log_id ou cron name), `executed_at`, `result` (jsonb).
 
-Sem nova tabela — reutilizamos `leads` (mesmo `company_id`), `conversations` e `messages`. O vínculo entre o lead original e o indicado fica em `referral_source_lead_id`.
+### Enums novos
+- `intent_category`: interest, info_request, pricing, scheduling, rejection, routing, channel_switch, compliance, escalation, silence
+- `action_type`: as 17 ações + `request_info_from_lead`
 
-### 2. inbound-webhook: novo intent `referral`
+RLS: company_admin lê/edita do próprio company_id; service_role total; user lê.
 
-No JSON de saída da IA, adicionar:
+## Etapa 2 — Pipeline de 5 etapas (refator do `inbound-webhook`)
 
-```json
-"action": "referral",
-"referral": {
-  "subtype": "with_contact | without_contact | will_forward | wrong_person | gatekeeper | refuses_contact",
-  "referred_name": "Dra. Ana" | null,
-  "referred_role": "veterinária responsável" | null,
-  "referred_email": "..." | null,
-  "referred_phone": "..." | null,
-  "referred_channel": "whatsapp | email | phone" | null,
-  "permission_to_mention": true | false | null,
-  "context": "frase resumindo a indicação"
-}
+Fluxo por mensagem recebida:
+
+```text
+inbound message
+   │
+   ▼
+[1] classify-intent (edge fn nova, modelo barato gemini-flash)
+   - retorna: { category, sub_intent, sentiment, confidence, entities }
+   - grava em lead_intents_log
+   │
+   ▼
+[2] update-lead-state (puro SQL/TS, sem IA)
+   - aplica delta de score por category (tabela score_deltas)
+   - atualiza status do lead (interested/qualified/lost/etc.)
+   - atualiza last_intent, last_response_at
+   │
+   ▼
+[3] route-decision (puro TS, sem IA)
+   - consulta intent_action_rules por (company, category, sub_intent)
+   - se confidence < threshold OU category ∈ {compliance, escalation}
+     OU rule.auto_execute=false → handoff_to_human
+   - senão → seleciona actions
+   │
+   ▼
+[4] generate-reply (edge fn, gpt-5 quando precisa responder)
+   - recebe: intent decidida + playbook por segmento + histórico
+   - prompt focado em UMA tarefa: escrever a mensagem
+   - retorna texto + variáveis
+   │
+   ▼
+[5] enqueue-actions
+   - insere em lead_action_queue (send_reply, schedule_followup, create_cal_booking, etc.)
+   - actions imediatas executam inline
+   - actions agendadas (followup) ficam pro cron
 ```
 
-A IA passa a receber, no system prompt, uma seção "DETECÇÃO DE INDICAÇÃO" com as regras-chave que você descreveu (não insistir na pessoa errada, pedir permissão para citar, recepcionista = gatekeeper, etc.) e a lista de subtypes. Isso fica curto porque o resto (tom, tagline da empresa) já vem da Base de Conhecimento.
+## Etapa 3 — Cron jobs (intents implícitas)
 
-### 3. Roteador de subtypes (código TS, não prompt)
+Não são intents do prospect, são triggers de tempo:
+- `silence_after_interest` — lead com intent=interest há >48h sem resposta nova
+- `abandoned_scheduling` — sugestão de horário enviada há >24h sem confirmação
+- `no_show_recovery` — reunião marcada que não aconteceu
 
-No `inbound-webhook`, depois de parsear o JSON, se `action === "referral"`:
+Cada cron classifica o estado e enfileira action correspondente (followup, recover).
 
-| subtype | Ação do sistema |
-|---|---|
-| `with_contact` | (a) responder agradecendo e pedindo permissão se ainda não houver; (b) criar novo `lead` com `referral_source_lead_id = currentLead.id`, `referral_role='decisor'`, `status='novo'`; (c) marcar lead atual como `referral_role='indicador'`, `status='indicador'`; (d) criar `conversation` no canal indicado; (e) inserir 1ª mensagem outbound contextualizada (gerada pela própria IA neste mesmo turno, campo extra `new_outreach_message`); (f) pausar `cadence_enrollments` ativos do lead original |
-| `without_contact` | responder pedindo WhatsApp/e-mail do indicado; status = `aguardando_contato_decisor` |
-| `will_forward` | responder com texto curto e encaminhável (gerado pela IA a partir da Base); status = `aguardando_encaminhamento_interno`; agendar follow-up leve em 2 dias (registrar em `lead_activities` com `type='followup_scheduled'` + `metadata.run_after`) |
-| `wrong_person` | pedir quem é o responsável; status = `contato_errado`; pausar cadência |
-| `gatekeeper` | mensagem curta pedindo direcionamento ao responsável (sem vender); manter cadência pausada |
-| `refuses_contact` | oferecer mensagem encaminhável; status = `sem_acesso_decisor`; encerrar após 1 follow-up |
+Reusa `pg_cron` + `referral-followup-cron` como modelo.
 
-Em todos os casos: salvar `lead_activities` (`type='referral_detected'`, metadata com o objeto referral completo) para auditoria, e registrar o reply na conversation existente via Gmail (já threading) ou canal correto.
+## Etapa 4 — UI mínima (Configurações > Intents & Ações)
 
-### 4. Nova abordagem para o lead indicado
+**Não é a configuração de prompts** (essa fica fora deste plano). É só:
 
-Quando criamos o novo lead (subtype `with_contact`), geramos a 1ª mensagem **no mesmo turno**, pedindo à IA — no JSON de saída — um campo extra `new_outreach_message` quando aplicável. Template guiado pelo prompt:
+- Tabela de `intent_action_rules` da empresa (lista por categoria)
+- Editar: ações ligadas, auto_execute on/off, threshold de confiança
+- Botão "Restaurar padrões"
+- Aba "Logs de classificação" — últimas 100 classificações com category/confidence/mensagem original (debug)
+- Aba "Fila de ações" — próximas ações agendadas, com botão cancelar/executar agora
 
-> "Olá {nome}. Falei com {indicador_nome} da {empresa} e ela me indicou você como responsável por {área}. Sou da {empresa_usuario}…[1 frase da Base]…Faz sentido conversarmos 15min?"
+Rota: `/settings/intents`. Acesso: company_admin.
 
-Se `permission_to_mention=false`, a IA usa fallback neutro ("Falei com a equipe da {empresa} e me indicaram você…").
+## Etapa 5 — Defaults (seed)
 
-Envio: pelo mesmo canal do lead original quando possível (Gmail-send para email, ou registrar lead com `preferred_channel` para WhatsApp/telefone — Twilio só se já configurado).
+10 categorias × ações padrão razoáveis:
+- `interest` → `send_reply` + `update_lead_score(+20)`
+- `info_request` → `send_reply` + `send_material(auto-select)`
+- `pricing` → `send_reply` + `schedule_followup(2d)` + `update_lead_score(+15)`
+- `scheduling` → `suggest_meeting_times` ou `create_cal_booking` (se selected_time detectado)
+- `rejection` → `send_reply(polite)` + `stop_sequence` + `disqualify_lead`
+- `routing` (referral) → `create_new_contact` + `mark_current_contact_as_referrer` + `send_reply`
+- `channel_switch` → `send_email` ou `create_call_task` conforme sub_intent
+- `compliance` → `mark_opt_out` + `stop_sequence` + `handoff_to_human`
+- `escalation` → `handoff_to_human` (sem auto-reply)
+- `silence` → cron decide; default `schedule_followup`
 
-### 5. UI mínima em `/leads` e `/conversations`
-
-- Badge "Indicador" / "Indicado por X" no card do lead (usando `referral_source_lead_id` + join).
-- Link clicável "Ver indicador" / "Ver indicado(s)" no `LeadDetail`.
-- Filtro de status novo: "Aguardando encaminhamento" / "Encaminhado para decisor".
-
-Sem dashboard novo nesta fase.
-
----
-
-## Fase 2 — Refinamentos (depois de validar a Fase 1)
-
-- Adaptação de tom por `referred_role` (técnico/RT, compras, marketing, comercial, dono) — substituir o prompt único por um seletor de "playbook" baseado no role detectado.
-- Tarefa de ligação (`task_type='call'`) para subtype "me liga" quando integrarmos voz.
-- Follow-up automático com indicador após 2 dias (cron via `expire-slot-holds`-style scheduler).
-- Handoff humano automático para perguntas técnicas/regulatórias (já temos a flag `handoff_required` — só ligar).
-
----
+## Fora de escopo (próximos planos)
+- UI de edição de prompts (já discutido separadamente)
+- A/B testing de classificador
+- Treinar modelo próprio com `lead_intents_log`
+- Editor visual de regras (drag-drop) — por ora é form simples
 
 ## Detalhes técnicos
 
-**Arquivos a alterar (Fase 1):**
-- `supabase/migrations/<novo>.sql` — campos em `leads`, novos valores de status.
-- `supabase/functions/inbound-webhook/index.ts` — adicionar bloco "DETECÇÃO DE INDICAÇÃO" no system prompt; tratar `action='referral'`; roteador de subtypes; criar lead/conversation/message; pausar enrollment.
-- `supabase/functions/_shared/referral-outreach.ts` (novo) — helper que monta o `new_outreach_message` final (escolhe canal, monta subject, chama gmail-send).
-- `src/components/LeadDetail.tsx` e `src/pages/Leads.tsx` — badges, link indicador↔indicado, filtro.
-- `src/hooks/useLeads.ts` (se existir) — incluir o join.
+**Edge functions novas:**
+- `classify-intent/index.ts` (gemini-2.5-flash, JSON mode, latência alvo <800ms)
+- `generate-reply/index.ts` (gpt-5, recebe intent já decidida)
+- `execute-action/index.ts` (worker chamado pelo cron e inline; faz dispatch das 18 ações)
+- `intent-cron/index.ts` (silence/abandoned/no-show)
 
-**Fora do escopo desta fase:**
-- Mensagem em grupo de WhatsApp (fluxo 12) — depende de integração de grupos no Twilio que não temos.
-- Agente de voz para "me liga" (fluxo 13) — vira só uma tarefa registrada.
-- Playbooks especializados por cargo (técnico/compras/marketing) — Fase 2.
-- Anexar apresentação PDF em e-mail para compras — Fase 2.
+**Edge function refatorada:**
+- `inbound-webhook/index.ts` — vira orquestrador: chama classify → update state → route → generate (se precisa) → enqueue. Hoje faz tudo num prompt; passa a fazer chamadas em sequência.
 
-**Risco/decisão pendente que preciso confirmar:**
-- O lead indicado entra em qual **cadence** automaticamente? Opções: (a) nenhuma — só a 1ª mensagem manual e aguarda resposta; (b) reaproveitar a mesma cadência do indicador; (c) cadência específica "referral_outreach" a ser criada pelo usuário. **Minha recomendação: (a)** — a indicação já é forte sinal, mandar sequência automática queima o lead.
+**Hooks novos:**
+- `useIntentRules`, `useIntentLog`, `useActionQueue`
 
-Posso seguir com a Fase 1 assim?
+**Páginas novas:**
+- `src/pages/settings/Intents.tsx` (3 abas: Regras / Logs / Fila)
+
+## Riscos
+- Mais latência (2 calls IA em vez de 1). Mitigação: classificador roda em flash, só responde se for responder.
+- Custo extra de classificação (~$0.0001 por mensagem) — desprezível.
+- Migração: respostas em produção continuam funcionando durante refactor (feature flag no `inbound-webhook` para alternar pipeline novo vs antigo).
+- Confiança baixa do classificador pode bloquear respostas — mitigar com fallback "se confidence < 0.4, handoff humano com sugestão".
+
+## Ordem de entrega
+1. Migration (schema + seed de regras default)
+2. `classify-intent` + log + testes manuais
+3. Refator `inbound-webhook` com feature flag
+4. `execute-action` worker + `generate-reply`
+5. Cron jobs (silence/abandoned/no-show)
+6. UI `/settings/intents` (regras + logs + fila)
+7. Remover código antigo + flag

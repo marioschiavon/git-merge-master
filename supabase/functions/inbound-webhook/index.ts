@@ -235,6 +235,24 @@ serve(async (req) => {
       });
     }
 
+    // Fire-and-forget: classify intent and log (does not affect existing flow)
+    if (companyId && leadData?.id) {
+      try {
+        const history = []; // brief context loaded later in main flow; for now classify last message standalone
+        supabase.functions.invoke("classify-intent", {
+          body: {
+            company_id: companyId,
+            lead_id: leadData.id,
+            conversation_id: convId,
+            message_content: cleanContent,
+            history,
+          },
+        }).catch((e) => console.error("classify-intent invoke failed:", e));
+      } catch (e) {
+        console.error("classify-intent dispatch error:", e);
+      }
+    }
+
     // Check for held slots (FIX: filter out expired slots)
     let heldSlots: any[] = [];
     if (leadData?.id) {
