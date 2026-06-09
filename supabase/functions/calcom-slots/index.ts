@@ -243,20 +243,8 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       } else {
-        // Not available — pick 2 alternatives and return them
-        const selectedSlots: { date: string; start: string }[] = [];
-        const sortedDates = Object.keys(slotsData).sort();
-        for (const date of sortedDates) {
-          if (selectedSlots.length >= 2) break;
-          const daySlots = (slotsData[date] || []).filter((s: any) => {
-            const ts = new Date(s.start).getTime();
-            return !excludeSet.has(ts) && ![...excludeSet].some(exc => Math.abs(ts - exc) < 60000);
-          });
-          if (daySlots.length > 0) {
-            const midIndex = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
-            selectedSlots.push({ date, start: daySlots[midIndex].start });
-          }
-        }
+        // Not available — pick 2 alternatives spread apart
+        const selectedSlots = pickSpreadSlots(slotsData, excludeSet, MIN_SPREAD_HOURS);
 
         // Reserve alternatives
         const expiresAt = new Date();
@@ -304,26 +292,14 @@ serve(async (req) => {
       }
     }
 
-    // Normal flow: Pick 2 slots on different days
-    const selectedSlots: { date: string; start: string }[] = [];
-    const sortedDates = Object.keys(slotsData).sort();
+    // Normal flow: Pick 2 slots on different days spread apart
+    const selectedSlots = pickSpreadSlots(slotsData, excludeSet, MIN_SPREAD_HOURS);
 
-    for (const date of sortedDates) {
-      if (selectedSlots.length >= 2) break;
-      const daySlots = (slotsData[date] || []).filter((s: any) => {
-        const ts = new Date(s.start).getTime();
-        return !excludeSet.has(ts) && ![...excludeSet].some(exc => Math.abs(ts - exc) < 60000);
-      });
-      if (daySlots.length > 0) {
-        const midIndex = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
-        selectedSlots.push({ date, start: daySlots[midIndex].start });
-      }
-    }
-
-    if (selectedSlots.length < 2) {
-      return new Response(JSON.stringify({ 
-        error: "Não há slots suficientes disponíveis nos próximos 7 dias",
-        available_count: selectedSlots.length 
+    if (selectedSlots.length < 1) {
+      return new Response(JSON.stringify({
+        error: "Não há slots disponíveis na janela solicitada",
+        available_count: 0,
+        window: { start: startDate.toISOString(), end: endDate.toISOString() },
       }), {
         status: 404,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
