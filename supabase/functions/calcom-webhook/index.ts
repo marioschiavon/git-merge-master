@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, jsonResponse, upsertBookingFromCalcom } from "../_shared/calcom.ts";
+import { insertBookingSystemMessage, type BookingEventType } from "../_shared/booking-messages.ts";
 
 async function verifySignature(secret: string, signature: string | null, rawBody: string): Promise<boolean> {
   if (!signature) return false;
@@ -65,6 +66,17 @@ serve(async (req) => {
   }
 
   try {
+    // Capture previous scheduled_at BEFORE upsert (for reschedule events)
+    let previousScheduledAt: string | null = null;
+    if (bookingUid) {
+      const { data: prev } = await supabase
+        .from("bookings")
+        .select("scheduled_at")
+        .eq("calcom_booking_uid", bookingUid)
+        .maybeSingle();
+      previousScheduledAt = prev?.scheduled_at || null;
+    }
+
     const booking = await upsertBookingFromCalcom(supabase, bookingPayload, { company_id, lead_id });
 
     // Update status based on event type
@@ -78,6 +90,26 @@ serve(async (req) => {
         case "MEETING_ENDED": newStatus = "completed"; break;
       }
       if (newStatus) await supabase.from("bookings").update({ status: newStatus }).eq("id", booking.id);
+    }
+
+    // Insert system message in the lead's conversation
+    const eventMap: Record<string, BookingEventType> = {
+      BOOKING_CREATED: "booking_created",
+      BOOKING_RESCHEDULED: "booking_rescheduled",
+      BOOKING_CANCELLED: "booking_cancelled",
+      BOOKING_NO_SHOW_UPDATED: "booking_no_show",
+      MEETING_ENDED: "booking_completed",
+    };
+    const mappedEvent = eventMap[eventType];
+    if (mappedEvent && company_id && lead_id) {
+      await insertBookingSystemMessage(supabase, {
+        lead_id,
+        company_id,
+        event_type: mappedEvent,
+        booking_uid: bookingUid || null,
+        scheduled_at: booking?.scheduled_at || null,
+        previous_scheduled_at: mappedEvent === "booking_rescheduled" ? previousScheduledAt : null,
+      });
     }
 
     // Enqueue follow-up actions
