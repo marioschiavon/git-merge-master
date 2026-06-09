@@ -1224,11 +1224,16 @@ Analise a última mensagem e decida a ação.`,
           metadata: { auto_scheduled: true, sentiment: parsed.sentiment },
         });
       }
-    } else if (parsed.action === "pause" && enrollment) {
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "paused" })
-        .eq("id", enrollment.id);
+    } else if (parsed.action === "pause") {
+      if (enrollment) {
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "lead_rejected" } as any)
+          .eq("id", enrollment.id);
+      }
+      if (!parsed.reply_message) {
+        parsed.reply_message = "Tudo bem, agradeço muito pelo seu retorno e pelo tempo até aqui! Vou pausar nosso contato por aqui. Se mudar de ideia ou quiser conversar mais pra frente, é só me chamar. 👋";
+      }
     } else if (parsed.action === "request_call" && leadData && companyId) {
       // Prospect asked to be called. Pause cadence, log a 'call' task with metadata for human/voice agent.
       console.log(`Call requested for lead ${leadData.id}`);
