@@ -226,14 +226,32 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   async suggest_meeting_times(ctx) {
     // Try real Cal.com slots; fall back to AI reply offering generic times
     try {
-      const { data: slots, error } = await ctx.supabase.functions.invoke("calcom-slots", {
-        body: {
-          company_id: ctx.company_id,
-          lead_id: ctx.lead_id,
-          conversation_id: ctx.conversation_id,
-          preferred_channel: await loadConversationChannel(ctx),
-        },
-      });
+      // Read last intent entities to honour the lead's date preference
+      let rangeHint: { start_after?: string; end_before?: string } | null = null;
+      try {
+        const { data: lastIntent } = await ctx.supabase
+          .from("lead_intents_log")
+          .select("entities, message_excerpt")
+          .eq("lead_id", ctx.lead_id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const dtHint = (lastIntent as any)?.entities?.datetime;
+        const excerpt = (lastIntent as any)?.message_excerpt || "";
+        const { extractDateRangeFromText } = await import("../_shared/date-range.ts");
+        rangeHint = extractDateRangeFromText(`${dtHint || ""} ${excerpt}`);
+      } catch (_) { /* best effort */ }
+
+      const body: any = {
+        company_id: ctx.company_id,
+        lead_id: ctx.lead_id,
+        conversation_id: ctx.conversation_id,
+        preferred_channel: await loadConversationChannel(ctx),
+      };
+      if (rangeHint?.start_after) body.start_after = rangeHint.start_after;
+      if (rangeHint?.end_before) body.end_before = rangeHint.end_before;
+
+      const { data: slots, error } = await ctx.supabase.functions.invoke("calcom-slots", { body });
       if (error) throw new Error(error.message);
       await logActivity(ctx, "note", `📅 Horários sugeridos via Cal.com`);
       return { slots };
