@@ -1,58 +1,71 @@
-# WhatsApp (Twilio) + Inbox unificada
+# Integração Twilio WhatsApp — Credenciais por Empresa
 
-## O que já existe (não precisa refazer)
-- `cadence-executor` já envia WhatsApp via Twilio gateway quando `step.channel = "whatsapp"` e há `TWILIO_API_KEY` + `TWILIO_WHATSAPP_NUMBER`.
-- `inbound-webhook` já consegue **responder** por WhatsApp quando o canal da conversa é whatsapp.
-- Cadências já permitem misturar steps de email e whatsapp (UI `CadenceStepCard` + select de canal).
-- Email já entra na inbox via `gmail-sync-inbox` → `inbound-webhook`.
+## Objetivo
+Permitir que cada empresa configure suas próprias credenciais Twilio (Account SID, Auth Token, número do sandbox/produção) para enviar e receber mensagens de WhatsApp, mantendo o inbox unificado com email.
 
-## O que falta (escopo deste plano)
+## Decisão de arquitetura: credenciais por empresa
 
-### 1. Conectar Twilio
-- Linkar o connector **Twilio** (gateway-enabled). Isso injeta `TWILIO_API_KEY` automaticamente.
-- Adicionar secret `TWILIO_WHATSAPP_NUMBER`. Para o sandbox: `+14155238886`.
-- Card no `settings/Integrations.tsx` para mostrar status "Conectado / Pendente" do WhatsApp e instruir o usuário a:
-  - juntar o número do celular ao sandbox via código (`join <palavra>`);
-  - configurar o webhook do sandbox apontando para a edge function (URL exibida pronta para copiar).
+Como o sistema é multi-tenant, **secrets globais não servem** — cada empresa precisa do seu próprio número/conta Twilio. Em vez de secrets do Lovable (que são globais), as credenciais ficarão armazenadas **criptografadas na tabela `integrations`** (já existe), uma linha por empresa do tipo `twilio_whatsapp`.
 
-### 2. Receber respostas do WhatsApp — nova edge function `twilio-whatsapp-webhook`
-- `verify_jwt = false`, recebe `application/x-www-form-urlencoded` do Twilio.
-- Campos usados: `From` (ex.: `whatsapp:+5511...`), `Body`, `MessageSid`, `NumMedia`.
-- Normalizar o telefone (remover `whatsapp:`), achar o `lead` por `phone` (multi-tenant: tentar match exato e variações de máscara/DDI).
-- Encaminhar para `inbound-webhook` com `{ lead_id, content: Body, channel: "whatsapp" }` — mesmo pipeline do email, então toda a lógica de intents/IA/cadência se aplica igualzinho.
-- Se não achar lead, retornar 200 + log (não falhar pro Twilio).
+## Passos
 
-### 3. Inbox unificada por lead com flags de canal
-Hoje `conversations` é por `(lead, channel)` — gera threads separadas para email e whatsapp do mesmo lead. Mudança:
+### 1. Schema — armazenar credenciais por empresa
+Usar a tabela `integrations` existente com:
+- `provider = 'twilio_whatsapp'`
+- `config` (jsonb) contendo: `account_sid`, `auth_token`, `whatsapp_number` (ex: `+14155238886` do sandbox), `is_sandbox` (boolean)
+- RLS já garante isolamento por `company_id`
 
-- **Migração**: adicionar `messages.channel` (`email | whatsapp | linkedin | system`), backfill a partir de `conversations.channel`. Tornar `conversations.channel` opcional/"multi" (não dropar pra não quebrar histórico).
-- **Backend**:
-  - `cadence-executor` `findOrCreateConversation`: deixar de filtrar por `channel`, passa a ser **uma conversa por lead**. Inserir o `channel` real no `messages.channel`.
-  - `inbound-webhook` (email e whatsapp) + `gmail-sync-inbox`: idem — reusar a conversa única do lead, preencher `messages.channel` conforme a origem.
-  - Script de unificação: para leads com múltiplas conversas, manter a mais antiga, remapear `messages.conversation_id` das demais e apagar as órfãs.
-- **Frontend `Conversations.tsx`**:
-  - Lista lateral: 1 linha por lead (não por canal). Mostrar mini-badges dos canais já usados (✉ / 📱) e o canal da última mensagem.
-  - Thread: cada bolha de mensagem ganha um ícone/badge do canal (Mail / MessageCircle) à esquerda do timestamp.
-  - Composer: dropdown para escolher o canal do envio manual (default = canal da última mensagem recebida). Já existe envio por whatsapp no `inbound-webhook`; aqui é só uma chamada direta à função `twilio-whatsapp-send` (extraída) ou ao `gmail-send`.
-  - Realtime (já implementado) continua funcionando — só muda o agrupamento.
+Migration apenas se precisar adicionar índice único `(company_id, provider)`.
 
-### 4. Cadências mistas — ajuste pequeno
-- O executor já trata os canais um a um. Adicionar validação na criação de step de whatsapp: avisar se `lead.phone` está vazio ao enrolar leads (warning na UI, não bloqueia).
+### 2. UI de configuração — `settings/Integrations.tsx`
+Novo card "WhatsApp (Twilio)" com:
+- Campos: Account SID, Auth Token (masked), Número WhatsApp, checkbox "Sandbox"
+- Botão "Testar conexão" → chama edge function `twilio-test-connection` que faz uma requisição `GET /Accounts/{sid}.json` para validar
+- Botão "Salvar" → upsert na tabela `integrations`
+- Exibir URL do webhook que o usuário deve colar no console Twilio:
+  `https://<project>.supabase.co/functions/v1/twilio-whatsapp-webhook`
+- Instruções passo-a-passo para o sandbox (enviar `join <code>` para `+14155238886`)
 
-## Fora de escopo
-- Sair do sandbox / aprovar template Meta para envio fora da janela de 24h (depende de aprovação do Twilio, não dá pra automatizar).
-- Mídia (imagem/áudio) entrando pelo WhatsApp — só texto nesta entrega.
-- Migrar `conversations.channel` para enum novo "multi" (mantemos o campo como está pra compatibilidade).
+### 3. Edge function `twilio-whatsapp-webhook` (inbound)
+- Público (sem JWT), recebe `application/x-www-form-urlencoded` do Twilio
+- Identifica a empresa pelo `To` (número WhatsApp recebedor) → busca `integrations` com aquele número
+- Normaliza `From` (remove `whatsapp:`), encontra lead por telefone dentro da empresa
+- Reaproveita pipeline do `inbound-webhook` (cria/atualiza conversa, mensagem com `channel='whatsapp'`)
 
-## Ordem de execução
-1. Conectar Twilio (connector) + pedir `TWILIO_WHATSAPP_NUMBER`.
-2. Migração `messages.channel` + backfill + unificação de conversas por lead.
-3. Criar `twilio-whatsapp-webhook` e atualizar `config.toml` (`verify_jwt = false`).
-4. Ajustar `cadence-executor`, `inbound-webhook`, `gmail-sync-inbox` para usar conversa única + setar `messages.channel`.
-5. Refatorar UI `Conversations.tsx` (lista por lead + badges de canal por mensagem + seletor de canal no envio).
-6. Card de status Twilio em `settings/Integrations.tsx` com URL do webhook pronta pra copiar.
+### 4. Edge function `twilio-send-whatsapp` (outbound) + refatorar `cadence-executor`
+- Recebe `{ lead_id, content }`
+- Busca credenciais da empresa do lead na tabela `integrations`
+- Chama Twilio REST API diretamente (HTTP Basic Auth com SID:Token) — **não usa gateway**, pois credenciais são da empresa:
+  ```
+  POST https://api.twilio.com/2010-04-01/Accounts/{SID}/Messages.json
+  ```
+- `cadence-executor` passa a chamar essa função em vez do gateway Lovable para steps `whatsapp`
 
-## Resultado
-- Lead responde no WhatsApp → cai na mesma thread do email, com badge 📱 na bolha.
-- Cadência mistura email e whatsapp normalmente.
-- Você vê tudo em um só lugar e sabe de onde veio cada mensagem.
+### 5. Inbox unificado (do plano anterior, mantido)
+- Coluna `messages.channel` (email | whatsapp)
+- Uma conversa por lead, badges de canal nas mensagens
+- Composer com seletor de canal
+
+## Detalhes técnicos
+
+**Segurança do auth_token:**
+- Armazenado em `config` jsonb na tabela `integrations`
+- RLS restringe leitura a admins da empresa
+- Edge functions usam `service_role` para ler quando precisam enviar/receber
+
+**Roteamento inbound multi-tenant:**
+- Twilio envia o campo `To` (número que recebeu a mensagem)
+- Lookup: `SELECT company_id FROM integrations WHERE provider='twilio_whatsapp' AND config->>'whatsapp_number' = $1`
+- Se duas empresas usarem o mesmo sandbox `+14155238886`, é preciso desambiguar pelo prefixo `join code` ou exigir números distintos (em produção cada uma terá seu próprio número)
+
+**Limitação do sandbox compartilhado:**
+- O sandbox Twilio usa um único número global. Para multi-tenant real, recomenda-se que cada empresa tenha sua própria subconta Twilio ou número dedicado em produção.
+- Aviso explícito na UI: "Sandbox compartilhado — em produção, contrate um número dedicado"
+
+## Fora do escopo
+- Aprovação de templates Meta (produção)
+- Mídia (imagem/áudio) via WhatsApp — apenas texto nesta fase
+- Migração para subcontas Twilio automáticas
+
+## Resultado esperado
+Cada empresa configura suas credenciais Twilio em Settings → Integrations, testa a conexão, cola a URL do webhook no console Twilio, e passa a enviar/receber WhatsApp pelo próprio número, com tudo aparecendo no inbox unificado junto com email.

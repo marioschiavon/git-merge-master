@@ -823,8 +823,9 @@ export type Database = {
       integrations: {
         Row: {
           api_domain: string | null
-          api_token: string
+          api_token: string | null
           company_id: string
+          config: Json
           created_at: string
           id: string
           last_synced_at: string | null
@@ -834,8 +835,9 @@ export type Database = {
         }
         Insert: {
           api_domain?: string | null
-          api_token: string
+          api_token?: string | null
           company_id: string
+          config?: Json
           created_at?: string
           id?: string
           last_synced_at?: string | null
@@ -845,8 +847,9 @@ export type Database = {
         }
         Update: {
           api_domain?: string | null
-          api_token?: string
+          api_token?: string | null
           company_id?: string
+          config?: Json
           created_at?: string
           id?: string
           last_synced_at?: string | null
@@ -1287,6 +1290,7 @@ export type Database = {
       messages: {
         Row: {
           ai_suggested: boolean
+          channel: string
           content: string
           conversation_id: string
           direction: string
@@ -1299,6 +1303,7 @@ export type Database = {
         }
         Insert: {
           ai_suggested?: boolean
+          channel?: string
           content?: string
           conversation_id: string
           direction?: string
@@ -1311,6 +1316,7 @@ export type Database = {
         }
         Update: {
           ai_suggested?: boolean
+          channel?: string
           content?: string
           conversation_id?: string
           direction?: string
@@ -1651,7 +1657,7 @@ export type Database = {
         | "replied"
         | "bounced"
         | "paused"
-      integration_provider: "pipedrive" | "gmail"
+      integration_provider: "pipedrive" | "gmail" | "twilio_whatsapp"
       intent_category:
         | "interest"
         | "info_request"
@@ -1857,7 +1863,7 @@ export const Constants = {
         "bounced",
         "paused",
       ],
-      integration_provider: ["pipedrive", "gmail"],
+      integration_provider: ["pipedrive", "gmail", "twilio_whatsapp"],
       intent_category: [
         "interest",
         "info_request",

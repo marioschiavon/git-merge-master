@@ -36,3 +36,7 @@ verify_jwt = false
 [functions.referral-followup-cron]
 verify_jwt = false
 
+[functions.twilio-whatsapp-webhook]
+verify_jwt = false
+
+
