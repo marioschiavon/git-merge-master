@@ -40,6 +40,58 @@ async function resolveEventTypeId(apiKey: string): Promise<number> {
   console.log(`Auto-detected event type: ${eventTypes[0].id} (${eventTypes[0].title || eventTypes[0].slug})`);
   return eventTypes[0].id;
 }
+/**
+ * Pick up to 2 slots from Cal.com's date-grouped slot map, on different days,
+ * spread by at least `minSpreadHours` hours, excluding any datetimes in `excludeSet`.
+ */
+function pickSpreadSlots(
+  slotsData: Record<string, Array<{ start: string }>>,
+  excludeSet: Set<number>,
+  minSpreadHours: number,
+): { date: string; start: string }[] {
+  const sortedDates = Object.keys(slotsData).sort();
+  const minSpreadMs = minSpreadHours * 3600000;
+
+  // 1st slot: middle of first day with availability
+  let first: { date: string; start: string } | null = null;
+  let firstIdx = -1;
+  for (let i = 0; i < sortedDates.length; i++) {
+    const date = sortedDates[i];
+    const daySlots = (slotsData[date] || []).filter((s) => {
+      const ts = new Date(s.start).getTime();
+      return !excludeSet.has(ts) && ![...excludeSet].some((exc) => Math.abs(ts - exc) < 60000);
+    });
+    if (daySlots.length > 0) {
+      const mid = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
+      first = { date, start: daySlots[mid].start };
+      firstIdx = i;
+      break;
+    }
+  }
+  if (!first) return [];
+
+  // 2nd slot: first date with availability that is ≥ minSpreadHours after the 1st
+  const firstTs = new Date(first.start).getTime();
+  let second: { date: string; start: string } | null = null;
+  for (let i = firstIdx + 1; i < sortedDates.length; i++) {
+    const date = sortedDates[i];
+    const daySlots = (slotsData[date] || []).filter((s) => {
+      const ts = new Date(s.start).getTime();
+      if (excludeSet.has(ts)) return false;
+      if ([...excludeSet].some((exc) => Math.abs(ts - exc) < 60000)) return false;
+      if (ts - firstTs < minSpreadMs) return false;
+      return true;
+    });
+    if (daySlots.length > 0) {
+      const mid = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
+      second = { date, start: daySlots[mid].start };
+      break;
+    }
+  }
+
+  return second ? [first, second] : [first];
+}
+
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
