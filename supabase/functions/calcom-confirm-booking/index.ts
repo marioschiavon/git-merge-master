@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -213,6 +214,15 @@ serve(async (req) => {
           slot_datetime: selectedHold.slot_datetime,
           confirmed_at: new Date().toISOString(),
         },
+      });
+
+      // Insert system message in conversation for immediate UI feedback
+      await insertBookingSystemMessage(supabase, {
+        lead_id,
+        company_id: selectedHold.company_id,
+        event_type: "booking_created",
+        booking_uid: bookingData?.data?.uid || bookingData?.data?.id || null,
+        scheduled_at: selectedHold.slot_datetime,
       });
     }
 
