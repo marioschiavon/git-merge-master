@@ -1,136 +1,118 @@
+# Suíte completa de Agendamento Cal.com
 
-# Plano: IA estruturada para resposta a leads
+Cobre as 4 áreas: **agendar, remarcar, cancelar, no-show/pós-reunião** — com webhooks do Cal.com, suporte a múltiplos event-types e round-robin de team.
 
-Objetivo: substituir o prompt monolítico do `inbound-webhook` por um pipeline determinístico de 5 etapas (intent → state → routing → reply → next action), com intents agrupadas, regras editáveis e histórico completo para análise.
+## 1. Schema (1 migração)
 
-## Etapa 1 — Schema (1 migration)
+**Novos enums** adicionados em `action_type`:
+- `fetch_existing_booking`, `reschedule_booking`, `cancel_booking`, `ask_cancel_reason`, `offer_reschedule_instead`, `send_booking_confirmation`, `offer_event_types`, `collect_booking_info`, `detect_timezone`, `send_meeting_recap`, `request_feedback`, `mark_meeting_attended`
 
-### `lead_intents_log` (toda classificação fica registrada)
-Campos de domínio: `lead_id`, `conversation_id`, `message_id`, `category` (enum 10 valores), `sub_intent` (text, livre), `sentiment` (interesse/objeção/dúvida/rejeição/neutro), `confidence` (numeric 0-1), `entities` (jsonb: data/hora detectada, e-mail referido, nome de pessoa, etc.), `model_used`, `latency_ms`, `raw_response` (jsonb).
+**Novos sub_intents** (texto livre já suportado, mas seedados):
+- `reschedule_request`, `cancel_request`, `no_show_response`, `timezone_question`, `event_type_question`
 
-### `intent_action_rules` (regras editáveis por empresa)
-Campos: `company_id`, `category`, `sub_intent` (nullable = match qualquer), `priority` (int), `actions` (jsonb array de ações com parâmetros), `auto_execute` (bool — se false, sugere e espera humano), `requires_confidence_above` (numeric, default 0.7), `enabled` (bool).
+**Nova tabela `bookings`** (espelho local do Cal.com):
+- `id, company_id, lead_id, conversation_id`
+- `calcom_booking_uid` (unique), `calcom_event_type_id`, `calcom_reschedule_uid`
+- `status` enum: `pending|confirmed|rescheduled|cancelled|no_show|completed`
+- `scheduled_at, duration_minutes, timezone`
+- `meeting_url, location, attendees jsonb`
+- `cancel_reason, reschedule_reason`
+- `owner_user_id` (SDR/AE atribuído — round-robin)
+- `previous_booking_id` (encadeia remarcações)
 
-Seed com regras default por categoria.
+**Nova tabela `calcom_event_types`** (cache):
+- `company_id, calcom_id, slug, title, length_minutes, description, active, default_for_intent`
 
-### `lead_action_queue` (próximas ações agendadas)
-Campos: `lead_id`, `action_type` (enum 17 ações), `params` (jsonb), `scheduled_for` (timestamptz), `status` (pending/done/failed/cancelled), `triggered_by` (intent_log_id ou cron name), `executed_at`, `result` (jsonb).
+**Nova tabela `calcom_webhook_log`**:
+- `id, company_id, event_type, payload jsonb, processed_at, error`
 
-### Enums novos
-- `intent_category`: interest, info_request, pricing, scheduling, rejection, routing, channel_switch, compliance, escalation, silence
-- `action_type`: as 17 ações + `request_info_from_lead`
+Todas com GRANT + RLS por `company_id`.
 
-RLS: company_admin lê/edita do próprio company_id; service_role total; user lê.
+## 2. Edge functions novas
 
-## Etapa 2 — Pipeline de 5 etapas (refator do `inbound-webhook`)
+| Função | Responsabilidade |
+|---|---|
+| `calcom-event-types` | Sincroniza event-types da conta Cal.com → `calcom_event_types` (rodar on-demand + cron diário) |
+| `calcom-booking-create` | `POST /bookings` com nome/email/horário/event_type; grava em `bookings`; ativa `slot_hold` |
+| `calcom-booking-reschedule` | `POST /bookings/{uid}/reschedule`; cria novo registro encadeado |
+| `calcom-booking-cancel` | `DELETE /bookings/{uid}` com motivo; atualiza status |
+| `calcom-booking-fetch` | `GET /bookings/{uid}` ou busca por email do lead |
+| `calcom-webhook` | Recebe webhooks (`BOOKING_CREATED/RESCHEDULED/CANCELLED/NO_SHOW/MEETING_ENDED`), grava em `bookings` + dispara ações no pipeline |
 
-Fluxo por mensagem recebida:
+`calcom-confirm-booking` existente vira wrapper de `calcom-booking-create` (compat).
 
-```text
-inbound message
-   │
-   ▼
-[1] classify-intent (edge fn nova, modelo barato gemini-flash)
-   - retorna: { category, sub_intent, sentiment, confidence, entities }
-   - grava em lead_intents_log
-   │
-   ▼
-[2] update-lead-state (puro SQL/TS, sem IA)
-   - aplica delta de score por category (tabela score_deltas)
-   - atualiza status do lead (interested/qualified/lost/etc.)
-   - atualiza last_intent, last_response_at
-   │
-   ▼
-[3] route-decision (puro TS, sem IA)
-   - consulta intent_action_rules por (company, category, sub_intent)
-   - se confidence < threshold OU category ∈ {compliance, escalation}
-     OU rule.auto_execute=false → handoff_to_human
-   - senão → seleciona actions
-   │
-   ▼
-[4] generate-reply (edge fn, gpt-5 quando precisa responder)
-   - recebe: intent decidida + playbook por segmento + histórico
-   - prompt focado em UMA tarefa: escrever a mensagem
-   - retorna texto + variáveis
-   │
-   ▼
-[5] enqueue-actions
-   - insere em lead_action_queue (send_reply, schedule_followup, create_cal_booking, etc.)
-   - actions imediatas executam inline
-   - actions agendadas (followup) ficam pro cron
-```
+## 3. Pipeline de intents — extensões
 
-## Etapa 3 — Cron jobs (intents implícitas)
+**`classify-intent`** ganha detecção de sub_intent específica para scheduling:
+- prompt atualizado para distinguir `reschedule_request` vs `cancel_request` vs `new_booking` vs `no_show_response`
+- extrai entidades: `target_date`, `target_time`, `cancel_reason`, `timezone`
 
-Não são intents do prospect, são triggers de tempo:
-- `silence_after_interest` — lead com intent=interest há >48h sem resposta nova
-- `abandoned_scheduling` — sugestão de horário enviada há >24h sem confirmação
-- `no_show_recovery` — reunião marcada que não aconteceu
+**`route-intent` shared** ganha regras default:
+- intent `meeting_request` + sub `reschedule_request` → `fetch_existing_booking` → `suggest_meeting_times` → aguarda
+- intent `objection` + sub `cancel_request` → `ask_cancel_reason` → `offer_reschedule_instead` antes de `cancel_booking`
+- intent `no_show` → `recover_no_show` (mensagem) + `suggest_meeting_times`
 
-Cada cron classifica o estado e enfileira action correspondente (followup, recover).
+**`execute-action`** implementa os 12 novos handlers chamando as edge functions acima e gravando em `lead_activities`.
 
-Reusa `pg_cron` + `referral-followup-cron` como modelo.
+## 4. Webhook receiver do Cal.com
 
-## Etapa 4 — UI mínima (Configurações > Intents & Ações)
+`calcom-webhook` (público, `verify_jwt=false`) valida assinatura HMAC com secret `CALCOM_WEBHOOK_SECRET` (vou pedir após aprovação).
 
-**Não é a configuração de prompts** (essa fica fora deste plano). É só:
+Fluxo:
+1. Valida assinatura
+2. Identifica `lead_id` por email/booking_uid
+3. Grava em `calcom_webhook_log` + atualiza `bookings`
+4. Enfileira ações no `lead_action_queue`:
+   - `BOOKING_CREATED` → `send_booking_confirmation` + `update_lead_score(+30)`
+   - `BOOKING_RESCHEDULED` → mensagem de confirmação do novo horário
+   - `BOOKING_CANCELLED` → reabrir cadência ou `disqualify_lead` (regra configurável)
+   - `BOOKING_NO_SHOW_UPDATED` → `recover_no_show` (envia em 1h)
+   - `MEETING_ENDED` → `send_meeting_recap` + `request_feedback` (24h depois)
 
-- Tabela de `intent_action_rules` da empresa (lista por categoria)
-- Editar: ações ligadas, auto_execute on/off, threshold de confiança
-- Botão "Restaurar padrões"
-- Aba "Logs de classificação" — últimas 100 classificações com category/confidence/mensagem original (debug)
-- Aba "Fila de ações" — próximas ações agendadas, com botão cancelar/executar agora
+## 5. Round-robin / multi-event-type
 
-Rota: `/settings/intents`. Acesso: company_admin.
+- `companies` ganha `calcom_team_id` (nullable) e `calcom_round_robin_enabled bool`
+- Ao criar booking, se `round_robin_enabled`, usa endpoint de team do Cal.com (`/teams/{id}/event-types/{id}/bookings`)
+- `offer_event_types` lista event-types ativos via `calcom_event_types` quando o lead pergunta "demo ou discovery?"
 
-## Etapa 5 — Defaults (seed)
+## 6. UI
 
-10 categorias × ações padrão razoáveis:
-- `interest` → `send_reply` + `update_lead_score(+20)`
-- `info_request` → `send_reply` + `send_material(auto-select)`
-- `pricing` → `send_reply` + `schedule_followup(2d)` + `update_lead_score(+15)`
-- `scheduling` → `suggest_meeting_times` ou `create_cal_booking` (se selected_time detectado)
-- `rejection` → `send_reply(polite)` + `stop_sequence` + `disqualify_lead`
-- `routing` (referral) → `create_new_contact` + `mark_current_contact_as_referrer` + `send_reply`
-- `channel_switch` → `send_email` ou `create_call_task` conforme sub_intent
-- `compliance` → `mark_opt_out` + `stop_sequence` + `handoff_to_human`
-- `escalation` → `handoff_to_human` (sem auto-reply)
-- `silence` → cron decide; default `schedule_followup`
+**Nova página `/settings/calcom`**:
+- Status da conexão (API key, event-types sincronizados)
+- Lista de event-types com toggle ativo + dropdown "intent default"
+- Toggle round-robin + campo team_id
+- Campo webhook secret + URL para colar no painel Cal.com
+- Histórico de webhooks recebidos (últimos 50)
 
-## Fora de escopo (próximos planos)
-- UI de edição de prompts (já discutido separadamente)
-- A/B testing de classificador
-- Treinar modelo próprio com `lead_intents_log`
-- Editor visual de regras (drag-drop) — por ora é form simples
+**Página `/bookings`** nova:
+- Lista de bookings (filtro por status, lead, owner)
+- Ação inline: remarcar / cancelar / ver no Cal.com
+- Timeline de remarcações encadeadas
 
-## Detalhes técnicos
+**Lead detail** ganha aba "Agendamentos" mostrando bookings + ações rápidas (remarcar/cancelar manual).
 
-**Edge functions novas:**
-- `classify-intent/index.ts` (gemini-2.5-flash, JSON mode, latência alvo <800ms)
-- `generate-reply/index.ts` (gpt-5, recebe intent já decidida)
-- `execute-action/index.ts` (worker chamado pelo cron e inline; faz dispatch das 18 ações)
-- `intent-cron/index.ts` (silence/abandoned/no-show)
+## 7. Pedido de secrets (após aprovação)
 
-**Edge function refatorada:**
-- `inbound-webhook/index.ts` — vira orquestrador: chama classify → update state → route → generate (se precisa) → enqueue. Hoje faz tudo num prompt; passa a fazer chamadas em sequência.
+- `CALCOM_WEBHOOK_SECRET` — para validar webhooks (você gera no painel Cal.com)
 
-**Hooks novos:**
-- `useIntentRules`, `useIntentLog`, `useActionQueue`
+`CALCOM_API_KEY` e `CALCOM_EVENT_TYPE_ID` já existem.
 
-**Páginas novas:**
-- `src/pages/settings/Intents.tsx` (3 abas: Regras / Logs / Fila)
+## 8. Ordem de implementação
+
+1. Migração (schema + enums + tabelas)
+2. `calcom-event-types` + sync inicial
+3. `calcom-booking-create/reschedule/cancel/fetch` + testes
+4. `calcom-webhook` + secret + log
+5. `execute-action` handlers novos
+6. `classify-intent` prompt atualizado + seed de rules
+7. UI `/settings/calcom` + `/bookings` + aba no lead
+8. Cron diário para sincronizar event-types
 
 ## Riscos
-- Mais latência (2 calls IA em vez de 1). Mitigação: classificador roda em flash, só responde se for responder.
-- Custo extra de classificação (~$0.0001 por mensagem) — desprezível.
-- Migração: respostas em produção continuam funcionando durante refactor (feature flag no `inbound-webhook` para alternar pipeline novo vs antigo).
-- Confiança baixa do classificador pode bloquear respostas — mitigar com fallback "se confidence < 0.4, handoff humano com sugestão".
 
-## Ordem de entrega
-1. Migration (schema + seed de regras default)
-2. `classify-intent` + log + testes manuais
-3. Refator `inbound-webhook` com feature flag
-4. `execute-action` worker + `generate-reply`
-5. Cron jobs (silence/abandoned/no-show)
-6. UI `/settings/intents` (regras + logs + fila)
-7. Remover código antigo + flag
+- Webhook do Cal.com precisa ser configurado manualmente por você (te passo a URL)
+- Round-robin só funciona em conta Cal.com Team (plano pago) — vou marcar como opcional
+- `MEETING_ENDED` webhook depende de integração de vídeo no Cal.com (Zoom/Meet/Daily)
+- Custo: ~zero, só API calls do Cal.com (sem limite no plano pago)
+
+Confirme para eu implementar tudo de uma vez, ou diga se quer dividir em fases.
