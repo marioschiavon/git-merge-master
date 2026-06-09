@@ -16,6 +16,7 @@ import {
 import { useLeadActivities, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
+import { BookingCard } from "@/components/BookingCard";
 import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock } from "lucide-react";
 
 const statusColors: Record<string, string> = {

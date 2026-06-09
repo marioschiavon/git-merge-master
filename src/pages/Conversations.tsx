@@ -5,7 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useConversations, useMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
-import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw } from "lucide-react";
+import { BookingCard } from "@/components/BookingCard";
+import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw, CalendarCheck, CalendarClock, CalendarX, AlertTriangle, CheckCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -102,13 +103,35 @@ export default function Conversations() {
           </div>
         </div>
 
+        <BookingCard leadId={(selectedConv as any)?.leads?.id || (selectedConv as any)?.lead_id} />
         <SlotHoldsCard leadId={(selectedConv as any)?.leads?.id || (selectedConv as any)?.lead_id} compact />
 
         <div className="flex-1 overflow-y-auto space-y-3 mb-4 min-h-0">
           {messages.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">Nenhuma mensagem ainda.</p>
           ) : (
-            messages.map((msg: any) => (
+            messages.map((msg: any) => {
+              if (msg.direction === "system") {
+                const evType = msg.metadata?.event_type as string | undefined;
+                const iconMap: Record<string, any> = {
+                  booking_created: CalendarCheck,
+                  booking_rescheduled: CalendarClock,
+                  booking_cancelled: CalendarX,
+                  booking_no_show: AlertTriangle,
+                  booking_completed: CheckCheck,
+                };
+                const Icon = iconMap[evType || ""] || CalendarCheck;
+                return (
+                  <div key={msg.id} className="flex justify-center">
+                    <div className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                      <Icon className="h-3 w-3" />
+                      <span>{msg.content}</span>
+                      <span className="opacity-60">· {new Date(msg.sent_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                    </div>
+                  </div>
+                );
+              }
+              return (
               <div key={msg.id} className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[70%] rounded-lg p-3 ${msg.direction === "outbound" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                   <div className="flex items-center gap-1 mb-1">
@@ -124,7 +147,8 @@ export default function Conversations() {
                   )}
                 </div>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
