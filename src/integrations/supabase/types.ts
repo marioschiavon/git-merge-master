@@ -639,6 +639,142 @@ export type Database = {
           },
         ]
       }
+      intent_action_rules: {
+        Row: {
+          actions: Json
+          auto_execute: boolean
+          category: Database["public"]["Enums"]["intent_category"]
+          company_id: string
+          created_at: string
+          enabled: boolean
+          id: string
+          priority: number
+          requires_confidence_above: number
+          sub_intent: string | null
+          updated_at: string
+        }
+        Insert: {
+          actions?: Json
+          auto_execute?: boolean
+          category: Database["public"]["Enums"]["intent_category"]
+          company_id: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          priority?: number
+          requires_confidence_above?: number
+          sub_intent?: string | null
+          updated_at?: string
+        }
+        Update: {
+          actions?: Json
+          auto_execute?: boolean
+          category?: Database["public"]["Enums"]["intent_category"]
+          company_id?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          priority?: number
+          requires_confidence_above?: number
+          sub_intent?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intent_action_rules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_action_queue: {
+        Row: {
+          action_type: Database["public"]["Enums"]["action_type"]
+          attempts: number
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          error: string | null
+          executed_at: string | null
+          id: string
+          intent_log_id: string | null
+          lead_id: string
+          params: Json
+          result: Json | null
+          scheduled_for: string
+          status: Database["public"]["Enums"]["action_status"]
+          triggered_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          action_type: Database["public"]["Enums"]["action_type"]
+          attempts?: number
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          intent_log_id?: string | null
+          lead_id: string
+          params?: Json
+          result?: Json | null
+          scheduled_for?: string
+          status?: Database["public"]["Enums"]["action_status"]
+          triggered_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action_type?: Database["public"]["Enums"]["action_type"]
+          attempts?: number
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          executed_at?: string | null
+          id?: string
+          intent_log_id?: string | null
+          lead_id?: string
+          params?: Json
+          result?: Json | null
+          scheduled_for?: string
+          status?: Database["public"]["Enums"]["action_status"]
+          triggered_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_action_queue_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_action_queue_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_action_queue_intent_log_id_fkey"
+            columns: ["intent_log_id"]
+            isOneToOne: false
+            referencedRelation: "lead_intents_log"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_action_queue_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_activities: {
         Row: {
           company_id: string
@@ -728,6 +864,89 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: true
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_intents_log: {
+        Row: {
+          category: Database["public"]["Enums"]["intent_category"]
+          company_id: string
+          confidence: number
+          conversation_id: string | null
+          created_at: string
+          entities: Json
+          id: string
+          latency_ms: number | null
+          lead_id: string
+          message_excerpt: string | null
+          message_id: string | null
+          model_used: string | null
+          raw_response: Json | null
+          sentiment: string | null
+          sub_intent: string | null
+        }
+        Insert: {
+          category: Database["public"]["Enums"]["intent_category"]
+          company_id: string
+          confidence?: number
+          conversation_id?: string | null
+          created_at?: string
+          entities?: Json
+          id?: string
+          latency_ms?: number | null
+          lead_id: string
+          message_excerpt?: string | null
+          message_id?: string | null
+          model_used?: string | null
+          raw_response?: Json | null
+          sentiment?: string | null
+          sub_intent?: string | null
+        }
+        Update: {
+          category?: Database["public"]["Enums"]["intent_category"]
+          company_id?: string
+          confidence?: number
+          conversation_id?: string | null
+          created_at?: string
+          entities?: Json
+          id?: string
+          latency_ms?: number | null
+          lead_id?: string
+          message_excerpt?: string | null
+          message_id?: string | null
+          model_used?: string | null
+          raw_response?: Json | null
+          sentiment?: string | null
+          sub_intent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_intents_log_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_intents_log_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_intents_log_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_intents_log_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
             referencedColumns: ["id"]
           },
         ]
@@ -1150,6 +1369,26 @@ export type Database = {
       }
     }
     Enums: {
+      action_status: "pending" | "done" | "failed" | "cancelled" | "skipped"
+      action_type:
+        | "send_reply"
+        | "ask_clarifying_question"
+        | "suggest_meeting_times"
+        | "create_cal_booking"
+        | "send_calendar_link"
+        | "send_email"
+        | "create_new_contact"
+        | "mark_current_contact_as_referrer"
+        | "schedule_followup"
+        | "stop_sequence"
+        | "mark_opt_out"
+        | "handoff_to_human"
+        | "create_call_task"
+        | "send_material"
+        | "update_lead_score"
+        | "disqualify_lead"
+        | "recover_no_show"
+        | "request_info_from_lead"
       activity_type:
         | "email"
         | "call"
@@ -1169,6 +1408,17 @@ export type Database = {
         | "bounced"
         | "paused"
       integration_provider: "pipedrive" | "gmail"
+      intent_category:
+        | "interest"
+        | "info_request"
+        | "pricing"
+        | "scheduling"
+        | "rejection"
+        | "routing"
+        | "channel_switch"
+        | "compliance"
+        | "escalation"
+        | "silence"
       lead_status:
         | "new"
         | "contacted"
@@ -1302,6 +1552,27 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      action_status: ["pending", "done", "failed", "cancelled", "skipped"],
+      action_type: [
+        "send_reply",
+        "ask_clarifying_question",
+        "suggest_meeting_times",
+        "create_cal_booking",
+        "send_calendar_link",
+        "send_email",
+        "create_new_contact",
+        "mark_current_contact_as_referrer",
+        "schedule_followup",
+        "stop_sequence",
+        "mark_opt_out",
+        "handoff_to_human",
+        "create_call_task",
+        "send_material",
+        "update_lead_score",
+        "disqualify_lead",
+        "recover_no_show",
+        "request_info_from_lead",
+      ],
       activity_type: [
         "email",
         "call",
@@ -1323,6 +1594,18 @@ export const Constants = {
         "paused",
       ],
       integration_provider: ["pipedrive", "gmail"],
+      intent_category: [
+        "interest",
+        "info_request",
+        "pricing",
+        "scheduling",
+        "rejection",
+        "routing",
+        "channel_switch",
+        "compliance",
+        "escalation",
+        "silence",
+      ],
       lead_status: [
         "new",
         "contacted",
