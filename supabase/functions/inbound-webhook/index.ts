@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { stripQuotedEmail } from "../_shared/strip-quoted-email.ts";
+import { routeAndEnqueue } from "../_shared/route-intent.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -235,11 +236,19 @@ serve(async (req) => {
       });
     }
 
-    // Fire-and-forget: classify intent and log (does not affect existing flow)
+    // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
     if (companyId && leadData?.id) {
       try {
-        const history = []; // brief context loaded later in main flow; for now classify last message standalone
-        supabase.functions.invoke("classify-intent", {
+        // Build brief history for classifier
+        const { data: recentMsgs } = await supabase
+          .from("messages")
+          .select("direction, content")
+          .eq("conversation_id", convId)
+          .order("sent_at", { ascending: false })
+          .limit(6);
+        const history = (recentMsgs || []).reverse();
+
+        const { data: clf, error: clfErr } = await supabase.functions.invoke("classify-intent", {
           body: {
             company_id: companyId,
             lead_id: leadData.id,
@@ -247,9 +256,24 @@ serve(async (req) => {
             message_content: cleanContent,
             history,
           },
-        }).catch((e) => console.error("classify-intent invoke failed:", e));
+        });
+
+        if (!clfErr && clf?.intent_log_id && clf?.category) {
+          const route = await routeAndEnqueue(supabase, {
+            company_id: companyId,
+            lead_id: leadData.id,
+            conversation_id: convId,
+            intent_log_id: clf.intent_log_id,
+            category: clf.category,
+            sub_intent: clf.sub_intent || null,
+            confidence: Number(clf.confidence) || 0,
+          }, { include_reply_actions: false });
+          console.log("intent routed:", clf.category, clf.sub_intent, "→", route);
+        } else if (clfErr) {
+          console.error("classify-intent error:", clfErr);
+        }
       } catch (e) {
-        console.error("classify-intent dispatch error:", e);
+        console.error("intent pipeline error:", e);
       }
     }
 
