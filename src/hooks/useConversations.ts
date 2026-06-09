@@ -66,6 +66,26 @@ export function useSendMessage() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (params: { conversation_id: string; content: string; direction: string; ai_suggested?: boolean; metadata?: any }) => {
+      // Mensagens outbound passam pela edge function que envia via Twilio/canal antes de salvar
+      if (params.direction === "outbound") {
+        const { data, error } = await supabase.functions.invoke("send-outbound-message", {
+          body: {
+            conversation_id: params.conversation_id,
+            content: params.content,
+            ai_suggested: params.ai_suggested || false,
+            metadata: params.metadata || {},
+          },
+        });
+        if (error) throw error;
+        if (data?.delivery_status === "failed") {
+          toast.error(`Falha no envio: ${data?.twilio_error || data?.delivery_error || "erro desconhecido"}`);
+        } else if (data?.delivery_status === "delivered") {
+          toast.success("Mensagem enviada");
+        }
+        return data?.message;
+      }
+
+      // Inbound (raro daqui) cai no caminho legado
       const { data, error } = await supabase
         .from("messages")
         .insert({
