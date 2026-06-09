@@ -35,12 +35,4 @@ export function useSlotHolds(leadId: string | null | undefined) {
   });
 }
 
-export function formatSlotBRT(iso: string) {
-  const BRT_OFFSET = 3 * 3600000;
-  const d = new Date(new Date(iso).getTime() - BRT_OFFSET);
-  return (
-    d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" }) +
-    " às " +
-    d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
-  );
-}
+export { formatBRTShort as formatSlotBRT } from "@/lib/datetime";
