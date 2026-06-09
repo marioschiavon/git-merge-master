@@ -5,6 +5,8 @@ import { routeAndEnqueue } from "../_shared/route-intent.ts";
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
+import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
