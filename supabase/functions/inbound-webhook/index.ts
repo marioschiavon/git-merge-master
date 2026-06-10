@@ -76,6 +76,19 @@ function pickReferralChannel(raw: any, hasEmail: boolean, hasPhone: boolean): "e
   return "email";
 }
 
+function companyNameFromWebsite(website: string | null | undefined): string | null {
+  if (!website) return null;
+  try {
+    const url = website.startsWith("http") ? website : `https://${website}`;
+    const host = new URL(url).hostname.replace(/^www\./, "");
+    const label = host.split(".")[0];
+    if (!label) return null;
+    return label.charAt(0).toUpperCase() + label.slice(1);
+  } catch {
+    return null;
+  }
+}
+
 function formatDateTimeBrt(isoString: string): string {
   return formatBRTLong(isoString);
 }
