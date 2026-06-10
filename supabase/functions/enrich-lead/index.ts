@@ -485,32 +485,50 @@ async function runJob(job_id: string) {
     }
 
     await supabase.from("lead_enrichment_jobs").update({
-      status: "completed", steps_done: steps, error: null,
+      status: "completed", steps_done: steps, error: null, updated_at: new Date().toISOString(),
     }).eq("id", job.id);
     await supabase.from("leads").update({
       enrichment_status: "completed", enrichment_updated_at: new Date().toISOString(),
     }).eq("id", lead.id);
-
-    return new Response(JSON.stringify({ ok: true, steps }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    })(), timeoutPromise]);
   } catch (e) {
     console.error("enrich-lead error", e);
     const msg = e instanceof Error ? e.message : String(e);
     try {
-      const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
-      const { job_id } = await req.clone().json().catch(() => ({}));
-      if (job_id) {
-        const { data: j } = await supabase.from("lead_enrichment_jobs").select("attempts, lead_id").eq("id", job_id).single();
-        const failed = (j?.attempts || 0) >= 3;
-        await supabase.from("lead_enrichment_jobs").update({
-          status: failed ? "failed" : "pending",
-          error: msg,
-          next_run_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-        }).eq("id", job_id);
-        if (failed && j?.lead_id) {
-          await supabase.from("leads").update({ enrichment_status: "failed", enrichment_updated_at: new Date().toISOString() }).eq("id", j.lead_id);
-        }
+      const { data: j } = await supabase.from("lead_enrichment_jobs").select("attempts, lead_id").eq("id", job_id).single();
+      const failed = (j?.attempts || 0) >= 3;
+      await supabase.from("lead_enrichment_jobs").update({
+        status: failed ? "failed" : "pending",
+        error: msg,
+        next_run_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", job_id);
+      if (failed && j?.lead_id) {
+        await supabase.from("leads").update({ enrichment_status: "failed", enrichment_updated_at: new Date().toISOString() }).eq("id", j.lead_id);
       }
     } catch {}
-    return new Response(JSON.stringify({ error: msg }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  } finally {
+    clearTimeout(timeoutHandle);
+  }
+  console.log(`enrich-lead job ${job_id} done in ${Date.now() - startedAt}ms`);
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  try {
+    const { job_id } = await req.json();
+    if (!job_id) return new Response(JSON.stringify({ error: "job_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
+    // Run in background so request returns immediately (avoids client/cron timeouts)
+    // @ts-ignore EdgeRuntime is provided at runtime
+    EdgeRuntime.waitUntil(runJob(job_id));
+
+    return new Response(JSON.stringify({ ok: true, accepted: true, job_id }), {
+      status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), {
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
