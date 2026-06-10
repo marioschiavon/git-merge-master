@@ -342,13 +342,17 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           const zCfg = await getZApiConfig(supabase, cadence.company_id);
           if (zCfg) {
             const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
-            if (!r.ok) {
+            if (r.ok) {
+              deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status, to_number: lead.whatsapp || lead.phone };
+            } else {
               console.error(`Z-API WhatsApp error for ${enrollment.id}:`, r.error);
               sendAction = "failed";
+              deliveryMeta = { delivery_status: "failed", zapi_status: r.status, zapi_error: r.error, to_number: lead.whatsapp || lead.phone };
             }
           } else {
             // Z-API não configurado — registra como tarefa manual
             sendAction = "pending_manual";
+            deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
           }
 
 
