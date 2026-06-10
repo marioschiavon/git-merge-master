@@ -1,16 +1,18 @@
 ## Problema
-No `cadence-executor`, a consulta que carrega os leads matriculados em cadências busca apenas o campo `phone`, sem incluir `whatsapp`. Por isso `lead.whatsapp` chega sempre `undefined` na função e, no envio de WhatsApp, o fallback `lead.whatsapp || lead.phone` acaba dependendo só de `phone`. Quando o lead tem apenas o WhatsApp preenchido (como na imagem da Clotilde, em que copiei pra ambos), o passo é silenciosamente pulado.
+Na conversa do Kiko, ele disse "Preciso que seja **em 15 dias**" depois de recusar os primeiros horários. O sistema entrou no fluxo `reject_slots`, mas ofereceu novamente horários nos próximos dias (11 e 15 de junho) — ignorando completamente a janela pedida pelo prospect.
+
+## Causa raiz
+O `inbound-webhook` extrai dicas de data do texto do prospect (`extractDateRangeFromText`, que já reconhece "em X dias" / "daqui a X dias") e repassa o `start_after` para o `calcom-slots` em **outras** ações (`schedule`, `reschedule`, `check_availability`, etc.). Mas o ramo `reject_slots` (linhas ~847–904 em `supabase/functions/inbound-webhook/index.ts`) **não chama** `extractDateRangeFromText` nem passa `start_after`/`end_before` para a busca de novos slots. Por isso o Cal.com devolve sempre as próximas vagas, sem respeitar "em 15 dias".
 
 ## Correção
-Adicionar `whatsapp` ao `select` de leads no `cadence-executor` para que a função enxergue o número certo.
+No ramo `reject_slots` do `inbound-webhook`:
 
-```text
-supabase/functions/cadence-executor/index.ts (linha 66)
-- leads(id, name, email, phone, company_name, status)
-+ leads(id, name, email, phone, whatsapp, company_name, status)
-```
+1. Rodar `extractDateRangeFromText(cleanContent)` antes de invocar `calcom-slots`.
+2. Se houver `start_after` / `end_before`, incluí-los no `body` enviado para `calcom-slots`, exatamente como os outros ramos já fazem.
+3. Manter o resto da lógica (cancelar holds anteriores, montar a resposta) inalterado.
 
-## Verificação rápida em outros pontos
-Já confirmei que `send-outbound-message` e `slot-expiry-followup` já selecionam `whatsapp` corretamente — o bug é exclusivo do `cadence-executor`.
+Resultado: quando o prospect rejeitar os horários dizendo "em 15 dias", "semana que vem", "depois do dia 25" etc., os novos slots oferecidos passam a respeitar essa janela.
 
-Após o fix, a regra de envio passa a ser: usa `lead.whatsapp` quando existir; se vazio, cai para `lead.phone`. Sem mudar nenhum outro comportamento.
+## Fora do escopo
+- Não vou mexer em `classify-intent` nem no prompt da IA — a extração textual já cobre o caso do Kiko.
+- Não vou tocar nos outros ramos que já aplicam `rangeHint`.
