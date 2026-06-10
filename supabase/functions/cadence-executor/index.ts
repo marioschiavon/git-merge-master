@@ -87,6 +87,30 @@ serve(async (req) => {
 
         if (!cadence || cadence.status !== "active" || !lead) continue;
 
+        // Atomic claim to prevent duplicate sends from overlapping invocations.
+        // Push next_execution_at 10 min into the future, but only if the row
+        // still matches what we read. If another worker already claimed it,
+        // the update returns 0 rows and we skip silently.
+        const lockUntilIso = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        const claimQuery = supabase
+          .from("cadence_enrollments")
+          .update({ next_execution_at: lockUntilIso })
+          .eq("id", enrollment.id)
+          .eq("status", "active")
+          .eq("current_step", enrollment.current_step)
+          .lte("next_execution_at", new Date().toISOString());
+        const { data: claimed, error: claimError } = await claimQuery.select("id");
+        if (claimError) {
+          console.error(`Claim error for enrollment ${enrollment.id}:`, claimError);
+          continue;
+        }
+        if (!claimed || claimed.length === 0) {
+          // Another worker already picked this up.
+          continue;
+        }
+
+
+
         // Get current step
         const { data: steps } = await supabase
           .from("cadence_steps")
