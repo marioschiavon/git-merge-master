@@ -103,9 +103,38 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
   const analyzeWebsite = useAnalyzeWebsite();
   const deleteLead = useDeleteLead();
 
+  const { data: lastJob } = useQuery({
+    queryKey: ["lead_enrichment_job", lead?.id],
+    enabled: !!lead?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("lead_enrichment_jobs")
+        .select("steps_done, status, created_at")
+        .eq("lead_id", lead!.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+  });
+
   if (!lead) return null;
 
   const insights = insightData?.insights as any;
+  const autofill = ((lastJob?.steps_done as any)?.autofill) || {};
+  const sourceLabel = (s: string) =>
+    s === "website" ? "Encontrado no website"
+    : s === "instagram" ? "Encontrado no Instagram"
+    : s === "facebook" ? "Encontrado no Facebook"
+    : s === "linkedin_person" ? "Encontrado no LinkedIn"
+    : s === "linkedin_company" ? "Encontrado no LinkedIn da empresa"
+    : s === "phone_derived" ? "Derivado do telefone"
+    : "Preenchido automaticamente";
+  const AutoBadge = ({ src }: { src?: string }) => src ? (
+    <Badge variant="outline" className="ml-1 h-5 px-1.5 gap-1 text-[10px] border-primary/40 text-primary" title={sourceLabel(src)}>
+      <Sparkles className="h-2.5 w-2.5" /> auto
+    </Badge>
+  ) : null;
 
 
   return (
