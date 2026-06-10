@@ -409,17 +409,9 @@ serve(async (req) => {
     // Format slot context for AI
     let slotContext = "";
     if (heldSlots.length >= 2) {
-      const formatted = heldSlots.map((s: any, i: number) => {
-        const dt = new Date(s.slot_datetime);
-        return `${i + 1}) ${dt.toLocaleDateString("pt-BR", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-        })} às ${dt.toLocaleTimeString("pt-BR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`;
-      });
+      const formatted = heldSlots.map((s: any, i: number) =>
+        `${i + 1}) ${formatDateTimeBrt(s.slot_datetime)}`
+      );
       slotContext = `\n\nATENÇÃO: O prospect recebeu 2 opções de horário para reunião:
 ${formatted.join("\n")}
 
@@ -428,9 +420,7 @@ INSTRUÇÕES PARA SLOTS PENDENTES:
 - Se o prospect rejeitou ambos os horários (ex: "nenhum funciona", "não consigo nesses dias", "tenho compromisso") → action = "reject_slots"
 - Se o prospect sugeriu um horário alternativo (ex: "pode ser terça às 14h?", "prefiro quinta de manhã") → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)`;
     } else if (heldSlots.length === 1) {
-      const dt = new Date(heldSlots[0].slot_datetime);
-      const formatted = dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
-        + " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const formatted = formatDateTimeBrt(heldSlots[0].slot_datetime);
       slotContext = `\n\nATENÇÃO: O prospect recebeu 1 opção de horário para reunião:
 1) ${formatted}
 
@@ -442,11 +432,7 @@ INSTRUÇÕES PARA SLOT PENDENTE:
       // FIX: Even without active slots, give context that scheduling is happening
       let offeredSlotsContext = "";
       if (lastOfferedSlots.length > 0) {
-        offeredSlotsContext = `\nHorários anteriormente oferecidos (já expiraram): ${lastOfferedSlots.map((s: string) => {
-          const dt = new Date(s);
-          return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }) +
-            " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        }).join(", ")}`;
+        offeredSlotsContext = `\nHorários anteriormente oferecidos (já expiraram): ${lastOfferedSlots.map((s: string) => formatDateTimeBrt(s)).join(", ")}`;
       }
       slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).${offeredSlotsContext}
 Se o prospect mencionar qualquer horário, dia ou disponibilidade → action = "check_availability" com suggested_datetime em ISO 8601 (YYYY-MM-DDTHH:mm:ss).
