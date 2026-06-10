@@ -17,7 +17,8 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const { cadence_id, lead_id, force_regenerate, only_first_step } = await req.json();
+    const { cadence_id, lead_id, force_regenerate, only_first_step, variations } = await req.json();
+    const variationCount = Number(variations) > 0 ? Math.min(5, Number(variations)) : 0;
     if (!cadence_id || !lead_id) {
       return new Response(JSON.stringify({ error: "cadence_id and lead_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
