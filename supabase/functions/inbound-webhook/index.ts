@@ -371,7 +371,7 @@ serve(async (req) => {
 
 
     // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
-    if (companyId && leadData?.id) {
+    if (!earlyParsed && companyId && leadData?.id) {
       try {
         // Build brief history for classifier
         const { data: recentMsgs } = await supabase
