@@ -18,7 +18,9 @@ import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { LeadSocialCard } from "@/components/LeadSocialCard";
-import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles } from "lucide-react";
 
 
 const statusColors: Record<string, string> = {
@@ -63,6 +65,7 @@ interface Lead {
   name: string;
   email: string | null;
   phone: string | null;
+  whatsapp?: string | null;
   company_name: string | null;
   title: string | null;
   website: string | null;
@@ -100,9 +103,38 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
   const analyzeWebsite = useAnalyzeWebsite();
   const deleteLead = useDeleteLead();
 
+  const { data: lastJob } = useQuery({
+    queryKey: ["lead_enrichment_job", lead?.id],
+    enabled: !!lead?.id,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("lead_enrichment_jobs")
+        .select("steps_done, status, created_at")
+        .eq("lead_id", lead!.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+  });
+
   if (!lead) return null;
 
   const insights = insightData?.insights as any;
+  const autofill = ((lastJob?.steps_done as any)?.autofill) || {};
+  const sourceLabel = (s: string) =>
+    s === "website" ? "Encontrado no website"
+    : s === "instagram" ? "Encontrado no Instagram"
+    : s === "facebook" ? "Encontrado no Facebook"
+    : s === "linkedin_person" ? "Encontrado no LinkedIn"
+    : s === "linkedin_company" ? "Encontrado no LinkedIn da empresa"
+    : s === "phone_derived" ? "Derivado do telefone"
+    : "Preenchido automaticamente";
+  const AutoBadge = ({ src }: { src?: string }) => src ? (
+    <Badge variant="outline" className="ml-1 h-5 px-1.5 gap-1 text-[10px] border-primary/40 text-primary" title={sourceLabel(src)}>
+      <Sparkles className="h-2.5 w-2.5" /> auto
+    </Badge>
+  ) : null;
 
 
   return (
@@ -168,12 +200,21 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
               <div className="flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 text-muted-foreground" />
                 <a href={`mailto:${lead.email}`} className="text-primary hover:underline">{lead.email}</a>
+                <AutoBadge src={autofill.email} />
               </div>
             )}
             {lead.phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
                 <span>{lead.phone}</span>
+                <AutoBadge src={autofill.phone} />
+              </div>
+            )}
+            {lead.whatsapp && (
+              <div className="flex items-center gap-2 text-sm">
+                <MessageCircle className="h-4 w-4 text-muted-foreground" />
+                <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">{lead.whatsapp}</a>
+                <AutoBadge src={autofill.whatsapp} />
               </div>
             )}
             {lead.company_name && (

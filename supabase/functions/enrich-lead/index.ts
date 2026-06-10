@@ -126,6 +126,123 @@ function summarizePosts(posts: any[]): string {
   }).join("\n");
 }
 
+function stripHtmlForText(html: string): string {
+  return html.replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+}
+
+function normalizePhoneBR(raw: string): string | null {
+  if (!raw) return null;
+  let d = String(raw).replace(/\D/g, "");
+  if (!d) return null;
+  d = d.replace(/^00/, "").replace(/^0+/, "");
+  if (d.length < 10 || d.length > 13) return null;
+  if (!d.startsWith("55")) {
+    if (d.length === 10 || d.length === 11) d = "55" + d;
+    else return null;
+  }
+  if (d.length !== 12 && d.length !== 13) return null;
+  const ddd = d.slice(2, 4);
+  if (Number(ddd) < 11 || Number(ddd) > 99) return null;
+  const rest = d.slice(4);
+  if (/^(\d)\1+$/.test(rest)) return null;
+  return "+" + d;
+}
+
+function siteDomain(website: string | null | undefined): string | null {
+  if (!website) return null;
+  try {
+    const u = new URL(website.startsWith("http") ? website : `https://${website}`);
+    return u.hostname.replace(/^www\./, "");
+  } catch { return null; }
+}
+
+function extractContacts(rawHtml: string, domain?: string | null): { email: string | null; phone: string | null; whatsapp: string | null } {
+  const clean = stripHtmlForText(rawHtml);
+  const text = clean.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+
+  let whatsapp: string | null = null;
+  for (const m of rawHtml.matchAll(/(?:wa\.me|api\.whatsapp\.com\/send|whatsapp:\/\/send)[^"'\s<>]*?(?:phone=)?(\+?\d[\d\s\-().]{8,20})/gi)) {
+    const n = normalizePhoneBR(m[1]);
+    if (n) { whatsapp = n; break; }
+  }
+
+  let email: string | null = null;
+  const emails = [...text.matchAll(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/g)].map((m) => m[0].toLowerCase());
+  const blacklist = /^(noreply|no-reply|wordpress|postmaster|mailer-daemon|donotreply|example)@/i;
+  const cleaned = emails.filter((e) => !blacklist.test(e) && !/\.(png|jpe?g|gif|svg|webp)@/i.test(e));
+  if (cleaned.length) {
+    if (domain) {
+      const same = cleaned.find((e) => e.endsWith("@" + domain.toLowerCase()));
+      email = same || cleaned[0];
+    } else email = cleaned[0];
+  }
+
+  let phone: string | null = null;
+  for (const m of text.matchAll(/(\+?55\s*)?\(?\s*(\d{2})\s*\)?[\s.\-]*(9?\d{4})[\s.\-]*(\d{4})/g)) {
+    const n = normalizePhoneBR(m[0]);
+    if (n) { phone = n; break; }
+  }
+  return { email, phone, whatsapp };
+}
+
+function extractContactsFromSocial(profile: any): { email: string | null; phone: string | null; whatsapp: string | null } {
+  const out = { email: null as string | null, phone: null as string | null, whatsapp: null as string | null };
+  const raw = profile?.raw || {};
+  const bio = profile?.bio || "";
+  const owner = raw.owner || raw.firstPost?.owner || {};
+
+  const emailFields = [raw.businessEmail, raw.publicEmail, raw.email, owner.businessEmail, owner.publicEmail];
+  for (const e of emailFields) {
+    if (typeof e === "string" && /@/.test(e)) { out.email = e.toLowerCase(); break; }
+  }
+  const phoneFields = [raw.businessPhoneNumber, raw.contactPhone, raw.phone, owner.businessPhoneNumber];
+  for (const p of phoneFields) {
+    const n = p ? normalizePhoneBR(String(p)) : null;
+    if (n) { out.phone = n; break; }
+  }
+
+  const text = String(bio);
+  if (!out.email) {
+    const m = text.match(/[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}/);
+    if (m) out.email = m[0].toLowerCase();
+  }
+  if (!out.phone) {
+    const m = text.match(/(\+?55\s*)?\(?\s*\d{2}\s*\)?[\s.\-]*9?\d{4}[\s.\-]*\d{4}/);
+    if (m) {
+      const n = normalizePhoneBR(m[0]);
+      if (n) out.phone = n;
+    }
+  }
+
+  const links: string[] = [];
+  if (raw.externalUrl) links.push(String(raw.externalUrl));
+  if (raw.website) links.push(String(raw.website));
+  if (Array.isArray(raw.websites)) links.push(...raw.websites.map((w: any) => typeof w === "string" ? w : w?.url).filter(Boolean));
+  if (Array.isArray(raw.bioLinks)) links.push(...raw.bioLinks.map((w: any) => w?.url || w?.link).filter(Boolean));
+  for (const l of [...links, text]) {
+    const m = String(l).match(/(?:wa\.me|api\.whatsapp\.com\/send|whatsapp:\/\/send)[^\s"'<>]*?(?:phone=)?(\+?\d[\d\s\-().]{8,20})/i);
+    if (m) {
+      const n = normalizePhoneBR(m[1]);
+      if (n) { out.whatsapp = n; break; }
+    }
+  }
+  return out;
+}
+
+async function fetchContactPages(website: string): Promise<string | null> {
+  try {
+    const u = new URL(website.startsWith("http") ? website : `https://${website}`);
+    const base = `${u.protocol}//${u.hostname}`;
+    for (const path of ["/contato", "/contact", "/fale-conosco", "/contact-us"]) {
+      const html = await fetchPageHtml(base + path);
+      if (html) return html;
+    }
+  } catch {}
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -154,11 +271,15 @@ serve(async (req) => {
 
     const steps: any = { ...(job.steps_done || {}) };
     const leadPatch: any = {};
+    const autofillSrc: any = {};
 
-    // Step 1: discover socials from website (and analyze)
+    const autofill = settings.autofill_contacts !== false; // default ON
+
+    // Step 1: fetch website HTML (used for socials, analysis, and contact autofill)
     let pageHtml: string | null = null;
     let pageText = "";
-    if (lead.website && (settings.website_analysis || settings.discover_socials)) {
+    const needsHtml = !!lead.website && (settings.website_analysis || settings.discover_socials || autofill);
+    if (needsHtml) {
       pageHtml = await fetchPageHtml(lead.website);
       if (pageHtml) {
         pageText = htmlToText(pageHtml);
@@ -169,10 +290,23 @@ serve(async (req) => {
           }
           steps.discover_socials = "ok";
         }
+        if (autofill) {
+          const dom = siteDomain(lead.website);
+          let contacts = extractContacts(pageHtml, dom);
+          // try contact pages if nothing found
+          if (!contacts.email && !contacts.phone && !contacts.whatsapp) {
+            const ch = await fetchContactPages(lead.website);
+            if (ch) contacts = extractContacts(ch, dom);
+          }
+          if (!lead.email && contacts.email) { leadPatch.email = contacts.email; autofillSrc.email = "website"; }
+          if (!lead.phone && contacts.phone) { leadPatch.phone = contacts.phone; autofillSrc.phone = "website"; }
+          if (!lead.whatsapp && contacts.whatsapp) { leadPatch.whatsapp = contacts.whatsapp; autofillSrc.whatsapp = "website"; }
+        }
       } else {
-        steps.discover_socials = "no_html";
+        steps.discover_socials = steps.discover_socials || "no_html";
       }
     }
+
 
     // Step 2: website AI analysis
     if (lead.website && settings.website_analysis && LOVABLE_API_KEY) {
@@ -265,6 +399,43 @@ serve(async (req) => {
       steps.apify_scrape = `ran ${tasks.length}`;
     }
 
+    // Step 3.5: autofill contacts from social profiles (in order: instagram > facebook > linkedin)
+    if (autofill) {
+      const missing = !lead.email || !lead.phone || !lead.whatsapp;
+      if (missing) {
+        const { data: profiles } = await supabase
+          .from("lead_social_profiles")
+          .select("network, bio, raw")
+          .eq("lead_id", lead.id);
+        const priority = ["instagram", "facebook", "linkedin_company", "linkedin_person"];
+        const sorted = (profiles || []).slice().sort(
+          (a: any, b: any) => priority.indexOf(a.network) - priority.indexOf(b.network),
+        );
+        for (const p of sorted) {
+          const c = extractContactsFromSocial(p);
+          if (!lead.email && !leadPatch.email && c.email) { leadPatch.email = c.email; autofillSrc.email = p.network; }
+          if (!lead.phone && !leadPatch.phone && c.phone) { leadPatch.phone = c.phone; autofillSrc.phone = p.network; }
+          if (!lead.whatsapp && !leadPatch.whatsapp && c.whatsapp) { leadPatch.whatsapp = c.whatsapp; autofillSrc.whatsapp = p.network; }
+        }
+      }
+      // Fallback: derive whatsapp from a valid BR cell phone
+      const finalPhone = leadPatch.phone || lead.phone;
+      if (!lead.whatsapp && !leadPatch.whatsapp && finalPhone) {
+        const digits = String(finalPhone).replace(/\D/g, "");
+        // BR cell: 55 + DDD + 9XXXXXXXX (13 digits)
+        if (digits.length === 13 && digits.startsWith("55") && digits[4] === "9") {
+          leadPatch.whatsapp = "+" + digits;
+          autofillSrc.whatsapp = "phone_derived";
+        }
+      }
+      if (Object.keys(autofillSrc).length) steps.autofill = autofillSrc;
+      if (Object.keys(leadPatch).length) {
+        await supabase.from("leads").update(leadPatch).eq("id", lead.id);
+        Object.assign(lead, leadPatch);
+      }
+    }
+
+
     // Step 4: generate first message draft
     if (settings.generate_message && LOVABLE_API_KEY) {
       try {
@@ -277,7 +448,7 @@ serve(async (req) => {
           return parts.join("\n");
         }).join("\n\n");
         const ai = await callAI([
-          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases). O gancho DEVE citar um tema concreto, post ou pauta da empresa observado nas redes sociais quando houver sinal forte; caso contrário use insights do site. Evite elogios genéricos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
+          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases). Combine sinais do WEBSITE e das REDES SOCIAIS (Instagram, Facebook, LinkedIn). Se houver bio/posts com tema concreto, cite-o no gancho; caso contrário, ancore em proposta de valor ou diferencial do site. Evite elogios genéricos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
           { role: "user", content: `Lead: ${lead.name} (${lead.title || "cargo n/d"}) da ${lead.company_name || "empresa n/d"}.\n\nInsights do site:\n${JSON.stringify(insights?.insights || {}, null, 2)}\n\nRedes sociais:\n${socialSummary || "(nenhuma)"}` },
         ]);
         const draft = parseJsonBlob(ai) || { subject: null, message: ai, hook_used: null, sources: [] };
