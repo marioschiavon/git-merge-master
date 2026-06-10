@@ -63,7 +63,7 @@ serve(async (req) => {
       .from("cadence_enrollments")
       .select(`
         *,
-        leads(id, name, email, phone, company_name, status),
+        leads(id, name, email, phone, whatsapp, company_name, status),
         cadences(id, name, type, company_id, status)
       `)
       .eq("status", "active")
