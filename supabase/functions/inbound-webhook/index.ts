@@ -1356,6 +1356,20 @@ Analise a última mensagem e decida a ação.`,
         });
       }
     } else if (parsed.action === "pause") {
+      // FIX (Kiko): cancel any pending slot holds when lead rejects approach
+      if (leadData?.id) {
+        const { data: pendingHolds } = await supabase
+          .from("slot_holds")
+          .select("id, cal_booking_uid")
+          .eq("lead_id", leadData.id)
+          .eq("status", "held");
+        for (const h of (pendingHolds || [])) {
+          if (h.cal_booking_uid) {
+            try { await cancelCalcomReservation(h.cal_booking_uid); } catch (_) { /* ignore */ }
+          }
+          await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", h.id);
+        }
+      }
       if (enrollment) {
         await supabase
           .from("cadence_enrollments")
