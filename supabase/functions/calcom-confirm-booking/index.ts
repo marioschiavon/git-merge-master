@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
+import { cancelCalcomReservation } from "../_shared/calcom.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 
 const corsHeaders = {
@@ -137,21 +138,7 @@ serve(async (req) => {
     // Cancel other slot reservations
     for (const hold of otherHolds) {
       if (hold.cal_booking_uid) {
-        try {
-          const cancelRes = await fetch(
-            `https://api.cal.com/v2/slots/reservations/${hold.cal_booking_uid}`,
-            {
-              method: "DELETE",
-              headers: {
-                Authorization: `Bearer ${CALCOM_API_KEY}`,
-                "cal-api-version": CALCOM_SLOTS_API_VERSION,
-              },
-            }
-          );
-          console.log(`Cancelled reservation ${hold.cal_booking_uid}: ${cancelRes.status}`);
-        } catch (e) {
-          console.error(`Failed to cancel reservation ${hold.cal_booking_uid}:`, e);
-        }
+        await cancelCalcomReservation(hold.cal_booking_uid);
       }
 
       // Update hold status to cancelled
