@@ -41,7 +41,7 @@ serve(async (req) => {
     if (!CALCOM_API_KEY) throw new Error("CALCOM_API_KEY not configured");
 
     const body = await req.json();
-    const { lead_id, selected_slot_hold_id } = body;
+    const { lead_id, selected_slot_hold_id, force_placeholder } = body;
 
     if (!lead_id || !selected_slot_hold_id) {
       return new Response(JSON.stringify({ error: "lead_id and selected_slot_hold_id are required" }), {
@@ -83,11 +83,21 @@ serve(async (req) => {
       .eq("id", lead_id)
       .single();
 
-    if (!lead?.email) {
-      return new Response(JSON.stringify({ error: "Lead email is required for booking" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let usedPlaceholderEmail = false;
+    let attendeeEmail = lead?.email as string | undefined;
+
+    if (!attendeeEmail) {
+      if (force_placeholder) {
+        const senderDomain = Deno.env.get("SENDER_DOMAIN") || "lovable.app";
+        attendeeEmail = `noreply+${lead_id}@${senderDomain}`;
+        usedPlaceholderEmail = true;
+        console.log(`Using placeholder email for booking: ${attendeeEmail}`);
+      } else {
+        return new Response(JSON.stringify({ error: "Lead email is required for booking" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Resolve event type ID
@@ -106,8 +116,8 @@ serve(async (req) => {
         eventTypeId,
         start: selectedHold.slot_datetime,
         attendee: {
-          name: lead.name,
-          email: lead.email,
+          name: lead?.name || "Lead",
+          email: attendeeEmail,
           timeZone: "America/Sao_Paulo",
           language: "pt",
         },
@@ -208,6 +218,20 @@ serve(async (req) => {
         },
       });
 
+      if (usedPlaceholderEmail) {
+        await supabase.from("lead_activities").insert({
+          company_id: selectedHold.company_id,
+          lead_id: lead_id,
+          type: "alert",
+          description: `⚠️ Reunião confirmada sem e-mail real do lead — enviar convite manualmente para ${formattedDate}`,
+          metadata: {
+            placeholder_email: attendeeEmail,
+            cal_booking_uid: bookingData?.data?.uid || bookingData?.data?.id,
+            slot_datetime: selectedHold.slot_datetime,
+          },
+        });
+      }
+
       // Insert system message in conversation for immediate UI feedback
       await insertBookingSystemMessage(supabase, {
         lead_id,
@@ -217,6 +241,12 @@ serve(async (req) => {
         scheduled_at: selectedHold.slot_datetime,
       });
     }
+
+    // Clear any pending email request flag now that booking is confirmed
+    await supabase
+      .from("leads")
+      .update({ pending_email_slot_hold_id: null })
+      .eq("id", lead_id);
 
     return new Response(JSON.stringify({
       success: true,

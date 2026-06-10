@@ -162,7 +162,7 @@ serve(async (req) => {
     if (!convId && lead_id) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id)")
         .eq("lead_id", lead_id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -176,7 +176,7 @@ serve(async (req) => {
     } else if (convId) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id)")
         .eq("id", convId)
         .maybeSingle();
       if (conv) {
@@ -476,6 +476,7 @@ AÇÕES POSSÍVEIS:
 - "reply": responder automaticamente (objeção, dúvida, neutro)
 - "schedule": prospect demonstrou interesse em reunião → parar cadência e confirmar horário
 - "confirm_slot": prospect está confirmando/escolhendo um dos horários já oferecidos
+- "request_email": acionado AUTOMATICAMENTE pelo sistema quando confirm_slot é detectado mas o lead não tem e-mail cadastrado (não escolha esta ação diretamente — apenas use confirm_slot e o sistema redireciona)
 - "reject_slots": prospect rejeitou ambos os horários oferecidos (ex: "nenhum funciona", "tenho compromisso nesses dias")
 - "check_availability": prospect sugeriu um horário alternativo próprio (ex: "pode ser terça às 14h?")
   → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
@@ -486,6 +487,12 @@ AÇÕES POSSÍVEIS:
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
 - "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
 - "handoff": prospect fez pergunta TÉCNICA, REGULATÓRIA, JURÍDICA, CLÍNICA ou COMERCIAL ESPECÍFICA que NÃO está na BASE DE CONHECIMENTO e exige especialista humano (ex: dosagem, posologia, contrato, NF-e, certificações ANVISA/MAPA, condições especiais de pagamento, integrações customizadas) → passar para humano. NÃO invente resposta. Use reply_message curto avisando que um especialista vai retornar.
+
+CAPTURA DE E-MAIL (para confirmar reunião por convite):
+- Se a última mensagem do prospect contém um e-mail válido (formato algo@dominio.tld) E há contexto de agendamento (slots pendentes OU pedido recente de e-mail) → preencha "provided_email" com o endereço informado.
+- Se o prospect disser explicitamente que NÃO tem e-mail / não quer informar / prefere sem convite → preencha "email_refused": true.
+- Caso contrário, "provided_email": null e "email_refused": false.
+
 
 DETECÇÃO DE INDICAÇÃO / ENCAMINHAMENTO (action = "referral"):
 Use quando o prospect:
@@ -551,7 +558,9 @@ Responda APENAS com JSON:
     "context": null
   },
   "new_outreach_message": "1ª mensagem para o lead indicado (apenas quando referral.subtype = with_contact, senão null)",
-  "reply_message": "mensagem para enviar ao prospect (obrigatória inclusive em action=pause — agradecimento curto + porta aberta)"
+  "provided_email": null,
+  "email_refused": false,
+  "reply_message": "mensagem para enviar ao prospect (obrigatória inclusive em action=pause — agradecimento curto + porta aberta). Após confirmar reunião (confirm_slot), gere mensagem CURTA e CORDIAL (1-2 frases), confirmando data/hora, sem floreios nem promessas — para não atrapalhar o prospect."
 }${slotContext}`;
 
 
@@ -730,34 +739,59 @@ Analise a última mensagem e decida a ação.`,
 
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
-      // Confirm the selected slot
       const slotIndex = (parsed.selected_slot || 1) - 1;
       const selectedHold = heldSlots[Math.min(slotIndex, heldSlots.length - 1)];
 
-      console.log(`Confirming slot ${parsed.selected_slot}: ${selectedHold.slot_datetime}`);
+      // If lead provided an email in this message, persist it before confirming
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+      const providedEmail: string | null =
+        (typeof parsed.provided_email === "string" && emailRegex.test(parsed.provided_email))
+          ? parsed.provided_email.trim()
+          : (emailRegex.exec(cleanContent)?.[0] || null);
 
-      try {
-        const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
-          body: {
-            lead_id: leadData.id,
-            selected_slot_hold_id: selectedHold.id,
-          },
-        });
+      if (providedEmail && !leadData?.email) {
+        await supabase.from("leads").update({ email: providedEmail }).eq("id", leadData.id);
+        leadData.email = providedEmail;
+        console.log(`Lead email captured from conversation: ${providedEmail}`);
+      }
 
-        if (confirmRes.data?.success) {
-          console.log("Booking confirmed successfully");
-          const formattedDate = formatDateTimeBrt(selectedHold.slot_datetime);
+      const emailRefused = !!parsed.email_refused;
 
-          if (!parsed.reply_message) {
-            parsed.reply_message = `Perfeito! Reunião confirmada para ${formattedDate}. Você receberá um convite no seu e-mail em instantes. Até lá! 🚀`;
+      // If still no email AND lead didn't refuse → ask for email instead of confirming
+      if (!leadData?.email && !emailRefused) {
+        console.log("No email available — asking lead before confirming booking");
+        await supabase
+          .from("leads")
+          .update({ pending_email_slot_hold_id: selectedHold.id })
+          .eq("id", leadData.id);
+        parsed.action = "reply";
+        parsed.reply_message = parsed.reply_message ||
+          "Perfeito! Para eu te enviar o convite com o link da reunião, qual o seu melhor e-mail?";
+      } else {
+        console.log(`Confirming slot ${parsed.selected_slot}: ${selectedHold.slot_datetime} (placeholder=${!leadData?.email})`);
+        try {
+          const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
+            body: {
+              lead_id: leadData.id,
+              selected_slot_hold_id: selectedHold.id,
+              force_placeholder: !leadData?.email && emailRefused,
+            },
+          });
+
+          if (confirmRes.data?.success) {
+            console.log("Booking confirmed successfully");
+            const formattedDate = formatDateTimeBrt(selectedHold.slot_datetime);
+            if (!parsed.reply_message) {
+              parsed.reply_message = `Combinado! Reunião marcada para ${formattedDate}. Até lá!`;
+            }
+          } else {
+            console.error("Failed to confirm booking:", confirmRes.data?.error);
+            parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
           }
-        } else {
-          console.error("Failed to confirm booking:", confirmRes.data?.error);
+        } catch (e) {
+          console.error("Error invoking calcom-confirm-booking:", e);
           parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
         }
-      } catch (e) {
-        console.error("Error invoking calcom-confirm-booking:", e);
-        parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
       }
     } else if (parsed.action === "reject_slots") {
       // Cancel all held slots and offer new ones

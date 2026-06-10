@@ -1322,6 +1322,7 @@ export type Database = {
           linkedin_company_url: string | null
           linkedin_url: string | null
           name: string
+          pending_email_slot_hold_id: string | null
           phone: string | null
           pipedrive_data: Json | null
           pipedrive_id: number | null
@@ -1360,6 +1361,7 @@ export type Database = {
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           name: string
+          pending_email_slot_hold_id?: string | null
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
@@ -1398,6 +1400,7 @@ export type Database = {
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           name?: string
+          pending_email_slot_hold_id?: string | null
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
