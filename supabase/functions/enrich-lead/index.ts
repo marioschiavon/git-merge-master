@@ -448,7 +448,7 @@ serve(async (req) => {
           return parts.join("\n");
         }).join("\n\n");
         const ai = await callAI([
-          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases). O gancho DEVE citar um tema concreto, post ou pauta da empresa observado nas redes sociais quando houver sinal forte; caso contrário use insights do site. Evite elogios genéricos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
+          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases). Combine sinais do WEBSITE e das REDES SOCIAIS (Instagram, Facebook, LinkedIn). Se houver bio/posts com tema concreto, cite-o no gancho; caso contrário, ancore em proposta de valor ou diferencial do site. Evite elogios genéricos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
           { role: "user", content: `Lead: ${lead.name} (${lead.title || "cargo n/d"}) da ${lead.company_name || "empresa n/d"}.\n\nInsights do site:\n${JSON.stringify(insights?.insights || {}, null, 2)}\n\nRedes sociais:\n${socialSummary || "(nenhuma)"}` },
         ]);
         const draft = parseJsonBlob(ai) || { subject: null, message: ai, hook_used: null, sources: [] };
