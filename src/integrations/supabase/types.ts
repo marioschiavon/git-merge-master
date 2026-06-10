@@ -1449,6 +1449,80 @@ export type Database = {
           },
         ]
       }
+      slot_expiry_followups: {
+        Row: {
+          attempts: number
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          enrollment_id: string | null
+          id: string
+          last_action_at: string
+          lead_id: string
+          metadata: Json
+          next_action_at: string | null
+          stage: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          enrollment_id?: string | null
+          id?: string
+          last_action_at?: string
+          lead_id: string
+          metadata?: Json
+          next_action_at?: string | null
+          stage: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          enrollment_id?: string | null
+          id?: string
+          last_action_at?: string
+          lead_id?: string
+          metadata?: Json
+          next_action_at?: string | null
+          stage?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "slot_expiry_followups_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slot_expiry_followups_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slot_expiry_followups_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "slot_expiry_followups_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: true
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       slot_holds: {
         Row: {
           cal_booking_uid: string | null
@@ -1459,6 +1533,7 @@ export type Database = {
           expires_at: string
           id: string
           lead_id: string
+          metadata: Json
           preferred_channel: string | null
           slot_datetime: string
           status: string
@@ -1472,6 +1547,7 @@ export type Database = {
           expires_at: string
           id?: string
           lead_id: string
+          metadata?: Json
           preferred_channel?: string | null
           slot_datetime: string
           status?: string
@@ -1485,6 +1561,7 @@ export type Database = {
           expires_at?: string
           id?: string
           lead_id?: string
+          metadata?: Json
           preferred_channel?: string | null
           slot_datetime?: string
           status?: string

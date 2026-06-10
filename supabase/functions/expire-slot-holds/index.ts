@@ -10,14 +10,14 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, serviceKey);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
     const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
-    const CALCOM_BOOKING_LINK = Deno.env.get("CALCOM_BOOKING_LINK") || "";
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
 
-    // Find expired holds
+    // Find expired holds that have NOT been part of a retry yet
+    // (retry holds are tracked via slot_expiry_followups, not re-processed here)
     const { data: expiredHolds, error } = await supabase
       .from("slot_holds")
       .select("*")
@@ -31,161 +31,58 @@ serve(async (req) => {
       });
     }
 
-    // Group by lead_id to process per lead
     const holdsByLead: Record<string, any[]> = {};
     for (const hold of expiredHolds) {
-      if (!holdsByLead[hold.lead_id]) holdsByLead[hold.lead_id] = [];
-      holdsByLead[hold.lead_id].push(hold);
+      (holdsByLead[hold.lead_id] ||= []).push(hold);
     }
 
     let processed = 0;
 
     for (const [leadId, holds] of Object.entries(holdsByLead)) {
       try {
-        // Cancel Cal.com slot reservations via v2 API
+        // Cancel Cal.com slot reservations
         for (const hold of holds) {
           if (hold.cal_booking_uid && CALCOM_API_KEY) {
             try {
-              await fetch(
-                `https://api.cal.com/v2/slots/reservations/${hold.cal_booking_uid}`,
-                {
-                  method: "DELETE",
-                  headers: {
-                    "Authorization": `Bearer ${CALCOM_API_KEY}`,
-                    "cal-api-version": "2024-09-04",
-                  },
-                }
-              );
+              await fetch(`https://api.cal.com/v2/slots/reservations/${hold.cal_booking_uid}`, {
+                method: "DELETE",
+                headers: {
+                  Authorization: `Bearer ${CALCOM_API_KEY}`,
+                  "cal-api-version": "2024-09-04",
+                },
+              });
             } catch (e) {
-              console.error(`Failed to cancel Cal.com reservation ${hold.cal_booking_uid}:`, e);
+              console.error(`Failed to cancel reservation ${hold.cal_booking_uid}:`, e);
             }
           }
         }
 
-        // Mark all as expired
-        const holdIds = holds.map(h => h.id);
-        await supabase
-          .from("slot_holds")
-          .update({ status: "expired" })
-          .in("id", holdIds);
+        const holdIds = holds.map((h: any) => h.id);
+        await supabase.from("slot_holds").update({ status: "expired" }).in("id", holdIds);
 
         const companyId = holds[0].company_id;
         const conversationId = holds[0].conversation_id;
+        const enrollmentId = holds[0].enrollment_id;
+        const expiredDatetimes = holds.map((h: any) => h.slot_datetime);
 
-        // Determine most used channel (excluding phone/call)
-        const { data: channelCounts } = await supabase
-          .from("lead_activities")
-          .select("type")
-          .eq("lead_id", leadId)
-          .eq("company_id", companyId)
-          .in("type", ["email", "whatsapp", "linkedin"]);
-
-        let preferredChannel = "email";
-        if (channelCounts && channelCounts.length > 0) {
-          const counts: Record<string, number> = {};
-          for (const a of channelCounts) {
-            counts[a.type] = (counts[a.type] || 0) + 1;
-          }
-          preferredChannel = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+        // If these holds came from a retry (expiry_retry), the cron handles next stage —
+        // skip immediate dispatch to avoid double-processing.
+        const isRetryHold = holds.some((h: any) => h?.metadata?.origin === "expiry_retry");
+        if (isRetryHold) {
+          // Cron will pick up the tracker via next_action_at
+          processed++;
+          continue;
         }
 
-        // Format expired slot times
-        const slotTimes = holds.map(h => {
-          const dt = new Date(h.slot_datetime);
-          return dt.toLocaleDateString("pt-BR", {
-            weekday: "long", day: "numeric", month: "long",
-          }) + " às " + dt.toLocaleTimeString("pt-BR", {
-            hour: "2-digit", minute: "2-digit",
-          });
-        });
-
-        const followUpMessage = `Infelizmente, devido à alta demanda, os horários que havíamos reservado (${slotTimes.join(" e ")}) já foram ocupados. Acesse ${CALCOM_BOOKING_LINK} para escolher o melhor horário para você.`;
-
-        // Get lead data
-        const { data: lead } = await supabase
-          .from("leads")
-          .select("name, email, phone")
-          .eq("id", leadId)
-          .maybeSingle();
-
-        // Save follow-up message
-        let targetConvId = conversationId;
-        if (!targetConvId) {
-          const { data: conv } = await supabase
-            .from("conversations")
-            .select("id")
-            .eq("lead_id", leadId)
-            .eq("company_id", companyId)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          targetConvId = conv?.id;
-        }
-
-        if (!targetConvId) {
-          const { data: newConv } = await supabase
-            .from("conversations")
-            .insert({ lead_id: leadId, company_id: companyId, channel: preferredChannel as any })
-            .select()
-            .single();
-          targetConvId = newConv?.id;
-        }
-
-        if (targetConvId) {
-          await supabase.from("messages").insert({
-            conversation_id: targetConvId,
-            content: followUpMessage,
-            direction: "outbound",
-            ai_suggested: false,
-            metadata: { slot_expiry_followup: true, channel: preferredChannel },
-          });
-        }
-
-        // Send via preferred channel
-        if (preferredChannel === "email" && lead?.email) {
-          await supabase.functions.invoke("send-transactional-email", {
-            body: {
-              templateName: "cadence-outreach",
-              recipientEmail: lead.email,
-              idempotencyKey: `slot-expire-${leadId}-${Date.now()}`,
-              templateData: {
-                leadName: lead.name,
-                subject: "Horários atualizados para nossa reunião",
-                messageBody: followUpMessage,
-              },
-            },
-          });
-        } else if (preferredChannel === "whatsapp" && lead?.phone) {
-          const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
-          const TWILIO_PHONE = Deno.env.get("TWILIO_WHATSAPP_NUMBER");
-          if (LOVABLE_API_KEY && TWILIO_API_KEY && TWILIO_PHONE) {
-            try {
-              await fetch("https://connector-gateway.lovable.dev/twilio/Messages.json", {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${LOVABLE_API_KEY}`,
-                  "X-Connection-Api-Key": TWILIO_API_KEY,
-                  "Content-Type": "application/x-www-form-urlencoded",
-                },
-                body: new URLSearchParams({
-                  To: `whatsapp:${lead.phone}`,
-                  From: `whatsapp:${TWILIO_PHONE}`,
-                  Body: followUpMessage,
-                }),
-              });
-            } catch (e) {
-              console.error("Twilio WhatsApp send error:", e);
-            }
-          }
-        }
-
-        // Log activity
-        await supabase.from("lead_activities").insert({
-          company_id: companyId,
-          lead_id: leadId,
-          type: preferredChannel === "whatsapp" ? "whatsapp" : preferredChannel === "linkedin" ? "linkedin" : "email",
-          description: `⏰ Slots expirados — follow-up enviado via ${preferredChannel} com link de agendamento`,
-          metadata: { slot_expiry: true, expired_slots: slotTimes, channel: preferredChannel },
+        // Delegate to follow-up function (stage = suggested_new on first run)
+        await supabase.functions.invoke("slot-expiry-followup", {
+          body: {
+            lead_id: leadId,
+            company_id: companyId,
+            conversation_id: conversationId,
+            enrollment_id: enrollmentId,
+            expired_slot_datetimes: expiredDatetimes,
+          },
         });
 
         processed++;
