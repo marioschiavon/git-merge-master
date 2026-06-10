@@ -395,7 +395,7 @@ serve(async (req) => {
         .maybeSingle();
       if (lastOutbound?.metadata) {
         const meta = lastOutbound.metadata as any;
-        if (meta.action === "schedule" || meta.action === "reject_slots") {
+        if (["schedule", "reject_slots", "check_availability", "reschedule"].includes(meta.action)) {
           lastOutboundWasSchedule = true;
           schedulingInProgress = true;
           console.log("Last outbound was schedule/reject_slots — forcing scheduling context");
