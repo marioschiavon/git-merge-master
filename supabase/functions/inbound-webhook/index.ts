@@ -258,6 +258,64 @@ serve(async (req) => {
       });
     }
 
+    // === FAST-PATH: lead respondeu o email pendente após hold ===
+    // Se há um slot_holds em hold aguardando o email do lead, e a mensagem inbound contém
+    // um endereço de email válido, confirmamos o booking imediatamente sem passar pela IA.
+    let earlyParsed: any = null;
+    {
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+      const emailMatch = emailRegex.exec(cleanContent)?.[0]?.trim() || null;
+      const pendingHoldId: string | null = leadData?.pending_email_slot_hold_id || null;
+
+      if (pendingHoldId && emailMatch && leadData?.id) {
+        const { data: hold } = await supabase
+          .from("slot_holds")
+          .select("id, slot_datetime, status, expires_at, cal_booking_uid")
+          .eq("id", pendingHoldId)
+          .maybeSingle();
+
+        const stillValid = !!hold
+          && hold.status === "held"
+          && new Date(hold.expires_at).getTime() > Date.now();
+
+        if (stillValid) {
+          if (!leadData.email) {
+            await supabase.from("leads").update({ email: emailMatch }).eq("id", leadData.id);
+            leadData.email = emailMatch;
+          }
+          console.log(`Pending email fulfilled — confirming held slot ${pendingHoldId} for lead ${leadData.id}`);
+          try {
+            const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
+              body: { lead_id: leadData.id, selected_slot_hold_id: pendingHoldId },
+            });
+            if (confirmRes.data?.success) {
+              const formattedDate = formatDateTimeBrt(hold.slot_datetime);
+              console.log(`Booking auto-confirmed via pending email path: ${hold.slot_datetime}`);
+              earlyParsed = {
+                action: "reply",
+                sentiment: "positivo",
+                reasoning: "Lead respondeu com email após hold pendente — booking confirmado automaticamente",
+                reply_message: `Combinado! Reunião marcada para ${formattedDate}. Você receberá o convite por e-mail. Até lá! 🚀`,
+                selected_slot: null,
+              };
+            } else {
+              console.error("Pending-email confirm failed:", confirmRes.data?.error || confirmRes.error);
+            }
+          } catch (e) {
+            console.error("Error invoking calcom-confirm-booking (pending email path):", e);
+          }
+        } else {
+          console.log(`Pending hold ${pendingHoldId} expired/invalid — clearing pending_email_slot_hold_id and continuing normal flow`);
+          const upd: any = { pending_email_slot_hold_id: null };
+          if (!leadData.email) {
+            upd.email = emailMatch;
+            leadData.email = emailMatch;
+          }
+          await supabase.from("leads").update(upd).eq("id", leadData.id);
+        }
+      }
+    }
+
     // FIX: Read enrollment state BEFORE overwriting paused_reason
     let originalPausedReason: string | null = null;
     let enrollmentId: string | null = null;
@@ -313,7 +371,7 @@ serve(async (req) => {
 
 
     // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
-    if (companyId && leadData?.id) {
+    if (!earlyParsed && companyId && leadData?.id) {
       try {
         // Build brief history for classifier
         const { data: recentMsgs } = await supabase
@@ -601,19 +659,24 @@ Responda APENAS com JSON:
 }${slotContext}`;
 
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-5",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
+    let parsed: any;
+    if (earlyParsed) {
+      console.log("Skipping AI classification — earlyParsed set by pending-email fast-path");
+      parsed = earlyParsed;
+    } else {
+      const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-5",
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
 
 Histórico:
 ${(messages || []).slice(0, -1).map((m: any) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`).join("\n")}
@@ -622,28 +685,28 @@ ${(messages || []).slice(0, -1).map((m: any) => `[${m.direction === "outbound" ?
 "${cleanContent}"
 
 Analise a última mensagem e decida a ação.`,
-          },
-        ],
-      }),
-    });
-
-    if (!aiRes.ok) {
-      await aiRes.text();
-      return new Response(JSON.stringify({ error: "Erro na análise IA" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          ],
+        }),
       });
-    }
 
-    const aiData = await aiRes.json();
-    const aiContent = aiData.choices?.[0]?.message?.content || "";
+      if (!aiRes.ok) {
+        await aiRes.text();
+        return new Response(JSON.stringify({ error: "Erro na análise IA" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-    let parsed;
-    try {
-      const jsonMatch = aiContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, aiContent];
-      parsed = JSON.parse(jsonMatch[1].trim());
-    } catch {
-      parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
+      const aiData = await aiRes.json();
+      const aiContent = aiData.choices?.[0]?.message?.content || "";
+
+      try {
+        const jsonMatch = aiContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, aiContent];
+        parsed = JSON.parse(jsonMatch[1].trim());
+      } catch {
+        parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
+      }
     }
 
     // FIX: Compensate AI-provided suggested_datetime from naive BRT to UTC
@@ -657,7 +720,8 @@ Analise a última mensagem e decida a ação.`,
     }
 
     // FIX: Guard — if reply contains time patterns, redirect to schedule
-    if (parsed.action === "reply" && parsed.reply_message) {
+    // (skip when earlyParsed: booking já confirmado, mensagem cita data por design)
+    if (!earlyParsed && parsed.action === "reply" && parsed.reply_message) {
       const hasTimePattern = /\b(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)\s+(à|a)s?\s+\d{1,2}/i.test(parsed.reply_message)
         || /📅/.test(parsed.reply_message)
         || /\b\d{1,2}\/\d{1,2}\s+(à|a)s?\s+\d{1,2}/i.test(parsed.reply_message);
@@ -669,7 +733,8 @@ Analise a última mensagem e decida a ação.`,
     }
 
     // FIX: Guard on INBOUND content — if prospect has scheduling intent but AI said "reply"
-    if (parsed.action === "reply") {
+    // (skip when earlyParsed: já tratamos o agendamento)
+    if (!earlyParsed && parsed.action === "reply") {
       const lower = cleanContent.toLowerCase();
       const hasScheduleIntent = /\b(agendar|reunião|reuniao|demo|conversar|call|meeting|bate-?papo)\b/i.test(lower);
       const extractedDt = extractDateTimeFromText(cleanContent);
