@@ -434,6 +434,9 @@ async function runJob(job_id: string) {
         }
       }
       if (Object.keys(autofillSrc).length) steps.autofill = autofillSrc;
+      if (autofillSrc.whatsapp && !lead.whatsapp_source) {
+        leadPatch.whatsapp_source = autofillSrc.whatsapp;
+      }
       if (Object.keys(leadPatch).length) {
         await supabase.from("leads").update(leadPatch).eq("id", lead.id);
         Object.assign(lead, leadPatch);

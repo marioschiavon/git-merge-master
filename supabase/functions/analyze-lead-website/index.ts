@@ -23,7 +23,7 @@ serve(async (req) => {
 
     const { data: lead, error: leadError } = await supabase
       .from("leads")
-      .select("id, name, company_name, website, company_id")
+      .select("id, name, company_name, website, company_id, email, phone, whatsapp, whatsapp_source")
       .eq("id", lead_id).single();
 
     if (leadError || !lead) {
