@@ -220,12 +220,15 @@ serve(async (req) => {
             });
           }
 
-          // Create or get conversation (reuses existing email conv if gmail-sync already created one)
-          const conversation = await findOrCreateConversation(
-            supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
-          );
-          if (conversation) {
-            await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel, ...deliveryMeta } });
+          // For email, gmail-send already persisted the message to the conversation.
+          // For other channels, insert the outbound message here.
+          if (currentStep.channel !== "email") {
+            const conversation = await findOrCreateConversation(
+              supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+            );
+            if (conversation) {
+              await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel, ...deliveryMeta } });
+            }
           }
 
           // Log execution
