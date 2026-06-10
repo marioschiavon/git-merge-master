@@ -8,6 +8,7 @@ import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useD
 import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
 import { LeadMessagePreview } from "@/components/LeadMessagePreview";
+import { CadenceFirstMessageInline } from "@/components/CadenceFirstMessageInline";
 import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw } from "lucide-react";
 
 const enrollmentStatusLabels: Record<string, string> = {
