@@ -4,8 +4,8 @@
 export interface ZApiConfig {
   instance_id: string;
   token: string;
-  client_token: string; // Account Security Token (header Client-Token)
-  whatsapp_number?: string; // E.164, opcional (apenas display)
+  client_token?: string; // Account Security Token (header Client-Token) — opcional
+  whatsapp_number?: string;
 }
 
 export async function getZApiConfig(
@@ -20,7 +20,7 @@ export async function getZApiConfig(
     .maybeSingle();
   if (!data || data.status !== "active") return null;
   const cfg = data.config as any;
-  if (!cfg?.instance_id || !cfg?.token || !cfg?.client_token) return null;
+  if (!cfg?.instance_id || !cfg?.token) return null;
   return cfg as ZApiConfig;
 }
 
@@ -47,13 +47,12 @@ export async function sendWhatsAppViaZApi(
 ): Promise<ZApiSendResult> {
   const phone = normalizePhoneForZApi(toPhone);
   if (!phone) return { ok: false, error: "Telefone inválido" };
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (cfg.client_token) headers["Client-Token"] = cfg.client_token;
   try {
     const res = await fetch(`${baseUrl(cfg)}/send-text`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Client-Token": cfg.client_token,
-      },
+      headers,
       body: JSON.stringify({ phone, message: body }),
     });
     const json = await res.json().catch(() => ({}));
