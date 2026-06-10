@@ -1246,6 +1246,7 @@ export type Database = {
           id: string
           lead_id: string
           network: string
+          posts_summary: string | null
           raw: Json | null
           recent_posts: Json | null
           scraped_at: string
@@ -1261,6 +1262,7 @@ export type Database = {
           id?: string
           lead_id: string
           network: string
+          posts_summary?: string | null
           raw?: Json | null
           recent_posts?: Json | null
           scraped_at?: string
@@ -1276,6 +1278,7 @@ export type Database = {
           id?: string
           lead_id?: string
           network?: string
+          posts_summary?: string | null
           raw?: Json | null
           recent_posts?: Json | null
           scraped_at?: string

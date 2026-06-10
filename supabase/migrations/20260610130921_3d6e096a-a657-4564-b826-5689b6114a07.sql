@@ -1,0 +1,1 @@
+ALTER TABLE public.lead_social_profiles ADD COLUMN IF NOT EXISTS posts_summary text;
