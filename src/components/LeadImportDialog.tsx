@@ -23,10 +23,15 @@ const FIELD_ALIASES: Record<keyof LeadInput, string[]> = {
   company_name: ["company", "company_name", "empresa", "organização", "organizacao"],
   title: ["title", "cargo", "job_title", "job"],
   website: ["website", "site", "url", "web"],
+  instagram_url: ["instagram", "instagram_url", "ig"],
+  linkedin_url: ["linkedin", "linkedin_url", "linkedin_pessoa"],
+  linkedin_company_url: ["linkedin_empresa", "linkedin_company", "linkedin_company_url"],
+  facebook_url: ["facebook", "facebook_url", "fb"],
   address: ["address", "endereço", "endereco"],
   status: ["status"],
   source: ["source", "origem"],
 };
+
 
 function normalize(s: string) {
   return s.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -133,10 +138,12 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
 
           {rows.length > 0 && (
             <>
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                <strong>{parsed.valid.length}</strong> leads válidos
-                {parsed.skipped > 0 && <> · <span className="text-destructive">{parsed.skipped} ignorados (sem nome)</span></>}
+              <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                <div><strong>{parsed.valid.length}</strong> leads válidos
+                {parsed.skipped > 0 && <> · <span className="text-destructive">{parsed.skipped} ignorados (sem nome)</span></>}</div>
+                <p className="text-xs text-muted-foreground">Se o enriquecimento automático estiver ativo, os leads serão analisados em background nos próximos minutos.</p>
               </div>
+
 
               <div className="rounded-md border overflow-x-auto">
                 <Table>

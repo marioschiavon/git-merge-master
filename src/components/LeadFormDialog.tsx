@@ -18,10 +18,15 @@ const schema = z.object({
   company_name: z.string().trim().max(150).optional().or(z.literal("")),
   title: z.string().trim().max(150).optional().or(z.literal("")),
   website: z.string().trim().max(255).optional().or(z.literal("")),
+  instagram_url: z.string().trim().max(255).optional().or(z.literal("")),
+  linkedin_url: z.string().trim().max(255).optional().or(z.literal("")),
+  linkedin_company_url: z.string().trim().max(255).optional().or(z.literal("")),
+  facebook_url: z.string().trim().max(255).optional().or(z.literal("")),
   address: z.string().trim().max(500).optional().or(z.literal("")),
   status: z.enum(["new", "contacted", "qualified", "unqualified", "converted"]),
   source: z.string().trim().max(50).optional().or(z.literal("")),
 });
+
 
 type FormValues = z.infer<typeof schema>;
 
@@ -34,10 +39,15 @@ export interface LeadFormLead {
   company_name?: string | null;
   title?: string | null;
   website?: string | null;
+  instagram_url?: string | null;
+  linkedin_url?: string | null;
+  linkedin_company_url?: string | null;
+  facebook_url?: string | null;
   address?: string | null;
   status?: string | null;
   source?: string | null;
 }
+
 
 interface Props {
   open: boolean;
@@ -60,11 +70,16 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
       company_name: "",
       title: "",
       website: "",
+      instagram_url: "",
+      linkedin_url: "",
+      linkedin_company_url: "",
+      facebook_url: "",
       address: "",
       status: "new",
       source: "manual",
     },
   });
+
 
   useEffect(() => {
     if (!open) {
@@ -80,6 +95,10 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
         company_name: lead.company_name || "",
         title: lead.title || "",
         website: lead.website || "",
+        instagram_url: lead.instagram_url || "",
+        linkedin_url: lead.linkedin_url || "",
+        linkedin_company_url: lead.linkedin_company_url || "",
+        facebook_url: lead.facebook_url || "",
         address: lead.address || "",
         status: (lead.status as FormValues["status"]) || "new",
         source: lead.source || "manual",
@@ -97,6 +116,10 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
       company_name: values.company_name || null,
       title: values.title || null,
       website: values.website || null,
+      instagram_url: values.instagram_url || null,
+      linkedin_url: values.linkedin_url || null,
+      linkedin_company_url: values.linkedin_company_url || null,
+      facebook_url: values.facebook_url || null,
       address: values.address || null,
       source: values.source || "manual",
     };
@@ -107,6 +130,7 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
     }
     onOpenChange(false);
   };
+
 
   const pending = createLead.isPending || updateLead.isPending;
 
@@ -168,6 +192,35 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
                   <FormMessage />
                 </FormItem>
               )} />
+              <FormField control={form.control} name="instagram_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Instagram</FormLabel>
+                  <FormControl><Input placeholder="https://instagram.com/usuario" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="linkedin_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>LinkedIn (pessoa)</FormLabel>
+                  <FormControl><Input placeholder="https://linkedin.com/in/..." {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="linkedin_company_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>LinkedIn (empresa)</FormLabel>
+                  <FormControl><Input placeholder="https://linkedin.com/company/..." {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="facebook_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Facebook</FormLabel>
+                  <FormControl><Input placeholder="https://facebook.com/..." {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
               <FormField control={form.control} name="source" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Origem</FormLabel>

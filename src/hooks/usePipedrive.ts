@@ -163,10 +163,15 @@ export type LeadInput = {
   company_name?: string | null;
   title?: string | null;
   website?: string | null;
+  instagram_url?: string | null;
+  linkedin_url?: string | null;
+  linkedin_company_url?: string | null;
+  facebook_url?: string | null;
   address?: string | null;
   status?: LeadStatus;
   source?: string | null;
 };
+
 
 
 export function useCreateLead() {
@@ -187,6 +192,10 @@ export function useCreateLead() {
           company_name: input.company_name || null,
           title: input.title || null,
           website: input.website || null,
+          instagram_url: input.instagram_url || null,
+          linkedin_url: input.linkedin_url || null,
+          linkedin_company_url: input.linkedin_company_url || null,
+          facebook_url: input.facebook_url || null,
           address: input.address || null,
           status: (input.status || "new") as LeadStatus,
           source: input.source || "manual",
@@ -194,6 +203,7 @@ export function useCreateLead() {
 
         .select()
         .single();
+
       if (error) throw error;
       return data;
     },
@@ -221,13 +231,19 @@ export function useImportLeads() {
         name: l.name,
         email: l.email || null,
         phone: l.phone || null,
+        whatsapp: l.whatsapp || null,
         company_name: l.company_name || null,
         title: l.title || null,
         website: l.website || null,
+        instagram_url: l.instagram_url || null,
+        linkedin_url: l.linkedin_url || null,
+        linkedin_company_url: l.linkedin_company_url || null,
+        facebook_url: l.facebook_url || null,
         address: l.address || null,
         status: (l.status || "new") as LeadStatus,
         source: l.source || "csv_import",
       }));
+
 
       // Insert in chunks of 500
       let inserted = 0;
@@ -266,10 +282,15 @@ export function useUpdateLead() {
           company_name: input.company_name || null,
           title: input.title || null,
           website: input.website || null,
+          instagram_url: input.instagram_url || null,
+          linkedin_url: input.linkedin_url || null,
+          linkedin_company_url: input.linkedin_company_url || null,
+          facebook_url: input.facebook_url || null,
           address: input.address || null,
           status: (input.status || "new") as LeadStatus,
           source: input.source || null,
         } as any)
+
         .eq("id", id)
         .select()
         .single();

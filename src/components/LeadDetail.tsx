@@ -17,7 +17,9 @@ import { useLeadActivities, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
+import { LeadSocialCard } from "@/components/LeadSocialCard";
 import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock } from "lucide-react";
+
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -57,6 +59,7 @@ const referralStageLabels: Record<string, string> = {
 
 interface Lead {
   id: string;
+  company_id?: string;
   name: string;
   email: string | null;
   phone: string | null;
@@ -70,6 +73,7 @@ interface Lead {
   last_synced_at: string | null;
   created_at: string;
   pipedrive_data: any;
+  enrichment_status?: string | null;
   referral_source_lead_id?: string | null;
   referral_role?: string | null;
   referral_stage?: string | null;
@@ -81,6 +85,7 @@ interface Lead {
   handoff_at?: string | null;
   call_requested_at?: string | null;
 }
+
 
 
 interface LeadDetailProps {
@@ -388,6 +393,14 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
           </div>
 
           <Separator />
+
+          {/* Redes sociais */}
+          {lead.company_id && (
+            <LeadSocialCard leadId={lead.id} companyId={lead.company_id} enrichmentStatus={lead.enrichment_status} />
+          )}
+
+          <Separator />
+
 
           {/* Activities */}
           <div>

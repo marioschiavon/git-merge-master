@@ -38,6 +38,14 @@ const statusLabels: Record<string, string> = {
   converted: "Convertido",
 };
 
+const enrichmentLabels: Record<string, { label: string; cls: string }> = {
+  pending: { label: "Enriquecendo…", cls: "bg-amber-100 text-amber-800" },
+  processing: { label: "Enriquecendo…", cls: "bg-amber-100 text-amber-800" },
+  completed: { label: "Enriquecido", cls: "bg-emerald-100 text-emerald-800" },
+  failed: { label: "Falhou", cls: "bg-red-100 text-red-800" },
+};
+
+
 export default function Leads() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -178,9 +186,19 @@ export default function Leads() {
                     className="cursor-pointer"
                     onClick={() => setSelectedLead(lead)}
                   >
-                    <TableCell className="font-medium">{lead.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <span>{lead.name}</span>
+                        {lead.enrichment_status && enrichmentLabels[lead.enrichment_status] && (
+                          <Badge variant="secondary" className={`${enrichmentLabels[lead.enrichment_status].cls} text-[10px] px-1.5 py-0`}>
+                            {enrichmentLabels[lead.enrichment_status].label}
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>{lead.email || "—"}</TableCell>
                     <TableCell>{lead.company_name || "—"}</TableCell>
+
                     <TableCell>
                       {lead.website ? (
                         <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate max-w-[150px] inline-block" onClick={(e) => e.stopPropagation()}>
