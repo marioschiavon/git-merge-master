@@ -92,6 +92,27 @@ serve(async (req) => {
       stats.abandoned_queued++;
     }
 
+    // 2b. Dispatch due slot-expiry follow-ups (stage progression)
+    const { data: dueFollowups } = await supabase
+      .from("slot_expiry_followups")
+      .select("id, lead_id, company_id, conversation_id, enrollment_id")
+      .neq("stage", "no_response")
+      .lte("next_action_at", now.toISOString())
+      .limit(100);
+
+    for (const fu of dueFollowups || []) {
+      const { error: invErr } = await supabase.functions.invoke("slot-expiry-followup", {
+        body: {
+          lead_id: fu.lead_id,
+          company_id: fu.company_id,
+          conversation_id: fu.conversation_id,
+          enrollment_id: fu.enrollment_id,
+        },
+      });
+      if (invErr) stats.errors++;
+    }
+    (stats as any).followups_dispatched = (dueFollowups || []).length;
+
     // 3. dispatch pending actions whose time has come
     const { data: due } = await supabase
       .from("lead_action_queue")
