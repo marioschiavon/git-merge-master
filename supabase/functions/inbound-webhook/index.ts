@@ -797,21 +797,10 @@ Analise a última mensagem e decida a ação.`,
     } else if (parsed.action === "reject_slots") {
       // Cancel all held slots and offer new ones
       console.log(`Rejecting ${heldSlots.length} held slots for lead ${leadData?.id}`);
-      const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
 
       for (const slot of heldSlots) {
-        if (slot.cal_booking_uid && CALCOM_API_KEY) {
-          try {
-            await fetch(`https://api.cal.com/v2/slots/reservations/${slot.cal_booking_uid}`, {
-              method: "DELETE",
-              headers: {
-                "Authorization": `Bearer ${CALCOM_API_KEY}`,
-                "cal-api-version": "2024-09-04",
-              },
-            });
-          } catch (e) {
-            console.error("Error cancelling reservation:", e);
-          }
+        if (slot.cal_booking_uid) {
+          await cancelCalcomReservation(slot.cal_booking_uid);
         }
         await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", slot.id);
       }
