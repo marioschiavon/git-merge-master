@@ -166,6 +166,13 @@ serve(async (req) => {
           let deliveryMeta: Record<string, any> = {};
 
           // === CHANNEL-SPECIFIC SENDING (same logic as below) ===
+          // Pre-resolve conversation so gmail-send can attach the persisted email to it
+          let preConversation: { id: string } | null = null;
+          if (currentStep.channel === "email") {
+            preConversation = await findOrCreateConversation(
+              supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+            );
+          }
           if (currentStep.channel === "email" && lead.email) {
             try {
               const { error: sendError } = await supabase.functions.invoke("gmail-send", {
@@ -176,6 +183,8 @@ serve(async (req) => {
                   text: parsed.message,
                   lead_id: lead.id,
                   company_id: cadence.company_id,
+                  conversation_id: preConversation?.id,
+                  extra_metadata: { step_order: currentStep.step_order, custom_message: true },
                 },
               });
               if (sendError) { sendAction = "failed"; }
