@@ -10,6 +10,8 @@ import { toast } from "@/hooks/use-toast";
 import { RefreshCw, Plug, Unplug, ExternalLink, Mail, MessageCircle, Copy, Check } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
+
 
 const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
 const TWILIO_WEBHOOK_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/twilio-whatsapp-webhook`;
@@ -445,6 +447,11 @@ export default function Integrations() {
 
       {/* Cal.com Card */}
       <CalComCard />
+
+      {/* Enrichment Settings */}
+      <EnrichmentSettingsCard />
+
+
 
 
       {/* Other integrations */}
