@@ -206,8 +206,8 @@ const ZApiWhatsAppCard = () => {
       const existingCfg = (integration?.config as any) || {};
       const i = instanceId.trim() || existingCfg.instance_id;
       const t = token.trim() || existingCfg.token;
-      const c = clientToken.trim() || existingCfg.client_token;
-      if (!i || !t || !c) throw new Error("Preencha Instance ID, Token e Client-Token");
+      const c = clientToken.trim() || existingCfg.client_token || "";
+      if (!i || !t) throw new Error("Preencha Instance ID e Token");
       const { data, error } = await supabase.functions.invoke("zapi-test-connection", {
         body: { instance_id: i, token: t, client_token: c },
       });
@@ -285,14 +285,18 @@ const ZApiWhatsAppCard = () => {
             />
           </div>
           <div>
-            <Label htmlFor="z-client-token">Client-Token (Security Token da conta)</Label>
+            <Label htmlFor="z-client-token">Client-Token <span className="text-muted-foreground font-normal">(opcional)</span></Label>
             <Input
               id="z-client-token"
               type="password"
-              placeholder={isConnected ? "•••••••••• (deixe em branco para manter)" : "Cole o Account Security Token"}
+              placeholder={isConnected ? "•••••••••• (deixe em branco para manter)" : "Apenas se a conta tiver Token de Segurança ativado"}
               value={clientToken}
               onChange={(e) => setClientToken(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              No painel Z-API: <strong>Minha Conta → Token de Segurança da Conta</strong>. Só é
+              necessário se você ativou essa proteção.
+            </p>
           </div>
           <div>
             <Label htmlFor="z-number">Número WhatsApp conectado (E.164)</Label>
@@ -311,8 +315,7 @@ const ZApiWhatsAppCard = () => {
             disabled={
               saveMutation.isPending ||
               (!instanceId && !(integration?.config as any)?.instance_id) ||
-              (!token && !isConnected) ||
-              (!clientToken && !isConnected)
+              (!token && !isConnected)
             }
           >
             <Plug className="mr-2 h-4 w-4" />
