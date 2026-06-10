@@ -17,6 +17,7 @@ type Settings = {
   discover_socials?: boolean;
   apify_scrape?: boolean;
   generate_message?: boolean;
+  autofill_contacts?: boolean;
   default_cadence_id?: string | null;
   apify_actors?: { instagram?: boolean; facebook?: boolean; linkedin_person?: boolean; linkedin_company?: boolean };
 };
