@@ -865,16 +865,18 @@ Analise a última mensagem e decida a ação.`,
       // Fetch 2 new slots (excluding rejected ones)
       try {
         const channelLabel = convChannel || channel || "email";
-        const slotsRes = await supabase.functions.invoke("calcom-slots", {
-          body: {
-            company_id: companyId,
-            lead_id: leadData?.id,
-            enrollment_id: enrollment?.id,
-            conversation_id: convId,
-            preferred_channel: channelLabel,
-            exclude_datetimes: excludeDatetimes,
-          },
-        });
+        const rangeHint = extractDateRangeFromText(cleanContent);
+        const slotsBody: any = {
+          company_id: companyId,
+          lead_id: leadData?.id,
+          enrollment_id: enrollment?.id,
+          conversation_id: convId,
+          preferred_channel: channelLabel,
+          exclude_datetimes: excludeDatetimes,
+        };
+        if (rangeHint?.start_after) slotsBody.start_after = rangeHint.start_after;
+        if (rangeHint?.end_before) slotsBody.end_before = rangeHint.end_before;
+        const slotsRes = await supabase.functions.invoke("calcom-slots", { body: slotsBody });
 
         if (slotsRes.data?.success && slotsRes.data?.formatted?.length >= 2) {
           // FIX: Update heldSlots to reflect the NEW slots (for metadata)
