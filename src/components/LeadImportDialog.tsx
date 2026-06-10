@@ -23,10 +23,15 @@ const FIELD_ALIASES: Record<keyof LeadInput, string[]> = {
   company_name: ["company", "company_name", "empresa", "organização", "organizacao"],
   title: ["title", "cargo", "job_title", "job"],
   website: ["website", "site", "url", "web"],
+  instagram_url: ["instagram", "instagram_url", "ig"],
+  linkedin_url: ["linkedin", "linkedin_url", "linkedin_pessoa"],
+  linkedin_company_url: ["linkedin_empresa", "linkedin_company", "linkedin_company_url"],
+  facebook_url: ["facebook", "facebook_url", "fb"],
   address: ["address", "endereço", "endereco"],
   status: ["status"],
   source: ["source", "origem"],
 };
+
 
 function normalize(s: string) {
   return s.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
