@@ -192,6 +192,35 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
                   <FormMessage />
                 </FormItem>
               )} />
+              <FormField control={form.control} name="instagram_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Instagram</FormLabel>
+                  <FormControl><Input placeholder="https://instagram.com/usuario" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="linkedin_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>LinkedIn (pessoa)</FormLabel>
+                  <FormControl><Input placeholder="https://linkedin.com/in/..." {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="linkedin_company_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>LinkedIn (empresa)</FormLabel>
+                  <FormControl><Input placeholder="https://linkedin.com/company/..." {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="facebook_url" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Facebook</FormLabel>
+                  <FormControl><Input placeholder="https://facebook.com/..." {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
               <FormField control={form.control} name="source" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Origem</FormLabel>
