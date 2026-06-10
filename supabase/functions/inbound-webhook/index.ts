@@ -214,7 +214,7 @@ serve(async (req) => {
     } else if (convId) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url)")
         .eq("id", convId)
         .maybeSingle();
       if (conv) {
