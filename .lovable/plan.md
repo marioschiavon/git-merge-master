@@ -1,44 +1,50 @@
-## Objetivo
-
-Quando o lead não tiver telefone cadastrado, descobrir automaticamente um número de WhatsApp a partir do site e das redes sociais já analisadas no enriquecimento, e salvar para uso no primeiro contato. Validação real (se é mesmo WhatsApp) fica para uma próxima etapa.
-
 ## O que muda
 
-### 1. Banco — novo campo `leads.whatsapp`
-- Adicionar coluna `whatsapp text` em `public.leads`.
-- Adicionar `whatsapp_source text` (ex.: `website`, `instagram_bio`, `linkedin`, `wa.me`) para rastreabilidade.
-- Sem mudanças de RLS (herda das políticas existentes).
+Quando a IA detecta confirmação de horário na conversa (WhatsApp ou outro canal), o convite do Cal.com sempre vai por e-mail. Se o lead não tem e-mail cadastrado, o bot pede educadamente. Se o lead recusar ou disser que não tem, a reunião é confirmada mesmo assim com e-mail placeholder e o SDR é avisado. Mensagem pós-agendamento fica curta e cordial.
 
-### 2. Utilitário compartilhado de extração
-Criar um helper em `supabase/functions/_shared/extract-whatsapp.ts` com:
-- Regex para links diretos: `wa.me/<num>`, `api.whatsapp.com/send?phone=`, `whatsapp.com/send?phone=`.
-- Regex para telefones BR em texto (com/sem `+55`, com/sem parênteses, celular 9 dígitos).
-- Normalização para formato E.164 (`+55DDDNNNNNNNNN`); descarta fixos (sem o 9) por padrão.
-- Retorna `{ number, source, confidence }` priorizando `wa.me` > telefone próximo a "WhatsApp"/"Zap" > telefone genérico.
+## Fluxo novo
 
-### 3. `analyze-lead-website`
-- Após obter markdown/HTML do site via Firecrawl, rodar o extrator.
-- Se achar um número e o lead não tiver `phone` nem `whatsapp`, gravar:
-  - `leads.whatsapp` = número
-  - `leads.whatsapp_source` = `website` (ou `wa.me`)
-  - `leads.phone` = mesmo número, **somente se `phone` estiver vazio**
-- Registrar em `lead_activities` (`type: 'whatsapp_discovered'`).
+```text
+confirm_slot detectado
+  ├─ lead tem email?
+  │    ├─ SIM → confirma no Cal.com → mensagem cordial curta
+  │    └─ NÃO → pergunta email + marca pending_email_for_slot
+  │
+provided_email na próxima msg (IA detecta)?
+  ├─ SIM → salva em leads.email → confirma → mensagem cordial
+  └─ recusa explícita → confirma com placeholder + atividade interna "SDR precisa enviar convite manual"
+```
 
-### 4. `enrich-lead` / fluxo Apify Instagram
-- Após salvar `lead_social_profiles`, rodar o extrator sobre `bio`, `posts_summary` e `recent_posts` (Instagram, LinkedIn).
-- Mesma regra de gravação: só preenche `whatsapp`/`phone` se estiverem vazios. Não sobrescreve número já cadastrado.
-- `whatsapp_source` recebe a rede (ex.: `instagram_bio`).
+## Mudanças técnicas
 
-### 5. UI mínima
-- `LeadDetail.tsx`: exibir o campo WhatsApp (quando preenchido) com badge da origem e link `https://wa.me/<num>` para abrir conversa.
-- Sem novo formulário; edição manual continua via campos existentes do lead.
+1. **Migração** — adicionar `pending_email_slot_hold_id uuid` em `leads` (lembra qual slot está aguardando e-mail). Limpo após confirmação.
 
-## Fora de escopo (próxima etapa)
-- Validar via API se o número realmente tem WhatsApp (Twilio Lookup, Evolution, Z-API). Hoje assumimos válido quando vem de `wa.me`; demais números ficam marcados com `whatsapp_source` para o SDR conferir.
-- Reprocessar leads antigos em massa (pode ser feito depois com um job manual).
+2. **`inbound-webhook/index.ts`**
+   - Estender o JSON da IA com 2 campos novos: `provided_email` (string|null) e `email_refused` (bool).
+   - Atualizar o system prompt para:
+     - Quando `action=confirm_slot` e lead sem e-mail → forçar `action=request_email` (nova ação) com `reply_message` cordial pedindo e-mail
+     - Quando há `pending_email_slot_hold_id` e o lead responde com e-mail → setar `provided_email`
+     - Quando lead recusa/diz não ter → `email_refused=true`
+   - Nova branch `action=request_email`: salva `pending_email_slot_hold_id` no lead e envia a pergunta.
+   - Branch existente `confirm_slot`: se `provided_email` veio, atualiza `leads.email` antes de chamar `calcom-confirm-booking`. Se `email_refused=true`, passa `force_placeholder=true`.
+   - Mensagem pós-confirmação: deixar a IA gerar (remover o template hardcoded "Perfeito! Reunião confirmada... Você receberá um convite..."). Adicionar instrução no prompt: "Após confirmar, gere mensagem curta cordial (1–2 frases), mencione data/hora, sem floreios."
+
+3. **`calcom-confirm-booking/index.ts`**
+   - Aceitar novo parâmetro `force_placeholder: boolean`.
+   - Se lead sem e-mail e `force_placeholder=true` → usar `noreply+{lead_id}@{SENDER_DOMAIN ou app domain}`, criar booking no Cal.com normalmente, e inserir `lead_activities` tipo `alert` com descrição "⚠️ Reunião confirmada sem e-mail real do lead — enviar convite manualmente".
+   - Se sem e-mail e sem `force_placeholder` → continuar retornando 400 (não deve ocorrer no fluxo novo, mas mantém guarda).
+
+4. **`booking-messages.ts`** — sem mudança estrutural; a system message de booking_created continua.
+
+## Fora de escopo
+
+- UI específica para mostrar o alerta de "convite manual pendente" (a atividade já aparece no LeadDetail).
+- Reenviar convite manualmente pelo app — fica no fluxo Cal.com padrão por enquanto.
+- Validar formato do e-mail extraído além de regex básico embutido no save.
 
 ## Ordem de execução
-1. Migration `leads.whatsapp` + `whatsapp_source`.
-2. Criar helper `_shared/extract-whatsapp.ts`.
-3. Integrar em `analyze-lead-website` e `enrich-lead`.
-4. Atualizar `LeadDetail.tsx` para exibir o WhatsApp + link.
+
+1. Migração (`pending_email_slot_hold_id`)
+2. `calcom-confirm-booking` (placeholder + alerta)
+3. `inbound-webhook` (prompt + nova action `request_email` + captura `provided_email`)
+4. Deploy das duas edge functions
