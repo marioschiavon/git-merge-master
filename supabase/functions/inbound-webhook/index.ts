@@ -476,6 +476,7 @@ AÇÕES POSSÍVEIS:
 - "reply": responder automaticamente (objeção, dúvida, neutro)
 - "schedule": prospect demonstrou interesse em reunião → parar cadência e confirmar horário
 - "confirm_slot": prospect está confirmando/escolhendo um dos horários já oferecidos
+- "request_email": acionado AUTOMATICAMENTE pelo sistema quando confirm_slot é detectado mas o lead não tem e-mail cadastrado (não escolha esta ação diretamente — apenas use confirm_slot e o sistema redireciona)
 - "reject_slots": prospect rejeitou ambos os horários oferecidos (ex: "nenhum funciona", "tenho compromisso nesses dias")
 - "check_availability": prospect sugeriu um horário alternativo próprio (ex: "pode ser terça às 14h?")
   → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
@@ -486,6 +487,12 @@ AÇÕES POSSÍVEIS:
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
 - "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
 - "handoff": prospect fez pergunta TÉCNICA, REGULATÓRIA, JURÍDICA, CLÍNICA ou COMERCIAL ESPECÍFICA que NÃO está na BASE DE CONHECIMENTO e exige especialista humano (ex: dosagem, posologia, contrato, NF-e, certificações ANVISA/MAPA, condições especiais de pagamento, integrações customizadas) → passar para humano. NÃO invente resposta. Use reply_message curto avisando que um especialista vai retornar.
+
+CAPTURA DE E-MAIL (para confirmar reunião por convite):
+- Se a última mensagem do prospect contém um e-mail válido (formato algo@dominio.tld) E há contexto de agendamento (slots pendentes OU pedido recente de e-mail) → preencha "provided_email" com o endereço informado.
+- Se o prospect disser explicitamente que NÃO tem e-mail / não quer informar / prefere sem convite → preencha "email_refused": true.
+- Caso contrário, "provided_email": null e "email_refused": false.
+
 
 DETECÇÃO DE INDICAÇÃO / ENCAMINHAMENTO (action = "referral"):
 Use quando o prospect:
