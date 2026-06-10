@@ -375,6 +375,13 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         let deliveryMeta: Record<string, any> = {};
 
         // === CHANNEL-SPECIFIC SENDING ===
+        // Pre-resolve conversation so gmail-send can attach the persisted email to it
+        let preConversationAi: { id: string } | null = null;
+        if (currentStep.channel === "email") {
+          preConversationAi = await findOrCreateConversation(
+            supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+          );
+        }
         if (currentStep.channel === "email" && lead.email) {
           try {
             const { error: sendError } = await supabase.functions.invoke("gmail-send", {
@@ -385,6 +392,8 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
                 text: parsed.message,
                 lead_id: lead.id,
                 company_id: cadence.company_id,
+                conversation_id: preConversationAi?.id,
+                extra_metadata: { step_order: currentStep.step_order, auto_generated: true },
               },
             });
             if (sendError) {
