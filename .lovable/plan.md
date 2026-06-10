@@ -1,47 +1,48 @@
 # Problema
 
-Na indicação feita pela Jakeline (Revivere) o lead indicado foi criado, mas:
+Quando uma indicação é criada via `inbound-webhook` (branch `referral.with_contact`), só copiamos `company_name` do lead que indicou. No caso da Jakeline (Revivere):
 
-1. **WhatsApp não foi salvo** — a IA passou `referred_phone = "11951503091"` e o campo `whatsapp` ficou `null`. Só `phone` foi gravado (sem normalizar para `+55…`).
-2. **O indicado nunca foi contatado** — a IA retornou `referred_channel = "email/WhatsApp"` (string composta inválida). Esse valor foi gravado direto em `leads.preferred_channel` e usado no `insert` de `conversations.channel`, que rejeita o valor → não criou conversa, não enviou e-mail nem WhatsApp.
+- Indicador (`d8132c02…`): `company_name = NULL`, `website = https://revivere.com.br`
+- Indicado (`f15defca…`): `company_name = NULL`, `website = NULL`
 
-Resultado: lead `f15defca` ficou parado em `novo_indicado`, sem conversa, sem mensagem, sem `whatsapp`.
+Como o `company_name` do indicador estava vazio, nada foi para o indicado — apesar de o website deixar claro que é a mesma empresa.
 
-# Correções
+# Correção
 
-## 1. `supabase/functions/inbound-webhook/index.ts` — branch `referral` / `with_contact`
+## 1. `supabase/functions/inbound-webhook/index.ts` (branch `with_contact`, ~linha 1436)
 
-- Adicionar helper `pickChannel(raw, hasEmail, hasPhone)` que normaliza qualquer valor (`"email/WhatsApp"`, `"ambos"`, `null`, etc.) para **um único** canal válido: `"email"` se houver email, senão `"whatsapp"`.
-- Adicionar helper `normalizeBrPhone(raw)` (reusar a lógica de `analyze-lead-website`) para devolver `+55…` válido ou `null`.
-- Ao criar/atualizar o lead indicado:
-  - `phone` = telefone normalizado (ou bruto se normalização falhar).
-  - `whatsapp` = telefone normalizado quando for celular BR (13 dígitos com 9). Hoje está sempre `null`.
-  - `preferred_channel` = resultado de `pickChannel` (apenas `email` ou `whatsapp`).
-- Usar o `newChannel` normalizado no `insert` de `conversations` e na decisão entre branch e-mail / WhatsApp.
-- Se `parsed.new_outreach_message` vier vazio, gerar fallback curto (“Olá {nome}, {empresa} te indicou…”) para garantir o primeiro contato.
-- Branch WhatsApp: passar a enviar de fato via `sendWhatsAppViaTwilio` (hoje só grava `pending_send`), seguindo o mesmo padrão do `send-outbound-message`.
+Ao montar o `insertRow` do lead indicado, copiar do `leadData` (indicador) **todos** os campos de empresa que existirem:
 
-## 2. Ajuste no prompt da IA (mesmo arquivo)
+- `company_name`
+- `website`
+- `address`
+- `linkedin_company_url`
 
-No bloco que descreve `referral.referred_channel`, exigir **exatamente um** valor: `"email"` OU `"whatsapp"`. Proibir strings compostas.
+Aplicar o mesmo `patch` no caminho de update (`if (existing)`, ~linha 1418-1431): preencher esses campos se o indicado existente estiver com eles `null` (não sobrescrever valores já existentes).
 
-## 3. Correção pontual da Jakeline (one-shot, após deploy)
+Derivar `company_name` a partir do domínio do website como fallback (ex.: `revivere.com.br` → `Revivere`) **apenas** se o indicador também não tiver `company_name`. Lógica simples: pegar o primeiro rótulo do domínio, capitalizar.
 
-Para o lead `f15defca-27c2-4be3-a284-0cccb53a006d`:
+## 2. One-shot para o lead da Jakeline já criado
 
-1. `UPDATE leads SET whatsapp='+5511951503091', phone='+5511951503091', preferred_channel='email'` (tem email `jakkesilva@gmail.com`).
-2. Criar `conversations` (channel=`email`).
-3. Chamar `gmail-send` com a primeira abordagem mencionando indicação da Jakeline (Revivere), respeitando `permission_to_mention=true`.
-4. Registrar `lead_activities` (`type=referral`, “✉️ Primeira abordagem ao indicado enviada”).
+Para `f15defca-27c2-4be3-a284-0cccb53a006d`, fazer um `UPDATE` preenchendo:
+
+- `company_name = 'Revivere'`
+- `website = 'https://revivere.com.br'`
+- `address`, `linkedin_company_url` se o indicador tiver (atualmente não tem).
+
+Opcionalmente, atualizar também o próprio indicador (`d8132c02…`) com `company_name = 'Revivere'` para que indicações futuras já saiam corretas.
+
+## 3. Disparar enriquecimento do indicado
+
+Depois do update, o trigger `enqueue_lead_enrichment` só roda em `INSERT`. Vamos enfileirar manualmente via `INSERT INTO lead_enrichment_jobs` para que o enrichment pegue o website e complete o resto (segmento, socials, etc.), respeitando o `enrichment_settings` da empresa.
 
 # Fora de escopo
 
-- Reescrever a detecção de indicação ou mudar como o lead `is_referrer` é marcado.
-- Retroativo para outros leads antigos com `preferred_channel` inválido (posso fazer numa próxima rodada se quiser).
+- Mudar o prompt da IA para tentar extrair empresa do contexto (a IA já tem `referred_company` opcional, mas o problema atual é só propagar o que já temos).
+- Backfill retroativo de outros leads indicados antigos.
 
-# Ordem de execução
+# Detalhes técnicos
 
-1. Editar `inbound-webhook` (helpers + normalização + envio WhatsApp + prompt).
-2. Deploy da função.
-3. One-shot para Jakeline (update + conversa + gmail-send).
-4. Verificar no painel: lead indicado com `whatsapp` preenchido e e-mail enviado.
+- O helper de domínio pode viver inline no `inbound-webhook` (função pequena, sem precisar mover para `_shared`).
+- Manter `company_name` `null` se nem website nem company_name do indicador existirem (não inventar).
+- No update do `existing`, usar `COALESCE`-style: só preencher quando o campo atual for `null`/vazio.
