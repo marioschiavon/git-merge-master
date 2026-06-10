@@ -1,32 +1,44 @@
 ## Objetivo
-Incluir os dados de análise de redes sociais (Instagram, LinkedIn etc. — tabela `lead_social_profiles`) no contexto usado para gerar mensagens personalizadas, tanto nas **3 variações de "Sugestões de Abordagem"** quanto nos **previews dos steps** em `/cadences`.
 
-## Mudanças
+Quando o lead não tiver telefone cadastrado, descobrir automaticamente um número de WhatsApp a partir do site e das redes sociais já analisadas no enriquecimento, e salvar para uso no primeiro contato. Validação real (se é mesmo WhatsApp) fica para uma próxima etapa.
 
-### 1. `supabase/functions/preview-cadence-messages/index.ts`
-- Adicionar 1 query extra ao bloco `Promise.all` (linha 87):
-  ```ts
-  supabase.from("lead_social_profiles")
-    .select("network, handle, bio, followers, posts_summary, recent_posts")
-    .eq("lead_id", lead_id)
-  ```
-- Montar `socialContext` (string) logo após `insightsContext`:
-  - Para cada perfil: `### {network} (@{handle}) — {followers} seguidores\nBio: {bio}\nResumo de posts: {posts_summary}\nÚltimos posts: {top 3 recent_posts.caption truncados a 200 chars}`
-  - Se nenhum perfil tiver bio/posts_summary/recent_posts, deixar vazio.
-- Injetar `socialContext` em **dois pontos**:
-  - No `variationsSystem` (modo variações — Sugestões de Abordagem), nova seção `=== SINAIS DE REDES SOCIAIS DO PROSPECT ===` logo após `=== INSIGHTS DO PROSPECT ===`.
-  - No system prompt do modo padrão (geração por step), mesma seção, controlada pela mesma flag `useInsights` do step (se `smart_customization`/`use_insights` estiver ativo).
-- Atualizar regras: "Quando houver sinais de redes sociais, prefira referenciar um post/tema concreto recente em vez de gancho genérico. Nunca invente."
+## O que muda
 
-### 2. (Opcional, mesmo arquivo) Logging
-- Log curto indicando quantos perfis sociais foram carregados, para debug.
+### 1. Banco — novo campo `leads.whatsapp`
+- Adicionar coluna `whatsapp text` em `public.leads`.
+- Adicionar `whatsapp_source text` (ex.: `website`, `instagram_bio`, `linkedin`, `wa.me`) para rastreabilidade.
+- Sem mudanças de RLS (herda das políticas existentes).
 
-## Fora de escopo
-- Sem mudanças de schema.
-- Sem mudanças no front (`LeadDetail.tsx`, `CadenceFirstMessageInline.tsx`) — eles já consomem o output desta função.
-- Sem alteração em `analyze-lead-website` ou `enrich-lead`.
+### 2. Utilitário compartilhado de extração
+Criar um helper em `supabase/functions/_shared/extract-whatsapp.ts` com:
+- Regex para links diretos: `wa.me/<num>`, `api.whatsapp.com/send?phone=`, `whatsapp.com/send?phone=`.
+- Regex para telefones BR em texto (com/sem `+55`, com/sem parênteses, celular 9 dígitos).
+- Normalização para formato E.164 (`+55DDDNNNNNNNNN`); descarta fixos (sem o 9) por padrão.
+- Retorna `{ number, source, confidence }` priorizando `wa.me` > telefone próximo a "WhatsApp"/"Zap" > telefone genérico.
+
+### 3. `analyze-lead-website`
+- Após obter markdown/HTML do site via Firecrawl, rodar o extrator.
+- Se achar um número e o lead não tiver `phone` nem `whatsapp`, gravar:
+  - `leads.whatsapp` = número
+  - `leads.whatsapp_source` = `website` (ou `wa.me`)
+  - `leads.phone` = mesmo número, **somente se `phone` estiver vazio**
+- Registrar em `lead_activities` (`type: 'whatsapp_discovered'`).
+
+### 4. `enrich-lead` / fluxo Apify Instagram
+- Após salvar `lead_social_profiles`, rodar o extrator sobre `bio`, `posts_summary` e `recent_posts` (Instagram, LinkedIn).
+- Mesma regra de gravação: só preenche `whatsapp`/`phone` se estiverem vazios. Não sobrescreve número já cadastrado.
+- `whatsapp_source` recebe a rede (ex.: `instagram_bio`).
+
+### 5. UI mínima
+- `LeadDetail.tsx`: exibir o campo WhatsApp (quando preenchido) com badge da origem e link `https://wa.me/<num>` para abrir conversa.
+- Sem novo formulário; edição manual continua via campos existentes do lead.
+
+## Fora de escopo (próxima etapa)
+- Validar via API se o número realmente tem WhatsApp (Twilio Lookup, Evolution, Z-API). Hoje assumimos válido quando vem de `wa.me`; demais números ficam marcados com `whatsapp_source` para o SDR conferir.
+- Reprocessar leads antigos em massa (pode ser feito depois com um job manual).
 
 ## Ordem de execução
-1. Editar `preview-cadence-messages/index.ts` (query + montagem + injeção nos dois prompts).
-2. Deploy automático da function.
-3. Validar abrindo um lead com Instagram enriquecido e clicando em "Regenerar".
+1. Migration `leads.whatsapp` + `whatsapp_source`.
+2. Criar helper `_shared/extract-whatsapp.ts`.
+3. Integrar em `analyze-lead-website` e `enrich-lead`.
+4. Atualizar `LeadDetail.tsx` para exibir o WhatsApp + link.

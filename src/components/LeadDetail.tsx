@@ -234,7 +234,7 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
               <div className="flex items-center gap-2 text-sm">
                 <MessageCircle className="h-4 w-4 text-muted-foreground" />
                 <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">{lead.whatsapp}</a>
-                <AutoBadge src={autofill.whatsapp} />
+                <AutoBadge src={autofill.whatsapp || (lead as any).whatsapp_source} />
               </div>
             )}
             {lead.company_name && (
