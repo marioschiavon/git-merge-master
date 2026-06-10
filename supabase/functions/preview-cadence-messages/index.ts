@@ -105,6 +105,76 @@ serve(async (req) => {
       }
     }
 
+    // === VARIATIONS MODE: generate N alternative angles for Step 1 ===
+    if (variationCount > 0) {
+      const step = steps[0];
+      const stepHighlights = (step.use_highlights !== false && highlightsRes.data?.content)
+        ? `\n\n=== DESTAQUES DA NOSSA EMPRESA (use como autoridade) ===\n${highlightsRes.data.content}`
+        : "";
+      const channelHint = step.channel === "whatsapp"
+        ? "WhatsApp: até 80 palavras, informal."
+        : step.channel === "linkedin"
+          ? "LinkedIn: até 100 palavras, profissional."
+          : "Email: máximo 80 palavras. Subject curto (até 6 palavras). Hook + Conexão + CTA reunião 15min.";
+
+      const variationsSystem = `Você é um SDR B2B sênior. Gere ${variationCount} VARIAÇÕES distintas da PRIMEIRA mensagem da cadência, cada uma com um ângulo diferente, mas todas conectando algo concreto do prospect com o que NÓS vendemos.
+
+${aiInstructionsRes.data?.content ? `=== INSTRUÇÕES OBRIGATÓRIAS DA EMPRESA (PRIORIDADE MÁXIMA) ===\n${aiInstructionsRes.data.content}\n\nSe não houver fit claro, faça abordagem neutra sem forçar gancho.\n\n` : ""}=== O QUE NÓS VENDEMOS ===
+${knowledgeContext || "(sem base de conhecimento)"}
+${stepHighlights}
+
+=== INSIGHTS DO PROSPECT ===
+${insightsContext || "(sem insights disponíveis)"}
+
+=== TEMPLATE BASE DO STEP 1 ===
+${step.template || "(sem template)"}
+
+CANAL: ${step.channel} — ${channelHint}
+
+REGRAS:
+- Cada variação usa um ÂNGULO/GANCHO diferente (ex.: dor, oportunidade, prova social, benefício específico).
+- Nunca invente fatos sobre o prospect.
+- Sempre termine com CTA de reunião curta (15min).
+- Mantenha o tom e estrutura do template, mas reescreva.
+
+Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"gancho usado"}]}`;
+
+      const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-flash",
+          messages: [
+            { role: "system", content: variationsSystem },
+            { role: "user", content: `Lead: ${lead.name} (${lead.title || "cargo n/d"}) — ${lead.company_name || "empresa n/d"}.\nEmail: ${lead.email || "N/A"}.\n\nGere ${variationCount} variações distintas.` },
+          ],
+        }),
+      });
+
+      let variationsOut: any[] = [];
+      if (aiRes.ok) {
+        const aiData = await aiRes.json();
+        const aiContent = aiData.choices?.[0]?.message?.content || "";
+        try {
+          const m = aiContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, aiContent];
+          const parsed = JSON.parse(m[1].trim());
+          variationsOut = Array.isArray(parsed.variations) ? parsed.variations : [];
+        } catch {
+          variationsOut = [];
+        }
+      } else {
+        console.error(`AI variations error: ${aiRes.status}`);
+        await aiRes.text();
+      }
+
+      return new Response(JSON.stringify({
+        variations: variationsOut,
+        step: { id: step.id, channel: step.channel, subject: step.subject, template: step.template, step_order: step.step_order },
+        cadence: { id: cadence.id, name: cadence.name },
+        lead,
+      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const previews = [];
 
     for (const step of steps) {
