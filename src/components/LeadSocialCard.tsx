@@ -18,12 +18,24 @@ export function LeadSocialCard({ leadId, companyId, enrichmentStatus }: { leadId
 
   const reEnqueue = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("lead_enrichment_jobs").insert({ lead_id: leadId, company_id: companyId });
-      if (error && !String(error.message).includes("duplicate")) throw error;
+      // Reset any stuck job for this lead, then create a fresh one and invoke immediately
+      await supabase.from("lead_enrichment_jobs")
+        .update({ status: "failed", error: "manually re-enqueued" })
+        .eq("lead_id", leadId)
+        .in("status", ["pending", "processing"]);
+      const { data: job, error } = await supabase
+        .from("lead_enrichment_jobs")
+        .insert({ lead_id: leadId, company_id: companyId })
+        .select("id").single();
+      if (error) throw error;
       await supabase.from("leads").update({ enrichment_status: "pending" }).eq("id", leadId);
+      // Kick off immediately (returns 202)
+      if (job?.id) {
+        supabase.functions.invoke("enrich-lead", { body: { job_id: job.id } }).catch(() => {});
+      }
     },
     onSuccess: () => {
-      toast({ title: "Reprocessamento agendado", description: "Vai rodar em até 1 min." });
+      toast({ title: "Reprocessamento iniciado", description: "Atualize em ~1 min." });
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["lead_social_profiles", leadId] });
     },
