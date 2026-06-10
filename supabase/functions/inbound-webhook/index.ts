@@ -5,7 +5,7 @@ import { routeAndEnqueue } from "../_shared/route-intent.ts";
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
-import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { cancelCalcomBooking, cancelCalcomReservation } from "../_shared/calcom.ts";
 
 
@@ -1570,21 +1570,21 @@ Analise a última mensagem e decida a ação.`,
               });
             }
           } else if (newChannel === "whatsapp" && phoneForLead && newConvId) {
-            // WhatsApp path → send via Twilio
-            const twCfg = await getTwilioConfig(supabase, companyId);
+            // WhatsApp path → send via Z-API
+            const zCfg = await getZApiConfig(supabase, companyId);
             let deliveryStatus = "pending_send";
             let deliveryMeta: Record<string, any> = {};
-            if (twCfg) {
-              const r = await sendWhatsAppViaTwilio(twCfg, phoneForLead, outreachMessage);
+            if (zCfg) {
+              const r = await sendWhatsAppViaZApi(zCfg, phoneForLead, outreachMessage);
               if (r.ok) {
                 deliveryStatus = "delivered";
-                deliveryMeta = { twilio_sid: r.sid, twilio_status: r.status };
+                deliveryMeta = { zapi_message_id: r.sid, zapi_status: r.status };
               } else {
                 deliveryStatus = "failed";
-                deliveryMeta = { twilio_status: r.status, twilio_error: r.error };
+                deliveryMeta = { zapi_status: r.status, zapi_error: r.error };
               }
             } else {
-              deliveryMeta = { delivery_error: "Twilio não configurado" };
+              deliveryMeta = { delivery_error: "Z-API não configurada" };
             }
             await supabase.from("messages").insert({
               conversation_id: newConvId,
@@ -1698,19 +1698,19 @@ Analise a última mensagem e decida a ação.`,
         }
       } else if (replyChannel === "whatsapp" && (leadData?.whatsapp || leadData?.phone)) {
         const toNumber = leadData.whatsapp || leadData.phone;
-        const twCfg = companyId ? await getTwilioConfig(supabase, companyId) : null;
+        const zCfg = companyId ? await getZApiConfig(supabase, companyId) : null;
         let deliveryMeta: Record<string, unknown> = { ...autoReplyMetadata };
 
-        if (!twCfg) {
-          deliveryMeta = { ...deliveryMeta, delivery_status: "pending_manual", delivery_error: "Twilio não configurado para a empresa" };
-          console.warn("inbound-webhook: Twilio not configured for company", companyId);
+        if (!zCfg) {
+          deliveryMeta = { ...deliveryMeta, delivery_status: "pending_manual", delivery_error: "Z-API não configurada para a empresa" };
+          console.warn("inbound-webhook: Z-API not configured for company", companyId);
         } else {
-          const r = await sendWhatsAppViaTwilio(twCfg, toNumber, parsed.reply_message);
+          const r = await sendWhatsAppViaZApi(zCfg, toNumber, parsed.reply_message);
           if (!r.ok) {
-            deliveryMeta = { ...deliveryMeta, delivery_status: "failed", twilio_status: r.status, twilio_error: r.error };
-            console.error("inbound-webhook: Twilio WhatsApp send failed:", r.error);
+            deliveryMeta = { ...deliveryMeta, delivery_status: "failed", zapi_status: r.status, zapi_error: r.error };
+            console.error("inbound-webhook: Z-API WhatsApp send failed:", r.error);
           } else {
-            deliveryMeta = { ...deliveryMeta, delivery_status: "sent", twilio_sid: r.sid };
+            deliveryMeta = { ...deliveryMeta, delivery_status: "sent", zapi_message_id: r.sid };
           }
         }
 
