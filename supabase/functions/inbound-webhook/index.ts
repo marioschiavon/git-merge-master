@@ -39,6 +39,43 @@ function toEmailHtml(text: string): string {
   return `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`;
 }
 
+/** Normalize phone to BR +55... format. Returns null if invalid. */
+function normalizeBrPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  let d = String(raw).replace(/\D/g, "");
+  if (!d) return null;
+  d = d.replace(/^00/, "").replace(/^0+/, "");
+  if (d.length < 10 || d.length > 13) return null;
+  if (!d.startsWith("55")) {
+    if (d.length === 10 || d.length === 11) d = "55" + d;
+    else return null;
+  }
+  if (d.length !== 12 && d.length !== 13) return null;
+  const ddd = Number(d.slice(2, 4));
+  if (ddd < 11 || ddd > 99) return null;
+  if (/^(\d)\1+$/.test(d.slice(4))) return null;
+  return "+" + d;
+}
+
+/** True when BR phone is a mobile (13 digits with leading 9). */
+function isBrMobile(normalized: string | null): boolean {
+  if (!normalized) return false;
+  const d = normalized.replace(/\D/g, "");
+  return d.length === 13 && d[4] === "9";
+}
+
+/** Normalize AI-provided channel to exactly "email" or "whatsapp". */
+function pickReferralChannel(raw: any, hasEmail: boolean, hasPhone: boolean): "email" | "whatsapp" {
+  const s = String(raw || "").toLowerCase();
+  const wantsEmail = /email|e-mail|mail/.test(s);
+  const wantsWa = /whats|wa\b|telefone|phone|sms/.test(s);
+  if (wantsEmail && !wantsWa && hasEmail) return "email";
+  if (wantsWa && !wantsEmail && hasPhone) return "whatsapp";
+  if (hasEmail) return "email";
+  if (hasPhone) return "whatsapp";
+  return "email";
+}
+
 function formatDateTimeBrt(isoString: string): string {
   return formatBRTLong(isoString);
 }
