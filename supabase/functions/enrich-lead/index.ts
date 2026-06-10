@@ -399,6 +399,43 @@ serve(async (req) => {
       steps.apify_scrape = `ran ${tasks.length}`;
     }
 
+    // Step 3.5: autofill contacts from social profiles (in order: instagram > facebook > linkedin)
+    if (autofill) {
+      const missing = !lead.email || !lead.phone || !lead.whatsapp;
+      if (missing) {
+        const { data: profiles } = await supabase
+          .from("lead_social_profiles")
+          .select("network, bio, raw")
+          .eq("lead_id", lead.id);
+        const priority = ["instagram", "facebook", "linkedin_company", "linkedin_person"];
+        const sorted = (profiles || []).slice().sort(
+          (a: any, b: any) => priority.indexOf(a.network) - priority.indexOf(b.network),
+        );
+        for (const p of sorted) {
+          const c = extractContactsFromSocial(p);
+          if (!lead.email && !leadPatch.email && c.email) { leadPatch.email = c.email; autofillSrc.email = p.network; }
+          if (!lead.phone && !leadPatch.phone && c.phone) { leadPatch.phone = c.phone; autofillSrc.phone = p.network; }
+          if (!lead.whatsapp && !leadPatch.whatsapp && c.whatsapp) { leadPatch.whatsapp = c.whatsapp; autofillSrc.whatsapp = p.network; }
+        }
+      }
+      // Fallback: derive whatsapp from a valid BR cell phone
+      const finalPhone = leadPatch.phone || lead.phone;
+      if (!lead.whatsapp && !leadPatch.whatsapp && finalPhone) {
+        const digits = String(finalPhone).replace(/\D/g, "");
+        // BR cell: 55 + DDD + 9XXXXXXXX (13 digits)
+        if (digits.length === 13 && digits.startsWith("55") && digits[4] === "9") {
+          leadPatch.whatsapp = "+" + digits;
+          autofillSrc.whatsapp = "phone_derived";
+        }
+      }
+      if (Object.keys(autofillSrc).length) steps.autofill = autofillSrc;
+      if (Object.keys(leadPatch).length) {
+        await supabase.from("leads").update(leadPatch).eq("id", lead.id);
+        Object.assign(lead, leadPatch);
+      }
+    }
+
+
     // Step 4: generate first message draft
     if (settings.generate_message && LOVABLE_API_KEY) {
       try {
