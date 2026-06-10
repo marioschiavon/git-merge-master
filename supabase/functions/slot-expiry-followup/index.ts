@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { formatBRTLong } from "../_shared/datetime.ts";
-import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -89,11 +89,11 @@ async function sendMessage(
         },
       },
     });
-  } else if (args.channel === "whatsapp" && args.lead?.phone) {
+  } else if (args.channel === "whatsapp" && (args.lead?.whatsapp || args.lead?.phone)) {
     try {
-      const twilio = await getTwilioConfig(supabase, args.companyId);
-      if (twilio) {
-        await sendWhatsAppViaTwilio(twilio, args.lead.phone, args.message);
+      const zCfg = await getZApiConfig(supabase, args.companyId);
+      if (zCfg) {
+        await sendWhatsAppViaZApi(zCfg, args.lead.whatsapp || args.lead.phone, args.message);
       }
     } catch (e) {
       console.error("WhatsApp send error:", e);

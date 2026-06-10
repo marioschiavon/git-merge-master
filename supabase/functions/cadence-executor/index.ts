@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -134,10 +134,10 @@ serve(async (req) => {
               if (sendError) { sendAction = "failed"; }
             } catch { sendAction = "failed"; }
           } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
-            const twCfg = await getTwilioConfig(supabase, cadence.company_id);
-            if (twCfg) {
-              const r = await sendWhatsAppViaTwilio(twCfg, lead.whatsapp || lead.phone, parsed.message);
-              if (!r.ok) { console.error("Twilio send failed:", r.error); sendAction = "failed"; }
+            const zCfg = await getZApiConfig(supabase, cadence.company_id);
+            if (zCfg) {
+              const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
+              if (!r.ok) { console.error("Z-API send failed:", r.error); sendAction = "failed"; }
             } else { sendAction = "pending_manual"; }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
 
@@ -327,16 +327,16 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
             sendAction = "failed";
           }
         } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
-          // Send via Twilio com credenciais por empresa
-          const twCfg = await getTwilioConfig(supabase, cadence.company_id);
-          if (twCfg) {
-            const r = await sendWhatsAppViaTwilio(twCfg, lead.whatsapp || lead.phone, parsed.message);
+          // Send via Z-API com credenciais por empresa
+          const zCfg = await getZApiConfig(supabase, cadence.company_id);
+          if (zCfg) {
+            const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
             if (!r.ok) {
-              console.error(`Twilio WhatsApp error for ${enrollment.id}:`, r.error);
+              console.error(`Z-API WhatsApp error for ${enrollment.id}:`, r.error);
               sendAction = "failed";
             }
           } else {
-            // Twilio não configurado — registra como tarefa manual
+            // Z-API não configurado — registra como tarefa manual
             sendAction = "pending_manual";
           }
 

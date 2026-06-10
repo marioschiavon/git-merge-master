@@ -2,7 +2,7 @@
 // e só então registra a mensagem na tabela messages com o delivery_status real.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -69,18 +69,18 @@ Deno.serve(async (req) => {
         deliveryStatus = "failed";
         deliveryMeta = { delivery_error: "Lead sem telefone/WhatsApp cadastrado" };
       } else {
-        const twCfg = await getTwilioConfig(admin, companyId);
-        if (!twCfg) {
+        const zCfg = await getZApiConfig(admin, companyId);
+        if (!zCfg) {
           deliveryStatus = "failed";
-          deliveryMeta = { delivery_error: "Integração Twilio não configurada" };
+          deliveryMeta = { delivery_error: "Integração Z-API não configurada" };
         } else {
-          const r = await sendWhatsAppViaTwilio(twCfg, toNumber, content);
+          const r = await sendWhatsAppViaZApi(zCfg, toNumber, content);
           if (r.ok) {
             deliveryStatus = "delivered";
-            deliveryMeta = { twilio_sid: r.sid, twilio_status: r.status };
+            deliveryMeta = { zapi_message_id: r.sid, zapi_status: r.status };
           } else {
             deliveryStatus = "failed";
-            deliveryMeta = { twilio_status: r.status, twilio_error: r.error };
+            deliveryMeta = { zapi_status: r.status, zapi_error: r.error };
           }
         }
       }
