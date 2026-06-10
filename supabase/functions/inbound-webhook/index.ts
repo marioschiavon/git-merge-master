@@ -162,7 +162,7 @@ serve(async (req) => {
     if (!convId && lead_id) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id)")
         .eq("lead_id", lead_id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -176,7 +176,7 @@ serve(async (req) => {
     } else if (convId) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id)")
         .eq("id", convId)
         .maybeSingle();
       if (conv) {
