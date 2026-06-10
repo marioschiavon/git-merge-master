@@ -1,56 +1,42 @@
-## Objetivo
+## Problema
 
-Após o enriquecimento, exibir automaticamente:
-1. **No painel do lead** — os insights da análise do website (sem precisar clicar em "Analisar Website").
-2. **Na aba "Leads" da cadência (/cadences)** — a 1ª mensagem de aproach inline em cada card, sem precisar abrir o lead.
+1. Na análise do site (ex.: VETNASA / kate spade), as "sugestões de abordagem" são geradas só com base no prospect, sem saber o que **nós** vendemos (shampoos). Resultado: ganchos genéricos ou desconectados.
+2. Leads ficam "Enriquecendo…" para sempre. Causa: o `enrich-lead` pode estourar o tempo da edge function (Apify + várias chamadas de IA em série) e morre sem marcar a job como `failed`. A `enrichment-cron` só pega jobs `pending`, então jobs travados em `processing` nunca são retomados, e o lead permanece em `enrichment_status = 'processing'`.
 
----
+## O que muda
 
-## 1. Insights do website automáticos no painel do lead
+### 1. `analyze-lead-website` — usar conhecimento da nossa empresa
+Antes de chamar a IA, carregar da base:
+- `company_knowledge` (até 10 docs) — o que vendemos
+- `company_knowledge` tipo `highlights` — diferenciais
+- `company_knowledge` tipo `ai_instructions` — regras de abordagem
 
-**Diagnóstico**: o `enrich-lead` já grava em `lead_insights` quando `settings.website_analysis = true`. O `LeadDetail.tsx` já consulta `useLeadInsights`. Se o painel ainda mostra "Clique em Analisar Website", é porque (a) a setting estava desativada, ou (b) o enriquecimento falhou silenciosamente, ou (c) o lead foi criado antes da feature.
+Reescrever o prompt para que a IA receba dois blocos claros:
+- **NOSSO PRODUTO/SERVIÇO** (knowledge + highlights + ai_instructions)
+- **SITE DO PROSPECT** (HTML extraído)
 
-**Mudanças em `src/components/LeadDetail.tsx`**:
-- Quando `lead.website` existir, `insights` estiver vazio e `enrichment_status === 'completed'`, disparar `analyzeWebsite.mutate(lead.id)` automaticamente uma única vez (via `useEffect`, com guard por `leadId`).
-- Substituir a mensagem "Clique em Analisar Website…" por um estado de loading ("Analisando website…") enquanto roda.
-- Manter o botão "Reanalisar" para refazer manualmente.
+Pedir à IA que, no campo `oportunidades_abordagem`, **conecte explicitamente** algo concreto do prospect ao que nós vendemos. Se as `ai_instructions` indicarem falta de fit, gerar abordagem neutra ao invés de forçar ligação (mesma lógica já usada em `preview-cadence-messages`). Saída segue o mesmo JSON atual + um campo `fit_score` (low/medium/high) e `fit_reason`.
 
-**Mudança em `supabase/functions/enrich-lead/index.ts`**:
-- Garantir `website_analysis` rodando sempre que `lead.website` existir **e** qualquer flag de enriquecimento estiver ativa (não exigir a flag específica). Isso alinha com a expectativa do usuário ("após enriquecimento já vem a análise").
-- Alternativa mais conservadora: só ativar autoanálise no front. Vou aplicar **ambas**: backend tenta, front faz fallback se faltar.
+### 2. `enrich-lead` — não travar mais
+- Responder **202** imediatamente e processar em background com `EdgeRuntime.waitUntil(...)`.
+- Envolver todo o pipeline num `Promise.race` com timeout total (ex.: 220s). Se estourar, marcar job como `failed` e `enrichment_status = 'failed'` em vez de deixar `processing`.
+- Reduzir paralelismo do Apify: chamadas de actors em paralelo via `Promise.allSettled` já existem, mas baixar `timeout=90` → `60` por actor e cortar `instagram_posts_limit` default para 8.
+- No início, se a job já estiver `processing` há mais de 10 min, tratar como retry (não duplicar trabalho, apenas continuar).
 
----
+### 3. `enrichment-cron` — reabilitar jobs zumbis
+Antes de buscar `pending`, fazer um update: jobs em `processing` com `updated_at < now() - interval '10 minutes'` voltam para `pending` (e o lead correspondente volta para `pending` também). Assim travados se recuperam sozinhos no próximo ciclo (cron já roda a cada ~minuto).
 
-## 2. Pré-visualização da 1ª mensagem inline em /cadences → aba Leads
-
-**Mudanças em `src/components/CadenceDetail.tsx`**:
-- Para cada `enrollment` na aba Leads, exibir abaixo do nome um bloco compacto com:
-  - Canal + assunto (se email) da **Step 1**.
-  - Corpo da mensagem (primeiros ~3 linhas, com "Ver completa" expandindo para tudo).
-  - Badge "IA" se `smart_customization`, badge "Salva" se já houver `cadence_custom_messages` para a step 1.
-  - Botões `Regenerar` e `Editar` (o "Editar" abre o `LeadMessagePreview` atual, que já permite editar/salvar todas as steps).
-
-**Novo hook `useFirstStepPreviews(cadenceId, leadIds[])`** em `src/hooks/usePreviewCadenceMessages.ts`:
-- Faz uma chamada batch à edge function `preview-cadence-messages` por lead (ou estende a função para aceitar `leadIds[]`).
-- Retorna apenas a Step 1 (ou a primeira step ordenada por `step_order`).
-- React Query com `staleTime` alto + cache por `(cadenceId, leadId)` para evitar regenerar a cada montagem.
-
-**Mudança em `supabase/functions/preview-cadence-messages/index.ts`** (se necessário):
-- Aceitar `leadIds: string[]` opcional e devolver `{ leadId, previews }` para cada um, em paralelo (limitado a ~5 concorrentes).
-- Aceitar `onlyFirstStep: true` para reduzir custo (gera só step 1).
-
-**Comportamento de custo**: a Step 1 só é gerada uma vez por (lead, cadência) e cacheada em `cadence_custom_messages` (já é o comportamento atual via `is_saved`). Leads novos disparam geração sob demanda quando a aba "Leads" é aberta.
-
----
+### 4. Frontend — feedback claro
+`LeadDetail.tsx`: se `enrichment_status === 'processing'` há mais de 5 min, mostrar botão "Tentar novamente" que chama `enrich-lead` diretamente (com novo `job_id` pendente) em vez de só "Enriquecendo…" infinito.
 
 ## Fora do escopo
-- Não mexer no fluxo de execução das cadências.
-- Não alterar a UI de Steps, só a aba Leads.
-- Não trocar o `LeadMessagePreview` existente — fica disponível via botão "Editar".
+- Mudanças no `preview-cadence-messages` (a lógica de mensagem por cadência continua igual).
+- Mudanças de schema (sem migration necessária — `lead_enrichment_jobs.updated_at` já existe? Verifico ao implementar; se não, adiciono migration mínima com `updated_at timestamptz default now()` + trigger).
 
 ## Ordem de implementação
-1. Edge function `preview-cadence-messages` → aceitar batch + `onlyFirstStep`.
-2. Hook batch no front.
-3. `CadenceDetail.tsx` → render inline da Step 1 nos cards de lead.
-4. `LeadDetail.tsx` → auto-disparar análise do website quando faltar.
-5. `enrich-lead/index.ts` → garantir análise quando `website` existir.
+1. `analyze-lead-website` (corrige o problema visível — contexto da nossa empresa).
+2. `enrich-lead` (waitUntil + timeout global + status `failed` garantido).
+3. `enrichment-cron` (recuperar jobs zumbis).
+4. `LeadDetail.tsx` (botão de retry).
+
+Posso seguir?
