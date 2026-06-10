@@ -218,6 +218,20 @@ serve(async (req) => {
         },
       });
 
+      if (usedPlaceholderEmail) {
+        await supabase.from("lead_activities").insert({
+          company_id: selectedHold.company_id,
+          lead_id: lead_id,
+          type: "alert",
+          description: `⚠️ Reunião confirmada sem e-mail real do lead — enviar convite manualmente para ${formattedDate}`,
+          metadata: {
+            placeholder_email: attendeeEmail,
+            cal_booking_uid: bookingData?.data?.uid || bookingData?.data?.id,
+            slot_datetime: selectedHold.slot_datetime,
+          },
+        });
+      }
+
       // Insert system message in conversation for immediate UI feedback
       await insertBookingSystemMessage(supabase, {
         lead_id,
@@ -227,6 +241,12 @@ serve(async (req) => {
         scheduled_at: selectedHold.slot_datetime,
       });
     }
+
+    // Clear any pending email request flag now that booking is confirmed
+    await supabase
+      .from("leads")
+      .update({ pending_email_slot_hold_id: null })
+      .eq("id", lead_id);
 
     return new Response(JSON.stringify({
       success: true,
