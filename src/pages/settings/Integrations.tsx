@@ -9,7 +9,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { RefreshCw, Plug, Unplug, ExternalLink, Mail, MessageCircle, Copy, Check } from "lucide-react";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+
 import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
 
 
