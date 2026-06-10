@@ -243,19 +243,24 @@ async function fetchContactPages(website: string): Promise<string | null> {
   return null;
 }
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-  try {
-    const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
-    const { job_id } = await req.json();
-    if (!job_id) return new Response(JSON.stringify({ error: "job_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+async function runJob(job_id: string) {
+  const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+  // Global timeout guard: if pipeline exceeds 220s, mark failed and bail
+  const startedAt = Date.now();
+  const TIMEOUT_MS = 220_000;
+  let timeoutHandle: any;
+  const timeoutPromise = new Promise<never>((_, rej) => {
+    timeoutHandle = setTimeout(() => rej(new Error("enrich-lead overall timeout (220s)")), TIMEOUT_MS);
+  });
 
+  try {
+    await Promise.race([(async () => {
     const { data: job, error: jobErr } = await supabase
       .from("lead_enrichment_jobs").select("*").eq("id", job_id).single();
     if (jobErr || !job) throw new Error("Job not found");
 
     await supabase.from("lead_enrichment_jobs")
-      .update({ status: "processing", attempts: (job.attempts || 0) + 1 })
+      .update({ status: "processing", attempts: (job.attempts || 0) + 1, updated_at: new Date().toISOString() })
       .eq("id", job.id);
 
     const { data: lead } = await supabase.from("leads").select("*").eq("id", job.lead_id).single();
