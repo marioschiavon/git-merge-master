@@ -201,45 +201,54 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
               <div className="space-y-2">
                 {enrollments.map((e: any) => (
                   <Card key={e.id}>
-                    <CardContent className="p-3 flex items-center justify-between">
-                      <div>
-                        <button
-                          className="text-sm font-medium text-left hover:underline hover:text-primary cursor-pointer"
-                          onClick={() => setPreviewLead({ id: e.lead_id, name: e.leads?.name || "Lead" })}
-                        >
-                          {e.leads?.name || "Lead"}
-                        </button>
-                        <p className="text-xs text-muted-foreground">{e.leads?.email || ""}</p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {e.meeting_scheduled && (
-                          <Badge className="bg-green-100 text-green-800 text-xs">📅 Reunião</Badge>
-                        )}
-                        {e.status === "paused" && (e as any).paused_reason === "lead_replied" && (
-                          <Badge className="bg-amber-100 text-amber-800 text-xs">💬 Lead respondeu</Badge>
-                        )}
-                        <Badge variant="outline" className="text-xs">Step {e.current_step}</Badge>
-                        <Badge variant="secondary" className="text-xs">
-                          {enrollmentStatusLabels[e.status] || e.status}
-                        </Badge>
-                        {e.status === "paused" && (e as any).paused_reason === "lead_replied" && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-6 px-2 text-xs"
-                            onClick={() => resumeEnrollment.mutate(e.id)}
-                            disabled={resumeEnrollment.isPending}
+                    <CardContent className="p-3 space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <button
+                            className="text-sm font-medium text-left hover:underline hover:text-primary cursor-pointer"
+                            onClick={() => setPreviewLead({ id: e.lead_id, name: e.leads?.name || "Lead" })}
                           >
-                            <RotateCcw className="mr-1 h-3 w-3" />
-                            Retomar
-                          </Button>
-                        )}
-                        {e.next_execution_at && e.status === "active" && (
-                          <span className="text-[10px] text-muted-foreground">
-                            Próx: {new Date(e.next_execution_at).toLocaleDateString("pt-BR")}
-                          </span>
-                        )}
+                            {e.leads?.name || "Lead"}
+                          </button>
+                          <p className="text-xs text-muted-foreground truncate">{e.leads?.email || ""}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap justify-end">
+                          {e.meeting_scheduled && (
+                            <Badge className="bg-green-100 text-green-800 text-xs">📅 Reunião</Badge>
+                          )}
+                          {e.status === "paused" && (e as any).paused_reason === "lead_replied" && (
+                            <Badge className="bg-amber-100 text-amber-800 text-xs">💬 Lead respondeu</Badge>
+                          )}
+                          <Badge variant="outline" className="text-xs">Step {e.current_step}</Badge>
+                          <Badge variant="secondary" className="text-xs">
+                            {enrollmentStatusLabels[e.status] || e.status}
+                          </Badge>
+                          {e.status === "paused" && (e as any).paused_reason === "lead_replied" && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-6 px-2 text-xs"
+                              onClick={() => resumeEnrollment.mutate(e.id)}
+                              disabled={resumeEnrollment.isPending}
+                            >
+                              <RotateCcw className="mr-1 h-3 w-3" />
+                              Retomar
+                            </Button>
+                          )}
+                          {e.next_execution_at && e.status === "active" && (
+                            <span className="text-[10px] text-muted-foreground">
+                              Próx: {new Date(e.next_execution_at).toLocaleDateString("pt-BR")}
+                            </span>
+                          )}
+                        </div>
                       </div>
+                      {cadenceId && steps.length > 0 && (
+                        <CadenceFirstMessageInline
+                          cadenceId={cadenceId}
+                          leadId={e.lead_id}
+                          onEdit={() => setPreviewLead({ id: e.lead_id, name: e.leads?.name || "Lead" })}
+                        />
+                      )}
                     </CardContent>
                   </Card>
                 ))}
