@@ -83,12 +83,13 @@ serve(async (req) => {
       });
     }
 
-    // Fetch knowledge, highlights, ai_instructions and insights in parallel
-    const [knowledgeRes, highlightsRes, aiInstructionsRes, insightRes] = await Promise.all([
+    // Fetch knowledge, highlights, ai_instructions, insights and social profiles in parallel
+    const [knowledgeRes, highlightsRes, aiInstructionsRes, insightRes, socialRes] = await Promise.all([
       supabase.from("company_knowledge").select("title, content").eq("company_id", cadence.company_id).not("type", "in", "(highlights,ai_instructions)").limit(10),
       supabase.from("company_knowledge").select("content").eq("company_id", cadence.company_id).eq("type", "highlights").maybeSingle(),
       supabase.from("company_knowledge").select("content").eq("company_id", cadence.company_id).eq("type", "ai_instructions").maybeSingle(),
       supabase.from("lead_insights").select("insights, raw_summary").eq("lead_id", lead_id).maybeSingle(),
+      supabase.from("lead_social_profiles").select("network, handle, bio, followers, posts_summary, recent_posts").eq("lead_id", lead_id),
     ]);
 
     const knowledgeContext = (knowledgeRes.data || [])
@@ -104,6 +105,33 @@ serve(async (req) => {
         insightsContext = `\n\nDIFERENCIAIS DO PROSPECT (obtidos do website do lead):\n${ins.diferenciais.join(", ")}\n\nUse esses diferenciais para criar um gancho direto entre o que o prospect faz de melhor e como seu produto/serviço potencializa isso.`;
       }
     }
+
+    // Build social media context from lead_social_profiles (Instagram, LinkedIn, etc.)
+    let socialContext = "";
+    const socialProfiles = socialRes.data || [];
+    if (socialProfiles.length > 0) {
+      const parts: string[] = [];
+      for (const p of socialProfiles as any[]) {
+        const hasContent = p.bio || p.posts_summary || (Array.isArray(p.recent_posts) && p.recent_posts.length > 0);
+        if (!hasContent) continue;
+        const lines: string[] = [];
+        lines.push(`### ${p.network}${p.handle ? ` (@${p.handle})` : ""}${p.followers ? ` — ${p.followers} seguidores` : ""}`);
+        if (p.bio) lines.push(`Bio: ${String(p.bio).slice(0, 400)}`);
+        if (p.posts_summary) lines.push(`Resumo de posts: ${String(p.posts_summary).slice(0, 800)}`);
+        if (Array.isArray(p.recent_posts) && p.recent_posts.length > 0) {
+          const top = p.recent_posts.slice(0, 3).map((rp: any, i: number) => {
+            const cap = rp?.caption || rp?.text || rp?.title || "";
+            return `  ${i + 1}. ${String(cap).slice(0, 200)}`;
+          }).filter((s: string) => s.trim().length > 4).join("\n");
+          if (top.trim()) lines.push(`Últimos posts:\n${top}`);
+        }
+        parts.push(lines.join("\n"));
+      }
+      if (parts.length > 0) {
+        socialContext = `\n\nSINAIS DE REDES SOCIAIS DO PROSPECT:\n${parts.join("\n\n")}\n\nQuando relevante, prefira referenciar um post/tema concreto recente em vez de gancho genérico. Nunca invente.`;
+      }
+    }
+    console.log(`[preview-cadence] social profiles loaded: ${socialProfiles.length}`);
 
     // === VARIATIONS MODE: generate N alternative angles for Step 1 ===
     if (variationCount > 0) {
@@ -125,6 +153,9 @@ ${stepHighlights}
 
 === INSIGHTS DO PROSPECT ===
 ${insightsContext || "(sem insights disponíveis)"}
+
+=== SINAIS DE REDES SOCIAIS DO PROSPECT ===
+${socialContext || "(sem dados de redes sociais)"}
 
 === TEMPLATE BASE DO STEP 1 ===
 ${step.template || "(sem template)"}
@@ -196,6 +227,7 @@ Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"g
 
       const useInsights = step.smart_customization !== false;
       const stepInsights = useInsights ? insightsContext : "";
+      const stepSocial = useInsights ? socialContext : "";
       const stepHighlights = (useInsights && step.use_highlights !== false && highlightsRes.data?.content)
         ? `\n\n=== DESTAQUES IMPORTANTES DA EMPRESA (use como argumentos de autoridade) ===\n${highlightsRes.data.content}\n\nOBRIGATÓRIO: Mencione pelo menos 1 destaque da empresa acima como argumento de credibilidade na mensagem.`
         : "";
@@ -248,6 +280,9 @@ ${stepHighlights}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${stepInsights || "Sem diferenciais disponíveis do prospect."}
+
+=== SINAIS DE REDES SOCIAIS DO PROSPECT (Instagram, LinkedIn, etc.) ===
+${stepSocial || "(sem dados de redes sociais)"}
 ${stepMentalTriggers}
 
 === TEMPLATE BASE DO STEP ===
