@@ -720,7 +720,8 @@ Analise a última mensagem e decida a ação.`,
     }
 
     // FIX: Guard — if reply contains time patterns, redirect to schedule
-    if (parsed.action === "reply" && parsed.reply_message) {
+    // (skip when earlyParsed: booking já confirmado, mensagem cita data por design)
+    if (!earlyParsed && parsed.action === "reply" && parsed.reply_message) {
       const hasTimePattern = /\b(segunda|terça|terca|quarta|quinta|sexta|sábado|sabado|domingo)\s+(à|a)s?\s+\d{1,2}/i.test(parsed.reply_message)
         || /📅/.test(parsed.reply_message)
         || /\b\d{1,2}\/\d{1,2}\s+(à|a)s?\s+\d{1,2}/i.test(parsed.reply_message);
@@ -732,7 +733,8 @@ Analise a última mensagem e decida a ação.`,
     }
 
     // FIX: Guard on INBOUND content — if prospect has scheduling intent but AI said "reply"
-    if (parsed.action === "reply") {
+    // (skip when earlyParsed: já tratamos o agendamento)
+    if (!earlyParsed && parsed.action === "reply") {
       const lower = cleanContent.toLowerCase();
       const hasScheduleIntent = /\b(agendar|reunião|reuniao|demo|conversar|call|meeting|bate-?papo)\b/i.test(lower);
       const extractedDt = extractDateTimeFromText(cleanContent);
