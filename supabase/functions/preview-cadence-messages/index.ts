@@ -17,7 +17,7 @@ serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const { cadence_id, lead_id, force_regenerate } = await req.json();
+    const { cadence_id, lead_id, force_regenerate, only_first_step } = await req.json();
     if (!cadence_id || !lead_id) {
       return new Response(JSON.stringify({ error: "cadence_id and lead_id required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -36,7 +36,8 @@ serve(async (req) => {
     if (leadRes.error) throw leadRes.error;
     if (cadenceRes.error) throw cadenceRes.error;
 
-    const steps = stepsRes.data;
+    const allSteps = stepsRes.data;
+    const steps = only_first_step ? allSteps.slice(0, 1) : allSteps;
     const lead = leadRes.data;
     const cadence = cadenceRes.data;
     const enrollment = enrollmentRes.data;
