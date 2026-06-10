@@ -13,6 +13,22 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
+  // Recover zombie jobs: processing for > 10 min get reset to pending
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+  const { data: zombies } = await supabase
+    .from("lead_enrichment_jobs")
+    .select("id, lead_id")
+    .eq("status", "processing")
+    .lt("updated_at", cutoff);
+  if (zombies && zombies.length) {
+    await supabase.from("lead_enrichment_jobs")
+      .update({ status: "pending", next_run_at: new Date().toISOString(), updated_at: new Date().toISOString(), error: "recovered from stuck processing" })
+      .in("id", zombies.map((z: any) => z.id));
+    await supabase.from("leads")
+      .update({ enrichment_status: "pending", enrichment_updated_at: new Date().toISOString() })
+      .in("id", zombies.map((z: any) => z.lead_id));
+  }
+
   const { data: jobs, error } = await supabase
     .from("lead_enrichment_jobs")
     .select("id")
