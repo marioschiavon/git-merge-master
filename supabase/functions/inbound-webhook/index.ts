@@ -739,34 +739,59 @@ Analise a última mensagem e decida a ação.`,
 
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
-      // Confirm the selected slot
       const slotIndex = (parsed.selected_slot || 1) - 1;
       const selectedHold = heldSlots[Math.min(slotIndex, heldSlots.length - 1)];
 
-      console.log(`Confirming slot ${parsed.selected_slot}: ${selectedHold.slot_datetime}`);
+      // If lead provided an email in this message, persist it before confirming
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+      const providedEmail: string | null =
+        (typeof parsed.provided_email === "string" && emailRegex.test(parsed.provided_email))
+          ? parsed.provided_email.trim()
+          : (emailRegex.exec(cleanContent)?.[0] || null);
 
-      try {
-        const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
-          body: {
-            lead_id: leadData.id,
-            selected_slot_hold_id: selectedHold.id,
-          },
-        });
+      if (providedEmail && !leadData?.email) {
+        await supabase.from("leads").update({ email: providedEmail }).eq("id", leadData.id);
+        leadData.email = providedEmail;
+        console.log(`Lead email captured from conversation: ${providedEmail}`);
+      }
 
-        if (confirmRes.data?.success) {
-          console.log("Booking confirmed successfully");
-          const formattedDate = formatDateTimeBrt(selectedHold.slot_datetime);
+      const emailRefused = !!parsed.email_refused;
 
-          if (!parsed.reply_message) {
-            parsed.reply_message = `Perfeito! Reunião confirmada para ${formattedDate}. Você receberá um convite no seu e-mail em instantes. Até lá! 🚀`;
+      // If still no email AND lead didn't refuse → ask for email instead of confirming
+      if (!leadData?.email && !emailRefused) {
+        console.log("No email available — asking lead before confirming booking");
+        await supabase
+          .from("leads")
+          .update({ pending_email_slot_hold_id: selectedHold.id })
+          .eq("id", leadData.id);
+        parsed.action = "reply";
+        parsed.reply_message = parsed.reply_message ||
+          "Perfeito! Para eu te enviar o convite com o link da reunião, qual o seu melhor e-mail?";
+      } else {
+        console.log(`Confirming slot ${parsed.selected_slot}: ${selectedHold.slot_datetime} (placeholder=${!leadData?.email})`);
+        try {
+          const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
+            body: {
+              lead_id: leadData.id,
+              selected_slot_hold_id: selectedHold.id,
+              force_placeholder: !leadData?.email && emailRefused,
+            },
+          });
+
+          if (confirmRes.data?.success) {
+            console.log("Booking confirmed successfully");
+            const formattedDate = formatDateTimeBrt(selectedHold.slot_datetime);
+            if (!parsed.reply_message) {
+              parsed.reply_message = `Combinado! Reunião marcada para ${formattedDate}. Até lá!`;
+            }
+          } else {
+            console.error("Failed to confirm booking:", confirmRes.data?.error);
+            parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
           }
-        } else {
-          console.error("Failed to confirm booking:", confirmRes.data?.error);
+        } catch (e) {
+          console.error("Error invoking calcom-confirm-booking:", e);
           parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
         }
-      } catch (e) {
-        console.error("Error invoking calcom-confirm-booking:", e);
-        parsed.reply_message = parsed.reply_message || "Vou verificar a disponibilidade e retorno em seguida!";
       }
     } else if (parsed.action === "reject_slots") {
       // Cancel all held slots and offer new ones
