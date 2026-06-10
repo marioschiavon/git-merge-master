@@ -31,6 +31,50 @@ export async function calcomFetch(
   return json;
 }
 
+/** Cancel a confirmed Cal.com booking (POST /v2/bookings/{uid}/cancel) */
+export async function cancelCalcomBooking(
+  uid: string,
+  reason = "Cancelado pelo prospect via conversa"
+): Promise<{ ok: boolean; status: number; body: any; error?: string }> {
+  const apiKey = Deno.env.get("CALCOM_API_KEY");
+  if (!apiKey) return { ok: false, status: 0, body: null, error: "CALCOM_API_KEY not configured" };
+  try {
+    const res = await fetch(`https://api.cal.com/v2/bookings/${uid}/cancel`, {
+      method: "POST",
+      headers: calcomHeaders(apiKey, CALCOM_BOOKINGS_API_VERSION),
+      body: JSON.stringify({ cancellationReason: reason }),
+    });
+    const text = await res.text();
+    let body: any; try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+    console.log(`[calcom] cancel booking ${uid} → ${res.status} ${res.ok ? "OK" : "FAIL"}`, body?.error || body?.message || "");
+    return { ok: res.ok, status: res.status, body, error: res.ok ? undefined : (body?.error?.message || body?.message || text.slice(0, 300)) };
+  } catch (e: any) {
+    console.error(`[calcom] cancel booking ${uid} threw:`, e);
+    return { ok: false, status: 0, body: null, error: e?.message || String(e) };
+  }
+}
+
+/** Cancel a held slot reservation (DELETE /v2/slots/reservations/{uid}) */
+export async function cancelCalcomReservation(
+  uid: string
+): Promise<{ ok: boolean; status: number; body: any; error?: string }> {
+  const apiKey = Deno.env.get("CALCOM_API_KEY");
+  if (!apiKey) return { ok: false, status: 0, body: null, error: "CALCOM_API_KEY not configured" };
+  try {
+    const res = await fetch(`https://api.cal.com/v2/slots/reservations/${uid}`, {
+      method: "DELETE",
+      headers: calcomHeaders(apiKey, CALCOM_SLOTS_API_VERSION),
+    });
+    const text = await res.text();
+    let body: any; try { body = text ? JSON.parse(text) : null; } catch { body = { raw: text }; }
+    console.log(`[calcom] cancel reservation ${uid} → ${res.status} ${res.ok ? "OK" : "FAIL"}`);
+    return { ok: res.ok, status: res.status, body, error: res.ok ? undefined : (body?.error?.message || body?.message || text.slice(0, 300)) };
+  } catch (e: any) {
+    console.error(`[calcom] cancel reservation ${uid} threw:`, e);
+    return { ok: false, status: 0, body: null, error: e?.message || String(e) };
+  }
+}
+
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-cal-signature-256",
