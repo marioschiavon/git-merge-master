@@ -200,12 +200,21 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
               <div className="flex items-center gap-2 text-sm">
                 <Mail className="h-4 w-4 text-muted-foreground" />
                 <a href={`mailto:${lead.email}`} className="text-primary hover:underline">{lead.email}</a>
+                <AutoBadge src={autofill.email} />
               </div>
             )}
             {lead.phone && (
               <div className="flex items-center gap-2 text-sm">
                 <Phone className="h-4 w-4 text-muted-foreground" />
                 <span>{lead.phone}</span>
+                <AutoBadge src={autofill.phone} />
+              </div>
+            )}
+            {lead.whatsapp && (
+              <div className="flex items-center gap-2 text-sm">
+                <MessageCircle className="h-4 w-4 text-muted-foreground" />
+                <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">{lead.whatsapp}</a>
+                <AutoBadge src={autofill.whatsapp} />
               </div>
             )}
             {lead.company_name && (
