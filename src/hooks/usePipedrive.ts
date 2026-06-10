@@ -163,10 +163,15 @@ export type LeadInput = {
   company_name?: string | null;
   title?: string | null;
   website?: string | null;
+  instagram_url?: string | null;
+  linkedin_url?: string | null;
+  linkedin_company_url?: string | null;
+  facebook_url?: string | null;
   address?: string | null;
   status?: LeadStatus;
   source?: string | null;
 };
+
 
 
 export function useCreateLead() {
