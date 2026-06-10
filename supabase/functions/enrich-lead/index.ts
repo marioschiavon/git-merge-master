@@ -269,10 +269,15 @@ serve(async (req) => {
     if (settings.generate_message && LOVABLE_API_KEY) {
       try {
         const { data: insights } = await supabase.from("lead_insights").select("insights").eq("lead_id", lead.id).maybeSingle();
-        const { data: socials } = await supabase.from("lead_social_profiles").select("network, bio, recent_posts").eq("lead_id", lead.id);
-        const socialSummary = (socials || []).map(s => `[${s.network}] bio: ${(s.bio || "").slice(0, 300)} | posts: ${JSON.stringify(s.recent_posts || []).slice(0, 500)}`).join("\n");
+        const { data: socials } = await supabase.from("lead_social_profiles").select("network, bio, posts_summary, recent_posts").eq("lead_id", lead.id);
+        const socialSummary = (socials || []).map((s: any) => {
+          const parts = [`[${s.network}] bio: ${(s.bio || "—").slice(0, 300)}`];
+          if (s.posts_summary) parts.push(`[${s.network}] últimos posts:\n${s.posts_summary}`);
+          else if (s.recent_posts) parts.push(`[${s.network}] posts: ${JSON.stringify(s.recent_posts).slice(0, 500)}`);
+          return parts.join("\n");
+        }).join("\n\n");
         const ai = await callAI([
-          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases), com gancho específico baseado nos dados fornecidos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
+          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases). O gancho DEVE citar um tema concreto, post ou pauta da empresa observado nas redes sociais quando houver sinal forte; caso contrário use insights do site. Evite elogios genéricos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
           { role: "user", content: `Lead: ${lead.name} (${lead.title || "cargo n/d"}) da ${lead.company_name || "empresa n/d"}.\n\nInsights do site:\n${JSON.stringify(insights?.insights || {}, null, 2)}\n\nRedes sociais:\n${socialSummary || "(nenhuma)"}` },
         ]);
         const draft = parseJsonBlob(ai) || { subject: null, message: ai, hook_used: null, sources: [] };
