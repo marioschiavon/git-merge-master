@@ -409,17 +409,9 @@ serve(async (req) => {
     // Format slot context for AI
     let slotContext = "";
     if (heldSlots.length >= 2) {
-      const formatted = heldSlots.map((s: any, i: number) => {
-        const dt = new Date(s.slot_datetime);
-        return `${i + 1}) ${dt.toLocaleDateString("pt-BR", {
-          weekday: "long",
-          day: "numeric",
-          month: "long",
-        })} às ${dt.toLocaleTimeString("pt-BR", {
-          hour: "2-digit",
-          minute: "2-digit",
-        })}`;
-      });
+      const formatted = heldSlots.map((s: any, i: number) =>
+        `${i + 1}) ${formatDateTimeBrt(s.slot_datetime)}`
+      );
       slotContext = `\n\nATENÇÃO: O prospect recebeu 2 opções de horário para reunião:
 ${formatted.join("\n")}
 
@@ -428,9 +420,7 @@ INSTRUÇÕES PARA SLOTS PENDENTES:
 - Se o prospect rejeitou ambos os horários (ex: "nenhum funciona", "não consigo nesses dias", "tenho compromisso") → action = "reject_slots"
 - Se o prospect sugeriu um horário alternativo (ex: "pode ser terça às 14h?", "prefiro quinta de manhã") → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)`;
     } else if (heldSlots.length === 1) {
-      const dt = new Date(heldSlots[0].slot_datetime);
-      const formatted = dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" })
-        + " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+      const formatted = formatDateTimeBrt(heldSlots[0].slot_datetime);
       slotContext = `\n\nATENÇÃO: O prospect recebeu 1 opção de horário para reunião:
 1) ${formatted}
 
@@ -442,11 +432,7 @@ INSTRUÇÕES PARA SLOT PENDENTE:
       // FIX: Even without active slots, give context that scheduling is happening
       let offeredSlotsContext = "";
       if (lastOfferedSlots.length > 0) {
-        offeredSlotsContext = `\nHorários anteriormente oferecidos (já expiraram): ${lastOfferedSlots.map((s: string) => {
-          const dt = new Date(s);
-          return dt.toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }) +
-            " às " + dt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        }).join(", ")}`;
+        offeredSlotsContext = `\nHorários anteriormente oferecidos (já expiraram): ${lastOfferedSlots.map((s: string) => formatDateTimeBrt(s)).join(", ")}`;
       }
       slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).${offeredSlotsContext}
 Se o prospect mencionar qualquer horário, dia ou disponibilidade → action = "check_availability" com suggested_datetime em ISO 8601 (YYYY-MM-DDTHH:mm:ss).
@@ -763,6 +749,82 @@ Analise a última mensagem e decida a ação.`,
         }
       }
     }
+
+    // FIX (Kiko): deterministic confirm_slot when prospect identifies exactly one held slot
+    // (e.g. "pode ser dia 11", "às 18:45", "segunda"). If AI returned `reply` but the
+    // message unambiguously matches one held slot, force confirm_slot so the booking is created.
+    if (parsed.action === "reply" && heldSlots.length >= 1 && schedulingInProgress) {
+      const lc = cleanContent.toLowerCase();
+      const WEEKDAYS = ["domingo", "segunda", "terça", "terca", "quarta", "quinta", "sexta", "sábado", "sabado"];
+      const WEEKDAY_TO_NUM: Record<string, number> = {
+        domingo: 0, segunda: 1, terça: 2, terca: 2, quarta: 3, quinta: 4, sexta: 5, sábado: 6, sabado: 6,
+      };
+      const slotParts = heldSlots.map((s: any) => {
+        const d = new Date(s.slot_datetime);
+        // Extract BRT day/month/hour/min/weekday via Intl
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/Sao_Paulo",
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", hour12: false, weekday: "long",
+        }).formatToParts(d);
+        const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
+        return {
+          day: parseInt(get("day")),
+          month: parseInt(get("month")),
+          hour: parseInt(get("hour")),
+          minute: parseInt(get("minute")),
+          weekday: get("weekday").toLowerCase(),
+        };
+      });
+
+      const matches = new Set<number>();
+      // "dia DD" / "DD/MM" / "DD de mes"
+      const dayMatch = lc.match(/\bdia\s+(\d{1,2})\b/) || lc.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+      if (dayMatch) {
+        const day = parseInt(dayMatch[1]);
+        const month = dayMatch[2] ? parseInt(dayMatch[2]) : null;
+        slotParts.forEach((p, i) => {
+          if (p.day === day && (month === null || p.month === month)) matches.add(i);
+        });
+      }
+      // "HH:MM" / "HHhMM" / "HHh"
+      const timeMatch = lc.match(/\b(\d{1,2})[:h](\d{2})\b/) || lc.match(/\b(\d{1,2})h\b/);
+      if (timeMatch) {
+        const hour = parseInt(timeMatch[1]);
+        const minute = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+        const timeMatches = new Set<number>();
+        slotParts.forEach((p, i) => {
+          if (p.hour === hour && p.minute === minute) timeMatches.add(i);
+        });
+        if (matches.size === 0) timeMatches.forEach((i) => matches.add(i));
+        else for (const i of [...matches]) if (!timeMatches.has(i)) matches.delete(i);
+      }
+      // Weekday
+      if (matches.size === 0) {
+        for (const wd of WEEKDAYS) {
+          if (new RegExp(`\\b${wd}\\b`).test(lc)) {
+            const target = WEEKDAY_TO_NUM[wd];
+            const wdEnPt: Record<string, number> = {
+              sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+            };
+            slotParts.forEach((p, i) => {
+              if (wdEnPt[p.weekday] === target) matches.add(i);
+            });
+            break;
+          }
+        }
+      }
+
+      if (matches.size === 1) {
+        const idx = [...matches][0];
+        console.log(`Deterministic confirm_slot match: slot ${idx + 1} from "${cleanContent.substring(0, 80)}"`);
+        parsed.action = "confirm_slot";
+        parsed.selected_slot = idx + 1;
+        parsed.reply_message = null;
+      }
+    }
+
+
 
     // Ensure reply_message is never null for action=reply
     if (parsed.action === "reply" && !parsed.reply_message) {
@@ -1239,6 +1301,21 @@ Analise a última mensagem e decida a ação.`,
       // Only proceed with scheduling if action wasn't overridden
       if (parsed.action === "schedule") {
         try {
+          // FIX (Kiko): cancel any leftover holds before requesting new slots,
+          // so retomadas/agendamentos repetidos não acumulam reservas no Cal.com.
+          if (leadData?.id) {
+            const { data: leftoverHolds } = await supabase
+              .from("slot_holds")
+              .select("id, cal_booking_uid")
+              .eq("lead_id", leadData.id)
+              .eq("status", "held");
+            for (const h of (leftoverHolds || [])) {
+              if (h.cal_booking_uid) {
+                try { await cancelCalcomReservation(h.cal_booking_uid); } catch (_) { /* ignore */ }
+              }
+              await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", h.id);
+            }
+          }
           const channelLabel = convChannel || channel || "email";
           const rangeHint = extractDateRangeFromText(cleanContent);
           const slotsBody: any = {
@@ -1294,6 +1371,20 @@ Analise a última mensagem e decida a ação.`,
         });
       }
     } else if (parsed.action === "pause") {
+      // FIX (Kiko): cancel any pending slot holds when lead rejects approach
+      if (leadData?.id) {
+        const { data: pendingHolds } = await supabase
+          .from("slot_holds")
+          .select("id, cal_booking_uid")
+          .eq("lead_id", leadData.id)
+          .eq("status", "held");
+        for (const h of (pendingHolds || [])) {
+          if (h.cal_booking_uid) {
+            try { await cancelCalcomReservation(h.cal_booking_uid); } catch (_) { /* ignore */ }
+          }
+          await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", h.id);
+        }
+      }
       if (enrollment) {
         await supabase
           .from("cadence_enrollments")
