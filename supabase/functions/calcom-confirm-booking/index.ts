@@ -116,8 +116,13 @@ serve(async (req) => {
         eventTypeId,
         start: selectedHold.slot_datetime,
         attendee: {
-          name: lead.name,
-          email: lead.email,
+          name: lead?.name || "Lead",
+          email: attendeeEmail,
+          timeZone: "America/Sao_Paulo",
+          language: "pt",
+        },
+      }),
+    });
           timeZone: "America/Sao_Paulo",
           language: "pt",
         },
