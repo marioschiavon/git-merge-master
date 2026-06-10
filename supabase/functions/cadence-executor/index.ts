@@ -396,7 +396,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
             content: parsed.message,
             direction: "outbound",
             ai_suggested: true,
-            metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true, channel: currentStep.channel },
+            metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true, channel: currentStep.channel, ...deliveryMeta },
           });
         }
 
