@@ -750,6 +750,82 @@ Analise a última mensagem e decida a ação.`,
       }
     }
 
+    // FIX (Kiko): deterministic confirm_slot when prospect identifies exactly one held slot
+    // (e.g. "pode ser dia 11", "às 18:45", "segunda"). If AI returned `reply` but the
+    // message unambiguously matches one held slot, force confirm_slot so the booking is created.
+    if (parsed.action === "reply" && heldSlots.length >= 1 && schedulingInProgress) {
+      const lc = cleanContent.toLowerCase();
+      const WEEKDAYS = ["domingo", "segunda", "terça", "terca", "quarta", "quinta", "sexta", "sábado", "sabado"];
+      const WEEKDAY_TO_NUM: Record<string, number> = {
+        domingo: 0, segunda: 1, terça: 2, terca: 2, quarta: 3, quinta: 4, sexta: 5, sábado: 6, sabado: 6,
+      };
+      const slotParts = heldSlots.map((s: any) => {
+        const d = new Date(s.slot_datetime);
+        // Extract BRT day/month/hour/min/weekday via Intl
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "America/Sao_Paulo",
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", hour12: false, weekday: "long",
+        }).formatToParts(d);
+        const get = (t: string) => parts.find((p) => p.type === t)?.value || "";
+        return {
+          day: parseInt(get("day")),
+          month: parseInt(get("month")),
+          hour: parseInt(get("hour")),
+          minute: parseInt(get("minute")),
+          weekday: get("weekday").toLowerCase(),
+        };
+      });
+
+      const matches = new Set<number>();
+      // "dia DD" / "DD/MM" / "DD de mes"
+      const dayMatch = lc.match(/\bdia\s+(\d{1,2})\b/) || lc.match(/\b(\d{1,2})\/(\d{1,2})\b/);
+      if (dayMatch) {
+        const day = parseInt(dayMatch[1]);
+        const month = dayMatch[2] ? parseInt(dayMatch[2]) : null;
+        slotParts.forEach((p, i) => {
+          if (p.day === day && (month === null || p.month === month)) matches.add(i);
+        });
+      }
+      // "HH:MM" / "HHhMM" / "HHh"
+      const timeMatch = lc.match(/\b(\d{1,2})[:h](\d{2})\b/) || lc.match(/\b(\d{1,2})h\b/);
+      if (timeMatch) {
+        const hour = parseInt(timeMatch[1]);
+        const minute = timeMatch[2] ? parseInt(timeMatch[2]) : 0;
+        const timeMatches = new Set<number>();
+        slotParts.forEach((p, i) => {
+          if (p.hour === hour && p.minute === minute) timeMatches.add(i);
+        });
+        if (matches.size === 0) timeMatches.forEach((i) => matches.add(i));
+        else for (const i of [...matches]) if (!timeMatches.has(i)) matches.delete(i);
+      }
+      // Weekday
+      if (matches.size === 0) {
+        for (const wd of WEEKDAYS) {
+          if (new RegExp(`\\b${wd}\\b`).test(lc)) {
+            const target = WEEKDAY_TO_NUM[wd];
+            const wdEnPt: Record<string, number> = {
+              sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
+            };
+            slotParts.forEach((p, i) => {
+              if (wdEnPt[p.weekday] === target) matches.add(i);
+            });
+            break;
+          }
+        }
+      }
+
+      if (matches.size === 1) {
+        const idx = [...matches][0];
+        console.log(`Deterministic confirm_slot match: slot ${idx + 1} from "${cleanContent.substring(0, 80)}"`);
+        parsed.action = "confirm_slot";
+        parsed.selected_slot = idx + 1;
+        parsed.reply_message = null;
+      }
+    }
+
+
+
     // Ensure reply_message is never null for action=reply
     if (parsed.action === "reply" && !parsed.reply_message) {
       parsed.reply_message = "Obrigado pela sua mensagem! Como posso ajudá-lo?";
