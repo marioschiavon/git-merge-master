@@ -591,7 +591,7 @@ Responda APENAS com JSON:
     "referred_role": null,
     "referred_email": null,
     "referred_phone": null,
-    "referred_channel": null,
+    "referred_channel": "email|whatsapp (escolha EXATAMENTE UM valor — nunca strings compostas como 'email/whatsapp' ou 'ambos'. Se houver email use 'email', senão 'whatsapp')",
     "permission_to_mention": null,
     "context": null
   },
