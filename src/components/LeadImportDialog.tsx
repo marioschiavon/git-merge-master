@@ -138,10 +138,12 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
 
           {rows.length > 0 && (
             <>
-              <div className="rounded-md border bg-muted/30 p-3 text-sm">
-                <strong>{parsed.valid.length}</strong> leads válidos
-                {parsed.skipped > 0 && <> · <span className="text-destructive">{parsed.skipped} ignorados (sem nome)</span></>}
+              <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+                <div><strong>{parsed.valid.length}</strong> leads válidos
+                {parsed.skipped > 0 && <> · <span className="text-destructive">{parsed.skipped} ignorados (sem nome)</span></>}</div>
+                <p className="text-xs text-muted-foreground">Se o enriquecimento automático estiver ativo, os leads serão analisados em background nos próximos minutos.</p>
               </div>
+
 
               <div className="rounded-md border overflow-x-auto">
                 <Table>
