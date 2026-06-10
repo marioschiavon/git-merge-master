@@ -65,6 +65,7 @@ interface Lead {
   name: string;
   email: string | null;
   phone: string | null;
+  whatsapp?: string | null;
   company_name: string | null;
   title: string | null;
   website: string | null;
