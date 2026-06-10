@@ -117,6 +117,7 @@ serve(async (req) => {
           // Use saved custom message — skip AI generation
           const parsed = { subject: customMsg.subject, message: customMsg.message };
           let sendAction = "sent";
+          let deliveryMeta: Record<string, any> = {};
 
           // === CHANNEL-SPECIFIC SENDING (same logic as below) ===
           if (currentStep.channel === "email" && lead.email) {
