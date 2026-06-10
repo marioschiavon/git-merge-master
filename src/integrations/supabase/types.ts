@@ -1884,7 +1884,12 @@ export type Database = {
         | "replied"
         | "bounced"
         | "paused"
-      integration_provider: "pipedrive" | "gmail" | "twilio_whatsapp" | "apify"
+      integration_provider:
+        | "pipedrive"
+        | "gmail"
+        | "twilio_whatsapp"
+        | "apify"
+        | "zapi_whatsapp"
       intent_category:
         | "interest"
         | "info_request"
@@ -2090,7 +2095,13 @@ export const Constants = {
         "bounced",
         "paused",
       ],
-      integration_provider: ["pipedrive", "gmail", "twilio_whatsapp", "apify"],
+      integration_provider: [
+        "pipedrive",
+        "gmail",
+        "twilio_whatsapp",
+        "apify",
+        "zapi_whatsapp",
+      ],
       intent_category: [
         "interest",
         "info_request",
