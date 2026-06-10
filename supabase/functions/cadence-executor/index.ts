@@ -314,6 +314,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         }
 
         let sendAction = "sent";
+        let deliveryMeta: Record<string, any> = {};
 
         // === CHANNEL-SPECIFIC SENDING ===
         if (currentStep.channel === "email" && lead.email) {
