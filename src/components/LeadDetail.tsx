@@ -119,9 +119,22 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
     },
   });
 
+  const autoAnalyzedRef = useRef<string | null>(null);
+  const insights = (insightData?.insights as any) || null;
+
+  useEffect(() => {
+    if (!lead?.id || !open) return;
+    if (!lead.website) return;
+    if (insightsLoading) return;
+    if (insights) return;
+    if (analyzeWebsite.isPending) return;
+    if (autoAnalyzedRef.current === lead.id) return;
+    autoAnalyzedRef.current = lead.id;
+    analyzeWebsite.mutate(lead.id);
+  }, [lead?.id, lead?.website, open, insightsLoading, insights, analyzeWebsite]);
+
   if (!lead) return null;
 
-  const insights = insightData?.insights as any;
   const autofill = ((lastJob?.steps_done as any)?.autofill) || {};
   const sourceLabel = (s: string) =>
     s === "website" ? "Encontrado no website"
