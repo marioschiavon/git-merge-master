@@ -41,7 +41,7 @@ serve(async (req) => {
     if (!CALCOM_API_KEY) throw new Error("CALCOM_API_KEY not configured");
 
     const body = await req.json();
-    const { lead_id, selected_slot_hold_id } = body;
+    const { lead_id, selected_slot_hold_id, force_placeholder } = body;
 
     if (!lead_id || !selected_slot_hold_id) {
       return new Response(JSON.stringify({ error: "lead_id and selected_slot_hold_id are required" }), {
@@ -83,11 +83,21 @@ serve(async (req) => {
       .eq("id", lead_id)
       .single();
 
-    if (!lead?.email) {
-      return new Response(JSON.stringify({ error: "Lead email is required for booking" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let usedPlaceholderEmail = false;
+    let attendeeEmail = lead?.email as string | undefined;
+
+    if (!attendeeEmail) {
+      if (force_placeholder) {
+        const senderDomain = Deno.env.get("SENDER_DOMAIN") || "lovable.app";
+        attendeeEmail = `noreply+${lead_id}@${senderDomain}`;
+        usedPlaceholderEmail = true;
+        console.log(`Using placeholder email for booking: ${attendeeEmail}`);
+      } else {
+        return new Response(JSON.stringify({ error: "Lead email is required for booking" }), {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Resolve event type ID
