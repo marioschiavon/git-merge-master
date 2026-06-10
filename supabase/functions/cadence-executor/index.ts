@@ -109,6 +109,28 @@ serve(async (req) => {
           continue;
         }
 
+        // Parallel-enrollment guard: if another active enrollment for the same lead
+        // already executed in the last 24h, skip this one to avoid sending two
+        // first contacts in parallel from different cadences.
+        const { data: otherActive } = await supabase
+          .from("cadence_enrollments")
+          .select("id, last_executed_at")
+          .eq("lead_id", enrollment.lead_id)
+          .eq("status", "active")
+          .neq("id", enrollment.id);
+        const recentlyExecutedOther = (otherActive || []).find((e: any) => {
+          if (!e.last_executed_at) return false;
+          return Date.now() - new Date(e.last_executed_at).getTime() < 24 * 60 * 60 * 1000;
+        });
+        if (recentlyExecutedOther) {
+          await supabase
+            .from("cadence_enrollments")
+            .update({ status: "paused", paused_reason: `Lead já recebeu contato de outra cadência (${recentlyExecutedOther.id}) nas últimas 24h` })
+            .eq("id", enrollment.id);
+          continue;
+        }
+
+
 
 
         // Get current step
