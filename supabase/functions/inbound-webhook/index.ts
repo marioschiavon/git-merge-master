@@ -251,14 +251,15 @@ serve(async (req) => {
       });
     }
 
-    // Lead responded — cancel any pending slot-expiry follow-up progression
+    // Lead responded — pause any pending slot-expiry follow-up progression
     if (companyId && leadData?.id) {
       await supabase
         .from("slot_expiry_followups")
-        .update({ stage: "no_response", next_action_at: null, metadata: { resolved_by: "lead_reply", resolved_at: new Date().toISOString() } })
+        .update({ next_action_at: null, metadata: { resolved_by: "lead_reply", resolved_at: new Date().toISOString() } })
         .eq("lead_id", leadData.id)
         .neq("stage", "no_response");
     }
+
 
     // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
     if (companyId && leadData?.id) {
