@@ -104,6 +104,28 @@ function handleFromUrl(url: string, prefix: string): string | null {
   return m ? m[1] : null;
 }
 
+function normalizeInstagramPosts(raw: any[]): any[] {
+  return (raw || []).slice(0, 30).map((p: any) => ({
+    caption: (p.caption || "").slice(0, 600),
+    hashtags: p.hashtags || [],
+    mentions: p.mentions || [],
+    likes: p.likesCount ?? null,
+    comments: p.commentsCount ?? null,
+    timestamp: p.timestamp || null,
+    url: p.url || (p.shortCode ? `https://instagram.com/p/${p.shortCode}` : null),
+    type: p.type || p.productType || null,
+  })).filter((p) => p.caption || p.url);
+}
+
+function summarizePosts(posts: any[]): string {
+  return posts.slice(0, 12).map((p) => {
+    const date = p.timestamp ? new Date(p.timestamp).toISOString().slice(0, 10) : "—";
+    const tags = (p.hashtags || []).slice(0, 5).map((t: string) => `#${t}`).join(" ");
+    const cap = (p.caption || "").replace(/\s+/g, " ").slice(0, 220);
+    return `- ${date}: "${cap}"${tags ? ` (${tags})` : ""}`;
+  }).join("\n");
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
