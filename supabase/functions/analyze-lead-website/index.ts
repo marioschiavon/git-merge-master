@@ -74,6 +74,57 @@ serve(async (req) => {
         .replace(/<style[\s\S]*?<\/style>/gi, "")
         .replace(/<[^>]+>/g, " ")
         .replace(/\s+/g, " ").trim().slice(0, 15000);
+
+      // Extract WhatsApp / phone from raw HTML if lead doesn't have one yet
+      try {
+        const normalizeBR = (s: string): string | null => {
+          let d = String(s || "").replace(/\D/g, "");
+          if (!d) return null;
+          d = d.replace(/^00/, "").replace(/^0+/, "");
+          if (d.length < 10 || d.length > 13) return null;
+          if (!d.startsWith("55")) {
+            if (d.length === 10 || d.length === 11) d = "55" + d;
+            else return null;
+          }
+          if (d.length !== 12 && d.length !== 13) return null;
+          const ddd = Number(d.slice(2, 4));
+          if (ddd < 11 || ddd > 99) return null;
+          if (/^(\d)\1+$/.test(d.slice(4))) return null;
+          return "+" + d;
+        };
+
+        let wa: string | null = null;
+        let waSrc: string | null = null;
+        for (const m of raw.matchAll(/(?:wa\.me|api\.whatsapp\.com\/send|whatsapp:\/\/send)[^"'\s<>]*?(?:phone=)?(\+?\d[\d\s\-().]{8,20})/gi)) {
+          const n = normalizeBR(m[1]);
+          if (n) { wa = n; waSrc = "wa.me"; break; }
+        }
+        let phone: string | null = null;
+        if (!wa) {
+          for (const m of pageContent.matchAll(/(\+?55\s*)?\(?\s*\d{2}\s*\)?[\s.\-]*9?\d{4}[\s.\-]*\d{4}/g)) {
+            const n = normalizeBR(m[0]);
+            if (n) { phone = n; break; }
+          }
+        }
+
+        const patch: any = {};
+        if (!lead.whatsapp && wa) {
+          patch.whatsapp = wa;
+          patch.whatsapp_source = waSrc || "website";
+        } else if (!lead.whatsapp && phone) {
+          const digits = phone.replace(/\D/g, "");
+          if (digits.length === 13 && digits[4] === "9") {
+            patch.whatsapp = phone;
+            patch.whatsapp_source = "website";
+          }
+        }
+        if (!lead.phone && (wa || phone)) patch.phone = wa || phone;
+        if (Object.keys(patch).length) {
+          await supabase.from("leads").update(patch).eq("id", lead.id);
+        }
+      } catch (e) {
+        console.warn("whatsapp extraction failed:", e);
+      }
     } else {
       pageContent = `(Conteúdo do site indisponível. Gere insights com base no nome da empresa e domínio: ${websiteUrl})`;
     }
