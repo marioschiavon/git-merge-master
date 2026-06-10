@@ -1,56 +1,56 @@
 ## Objetivo
 
-No fluxo de enriquecimento já existente (`enrich-lead`), além de descobrir redes sociais e analisar o site, **preencher dados faltantes do lead** (email, telefone, WhatsApp) quando forem encontrados no website ou nas redes sociais. Garantir também que o scraping do site sempre rode quando houver `website`, e que site + Instagram + demais redes alimentem a geração da mensagem personalizada.
+Após o enriquecimento, exibir automaticamente:
+1. **No painel do lead** — os insights da análise do website (sem precisar clicar em "Analisar Website").
+2. **Na aba "Leads" da cadência (/cadences)** — a 1ª mensagem de aproach inline em cada card, sem precisar abrir o lead.
 
-## Mudanças
+---
 
-### 1. Extração de contatos no website (`enrich-lead`)
-Novo helper `extractContacts(html)` que detecta:
-- **Emails**: regex padrão, filtrando `noreply@`, `wordpress@`, imagens (`.png@`), e priorizando emails do mesmo domínio do site.
-- **Telefones BR**: regex para formatos `+55 (11) 9xxxx-xxxx`, `(11) 9xxxx-xxxx`, `11 9xxxx xxxx`, números puros de 10–13 dígitos. Normaliza para E.164 (`+55...`).
-- **WhatsApp**: links `wa.me/<num>`, `api.whatsapp.com/send?phone=<num>`, `whatsapp://send?phone=<num>` — extrai e normaliza para E.164.
+## 1. Insights do website automáticos no painel do lead
 
-Roda na mesma etapa que `extractSocials`, usando o HTML já baixado (sem custo extra). Também tenta páginas comuns de contato quando a home não retorna nada: `/contato`, `/contact`, `/fale-conosco` (1 fetch extra, opcional).
+**Diagnóstico**: o `enrich-lead` já grava em `lead_insights` quando `settings.website_analysis = true`. O `LeadDetail.tsx` já consulta `useLeadInsights`. Se o painel ainda mostra "Clique em Analisar Website", é porque (a) a setting estava desativada, ou (b) o enriquecimento falhou silenciosamente, ou (c) o lead foi criado antes da feature.
 
-### 2. Extração de contatos das redes sociais
-Após o scrape via Apify, varrer `bio` e `raw` de cada `lead_social_profiles` (Instagram, Facebook, LinkedIn) procurando email/telefone/WhatsApp no texto da bio e em campos como `businessEmail`, `businessPhoneNumber`, `publicEmail`, `contactPhone`, `websites`/`externalUrl` (que às vezes apontam para wa.me).
+**Mudanças em `src/components/LeadDetail.tsx`**:
+- Quando `lead.website` existir, `insights` estiver vazio e `enrichment_status === 'completed'`, disparar `analyzeWebsite.mutate(lead.id)` automaticamente uma única vez (via `useEffect`, com guard por `leadId`).
+- Substituir a mensagem "Clique em Analisar Website…" por um estado de loading ("Analisando website…") enquanto roda.
+- Manter o botão "Reanalisar" para refazer manualmente.
 
-### 3. Preenchimento condicional do lead
-Atualizar `leads` apenas para campos vazios (não sobrescrever dados do usuário):
-- `email` ← se `lead.email` nulo/vazio
-- `phone` ← se `lead.phone` nulo/vazio
-- `whatsapp` ← se `lead.whatsapp` nulo/vazio; se ainda assim faltar e houver `phone` válido BR celular (9º dígito), copiar `phone` → `whatsapp`
-- Preferência: dados do website > Instagram > Facebook > LinkedIn (sites próprios são mais confiáveis).
+**Mudança em `supabase/functions/enrich-lead/index.ts`**:
+- Garantir `website_analysis` rodando sempre que `lead.website` existir **e** qualquer flag de enriquecimento estiver ativa (não exigir a flag específica). Isso alinha com a expectativa do usuário ("após enriquecimento já vem a análise").
+- Alternativa mais conservadora: só ativar autoanálise no front. Vou aplicar **ambas**: backend tenta, front faz fallback se faltar.
 
-Registrar em `steps_done.autofill = { email: "website", phone: "instagram_bio", whatsapp: "wa_link" }` para auditoria.
+---
 
-### 4. Garantir scrape do site
-Hoje o site só é baixado se `settings.website_analysis` **ou** `settings.discover_socials` estiver ativo. Vamos sempre baixar o HTML quando `lead.website` existir e qualquer uma das flags estiver ligada (incluindo a nova `autofill_contacts`, default `true`). A análise via Gemini continua gated por `website_analysis`.
+## 2. Pré-visualização da 1ª mensagem inline em /cadences → aba Leads
 
-### 5. Mensagem personalizada
-O prompt já inclui insights do site + posts do Instagram. Vamos:
-- Reforçar no `system` que, se houver bio/posts do Instagram OU sinais fortes do site, o gancho deve citar isso explicitamente.
-- Garantir que `socialSummary` inclua também Facebook/LinkedIn (bio + headline/about) quando presentes — hoje já é genérico, mas vamos truncar melhor para caber tudo.
+**Mudanças em `src/components/CadenceDetail.tsx`**:
+- Para cada `enrollment` na aba Leads, exibir abaixo do nome um bloco compacto com:
+  - Canal + assunto (se email) da **Step 1**.
+  - Corpo da mensagem (primeiros ~3 linhas, com "Ver completa" expandindo para tudo).
+  - Badge "IA" se `smart_customization`, badge "Salva" se já houver `cadence_custom_messages` para a step 1.
+  - Botões `Regenerar` e `Editar` (o "Editar" abre o `LeadMessagePreview` atual, que já permite editar/salvar todas as steps).
 
-### 6. Configuração (`EnrichmentSettingsCard`)
-Adicionar toggle **"Completar contatos faltantes (email / telefone / WhatsApp)"** → grava `enrichment_settings.autofill_contacts` (default `true` em contas novas; existentes precisam ativar).
+**Novo hook `useFirstStepPreviews(cadenceId, leadIds[])`** em `src/hooks/usePreviewCadenceMessages.ts`:
+- Faz uma chamada batch à edge function `preview-cadence-messages` por lead (ou estende a função para aceitar `leadIds[]`).
+- Retorna apenas a Step 1 (ou a primeira step ordenada por `step_order`).
+- React Query com `staleTime` alto + cache por `(cadenceId, leadId)` para evitar regenerar a cada montagem.
 
-### 7. UI — visibilidade
-Em `LeadDetail`, quando um campo foi autopreenchido pelo enriquecimento, mostrar um pequeno badge "auto" ao lado (tooltip com a fonte, ex.: "Encontrado no Instagram"). Fonte vem de `lead_enrichment_jobs.steps_done.autofill` do job mais recente.
+**Mudança em `supabase/functions/preview-cadence-messages/index.ts`** (se necessário):
+- Aceitar `leadIds: string[]` opcional e devolver `{ leadId, previews }` para cada um, em paralelo (limitado a ~5 concorrentes).
+- Aceitar `onlyFirstStep: true` para reduzir custo (gera só step 1).
 
-## Fora de escopo
-- Validação/verificação ativa de email (SMTP check, MX lookup).
-- Enriquecimento via Hunter, Apollo, ZoomInfo etc.
-- Tratamento de múltiplos contatos por lead (sempre 1 email / 1 telefone / 1 whatsapp por enquanto).
+**Comportamento de custo**: a Step 1 só é gerada uma vez por (lead, cadência) e cacheada em `cadence_custom_messages` (já é o comportamento atual via `is_saved`). Leads novos disparam geração sob demanda quando a aba "Leads" é aberta.
+
+---
+
+## Fora do escopo
+- Não mexer no fluxo de execução das cadências.
+- Não alterar a UI de Steps, só a aba Leads.
+- Não trocar o `LeadMessagePreview` existente — fica disponível via botão "Editar".
 
 ## Ordem de implementação
-1. `enrich-lead/index.ts`: helpers `extractContacts`, `extractContactsFromSocial`, lógica de autofill e gating do fetch do site.
-2. Atualizar prompt de mensagem (mesmo arquivo).
-3. `EnrichmentSettingsCard.tsx`: toggle `autofill_contacts`.
-4. `LeadDetail.tsx`: badges "auto" usando `steps_done.autofill`.
-5. Reprocessar lead de teste e validar.
-
-## Detalhes técnicos
-- Sem migration: usamos colunas existentes em `leads` (`email`, `phone`, `whatsapp`) e gravamos a procedência em `lead_enrichment_jobs.steps_done` (já é `jsonb`).
-- Normalização de telefone num único helper `normalizePhoneBR(str)` que retorna `+55DDDNUMERO` ou `null`.
-- Anti-falso-positivo: ignorar números com menos de 10 dígitos, sequências repetidas (`1111111111`), e telefones que aparecem dentro de scripts de tracking (Google Tag Manager, etc.) descartando blocos `<script>` antes do regex (já feito no `htmlToText`, replicar no `extractContacts`).
+1. Edge function `preview-cadence-messages` → aceitar batch + `onlyFirstStep`.
+2. Hook batch no front.
+3. `CadenceDetail.tsx` → render inline da Step 1 nos cards de lead.
+4. `LeadDetail.tsx` → auto-disparar análise do website quando faltar.
+5. `enrich-lead/index.ts` → garantir análise quando `website` existir.
