@@ -878,7 +878,7 @@ Analise a última mensagem e decida a ação.`,
           .update({ pending_email_slot_hold_id: selectedHold.id })
           .eq("id", leadData.id);
         parsed.action = "reply";
-        parsed.reply_message = parsed.reply_message ||
+        parsed.reply_message =
           "Perfeito! Para eu te enviar o convite com o link da reunião, qual o seu melhor e-mail?";
       } else {
         console.log(`Confirming slot ${parsed.selected_slot}: ${selectedHold.slot_datetime} (placeholder=${!leadData?.email})`);
