@@ -14,11 +14,10 @@ import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
 
 
 const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-const TWILIO_WEBHOOK_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/twilio-whatsapp-webhook`;
+const ZAPI_WEBHOOK_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/zapi-webhook`;
 
 const otherIntegrations = [
   { name: "LinkedIn", description: "Conecte e envie mensagens no LinkedIn", connected: false },
-  { name: "Twilio (Ligações)", description: "Faça e receba ligações VoIP", connected: false },
 ];
 
 
@@ -132,27 +131,27 @@ const CalComCard = () => {
     </Card>
   );
 };
-const TwilioWhatsAppCard = () => {
+const ZApiWhatsAppCard = () => {
   const queryClient = useQueryClient();
-  const [accountSid, setAccountSid] = useState("");
-  const [authToken, setAuthToken] = useState("");
-  const [whatsappNumber, setWhatsappNumber] = useState("+14155238886");
-  const [isSandbox, setIsSandbox] = useState(true);
+  const [instanceId, setInstanceId] = useState("");
+  const [token, setToken] = useState("");
+  const [clientToken, setClientToken] = useState("");
+  const [whatsappNumber, setWhatsappNumber] = useState("");
   const [copied, setCopied] = useState(false);
 
   const { data: integration, isLoading } = useQuery({
-    queryKey: ["integration", "twilio_whatsapp"],
+    queryKey: ["integration", "zapi_whatsapp"],
     queryFn: async () => {
       const { data } = await supabase
         .from("integrations")
         .select("*")
-        .eq("provider", "twilio_whatsapp" as any)
+        .eq("provider", "zapi_whatsapp" as any)
         .maybeSingle();
       if (data?.config) {
         const cfg = data.config as any;
-        setAccountSid(cfg.account_sid || "");
-        setWhatsappNumber(cfg.whatsapp_number || "+14155238886");
-        setIsSandbox(!!cfg.is_sandbox);
+        setInstanceId(cfg.instance_id || "");
+        setWhatsappNumber(cfg.whatsapp_number || "");
+        // client_token e token nunca pré-preenchidos por segurança
       }
       return data;
     },
@@ -169,11 +168,13 @@ const TwilioWhatsAppCard = () => {
         .maybeSingle();
       if (!companyMember?.company_id) throw new Error("Empresa não encontrada");
 
+      // Mantém os valores antigos caso o usuário não tenha digitado novamente
+      const existingCfg = (integration?.config as any) || {};
       const config = {
-        account_sid: accountSid.trim(),
-        auth_token: authToken.trim(),
-        whatsapp_number: whatsappNumber.trim(),
-        is_sandbox: isSandbox,
+        instance_id: instanceId.trim() || existingCfg.instance_id,
+        token: token.trim() || existingCfg.token,
+        client_token: clientToken.trim() || existingCfg.client_token,
+        whatsapp_number: whatsappNumber.trim() || existingCfg.whatsapp_number,
       };
 
       const { error } = await supabase
@@ -181,9 +182,9 @@ const TwilioWhatsAppCard = () => {
         .upsert(
           {
             company_id: companyMember.company_id,
-            provider: "twilio_whatsapp" as any,
+            provider: "zapi_whatsapp" as any,
             config,
-            api_token: accountSid.trim(),
+            api_token: config.instance_id,
             status: "active",
           },
           { onConflict: "company_id,provider" }
@@ -191,9 +192,10 @@ const TwilioWhatsAppCard = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integration", "twilio_whatsapp"] });
-      toast({ title: "Twilio WhatsApp", description: "Credenciais salvas com sucesso." });
-      setAuthToken("");
+      queryClient.invalidateQueries({ queryKey: ["integration", "zapi_whatsapp"] });
+      toast({ title: "Z-API WhatsApp", description: "Credenciais salvas com sucesso." });
+      setToken("");
+      setClientToken("");
     },
     onError: (e: Error) =>
       toast({ title: "Erro ao salvar", description: e.message, variant: "destructive" }),
@@ -201,9 +203,13 @@ const TwilioWhatsAppCard = () => {
 
   const testMutation = useMutation({
     mutationFn: async () => {
-      if (!accountSid || !authToken) throw new Error("Preencha Account SID e Auth Token");
-      const { data, error } = await supabase.functions.invoke("twilio-test-connection", {
-        body: { account_sid: accountSid.trim(), auth_token: authToken.trim() },
+      const existingCfg = (integration?.config as any) || {};
+      const i = instanceId.trim() || existingCfg.instance_id;
+      const t = token.trim() || existingCfg.token;
+      const c = clientToken.trim() || existingCfg.client_token;
+      if (!i || !t || !c) throw new Error("Preencha Instance ID, Token e Client-Token");
+      const { data, error } = await supabase.functions.invoke("zapi-test-connection", {
+        body: { instance_id: i, token: t, client_token: c },
       });
       if (error) throw error;
       if (!data?.ok) throw new Error(data?.error || "Falha na validação");
@@ -212,7 +218,9 @@ const TwilioWhatsAppCard = () => {
     onSuccess: (data) =>
       toast({
         title: "Conexão OK",
-        description: `Conta Twilio validada: ${data.friendly_name || ""}`,
+        description: data.connected
+          ? "Instância Z-API conectada ao WhatsApp."
+          : "Credenciais válidas, mas a instância ainda não está conectada (escaneie o QR Code no painel Z-API).",
       }),
     onError: (e: Error) =>
       toast({ title: "Falha no teste", description: e.message, variant: "destructive" }),
@@ -228,13 +236,13 @@ const TwilioWhatsAppCard = () => {
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["integration", "twilio_whatsapp"] });
-      toast({ title: "Desconectado", description: "Twilio WhatsApp desativado." });
+      queryClient.invalidateQueries({ queryKey: ["integration", "zapi_whatsapp"] });
+      toast({ title: "Desconectado", description: "Z-API WhatsApp desativada." });
     },
   });
 
   const copyUrl = () => {
-    navigator.clipboard.writeText(TWILIO_WEBHOOK_URL);
+    navigator.clipboard.writeText(ZAPI_WEBHOOK_URL);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -244,59 +252,68 @@ const TwilioWhatsAppCard = () => {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base flex items-center gap-2">
-            <MessageCircle className="h-4 w-4" /> WhatsApp (Twilio)
+            <MessageCircle className="h-4 w-4" /> WhatsApp (Z-API)
           </CardTitle>
           <Badge variant={isConnected ? "default" : "secondary"}>
             {isLoading ? "Carregando..." : isConnected ? "Conectado" : "Não configurado"}
           </Badge>
         </div>
         <CardDescription>
-          Envie e receba mensagens de WhatsApp das cadências. Cada empresa usa suas próprias
-          credenciais Twilio.
+          Envie e receba mensagens de WhatsApp via Z-API. Cada empresa usa sua própria
+          instância conectada por QR Code.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3">
           <div>
-            <Label htmlFor="tw-sid">Account SID</Label>
+            <Label htmlFor="z-instance">Instance ID</Label>
             <Input
-              id="tw-sid"
-              placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              value={accountSid}
-              onChange={(e) => setAccountSid(e.target.value)}
+              id="z-instance"
+              placeholder="3D..."
+              value={instanceId}
+              onChange={(e) => setInstanceId(e.target.value)}
             />
           </div>
           <div>
-            <Label htmlFor="tw-token">Auth Token</Label>
+            <Label htmlFor="z-token">Instance Token</Label>
             <Input
-              id="tw-token"
+              id="z-token"
               type="password"
-              placeholder={isConnected ? "•••••••••• (deixe em branco para manter)" : "Cole o Auth Token"}
-              value={authToken}
-              onChange={(e) => setAuthToken(e.target.value)}
+              placeholder={isConnected ? "•••••••••• (deixe em branco para manter)" : "Cole o token da instância"}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
             />
           </div>
           <div>
-            <Label htmlFor="tw-number">Número WhatsApp (E.164)</Label>
+            <Label htmlFor="z-client-token">Client-Token (Security Token da conta)</Label>
             <Input
-              id="tw-number"
-              placeholder="+14155238886"
+              id="z-client-token"
+              type="password"
+              placeholder={isConnected ? "•••••••••• (deixe em branco para manter)" : "Cole o Account Security Token"}
+              value={clientToken}
+              onChange={(e) => setClientToken(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label htmlFor="z-number">Número WhatsApp conectado (E.164)</Label>
+            <Input
+              id="z-number"
+              placeholder="+5511999999999"
               value={whatsappNumber}
               onChange={(e) => setWhatsappNumber(e.target.value)}
             />
-          </div>
-          <div className="flex items-center gap-2">
-            <Switch id="tw-sandbox" checked={isSandbox} onCheckedChange={setIsSandbox} />
-            <Label htmlFor="tw-sandbox" className="text-sm">
-              Sandbox Twilio (número compartilhado para testes)
-            </Label>
           </div>
         </div>
 
         <div className="flex gap-2 flex-wrap">
           <Button
             onClick={() => saveMutation.mutate()}
-            disabled={!accountSid || (!authToken && !isConnected) || !whatsappNumber || saveMutation.isPending}
+            disabled={
+              saveMutation.isPending ||
+              (!instanceId && !(integration?.config as any)?.instance_id) ||
+              (!token && !isConnected) ||
+              (!clientToken && !isConnected)
+            }
           >
             <Plug className="mr-2 h-4 w-4" />
             {saveMutation.isPending ? "Salvando..." : isConnected ? "Atualizar" : "Salvar e Conectar"}
@@ -304,7 +321,7 @@ const TwilioWhatsAppCard = () => {
           <Button
             variant="outline"
             onClick={() => testMutation.mutate()}
-            disabled={!accountSid || !authToken || testMutation.isPending}
+            disabled={testMutation.isPending}
           >
             {testMutation.isPending ? "Testando..." : "Testar conexão"}
           </Button>
@@ -323,27 +340,24 @@ const TwilioWhatsAppCard = () => {
 
         <div className="bg-muted rounded p-3 text-xs space-y-2">
           <p className="font-medium">📥 Webhook para mensagens recebidas</p>
-          <p>No console Twilio, configure este URL em <strong>Messaging → Settings → WhatsApp Sandbox</strong> (campo "When a message comes in"):</p>
+          <p>
+            No painel da Z-API, vá em <strong>Webhooks → Ao receber</strong> e cole este URL
+            (método POST, formato JSON):
+          </p>
           <div className="flex items-center gap-2 bg-background rounded px-2 py-1 font-mono text-[11px] break-all">
-            <span className="flex-1">{TWILIO_WEBHOOK_URL}</span>
+            <span className="flex-1">{ZAPI_WEBHOOK_URL}</span>
             <Button variant="ghost" size="sm" onClick={copyUrl} className="h-6 px-2">
               {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
             </Button>
           </div>
-          {isSandbox && (
-            <p className="text-amber-600 dark:text-amber-400">
-              ⚠️ Sandbox: cada lead precisa enviar <code>join &lt;código&gt;</code> para <strong>+1 415 523 8886</strong> antes
-              de receber mensagens. Em produção, contrate um número dedicado.
-            </p>
-          )}
           <p>
             <a
-              href="https://console.twilio.com/us1/develop/sms/try-it-out/whatsapp-learn"
+              href="https://app.z-api.io/"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-primary hover:underline"
             >
-              Abrir console do WhatsApp Sandbox <ExternalLink className="h-3 w-3" />
+              Abrir painel da Z-API <ExternalLink className="h-3 w-3" />
             </a>
           </p>
         </div>
@@ -442,8 +456,8 @@ export default function Integrations() {
       {/* Gmail Card */}
       <GmailCard />
 
-      {/* Twilio WhatsApp Card */}
-      <TwilioWhatsAppCard />
+      {/* Z-API WhatsApp Card */}
+      <ZApiWhatsAppCard />
 
       {/* Cal.com Card */}
       <CalComCard />
