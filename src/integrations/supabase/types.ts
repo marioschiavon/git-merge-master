@@ -471,6 +471,7 @@ export type Database = {
           calcom_round_robin_enabled: boolean
           calcom_team_id: number | null
           created_at: string
+          enrichment_settings: Json
           id: string
           logo_url: string | null
           max_leads: number
@@ -485,6 +486,7 @@ export type Database = {
           calcom_round_robin_enabled?: boolean
           calcom_team_id?: number | null
           created_at?: string
+          enrichment_settings?: Json
           id?: string
           logo_url?: string | null
           max_leads?: number
@@ -499,6 +501,7 @@ export type Database = {
           calcom_round_robin_enabled?: boolean
           calcom_team_id?: number | null
           created_at?: string
+          enrichment_settings?: Json
           id?: string
           logo_url?: string | null
           max_leads?: number
@@ -1048,6 +1051,60 @@ export type Database = {
           },
         ]
       }
+      lead_enrichment_jobs: {
+        Row: {
+          attempts: number
+          company_id: string
+          created_at: string
+          error: string | null
+          id: string
+          lead_id: string
+          next_run_at: string
+          status: string
+          steps_done: Json
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          company_id: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          lead_id: string
+          next_run_at?: string
+          status?: string
+          steps_done?: Json
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          company_id?: string
+          created_at?: string
+          error?: string | null
+          id?: string
+          lead_id?: string
+          next_run_at?: string
+          status?: string
+          steps_done?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_enrichment_jobs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_enrichment_jobs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_insights: {
         Row: {
           analyzed_at: string | null
@@ -1179,6 +1236,69 @@ export type Database = {
           },
         ]
       }
+      lead_social_profiles: {
+        Row: {
+          bio: string | null
+          company_id: string
+          created_at: string
+          followers: number | null
+          handle: string | null
+          id: string
+          lead_id: string
+          network: string
+          raw: Json | null
+          recent_posts: Json | null
+          scraped_at: string
+          updated_at: string
+          url: string | null
+        }
+        Insert: {
+          bio?: string | null
+          company_id: string
+          created_at?: string
+          followers?: number | null
+          handle?: string | null
+          id?: string
+          lead_id: string
+          network: string
+          raw?: Json | null
+          recent_posts?: Json | null
+          scraped_at?: string
+          updated_at?: string
+          url?: string | null
+        }
+        Update: {
+          bio?: string | null
+          company_id?: string
+          created_at?: string
+          followers?: number | null
+          handle?: string | null
+          id?: string
+          lead_id?: string
+          network?: string
+          raw?: Json | null
+          recent_posts?: Json | null
+          scraped_at?: string
+          updated_at?: string
+          url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_social_profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_social_profiles_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leads: {
         Row: {
           address: string | null
@@ -1187,11 +1307,17 @@ export type Database = {
           company_name: string | null
           created_at: string
           email: string | null
+          enrichment_status: string | null
+          enrichment_updated_at: string | null
+          facebook_url: string | null
           handoff_at: string | null
           handoff_reason: string | null
           handoff_required: boolean
           id: string
+          instagram_url: string | null
           last_synced_at: string | null
+          linkedin_company_url: string | null
+          linkedin_url: string | null
           name: string
           phone: string | null
           pipedrive_data: Json | null
@@ -1218,11 +1344,17 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           email?: string | null
+          enrichment_status?: string | null
+          enrichment_updated_at?: string | null
+          facebook_url?: string | null
           handoff_at?: string | null
           handoff_reason?: string | null
           handoff_required?: boolean
           id?: string
+          instagram_url?: string | null
           last_synced_at?: string | null
+          linkedin_company_url?: string | null
+          linkedin_url?: string | null
           name: string
           phone?: string | null
           pipedrive_data?: Json | null
@@ -1249,11 +1381,17 @@ export type Database = {
           company_name?: string | null
           created_at?: string
           email?: string | null
+          enrichment_status?: string | null
+          enrichment_updated_at?: string | null
+          facebook_url?: string | null
           handoff_at?: string | null
           handoff_reason?: string | null
           handoff_required?: boolean
           id?: string
+          instagram_url?: string | null
           last_synced_at?: string | null
+          linkedin_company_url?: string | null
+          linkedin_url?: string | null
           name?: string
           phone?: string | null
           pipedrive_data?: Json | null
@@ -1737,7 +1875,7 @@ export type Database = {
         | "replied"
         | "bounced"
         | "paused"
-      integration_provider: "pipedrive" | "gmail" | "twilio_whatsapp"
+      integration_provider: "pipedrive" | "gmail" | "twilio_whatsapp" | "apify"
       intent_category:
         | "interest"
         | "info_request"
@@ -1943,7 +2081,7 @@ export const Constants = {
         "bounced",
         "paused",
       ],
-      integration_provider: ["pipedrive", "gmail", "twilio_whatsapp"],
+      integration_provider: ["pipedrive", "gmail", "twilio_whatsapp", "apify"],
       intent_category: [
         "interest",
         "info_request",
