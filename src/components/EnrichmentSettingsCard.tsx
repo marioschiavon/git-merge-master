@@ -96,7 +96,7 @@ export function EnrichmentSettingsCard() {
       <CardContent className="space-y-4">
         <Toggle id="ws" label="Analisar website automaticamente" checked={!!settings.website_analysis} onChange={(v) => set("website_analysis", v)} />
         <Toggle id="ds" label="Descobrir Instagram/LinkedIn/Facebook no website" checked={!!settings.discover_socials} onChange={(v) => set("discover_socials", v)} />
-        <Toggle id="af" label="Completar contatos faltantes (email / telefone / WhatsApp) a partir do site e redes" checked={settings.autofill_contacts !== false} onChange={(v) => set("autofill_contacts", v)} />
+        <Toggle id="ac" label="Completar contatos faltantes (email / telefone / WhatsApp) a partir do site e redes" checked={settings.autofill_contacts !== false} onChange={(v) => set("autofill_contacts", v)} />
         <Toggle id="ap" label="Scraping de redes sociais via Apify" checked={!!settings.apify_scrape} onChange={(v) => set("apify_scrape", v)} />
 
         {settings.apify_scrape && (
