@@ -200,7 +200,7 @@ serve(async (req) => {
     if (!convId && lead_id) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url)")
         .eq("lead_id", lead_id)
         .order("created_at", { ascending: false })
         .limit(1)
