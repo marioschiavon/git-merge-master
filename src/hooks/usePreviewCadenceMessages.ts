@@ -42,3 +42,38 @@ export function useFirstStepPreview(cadenceId: string | null, leadId: string | n
     },
   });
 }
+
+export interface ApproachVariation {
+  subject: string | null;
+  message: string;
+  angle: string;
+}
+
+export function useApproachSuggestions(leadId: string | null, companyId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["approach_suggestions", leadId, companyId],
+    enabled: !!leadId && !!companyId && enabled,
+    staleTime: 1000 * 60 * 60,
+    queryFn: async () => {
+      // Resolve cadence: default in enrichment_settings or first active cadence
+      const { data: comp } = await supabase
+        .from("companies").select("enrichment_settings").eq("id", companyId!).maybeSingle();
+      const settings = (comp?.enrichment_settings as any) || {};
+      let cadenceId: string | null = settings.default_cadence_id || null;
+      if (!cadenceId) {
+        const { data: c } = await supabase
+          .from("cadences").select("id").eq("company_id", companyId!)
+          .order("created_at", { ascending: true }).limit(1).maybeSingle();
+        cadenceId = c?.id || null;
+      }
+      if (!cadenceId) return { variations: [] as ApproachVariation[], cadence: null, step: null };
+
+      const { data, error } = await supabase.functions.invoke("preview-cadence-messages", {
+        body: { cadence_id: cadenceId, lead_id: leadId, variations: 3 },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { variations: ApproachVariation[]; cadence: { id: string; name: string } | null; step: any };
+    },
+  });
+}

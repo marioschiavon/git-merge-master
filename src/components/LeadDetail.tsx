@@ -19,8 +19,10 @@ import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { LeadSocialCard } from "@/components/LeadSocialCard";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useApproachSuggestions } from "@/hooks/usePreviewCadenceMessages";
+import { RefreshCw } from "lucide-react";
 import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles } from "lucide-react";
 
 
@@ -102,6 +104,10 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
   const { data: activities = [] } = useLeadActivities(lead?.id ?? null);
   const { data: insightData, isLoading: insightsLoading } = useLeadInsights(lead?.id ?? null);
   const analyzeWebsite = useAnalyzeWebsite();
+  const qc = useQueryClient();
+  const { data: approach, isLoading: approachLoading, isFetching: approachFetching } = useApproachSuggestions(
+    lead?.id ?? null, lead?.company_id ?? null, !!lead && open,
+  );
   const deleteLead = useDeleteLead();
 
   const { data: lastJob } = useQuery({
@@ -414,20 +420,59 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
                   </div>
                 )}
 
-                {/* Sugestões de abordagem */}
-                {insights.oportunidades_abordagem?.length > 0 && (
-                  <div className="space-y-2">
+                {/* Sugestões de Abordagem — variações do Step 1 da cadência */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
                       <MessageSquare className="h-3 w-3" /> Sugestões de Abordagem
+                      {approach?.cadence && (
+                        <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                          · Step 1 de "{approach.cadence.name}"
+                        </span>
+                      )}
                     </p>
-                    {insights.oportunidades_abordagem.map((o: any, i: number) => (
-                      <div key={i} className="rounded-md border p-2.5 space-y-1">
-                        <p className="text-xs font-medium text-primary">{o.gancho}</p>
-                        <p className="text-sm text-muted-foreground italic">"{o.mensagem_sugerida}"</p>
-                      </div>
-                    ))}
+                    {lead?.id && lead?.company_id && (
+                      <Button
+                        size="sm" variant="ghost"
+                        className="h-6 px-2 text-xs"
+                        disabled={approachFetching}
+                        onClick={() => qc.invalidateQueries({ queryKey: ["approach_suggestions", lead.id, lead.company_id] })}
+                      >
+                        <RefreshCw className={`h-3 w-3 mr-1 ${approachFetching ? "animate-spin" : ""}`} />
+                        Regenerar
+                      </Button>
+                    )}
                   </div>
-                )}
+                  {approachLoading || approachFetching ? (
+                    <div className="space-y-2">
+                      {[0, 1, 2].map((i) => (
+                        <div key={i} className="rounded-md border p-2.5 animate-pulse space-y-1.5">
+                          <div className="h-3 w-1/3 bg-muted rounded" />
+                          <div className="h-3 w-full bg-muted rounded" />
+                          <div className="h-3 w-5/6 bg-muted rounded" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : !approach?.cadence ? (
+                    <p className="text-xs text-muted-foreground italic">
+                      Nenhuma cadência configurada. Defina uma cadência padrão em Configurações → Enriquecimento.
+                    </p>
+                  ) : approach.variations?.length ? (
+                    approach.variations.map((v, i) => (
+                      <div key={i} className="rounded-md border p-2.5 space-y-1">
+                        <p className="text-xs font-medium text-primary">{v.angle || `Variação ${i + 1}`}</p>
+                        {v.subject && (
+                          <p className="text-xs text-muted-foreground">
+                            <span className="font-medium">Assunto:</span> {v.subject}
+                          </p>
+                        )}
+                        <p className="text-sm text-muted-foreground italic whitespace-pre-wrap">"{v.message}"</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-xs text-muted-foreground italic">Sem variações disponíveis.</p>
+                  )}
+                </div>
 
                 {insightData?.analyzed_at && (
                   <p className="text-xs text-muted-foreground pt-1">
