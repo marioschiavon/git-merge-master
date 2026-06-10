@@ -73,9 +73,9 @@ export async function verifyZApiCredentials(
   cfg: ZApiConfig,
 ): Promise<{ ok: boolean; connected?: boolean; smartphone_connected?: boolean; error?: string }> {
   try {
-    const res = await fetch(`${baseUrl(cfg)}/status`, {
-      headers: { "Client-Token": cfg.client_token },
-    });
+    const headers: Record<string, string> = {};
+    if (cfg.client_token) headers["Client-Token"] = cfg.client_token;
+    const res = await fetch(`${baseUrl(cfg)}/status`, { headers });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       return { ok: false, error: json?.error || json?.message || `HTTP ${res.status}` };

@@ -31,9 +31,9 @@ serve(async (req) => {
     }
 
     const { instance_id, token, client_token } = await req.json();
-    if (!instance_id || !token || !client_token) {
+    if (!instance_id || !token) {
       return new Response(
-        JSON.stringify({ error: "instance_id, token e client_token são obrigatórios" }),
+        JSON.stringify({ error: "instance_id e token são obrigatórios" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
