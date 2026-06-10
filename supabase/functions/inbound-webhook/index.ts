@@ -1424,21 +1424,32 @@ Analise a última mensagem e decida a ação.`,
           !!phoneForLead,
         );
 
+        // Inherit company fields from the referrer lead (same company by assumption)
+        const inheritedCompanyName =
+          leadData.company_name || companyNameFromWebsite(leadData.website) || null;
+        const inheritedWebsite = leadData.website || null;
+        const inheritedAddress = leadData.address || null;
+        const inheritedLinkedinCompany = leadData.linkedin_company_url || null;
+
         // Avoid duplicates by email within same company
         let newLeadId: string | null = null;
         if (normalizedEmail) {
           const { data: existing } = await supabase
             .from("leads")
-            .select("id, whatsapp, phone")
+            .select("id, whatsapp, phone, company_name, website, address, linkedin_company_url")
             .eq("company_id", companyId)
             .eq("email", normalizedEmail)
             .maybeSingle();
           if (existing?.id) {
             newLeadId = existing.id;
-            // Backfill phone/whatsapp if missing
+            // Backfill phone/whatsapp + company fields if missing
             const patch: any = {};
             if (!existing.phone && phoneForLead) patch.phone = phoneForLead;
             if (!existing.whatsapp && waForLead) patch.whatsapp = waForLead;
+            if (!existing.company_name && inheritedCompanyName) patch.company_name = inheritedCompanyName;
+            if (!existing.website && inheritedWebsite) patch.website = inheritedWebsite;
+            if (!existing.address && inheritedAddress) patch.address = inheritedAddress;
+            if (!existing.linkedin_company_url && inheritedLinkedinCompany) patch.linkedin_company_url = inheritedLinkedinCompany;
             if (Object.keys(patch).length) {
               await supabase.from("leads").update(patch).eq("id", existing.id);
             }
@@ -1452,7 +1463,10 @@ Analise a última mensagem e decida a ação.`,
             email: normalizedEmail,
             phone: phoneForLead,
             whatsapp: waForLead,
-            company_name: leadData.company_name || null,
+            company_name: inheritedCompanyName,
+            website: inheritedWebsite,
+            address: inheritedAddress,
+            linkedin_company_url: inheritedLinkedinCompany,
             title: ref.referred_role || null,
             source: "referral",
             status: "new",
