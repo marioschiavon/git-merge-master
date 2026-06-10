@@ -993,7 +993,6 @@ Analise a última mensagem e decida a ação.`,
     } else if (parsed.action === "cancel") {
       // Cancel: drop existing booking + held slots, no new offer
       console.log(`Cancel requested for lead ${leadData?.id}`);
-      const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
 
       const { data: liveSlots } = await supabase
         .from("slot_holds")
@@ -1003,20 +1002,13 @@ Analise a última mensagem e decida a ação.`,
 
       let cancelledBookingUid: string | null = null;
       let cancelledScheduledAt: string | null = null;
+      let calcomCancelFailed = false;
       for (const slot of (liveSlots || [])) {
-        if (slot.cal_booking_uid && CALCOM_API_KEY) {
-          const endpoint = slot.status === "confirmed"
-            ? `https://api.cal.com/v2/bookings/${slot.cal_booking_uid}/cancel`
-            : `https://api.cal.com/v2/slots/reservations/${slot.cal_booking_uid}`;
-          const apiVersion = slot.status === "confirmed" ? "2024-04-15" : "2024-09-04";
-          try {
-            await fetch(endpoint, {
-              method: "DELETE",
-              headers: { "Authorization": `Bearer ${CALCOM_API_KEY}`, "cal-api-version": apiVersion },
-            });
-          } catch (e) {
-            console.error("Error cancelling Cal.com entry:", e);
-          }
+        if (slot.cal_booking_uid) {
+          const r = slot.status === "confirmed"
+            ? await cancelCalcomBooking(slot.cal_booking_uid, "Cancelado pelo prospect via conversa")
+            : await cancelCalcomReservation(slot.cal_booking_uid);
+          if (!r.ok) calcomCancelFailed = true;
           if (slot.status === "confirmed") {
             cancelledBookingUid = slot.cal_booking_uid;
             cancelledScheduledAt = slot.slot_datetime;
@@ -1031,15 +1023,9 @@ Analise a última mensagem e decida a ação.`,
         .eq("lead_id", leadData.id)
         .neq("status", "cancelled");
       for (const b of (activeBookings || [])) {
-        if (CALCOM_API_KEY && b.calcom_booking_uid && b.calcom_booking_uid !== cancelledBookingUid) {
-          try {
-            await fetch(`https://api.cal.com/v2/bookings/${b.calcom_booking_uid}/cancel`, {
-              method: "DELETE",
-              headers: { "Authorization": `Bearer ${CALCOM_API_KEY}`, "cal-api-version": "2024-04-15" },
-            });
-          } catch (e) {
-            console.error("Error cancelling orphan booking:", e);
-          }
+        if (b.calcom_booking_uid && b.calcom_booking_uid !== cancelledBookingUid) {
+          const r = await cancelCalcomBooking(b.calcom_booking_uid, "Cancelado pelo prospect via conversa");
+          if (!r.ok) calcomCancelFailed = true;
         }
         await supabase.from("bookings").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", b.id);
         cancelledBookingUid = cancelledBookingUid || b.calcom_booking_uid;
@@ -1054,6 +1040,15 @@ Analise a última mensagem e decida a ação.`,
           booking_uid: cancelledBookingUid,
           scheduled_at: cancelledScheduledAt,
         });
+        if (calcomCancelFailed) {
+          await supabase.from("lead_activities").insert({
+            company_id: companyId,
+            lead_id: leadData.id,
+            type: "alert",
+            description: "⚠️ Cancelamento no Cal.com falhou — verifique o painel e cancele manualmente",
+            metadata: { stage: "cancel", booking_uid: cancelledBookingUid },
+          });
+        }
       }
 
       if (enrollment) {
