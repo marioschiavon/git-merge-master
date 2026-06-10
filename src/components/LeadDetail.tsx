@@ -104,6 +104,10 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
   const { data: activities = [] } = useLeadActivities(lead?.id ?? null);
   const { data: insightData, isLoading: insightsLoading } = useLeadInsights(lead?.id ?? null);
   const analyzeWebsite = useAnalyzeWebsite();
+  const qc = useQueryClient();
+  const { data: approach, isLoading: approachLoading, isFetching: approachFetching } = useApproachSuggestions(
+    lead?.id ?? null, lead?.company_id ?? null, !!lead && open,
+  );
   const deleteLead = useDeleteLead();
 
   const { data: lastJob } = useQuery({
