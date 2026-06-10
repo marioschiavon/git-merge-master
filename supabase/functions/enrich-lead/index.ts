@@ -196,8 +196,29 @@ serve(async (req) => {
       if (actors.instagram !== false && lead.instagram_url) {
         const handle = handleFromUrl(lead.instagram_url, "instagram\\.com");
         if (handle) tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, "apify/instagram-profile-scraper", { usernames: [handle] });
-          if (r) await upsertProfile("instagram", handle, lead.instagram_url, r);
+          const limit = Math.max(3, Math.min(30, Number(actors.instagram_posts_limit) || 12));
+          const r = await runApifyActor(apifyToken, "apify/instagram-scraper", {
+            directUrls: [lead.instagram_url],
+            resultsType: "posts",
+            resultsLimit: limit,
+            addParentData: true,
+          });
+          if (r && Array.isArray(r) && r.length) {
+            const posts = normalizeInstagramPosts(r);
+            const first: any = r[0] || {};
+            const owner: any = first.owner || {};
+            await supabase.from("lead_social_profiles").upsert({
+              lead_id: lead.id, company_id: lead.company_id, network: "instagram",
+              handle: first.ownerUsername || owner.username || handle,
+              url: lead.instagram_url,
+              bio: owner.biography || first.ownerFullName || null,
+              followers: owner.followersCount || first.ownerFollowersCount || null,
+              recent_posts: posts,
+              posts_summary: summarizePosts(posts),
+              raw: { sampleSize: r.length, owner, firstPost: first },
+              scraped_at: new Date().toISOString(),
+            }, { onConflict: "lead_id,network" });
+          }
         })());
       }
       if (actors.facebook !== false && lead.facebook_url) {
