@@ -659,19 +659,24 @@ Responda APENAS com JSON:
 }${slotContext}`;
 
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-5",
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
+    let parsed: any;
+    if (earlyParsed) {
+      console.log("Skipping AI classification — earlyParsed set by pending-email fast-path");
+      parsed = earlyParsed;
+    } else {
+      const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-5",
+          messages: [
+            { role: "system", content: systemPrompt },
+            {
+              role: "user",
+              content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
 
 Histórico:
 ${(messages || []).slice(0, -1).map((m: any) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`).join("\n")}
@@ -680,28 +685,28 @@ ${(messages || []).slice(0, -1).map((m: any) => `[${m.direction === "outbound" ?
 "${cleanContent}"
 
 Analise a última mensagem e decida a ação.`,
-          },
-        ],
-      }),
-    });
-
-    if (!aiRes.ok) {
-      await aiRes.text();
-      return new Response(JSON.stringify({ error: "Erro na análise IA" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+            },
+          ],
+        }),
       });
-    }
 
-    const aiData = await aiRes.json();
-    const aiContent = aiData.choices?.[0]?.message?.content || "";
+      if (!aiRes.ok) {
+        await aiRes.text();
+        return new Response(JSON.stringify({ error: "Erro na análise IA" }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
-    let parsed;
-    try {
-      const jsonMatch = aiContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, aiContent];
-      parsed = JSON.parse(jsonMatch[1].trim());
-    } catch {
-      parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
+      const aiData = await aiRes.json();
+      const aiContent = aiData.choices?.[0]?.message?.content || "";
+
+      try {
+        const jsonMatch = aiContent.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, aiContent];
+        parsed = JSON.parse(jsonMatch[1].trim());
+      } catch {
+        parsed = { action: "reply", sentiment: "neutro", reasoning: "Fallback", reply_message: null, selected_slot: null };
+      }
     }
 
     // FIX: Compensate AI-provided suggested_datetime from naive BRT to UTC
