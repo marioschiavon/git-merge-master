@@ -1,53 +1,32 @@
 ## Objetivo
-
-No painel **"Sugestões de Abordagem"** (do LeadDetail), substituir as 3 sugestões geradas pelo `analyze-lead-website` por 3 variações da **mesma mensagem do Step 1** da cadência — usando exatamente a mesma lógica do `preview-cadence-messages` (template do step + knowledge + highlights + ai_instructions + insights + mental triggers).
-
-## Por quê
-
-Hoje as sugestões saem da análise do site e ficam desconectadas do template/tom da cadência. O usuário quer que as sugestões reflitam o e-mail real do Step 1 — só variando o ângulo/gancho.
+Incluir os dados de análise de redes sociais (Instagram, LinkedIn etc. — tabela `lead_social_profiles`) no contexto usado para gerar mensagens personalizadas, tanto nas **3 variações de "Sugestões de Abordagem"** quanto nos **previews dos steps** em `/cadences`.
 
 ## Mudanças
 
-### 1. `preview-cadence-messages` — novo modo `variations`
-
-Aceitar `{ cadence_id, lead_id, variations: 3 }`. Quando `variations` for passado:
-
-- Pega só o Step 1 (igual ao `only_first_step`).
-- Em vez de 1 chamada à IA, faz 1 chamada pedindo um array com N variações:
+### 1. `supabase/functions/preview-cadence-messages/index.ts`
+- Adicionar 1 query extra ao bloco `Promise.all` (linha 87):
+  ```ts
+  supabase.from("lead_social_profiles")
+    .select("network, handle, bio, followers, posts_summary, recent_posts")
+    .eq("lead_id", lead_id)
   ```
-  Responda APENAS JSON: { "variations": [
-    { "subject": "...", "message": "...", "angle": "gancho usado" }
-  ] }
-  ```
-- Mesmo system prompt já existente (knowledge + highlights + insights + ai_instructions + canal/regras), apenas o user prompt pede "gere 3 variações distintas — ganchos diferentes, todos conectando algo do prospect com o que NÓS vendemos".
-- Retorna `{ variations: [...] , step: {channel, subject, template}, lead }`.
+- Montar `socialContext` (string) logo após `insightsContext`:
+  - Para cada perfil: `### {network} (@{handle}) — {followers} seguidores\nBio: {bio}\nResumo de posts: {posts_summary}\nÚltimos posts: {top 3 recent_posts.caption truncados a 200 chars}`
+  - Se nenhum perfil tiver bio/posts_summary/recent_posts, deixar vazio.
+- Injetar `socialContext` em **dois pontos**:
+  - No `variationsSystem` (modo variações — Sugestões de Abordagem), nova seção `=== SINAIS DE REDES SOCIAIS DO PROSPECT ===` logo após `=== INSIGHTS DO PROSPECT ===`.
+  - No system prompt do modo padrão (geração por step), mesma seção, controlada pela mesma flag `useInsights` do step (se `smart_customization`/`use_insights` estiver ativo).
+- Atualizar regras: "Quando houver sinais de redes sociais, prefira referenciar um post/tema concreto recente em vez de gancho genérico. Nunca invente."
 
-### 2. Novo hook `useApproachSuggestions(leadId)`
+### 2. (Opcional, mesmo arquivo) Logging
+- Log curto indicando quantos perfis sociais foram carregados, para debug.
 
-- Descobre `default_cadence_id` em `companies.enrichment_settings` (fallback: primeira cadência ativa da empresa).
-- Chama `preview-cadence-messages` com `variations: 3, only_first_step: true`.
-- Cache de 1h (igual ao `useFirstStepPreview`).
+## Fora de escopo
+- Sem mudanças de schema.
+- Sem mudanças no front (`LeadDetail.tsx`, `CadenceFirstMessageInline.tsx`) — eles já consomem o output desta função.
+- Sem alteração em `analyze-lead-website` ou `enrich-lead`.
 
-### 3. UI — `LeadDetail.tsx` "Sugestões de Abordagem"
-
-- Remove leitura de `insights.oportunidades_abordagem`.
-- Renderiza as 3 variações vindas do hook, mantendo o visual atual (card com gancho em negrito + mensagem em itálico).
-- Cabeçalho do card mostra "Variações do Step 1 — {cadence_name}" e um botão "Regenerar" (force_regenerate).
-- Loading skeleton enquanto carrega. Empty state se não houver cadência configurada → CTA "Definir cadência padrão".
-
-### 4. `analyze-lead-website`
-
-Pode continuar gerando `oportunidades_abordagem` no JSON (útil internamente / em insights), mas a UI não usa mais esse campo nesse painel. Sem alteração nessa função.
-
-## Fora do escopo
-
-- Não mexer no preview do Cadence Leads tab (`CadenceFirstMessageInline`) — continua igual.
-- Sem mudança de schema.
-
-## Ordem
-
-1. `preview-cadence-messages` (modo variations).
-2. `useApproachSuggestions` hook.
-3. `LeadDetail.tsx` (trocar fonte do painel + regenerar).
-
-Confirma?
+## Ordem de execução
+1. Editar `preview-cadence-messages/index.ts` (query + montagem + injeção nos dois prompts).
+2. Deploy automático da function.
+3. Validar abrindo um lead com Instagram enriquecido e clicando em "Regenerar".
