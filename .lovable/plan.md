@@ -1,47 +1,47 @@
-## Diagnóstico
+# Problema
 
-A reunião do Eduardo segue confirmada no Cal.com porque a chamada de cancelamento do nosso código usa o método HTTP errado:
+Na indicação feita pela Jakeline (Revivere) o lead indicado foi criado, mas:
 
-- **Atual**: `DELETE https://api.cal.com/v2/bookings/{uid}/cancel` com `cal-api-version: 2024-04-15`
-- **Correto** (Cal.com v2): `POST https://api.cal.com/v2/bookings/{uid}/cancel` com header `cal-api-version: 2024-08-13` e body `{ "cancellationReason": "..." }`
+1. **WhatsApp não foi salvo** — a IA passou `referred_phone = "11951503091"` e o campo `whatsapp` ficou `null`. Só `phone` foi gravado (sem normalizar para `+55…`).
+2. **O indicado nunca foi contatado** — a IA retornou `referred_channel = "email/WhatsApp"` (string composta inválida). Esse valor foi gravado direto em `leads.preferred_channel` e usado no `insert` de `conversations.channel`, que rejeita o valor → não criou conversa, não enviou e-mail nem WhatsApp.
 
-Como o código atual ignora o status HTTP da resposta (fire-and-forget), o erro nunca apareceu nos logs. O slot_hold foi marcado como `cancelled` no nosso banco e a mensagem de sistema foi inserida, mas o evento no Cal.com nunca foi cancelado.
+Resultado: lead `f15defca` ficou parado em `novo_indicado`, sem conversa, sem mensagem, sem `whatsapp`.
 
-Mesmo bug existe em 3 lugares: `inbound-webhook` branches `cancel`, `reschedule` e os cleanups de bookings "órfãs".
+# Correções
 
-## O que vou mudar
+## 1. `supabase/functions/inbound-webhook/index.ts` — branch `referral` / `with_contact`
 
-### 1. `supabase/functions/_shared/calcom.ts` — novo helper compartilhado
+- Adicionar helper `pickChannel(raw, hasEmail, hasPhone)` que normaliza qualquer valor (`"email/WhatsApp"`, `"ambos"`, `null`, etc.) para **um único** canal válido: `"email"` se houver email, senão `"whatsapp"`.
+- Adicionar helper `normalizeBrPhone(raw)` (reusar a lógica de `analyze-lead-website`) para devolver `+55…` válido ou `null`.
+- Ao criar/atualizar o lead indicado:
+  - `phone` = telefone normalizado (ou bruto se normalização falhar).
+  - `whatsapp` = telefone normalizado quando for celular BR (13 dígitos com 9). Hoje está sempre `null`.
+  - `preferred_channel` = resultado de `pickChannel` (apenas `email` ou `whatsapp`).
+- Usar o `newChannel` normalizado no `insert` de `conversations` e na decisão entre branch e-mail / WhatsApp.
+- Se `parsed.new_outreach_message` vier vazio, gerar fallback curto (“Olá {nome}, {empresa} te indicou…”) para garantir o primeiro contato.
+- Branch WhatsApp: passar a enviar de fato via `sendWhatsAppViaTwilio` (hoje só grava `pending_send`), seguindo o mesmo padrão do `send-outbound-message`.
 
-Criar `cancelCalcomBooking(uid, reason)` e `cancelCalcomReservation(uid)` que:
-- Usam método/versão corretos
-- Logam `status`, `ok`, e corpo da resposta
-- Retornam `{ ok, status, body, error? }` para o caller decidir
+## 2. Ajuste no prompt da IA (mesmo arquivo)
 
-### 2. `supabase/functions/inbound-webhook/index.ts`
+No bloco que descreve `referral.referred_channel`, exigir **exatamente um** valor: `"email"` OU `"whatsapp"`. Proibir strings compostas.
 
-Substituir as 3 chamadas inline de cancel (branches `cancel`, `reschedule`, cleanup de bookings órfãs) pelas funções do helper. Logar resultado.
+## 3. Correção pontual da Jakeline (one-shot, após deploy)
 
-Adicionar uma verificação: se o cancel no Cal.com **falhar**, registrar atividade `alert` ("⚠️ Cancelamento no Cal.com falhou — verificar manualmente") em vez de só marcar `cancelled` localmente.
+Para o lead `f15defca-27c2-4be3-a284-0cccb53a006d`:
 
-### 3. `supabase/functions/calcom-confirm-booking/index.ts`
+1. `UPDATE leads SET whatsapp='+5511951503091', phone='+5511951503091', preferred_channel='email'` (tem email `jakkesilva@gmail.com`).
+2. Criar `conversations` (channel=`email`).
+3. Chamar `gmail-send` com a primeira abordagem mencionando indicação da Jakeline (Revivere), respeitando `permission_to_mention=true`.
+4. Registrar `lead_activities` (`type=referral`, “✉️ Primeira abordagem ao indicado enviada”).
 
-Usar o mesmo helper para `cancelCalcomReservation` no loop dos `otherHolds` (atualmente DELETE — está correto para reservations, mas centraliza logging).
+# Fora de escopo
 
-### 4. Fix one-shot para o Eduardo
+- Reescrever a detecção de indicação ou mudar como o lead `is_referrer` é marcado.
+- Retroativo para outros leads antigos com `preferred_channel` inválido (posso fazer numa próxima rodada se quiser).
 
-Após corrigir o código, rodar uma chamada manual via `code--exec` para cancelar o booking `p3cQruwp2S8Xw4ukzgVfyx` no Cal.com agora, usando `CALCOM_API_KEY` já presente nos secrets. Confirmar pelo screenshot do painel ou via GET no booking.
+# Ordem de execução
 
-## Fora de escopo
-
-- Recriar a tabela `bookings` retroativamente (vazia para este lead porque o webhook `calcom-webhook` não populou). Atacamos isso em outra rodada.
-- Mudar a UI para mostrar status de cancelamento Cal.com em tempo real.
-
-## Ordem
-
-1. Criar `_shared/calcom.ts` (helper + logging)
-2. Refatorar `inbound-webhook` (3 chamadas)
-3. Refatorar `calcom-confirm-booking`
-4. Deploy `inbound-webhook` e `calcom-confirm-booking`
-5. Exec one-shot cancelando o booking do Eduardo no Cal.com
-6. Verificar painel Cal.com (você confirma)
+1. Editar `inbound-webhook` (helpers + normalização + envio WhatsApp + prompt).
+2. Deploy da função.
+3. One-shot para Jakeline (update + conversa + gmail-send).
+4. Verificar no painel: lead indicado com `whatsapp` preenchido e e-mail enviado.
