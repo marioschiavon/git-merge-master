@@ -104,6 +104,28 @@ function handleFromUrl(url: string, prefix: string): string | null {
   return m ? m[1] : null;
 }
 
+function normalizeInstagramPosts(raw: any[]): any[] {
+  return (raw || []).slice(0, 30).map((p: any) => ({
+    caption: (p.caption || "").slice(0, 600),
+    hashtags: p.hashtags || [],
+    mentions: p.mentions || [],
+    likes: p.likesCount ?? null,
+    comments: p.commentsCount ?? null,
+    timestamp: p.timestamp || null,
+    url: p.url || (p.shortCode ? `https://instagram.com/p/${p.shortCode}` : null),
+    type: p.type || p.productType || null,
+  })).filter((p) => p.caption || p.url);
+}
+
+function summarizePosts(posts: any[]): string {
+  return posts.slice(0, 12).map((p) => {
+    const date = p.timestamp ? new Date(p.timestamp).toISOString().slice(0, 10) : "—";
+    const tags = (p.hashtags || []).slice(0, 5).map((t: string) => `#${t}`).join(" ");
+    const cap = (p.caption || "").replace(/\s+/g, " ").slice(0, 220);
+    return `- ${date}: "${cap}"${tags ? ` (${tags})` : ""}`;
+  }).join("\n");
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
@@ -196,8 +218,29 @@ serve(async (req) => {
       if (actors.instagram !== false && lead.instagram_url) {
         const handle = handleFromUrl(lead.instagram_url, "instagram\\.com");
         if (handle) tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, "apify/instagram-profile-scraper", { usernames: [handle] });
-          if (r) await upsertProfile("instagram", handle, lead.instagram_url, r);
+          const limit = Math.max(3, Math.min(30, Number(actors.instagram_posts_limit) || 12));
+          const r = await runApifyActor(apifyToken, "apify/instagram-scraper", {
+            directUrls: [lead.instagram_url],
+            resultsType: "posts",
+            resultsLimit: limit,
+            addParentData: true,
+          });
+          if (r && Array.isArray(r) && r.length) {
+            const posts = normalizeInstagramPosts(r);
+            const first: any = r[0] || {};
+            const owner: any = first.owner || {};
+            await supabase.from("lead_social_profiles").upsert({
+              lead_id: lead.id, company_id: lead.company_id, network: "instagram",
+              handle: first.ownerUsername || owner.username || handle,
+              url: lead.instagram_url,
+              bio: owner.biography || first.ownerFullName || null,
+              followers: owner.followersCount || first.ownerFollowersCount || null,
+              recent_posts: posts,
+              posts_summary: summarizePosts(posts),
+              raw: { sampleSize: r.length, owner, firstPost: first },
+              scraped_at: new Date().toISOString(),
+            }, { onConflict: "lead_id,network" });
+          }
         })());
       }
       if (actors.facebook !== false && lead.facebook_url) {
@@ -226,10 +269,15 @@ serve(async (req) => {
     if (settings.generate_message && LOVABLE_API_KEY) {
       try {
         const { data: insights } = await supabase.from("lead_insights").select("insights").eq("lead_id", lead.id).maybeSingle();
-        const { data: socials } = await supabase.from("lead_social_profiles").select("network, bio, recent_posts").eq("lead_id", lead.id);
-        const socialSummary = (socials || []).map(s => `[${s.network}] bio: ${(s.bio || "").slice(0, 300)} | posts: ${JSON.stringify(s.recent_posts || []).slice(0, 500)}`).join("\n");
+        const { data: socials } = await supabase.from("lead_social_profiles").select("network, bio, posts_summary, recent_posts").eq("lead_id", lead.id);
+        const socialSummary = (socials || []).map((s: any) => {
+          const parts = [`[${s.network}] bio: ${(s.bio || "—").slice(0, 300)}`];
+          if (s.posts_summary) parts.push(`[${s.network}] últimos posts:\n${s.posts_summary}`);
+          else if (s.recent_posts) parts.push(`[${s.network}] posts: ${JSON.stringify(s.recent_posts).slice(0, 500)}`);
+          return parts.join("\n");
+        }).join("\n\n");
         const ai = await callAI([
-          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases), com gancho específico baseado nos dados fornecidos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
+          { role: "system", content: `Você é um SDR B2B sênior. Gere uma primeira abordagem altamente personalizada em PT-BR, curta (até 4 frases). O gancho DEVE citar um tema concreto, post ou pauta da empresa observado nas redes sociais quando houver sinal forte; caso contrário use insights do site. Evite elogios genéricos. Responda APENAS JSON: {"subject":"","message":"","hook_used":"","sources":[]}` },
           { role: "user", content: `Lead: ${lead.name} (${lead.title || "cargo n/d"}) da ${lead.company_name || "empresa n/d"}.\n\nInsights do site:\n${JSON.stringify(insights?.insights || {}, null, 2)}\n\nRedes sociais:\n${socialSummary || "(nenhuma)"}` },
         ]);
         const draft = parseJsonBlob(ai) || { subject: null, message: ai, hook_used: null, sources: [] };

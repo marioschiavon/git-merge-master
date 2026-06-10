@@ -116,7 +116,24 @@ export function EnrichmentSettingsCard() {
             </div>
             <div className="space-y-2">
               <Label className="text-sm">Actors habilitados</Label>
-              <Toggle id="ai" label="Instagram (apify/instagram-profile-scraper)" checked={settings.apify_actors?.instagram !== false} onChange={(v) => setActor("instagram", v)} />
+              <Toggle id="ai" label="Instagram (apify/instagram-scraper)" checked={settings.apify_actors?.instagram !== false} onChange={(v) => setActor("instagram", v)} />
+              {settings.apify_actors?.instagram !== false && (
+                <div className="pl-6 flex items-center gap-2">
+                  <Label htmlFor="ig-posts" className="text-xs font-normal text-muted-foreground">Posts a analisar</Label>
+                  <Input
+                    id="ig-posts"
+                    type="number"
+                    min={3}
+                    max={30}
+                    className="h-7 w-20"
+                    value={(settings.apify_actors as any)?.instagram_posts_limit ?? 12}
+                    onChange={(e) => setSettings((s) => ({
+                      ...s,
+                      apify_actors: { ...(s.apify_actors || {}), instagram_posts_limit: Math.max(3, Math.min(30, Number(e.target.value) || 12)) } as any,
+                    }))}
+                  />
+                </div>
+              )}
               <Toggle id="af" label="Facebook (apify/facebook-pages-scraper)" checked={settings.apify_actors?.facebook !== false} onChange={(v) => setActor("facebook", v)} />
               <Toggle id="alp" label="LinkedIn pessoa (dev_fusion/linkedin-profile-scraper)" checked={settings.apify_actors?.linkedin_person !== false} onChange={(v) => setActor("linkedin_person", v)} />
               <Toggle id="alc" label="LinkedIn empresa (apimaestro/linkedin-company)" checked={settings.apify_actors?.linkedin_company !== false} onChange={(v) => setActor("linkedin_company", v)} />
