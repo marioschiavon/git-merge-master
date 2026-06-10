@@ -1301,6 +1301,21 @@ Analise a última mensagem e decida a ação.`,
       // Only proceed with scheduling if action wasn't overridden
       if (parsed.action === "schedule") {
         try {
+          // FIX (Kiko): cancel any leftover holds before requesting new slots,
+          // so retomadas/agendamentos repetidos não acumulam reservas no Cal.com.
+          if (leadData?.id) {
+            const { data: leftoverHolds } = await supabase
+              .from("slot_holds")
+              .select("id, cal_booking_uid")
+              .eq("lead_id", leadData.id)
+              .eq("status", "held");
+            for (const h of (leftoverHolds || [])) {
+              if (h.cal_booking_uid) {
+                try { await cancelCalcomReservation(h.cal_booking_uid); } catch (_) { /* ignore */ }
+              }
+              await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", h.id);
+            }
+          }
           const channelLabel = convChannel || channel || "email";
           const rangeHint = extractDateRangeFromText(cleanContent);
           const slotsBody: any = {
