@@ -117,6 +117,7 @@ serve(async (req) => {
           // Use saved custom message — skip AI generation
           const parsed = { subject: customMsg.subject, message: customMsg.message };
           let sendAction = "sent";
+          let deliveryMeta: Record<string, any> = {};
 
           // === CHANNEL-SPECIFIC SENDING (same logic as below) ===
           if (currentStep.channel === "email" && lead.email) {
@@ -137,8 +138,17 @@ serve(async (req) => {
             const zCfg = await getZApiConfig(supabase, cadence.company_id);
             if (zCfg) {
               const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
-              if (!r.ok) { console.error("Z-API send failed:", r.error); sendAction = "failed"; }
-            } else { sendAction = "pending_manual"; }
+              if (r.ok) {
+                deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status, to_number: lead.whatsapp || lead.phone };
+              } else {
+                console.error("Z-API send failed:", r.error);
+                sendAction = "failed";
+                deliveryMeta = { delivery_status: "failed", zapi_status: r.status, zapi_error: r.error, to_number: lead.whatsapp || lead.phone };
+              }
+            } else {
+              sendAction = "pending_manual";
+              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
+            }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
 
 
@@ -160,7 +170,7 @@ serve(async (req) => {
             supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
           );
           if (conversation) {
-            await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel } });
+            await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel, ...deliveryMeta } });
           }
 
           // Log execution
@@ -304,6 +314,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         }
 
         let sendAction = "sent";
+        let deliveryMeta: Record<string, any> = {};
 
         // === CHANNEL-SPECIFIC SENDING ===
         if (currentStep.channel === "email" && lead.email) {
@@ -331,13 +342,17 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           const zCfg = await getZApiConfig(supabase, cadence.company_id);
           if (zCfg) {
             const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
-            if (!r.ok) {
+            if (r.ok) {
+              deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status, to_number: lead.whatsapp || lead.phone };
+            } else {
               console.error(`Z-API WhatsApp error for ${enrollment.id}:`, r.error);
               sendAction = "failed";
+              deliveryMeta = { delivery_status: "failed", zapi_status: r.status, zapi_error: r.error, to_number: lead.whatsapp || lead.phone };
             }
           } else {
             // Z-API não configurado — registra como tarefa manual
             sendAction = "pending_manual";
+            deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
           }
 
 
@@ -381,7 +396,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
             content: parsed.message,
             direction: "outbound",
             ai_suggested: true,
-            metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true, channel: currentStep.channel },
+            metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true, channel: currentStep.channel, ...deliveryMeta },
           });
         }
 
