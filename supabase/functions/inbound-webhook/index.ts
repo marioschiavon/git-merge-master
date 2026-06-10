@@ -1399,24 +1399,46 @@ Analise a última mensagem e decida a ação.`,
 
       // with_contact: create new lead + conversation + 1st outreach
       if (subtype === "with_contact" && ref.referred_name && (ref.referred_email || ref.referred_phone)) {
+        const normalizedEmail = ref.referred_email
+          ? String(ref.referred_email).toLowerCase().trim()
+          : null;
+        const normalizedPhone = normalizeBrPhone(ref.referred_phone);
+        const phoneForLead = normalizedPhone || (ref.referred_phone ? String(ref.referred_phone).trim() : null);
+        const waForLead = isBrMobile(normalizedPhone) ? normalizedPhone : null;
+        const newChannel = pickReferralChannel(
+          ref.referred_channel,
+          !!normalizedEmail,
+          !!phoneForLead,
+        );
+
         // Avoid duplicates by email within same company
         let newLeadId: string | null = null;
-        if (ref.referred_email) {
+        if (normalizedEmail) {
           const { data: existing } = await supabase
             .from("leads")
-            .select("id")
+            .select("id, whatsapp, phone")
             .eq("company_id", companyId)
-            .eq("email", String(ref.referred_email).toLowerCase().trim())
+            .eq("email", normalizedEmail)
             .maybeSingle();
-          if (existing?.id) newLeadId = existing.id;
+          if (existing?.id) {
+            newLeadId = existing.id;
+            // Backfill phone/whatsapp if missing
+            const patch: any = {};
+            if (!existing.phone && phoneForLead) patch.phone = phoneForLead;
+            if (!existing.whatsapp && waForLead) patch.whatsapp = waForLead;
+            if (Object.keys(patch).length) {
+              await supabase.from("leads").update(patch).eq("id", existing.id);
+            }
+          }
         }
 
         if (!newLeadId) {
           const insertRow: any = {
             company_id: companyId,
             name: ref.referred_name,
-            email: ref.referred_email ? String(ref.referred_email).toLowerCase().trim() : null,
-            phone: ref.referred_phone || null,
+            email: normalizedEmail,
+            phone: phoneForLead,
+            whatsapp: waForLead,
             company_name: leadData.company_name || null,
             title: ref.referred_role || null,
             source: "referral",
@@ -1426,7 +1448,7 @@ Analise a última mensagem e decida a ação.`,
             referral_stage: "novo_indicado",
             referral_context: ref.context || null,
             referral_permission_to_mention: ref.permission_to_mention ?? null,
-            preferred_channel: ref.referred_channel || (ref.referred_email ? "email" : "whatsapp"),
+            preferred_channel: newChannel,
           };
           const { data: newLead, error: newLeadErr } = await supabase
             .from("leads")
@@ -1441,17 +1463,28 @@ Analise a última mensagem e decida a ação.`,
         }
 
         // Create conversation + first outbound message and send via available channel
-        if (newLeadId && parsed.new_outreach_message) {
-          const newChannel = (ref.referred_channel || (ref.referred_email ? "email" : "whatsapp")) as string;
-          const { data: newConv } = await supabase
+        if (newLeadId) {
+          // Fallback outreach message if AI didn't produce one
+          const sourceName = leadData.name?.split(" ")[0] || "";
+          const sourceCompany = leadData.company_name || "";
+          const mention = ref.permission_to_mention
+            ? `${sourceName}${sourceCompany ? ` (${sourceCompany})` : ""} me passou seu contato`
+            : `Falei com a equipe${sourceCompany ? ` da ${sourceCompany}` : ""} e me indicaram você`;
+          const outreachMessage = parsed.new_outreach_message ||
+            `Olá ${ref.referred_name?.split(" ")[0] || ""}! ${mention} para falarmos sobre uma possível parceria. Você teria uns minutos esta semana para uma conversa rápida?`;
+
+          const { data: newConv, error: convErr } = await supabase
             .from("conversations")
             .insert({
               company_id: companyId,
               lead_id: newLeadId,
-              channel: newChannel as any,
+              channel: newChannel,
             })
             .select("id")
             .single();
+          if (convErr) {
+            console.error("Failed to create referral conversation:", convErr);
+          }
 
           const newConvId = newConv?.id;
           const outreachMeta = {
@@ -1462,7 +1495,7 @@ Analise a última mensagem e decida a ação.`,
           };
 
           // Email path → use gmail-send when available, else transactional
-          if (newChannel === "email" && ref.referred_email && newConvId) {
+          if (newChannel === "email" && normalizedEmail && newConvId) {
             const subject = `${leadData.company_name || "Indicação"} — apresentação`;
             const { data: gmailAcc } = await supabase
               .from("gmail_account")
@@ -1474,10 +1507,10 @@ Analise a última mensagem e decida a ação.`,
               try {
                 const { error: sendErr } = await supabase.functions.invoke("gmail-send", {
                   body: {
-                    to: ref.referred_email,
+                    to: normalizedEmail,
                     subject,
-                    html: toEmailHtml(parsed.new_outreach_message),
-                    text: parsed.new_outreach_message,
+                    html: toEmailHtml(outreachMessage),
+                    text: outreachMessage,
                     conversation_id: newConvId,
                     company_id: companyId,
                     lead_id: newLeadId,
@@ -1491,7 +1524,7 @@ Analise a última mensagem e decida a ação.`,
             if (!sent) {
               await supabase.from("messages").insert({
                 conversation_id: newConvId,
-                content: parsed.new_outreach_message,
+                content: outreachMessage,
                 direction: "outbound",
                 ai_suggested: true,
                 metadata: { ...outreachMeta, subject, via: "transactional" },
@@ -1499,29 +1532,54 @@ Analise a última mensagem e decida a ação.`,
               await supabase.functions.invoke("send-transactional-email", {
                 body: {
                   templateName: "cadence-outreach",
-                  recipientEmail: ref.referred_email,
+                  recipientEmail: normalizedEmail,
                   idempotencyKey: `referral-${newLeadId}-${Date.now()}`,
                   templateData: {
                     leadName: ref.referred_name,
                     subject,
-                    messageBody: parsed.new_outreach_message,
+                    messageBody: outreachMessage,
                   },
                 },
               });
             }
-          } else if (newConvId) {
-            // WhatsApp/other: just log message (sending happens via cadence/manual until Twilio is wired here)
+          } else if (newChannel === "whatsapp" && phoneForLead && newConvId) {
+            // WhatsApp path → send via Twilio
+            const twCfg = await getTwilioConfig(supabase, companyId);
+            let deliveryStatus = "pending_send";
+            let deliveryMeta: Record<string, any> = {};
+            if (twCfg) {
+              const r = await sendWhatsAppViaTwilio(twCfg, phoneForLead, outreachMessage);
+              if (r.ok) {
+                deliveryStatus = "delivered";
+                deliveryMeta = { twilio_sid: r.sid, twilio_status: r.status };
+              } else {
+                deliveryStatus = "failed";
+                deliveryMeta = { twilio_status: r.status, twilio_error: r.error };
+              }
+            } else {
+              deliveryMeta = { delivery_error: "Twilio não configurado" };
+            }
             await supabase.from("messages").insert({
               conversation_id: newConvId,
-              content: parsed.new_outreach_message,
+              content: outreachMessage,
               direction: "outbound",
               ai_suggested: true,
-              metadata: { ...outreachMeta, channel: newChannel, pending_send: newChannel !== "email" },
+              metadata: { ...outreachMeta, channel: "whatsapp", delivery_status: deliveryStatus, ...deliveryMeta },
             });
           }
+
+          // Activity log on the referred lead
+          await supabase.from("lead_activities").insert({
+            company_id: companyId,
+            lead_id: newLeadId,
+            type: "referral",
+            description: `📨 Primeira abordagem ao indicado enviada via ${newChannel}`,
+            metadata: { ...outreachMeta, channel: newChannel },
+          });
         }
       }
     }
+
 
     // Send auto-reply if needed
     if (parsed.reply_message) {
