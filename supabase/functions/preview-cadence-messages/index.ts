@@ -227,6 +227,7 @@ Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"g
 
       const useInsights = step.smart_customization !== false;
       const stepInsights = useInsights ? insightsContext : "";
+      const stepSocial = useInsights ? socialContext : "";
       const stepHighlights = (useInsights && step.use_highlights !== false && highlightsRes.data?.content)
         ? `\n\n=== DESTAQUES IMPORTANTES DA EMPRESA (use como argumentos de autoridade) ===\n${highlightsRes.data.content}\n\nOBRIGATÓRIO: Mencione pelo menos 1 destaque da empresa acima como argumento de credibilidade na mensagem.`
         : "";
