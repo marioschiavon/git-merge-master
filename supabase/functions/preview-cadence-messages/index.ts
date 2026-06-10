@@ -154,6 +154,9 @@ ${stepHighlights}
 === INSIGHTS DO PROSPECT ===
 ${insightsContext || "(sem insights disponíveis)"}
 
+=== SINAIS DE REDES SOCIAIS DO PROSPECT ===
+${socialContext || "(sem dados de redes sociais)"}
+
 === TEMPLATE BASE DO STEP 1 ===
 ${step.template || "(sem template)"}
 
