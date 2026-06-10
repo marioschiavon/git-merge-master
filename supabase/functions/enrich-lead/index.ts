@@ -309,7 +309,7 @@ serve(async (req) => {
 
 
     // Step 2: website AI analysis
-    if (lead.website && settings.website_analysis && LOVABLE_API_KEY) {
+    if (lead.website && settings.website_analysis !== false && LOVABLE_API_KEY) {
       try {
         const content = pageText || `(Site indisponível; analise por nome/domínio: ${lead.website})`;
         const ai = await callAI([

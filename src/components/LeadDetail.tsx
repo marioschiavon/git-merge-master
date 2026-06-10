@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -118,9 +119,22 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
     },
   });
 
+  const autoAnalyzedRef = useRef<string | null>(null);
+  const insights = (insightData?.insights as any) || null;
+
+  useEffect(() => {
+    if (!lead?.id || !open) return;
+    if (!lead.website) return;
+    if (insightsLoading) return;
+    if (insights) return;
+    if (analyzeWebsite.isPending) return;
+    if (autoAnalyzedRef.current === lead.id) return;
+    autoAnalyzedRef.current = lead.id;
+    analyzeWebsite.mutate(lead.id);
+  }, [lead?.id, lead?.website, open, insightsLoading, insights, analyzeWebsite]);
+
   if (!lead) return null;
 
-  const insights = insightData?.insights as any;
   const autofill = ((lastJob?.steps_done as any)?.autofill) || {};
   const sourceLabel = (s: string) =>
     s === "website" ? "Encontrado no website"
@@ -328,13 +342,16 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
               </p>
             )}
 
-            {lead.website && insightsLoading && (
-              <p className="text-sm text-muted-foreground">Carregando insights...</p>
+            {lead.website && (insightsLoading || analyzeWebsite.isPending) && (
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Analisando website...
+              </p>
             )}
 
             {lead.website && !insightsLoading && !insights && !analyzeWebsite.isPending && (
               <p className="text-sm text-muted-foreground">
-                Clique em "Analisar Website" para gerar insights sobre este prospect.
+                Aguardando análise do website. Clique em "Analisar Website" se não iniciar automaticamente.
               </p>
             )}
 
