@@ -123,11 +123,6 @@ serve(async (req) => {
         },
       }),
     });
-          timeZone: "America/Sao_Paulo",
-          language: "pt",
-        },
-      }),
-    });
 
     let bookingData: any = null;
     if (bookingRes.ok) {
