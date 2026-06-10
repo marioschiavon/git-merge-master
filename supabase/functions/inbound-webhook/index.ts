@@ -258,6 +258,64 @@ serve(async (req) => {
       });
     }
 
+    // === FAST-PATH: lead respondeu o email pendente após hold ===
+    // Se há um slot_holds em hold aguardando o email do lead, e a mensagem inbound contém
+    // um endereço de email válido, confirmamos o booking imediatamente sem passar pela IA.
+    let earlyParsed: any = null;
+    {
+      const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+      const emailMatch = emailRegex.exec(cleanContent)?.[0]?.trim() || null;
+      const pendingHoldId: string | null = leadData?.pending_email_slot_hold_id || null;
+
+      if (pendingHoldId && emailMatch && leadData?.id) {
+        const { data: hold } = await supabase
+          .from("slot_holds")
+          .select("id, slot_datetime, status, expires_at, cal_booking_uid")
+          .eq("id", pendingHoldId)
+          .maybeSingle();
+
+        const stillValid = !!hold
+          && hold.status === "held"
+          && new Date(hold.expires_at).getTime() > Date.now();
+
+        if (stillValid) {
+          if (!leadData.email) {
+            await supabase.from("leads").update({ email: emailMatch }).eq("id", leadData.id);
+            leadData.email = emailMatch;
+          }
+          console.log(`Pending email fulfilled — confirming held slot ${pendingHoldId} for lead ${leadData.id}`);
+          try {
+            const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
+              body: { lead_id: leadData.id, selected_slot_hold_id: pendingHoldId },
+            });
+            if (confirmRes.data?.success) {
+              const formattedDate = formatDateTimeBrt(hold.slot_datetime);
+              console.log(`Booking auto-confirmed via pending email path: ${hold.slot_datetime}`);
+              earlyParsed = {
+                action: "reply",
+                sentiment: "positivo",
+                reasoning: "Lead respondeu com email após hold pendente — booking confirmado automaticamente",
+                reply_message: `Combinado! Reunião marcada para ${formattedDate}. Você receberá o convite por e-mail. Até lá! 🚀`,
+                selected_slot: null,
+              };
+            } else {
+              console.error("Pending-email confirm failed:", confirmRes.data?.error || confirmRes.error);
+            }
+          } catch (e) {
+            console.error("Error invoking calcom-confirm-booking (pending email path):", e);
+          }
+        } else {
+          console.log(`Pending hold ${pendingHoldId} expired/invalid — clearing pending_email_slot_hold_id and continuing normal flow`);
+          const upd: any = { pending_email_slot_hold_id: null };
+          if (!leadData.email) {
+            upd.email = emailMatch;
+            leadData.email = emailMatch;
+          }
+          await supabase.from("leads").update(upd).eq("id", leadData.id);
+        }
+      }
+    }
+
     // FIX: Read enrollment state BEFORE overwriting paused_reason
     let originalPausedReason: string | null = null;
     let enrollmentId: string | null = null;
