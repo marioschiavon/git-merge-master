@@ -271,11 +271,15 @@ serve(async (req) => {
 
     const steps: any = { ...(job.steps_done || {}) };
     const leadPatch: any = {};
+    const autofillSrc: any = {};
 
-    // Step 1: discover socials from website (and analyze)
+    const autofill = settings.autofill_contacts !== false; // default ON
+
+    // Step 1: fetch website HTML (used for socials, analysis, and contact autofill)
     let pageHtml: string | null = null;
     let pageText = "";
-    if (lead.website && (settings.website_analysis || settings.discover_socials)) {
+    const needsHtml = !!lead.website && (settings.website_analysis || settings.discover_socials || autofill);
+    if (needsHtml) {
       pageHtml = await fetchPageHtml(lead.website);
       if (pageHtml) {
         pageText = htmlToText(pageHtml);
@@ -286,10 +290,23 @@ serve(async (req) => {
           }
           steps.discover_socials = "ok";
         }
+        if (autofill) {
+          const dom = siteDomain(lead.website);
+          let contacts = extractContacts(pageHtml, dom);
+          // try contact pages if nothing found
+          if (!contacts.email && !contacts.phone && !contacts.whatsapp) {
+            const ch = await fetchContactPages(lead.website);
+            if (ch) contacts = extractContacts(ch, dom);
+          }
+          if (!lead.email && contacts.email) { leadPatch.email = contacts.email; autofillSrc.email = "website"; }
+          if (!lead.phone && contacts.phone) { leadPatch.phone = contacts.phone; autofillSrc.phone = "website"; }
+          if (!lead.whatsapp && contacts.whatsapp) { leadPatch.whatsapp = contacts.whatsapp; autofillSrc.whatsapp = "website"; }
+        }
       } else {
-        steps.discover_socials = "no_html";
+        steps.discover_socials = steps.discover_socials || "no_html";
       }
     }
+
 
     // Step 2: website AI analysis
     if (lead.website && settings.website_analysis && LOVABLE_API_KEY) {
