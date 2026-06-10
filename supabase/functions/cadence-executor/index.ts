@@ -137,8 +137,17 @@ serve(async (req) => {
             const zCfg = await getZApiConfig(supabase, cadence.company_id);
             if (zCfg) {
               const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
-              if (!r.ok) { console.error("Z-API send failed:", r.error); sendAction = "failed"; }
-            } else { sendAction = "pending_manual"; }
+              if (r.ok) {
+                deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status, to_number: lead.whatsapp || lead.phone };
+              } else {
+                console.error("Z-API send failed:", r.error);
+                sendAction = "failed";
+                deliveryMeta = { delivery_status: "failed", zapi_status: r.status, zapi_error: r.error, to_number: lead.whatsapp || lead.phone };
+              }
+            } else {
+              sendAction = "pending_manual";
+              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
+            }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
 
 
