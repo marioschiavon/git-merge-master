@@ -342,13 +342,16 @@ export function LeadDetail({ lead, open, onOpenChange }: LeadDetailProps) {
               </p>
             )}
 
-            {lead.website && insightsLoading && (
-              <p className="text-sm text-muted-foreground">Carregando insights...</p>
+            {lead.website && (insightsLoading || analyzeWebsite.isPending) && (
+              <p className="text-sm text-muted-foreground flex items-center gap-2">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Analisando website...
+              </p>
             )}
 
             {lead.website && !insightsLoading && !insights && !analyzeWebsite.isPending && (
               <p className="text-sm text-muted-foreground">
-                Clique em "Analisar Website" para gerar insights sobre este prospect.
+                Aguardando análise do website. Clique em "Analisar Website" se não iniciar automaticamente.
               </p>
             )}
 
