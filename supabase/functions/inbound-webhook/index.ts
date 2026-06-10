@@ -558,7 +558,9 @@ Responda APENAS com JSON:
     "context": null
   },
   "new_outreach_message": "1ª mensagem para o lead indicado (apenas quando referral.subtype = with_contact, senão null)",
-  "reply_message": "mensagem para enviar ao prospect (obrigatória inclusive em action=pause — agradecimento curto + porta aberta)"
+  "provided_email": null,
+  "email_refused": false,
+  "reply_message": "mensagem para enviar ao prospect (obrigatória inclusive em action=pause — agradecimento curto + porta aberta). Após confirmar reunião (confirm_slot), gere mensagem CURTA e CORDIAL (1-2 frases), confirmando data/hora, sem floreios nem promessas — para não atrapalhar o prospect."
 }${slotContext}`;
 
 
