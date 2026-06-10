@@ -6,6 +6,7 @@ import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 import { getTwilioConfig, sendWhatsAppViaTwilio } from "../_shared/twilio-whatsapp.ts";
+import { cancelCalcomBooking, cancelCalcomReservation } from "../_shared/calcom.ts";
 
 
 const corsHeaders = {
