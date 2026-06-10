@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
     );
 
     const body = await req.json();
-    const { to, subject, html, text, lead_id, conversation_id, in_reply_to_rfc_id, references, company_id } = body ?? {};
+    const { to, subject, html, text, lead_id, conversation_id, in_reply_to_rfc_id, references, company_id, extra_metadata } = body ?? {};
 
     if (!to || !subject || (!html && !text)) {
       return new Response(JSON.stringify({ error: "Campos obrigatórios: to, subject, html|text" }), {
@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
         gmail_message_id: gmailMessageId,
         gmail_thread_id: gmailThreadId,
         rfc_message_id: rfcMessageId,
-        metadata: { subject, channel: "email", via: "gmail" },
+        metadata: { subject, channel: "email", via: "gmail", ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}) },
       });
     }
 

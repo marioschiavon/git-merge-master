@@ -109,6 +109,28 @@ serve(async (req) => {
           continue;
         }
 
+        // Parallel-enrollment guard: if another active enrollment for the same lead
+        // already executed in the last 24h, skip this one to avoid sending two
+        // first contacts in parallel from different cadences.
+        const { data: otherActive } = await supabase
+          .from("cadence_enrollments")
+          .select("id, last_executed_at")
+          .eq("lead_id", enrollment.lead_id)
+          .eq("status", "active")
+          .neq("id", enrollment.id);
+        const recentlyExecutedOther = (otherActive || []).find((e: any) => {
+          if (!e.last_executed_at) return false;
+          return Date.now() - new Date(e.last_executed_at).getTime() < 24 * 60 * 60 * 1000;
+        });
+        if (recentlyExecutedOther) {
+          await supabase
+            .from("cadence_enrollments")
+            .update({ status: "paused", paused_reason: `Lead já recebeu contato de outra cadência (${recentlyExecutedOther.id}) nas últimas 24h` })
+            .eq("id", enrollment.id);
+          continue;
+        }
+
+
 
 
         // Get current step
@@ -144,6 +166,13 @@ serve(async (req) => {
           let deliveryMeta: Record<string, any> = {};
 
           // === CHANNEL-SPECIFIC SENDING (same logic as below) ===
+          // Pre-resolve conversation so gmail-send can attach the persisted email to it
+          let preConversation: { id: string } | null = null;
+          if (currentStep.channel === "email") {
+            preConversation = await findOrCreateConversation(
+              supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+            );
+          }
           if (currentStep.channel === "email" && lead.email) {
             try {
               const { error: sendError } = await supabase.functions.invoke("gmail-send", {
@@ -154,6 +183,8 @@ serve(async (req) => {
                   text: parsed.message,
                   lead_id: lead.id,
                   company_id: cadence.company_id,
+                  conversation_id: preConversation?.id,
+                  extra_metadata: { step_order: currentStep.step_order, custom_message: true },
                 },
               });
               if (sendError) { sendAction = "failed"; }
@@ -189,12 +220,15 @@ serve(async (req) => {
             });
           }
 
-          // Create or get conversation (reuses existing email conv if gmail-sync already created one)
-          const conversation = await findOrCreateConversation(
-            supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
-          );
-          if (conversation) {
-            await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel, ...deliveryMeta } });
+          // For email, gmail-send already persisted the message to the conversation.
+          // For other channels, insert the outbound message here.
+          if (currentStep.channel !== "email") {
+            const conversation = await findOrCreateConversation(
+              supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+            );
+            if (conversation) {
+              await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel, ...deliveryMeta } });
+            }
           }
 
           // Log execution
@@ -341,6 +375,13 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         let deliveryMeta: Record<string, any> = {};
 
         // === CHANNEL-SPECIFIC SENDING ===
+        // Pre-resolve conversation so gmail-send can attach the persisted email to it
+        let preConversationAi: { id: string } | null = null;
+        if (currentStep.channel === "email") {
+          preConversationAi = await findOrCreateConversation(
+            supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+          );
+        }
         if (currentStep.channel === "email" && lead.email) {
           try {
             const { error: sendError } = await supabase.functions.invoke("gmail-send", {
@@ -351,6 +392,8 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
                 text: parsed.message,
                 lead_id: lead.id,
                 company_id: cadence.company_id,
+                conversation_id: preConversationAi?.id,
+                extra_metadata: { step_order: currentStep.step_order, auto_generated: true },
               },
             });
             if (sendError) {
@@ -409,19 +452,21 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           });
         }
 
-        // Create or get conversation (reuses existing email conv if gmail-sync already created one)
-        const conversation = await findOrCreateConversation(
-          supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
-        );
+        // For email, gmail-send already persisted the message. For other channels, insert here.
+        if (currentStep.channel !== "email") {
+          const conversation = await findOrCreateConversation(
+            supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
+          );
 
-        if (conversation) {
-          await supabase.from("messages").insert({
-            conversation_id: conversation.id,
-            content: parsed.message,
-            direction: "outbound",
-            ai_suggested: true,
-            metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true, channel: currentStep.channel, ...deliveryMeta },
-          });
+          if (conversation) {
+            await supabase.from("messages").insert({
+              conversation_id: conversation.id,
+              content: parsed.message,
+              direction: "outbound",
+              ai_suggested: true,
+              metadata: { subject: parsed.subject, step_order: currentStep.step_order, auto_generated: true, channel: currentStep.channel, ...deliveryMeta },
+            });
+          }
         }
 
         // Log execution

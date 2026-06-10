@@ -1,52 +1,34 @@
-# Por que está enviando 2x
+Diagnóstico confirmado nos dados do lead “Ju Ca”:
 
-Confirmei no banco para o lead Nico (enrollment `25067329…`):
+- A tela mostra duplicado porque o email está sendo salvo duas vezes no histórico: uma vez dentro da função de envio de Gmail e outra vez no `cadence-executor` logo depois.
+- Além disso, esse lead está ativo em duas cadências diferentes ao mesmo tempo (`Cadencia 01` e `Cadencia 02`), então ele recebeu/gerou dois primeiros contatos diferentes em sequência.
+- O bloqueio anterior resolveu a corrida entre execuções concorrentes da mesma cadência, mas não atacava esses dois pontos.
 
-- 1 único enrollment, mas **2 mensagens outbound** do step 1 com `auto_generated:true`, enviadas com **2,4 s de diferença** (22:15:00.476 e 22:15:03.010).
-- 2 `execution_logs` para o mesmo `step_id`, mesmo intervalo.
+Plano de correção:
 
-Causa: **race condition no `cadence-executor`**. A função:
+1. Corrigir o histórico duplicado de email
+   - Ajustar `cadence-executor` para não inserir uma segunda mensagem em `messages` quando o canal for email e o `gmail-send` já salvou a mensagem enviada.
+   - Passar o `conversation_id` correto para `gmail-send`, para a mensagem real enviada ficar vinculada à conversa/cadência certa.
+   - Manter o registro em `execution_logs` e `lead_activities`, sem duplicar o balão na conversa.
 
-1. Faz `SELECT … WHERE status='active' AND next_execution_at <= now()`.
-2. Gera mensagem com IA (demora ~2-3 s).
-3. Só **depois** faz o `UPDATE` avançando `current_step` e `next_execution_at`.
+2. Preservar metadados da cadência no email salvo
+   - Atualizar `gmail-send` para aceitar metadados opcionais como `step_order`, `subject`, `custom_message`, `auto_generated` e `channel`.
+   - Assim a mensagem única exibida no histórico continua tendo contexto suficiente para a interface e auditoria.
 
-Se o cron (ou um disparo manual) invoca a função duas vezes em paralelo — ou se a mesma invocação chega via 2 caminhos — ambas as execuções leem o enrollment no estado original, geram mensagem, e ambas enviam. O `UPDATE` final acontece nas duas, mas o estrago já foi feito (2 e-mails, 2 messages, 2 execution_logs).
+3. Evitar múltiplas cadências ativas para o mesmo lead
+   - Adicionar uma trava no executor: antes de enviar step 1, se o lead já tiver outro enrollment ativo que já executou primeiro contato recentemente, não enviar outro primeiro contato em paralelo.
+   - Marcar/pausar o enrollment duplicado com motivo claro em `paused_reason`, em vez de mandar outra abordagem.
 
-Não há `SELECT … FOR UPDATE`, nem flag `executing`, nem claim atômico — então qualquer sobreposição duplica.
+4. Limpeza dos duplicados atuais do lead Ju Ca
+   - Remover do histórico apenas os registros duplicados internos gerados pelo app, preservando a mensagem real enviada via Gmail.
+   - Manter logs de execução para auditoria.
 
-# Correção proposta
+Arquivos previstos:
 
-**Claim atômico do enrollment antes de processar**, em `supabase/functions/cadence-executor/index.ts`.
+- `supabase/functions/cadence-executor/index.ts`
+- `supabase/functions/gmail-send/index.ts`
 
-Trocar o fluxo "select N → for each → processar → update" por:
+Validação:
 
-1. `SELECT id FROM cadence_enrollments WHERE status='active' AND meeting_scheduled=false AND next_execution_at <= now() LIMIT N` (apenas ids candidatos).
-2. Para cada id, fazer um **update condicional atômico** que serve de lock:
-   ```sql
-   UPDATE cadence_enrollments
-     SET next_execution_at = next_execution_at + interval '10 minutes' -- placeholder de lock
-     WHERE id = $1
-       AND status = 'active'
-       AND next_execution_at <= now()
-     RETURNING *, leads(...), cadences(...)
-   ```
-   Se o `RETURNING` vier vazio, **outra execução já pegou esse enrollment** → pular silenciosamente.
-3. Se veio resultado, processar normalmente (gerar mensagem, enviar, log).
-4. No final, o `UPDATE` existente que avança `current_step` / define `next_execution_at` real continua igual — sobrescreve o placeholder do lock.
-5. Se der erro no meio, o placeholder garante que o enrollment só será re-tentado daqui a 10 min (em vez de imediatamente em loop).
-
-Mesma correção aplicada ao loop que usa `cadence_custom_messages` (mesmo arquivo, mesmo problema).
-
-## Por que essa abordagem
-
-- Não exige nova coluna nem migração.
-- `UPDATE … WHERE next_execution_at <= now() RETURNING` é atômico no Postgres — apenas um worker ganha.
-- Resolve tanto cron sobreposto quanto qualquer reinvocação acidental.
-- Mantém o comportamento de retry: se falhar antes do update final, volta a ficar elegível em 10 min.
-
-## Arquivos afetados
-
-- `supabase/functions/cadence-executor/index.ts` — substituir o select+loop pelo padrão claim-then-process nos dois ramos (custom message e IA).
-
-Nenhuma alteração de schema, de RLS, ou de outras edge functions.
+- Reconsultar mensagens do lead Ju Ca e confirmar que cada email enviado aparece uma única vez na conversa.
+- Confirmar que cadências paralelas não disparam dois primeiros contatos para o mesmo lead.
