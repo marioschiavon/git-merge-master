@@ -38,7 +38,7 @@ serve(async (req) => {
     if (cadenceRes.error) throw cadenceRes.error;
 
     const allSteps = stepsRes.data;
-    const steps = only_first_step ? allSteps.slice(0, 1) : allSteps;
+    const steps = (only_first_step || variationCount > 0) ? allSteps.slice(0, 1) : allSteps;
     const lead = leadRes.data;
     const cadence = cadenceRes.data;
     const enrollment = enrollmentRes.data;
