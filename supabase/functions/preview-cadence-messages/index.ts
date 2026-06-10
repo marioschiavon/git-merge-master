@@ -280,6 +280,9 @@ ${stepHighlights}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${stepInsights || "Sem diferenciais disponíveis do prospect."}
+
+=== SINAIS DE REDES SOCIAIS DO PROSPECT (Instagram, LinkedIn, etc.) ===
+${stepSocial || "(sem dados de redes sociais)"}
 ${stepMentalTriggers}
 
 === TEMPLATE BASE DO STEP ===
