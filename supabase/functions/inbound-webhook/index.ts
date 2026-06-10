@@ -753,7 +753,7 @@ Analise a última mensagem e decida a ação.`,
     // FIX (Kiko): deterministic confirm_slot when prospect identifies exactly one held slot
     // (e.g. "pode ser dia 11", "às 18:45", "segunda"). If AI returned `reply` but the
     // message unambiguously matches one held slot, force confirm_slot so the booking is created.
-    if (parsed.action === "reply" && heldSlots.length >= 1 && schedulingInProgress) {
+    if (parsed.action === "reply" && heldSlots.length >= 1) {
       const lc = cleanContent.toLowerCase();
       const WEEKDAYS = ["domingo", "segunda", "terça", "terca", "quarta", "quinta", "sexta", "sábado", "sabado"];
       const WEEKDAY_TO_NUM: Record<string, number> = {
