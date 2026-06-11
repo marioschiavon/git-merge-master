@@ -463,6 +463,16 @@ function AgenticSimulationControls({
           </Button>
         </div>
       )}
+      {lastAiReply && (
+        <div className="rounded border border-amber-200 bg-amber-50/60 p-2 space-y-1">
+          <div className="flex items-center gap-1 text-[10px] text-amber-800">
+            <Sparkles className="h-3 w-3" />
+            <span className="font-medium">IA respondeu (simulado)</span>
+            {lastAiReply.intent && <Badge variant="outline" className="text-[10px] h-4">{lastAiReply.intent}</Badge>}
+          </div>
+          <p className="text-xs whitespace-pre-wrap text-foreground/90">{lastAiReply.text}</p>
+        </div>
+      )}
     </div>
   );
 }
