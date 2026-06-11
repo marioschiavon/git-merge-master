@@ -181,10 +181,10 @@ function normalizePtText(text: string): string {
 }
 
 const CLARIFYING_PATTERNS = {
-  duration: /\b(quanto\s+tempo|quanto\s+(vai\s+)?dura|quanto\s+dura|qual\s+(a\s+)?duracao|duracao\s+da\s+(reuniao|call|conversa|apresentacao)|tempo\s+(de|da)\s+(reuniao|call|conversa)|vai\s+demorar|leva\s+quanto|dura\s+quanto|e\s+rapid|demora\s+muito|reuniao\s+(longa|curta|rapida))\b/,
-  format: /\b(e\s+(online|presencial|por\s+video|por\s+telefone|remota)|formato\s+da\s+reuniao|onde\s+(vai\s+)?ser|por\s+onde\s+vai\s+ser|google\s+meet|zoom|teams)\b/,
-  attendees: /\b(quem\s+(vai\s+)?(participa|estara|vai\s+estar)|quem\s+(e|sao)\s+o(s)?\s+(participante|convidado))\b/,
-  objective: /\b(qual\s+(o\s+)?(objetivo|assunto|pauta|tema)|sobre\s+o\s+que\s+(vai\s+)?ser|o\s+que\s+(vai\s+)?ser\s+tratado|pra\s+que\s+(e|serve))\b/,
+  duration: /\b(quanto\s+tempo|quanto\s+(vai\s+)?dura|quanto\s+dura|qual\s+(a\s+)?duracao|duracao\s+(da|de|do)\s+(reuniao|call|conversa|apresentacao|encontro|papo|meet)|tempo\s+(de|da|do|pra|para|na|e\s+de|e\s+da)\s+(reuniao|call|conversa|apresentacao|encontro|papo|meet)|vai\s+demorar|leva\s+quanto|dura\s+quanto|e\s+rapid|demora\s+muito|reuniao\s+(longa|curta|rapida|demora)|quantos?\s+minutos)\b/,
+  format: /\b(e\s+(online|presencial|por\s+video|por\s+telefone|remota)|formato\s+(da|de)\s+reuniao|onde\s+(vai\s+)?ser|por\s+onde\s+vai\s+ser|google\s+meet|zoom|teams|link\s+da\s+(reuniao|call))\b/,
+  attendees: /\b(quem\s+(vai\s+)?(participa|estara|vai\s+estar|estarah)|quem\s+(e|sao)\s+o(s)?\s+(participante|convidado)|quem\s+mais\s+(vai|estara))\b/,
+  objective: /\b(qual\s+(o\s+)?(objetivo|assunto|pauta|tema)|sobre\s+o\s+que\s+(vai\s+)?ser|o\s+que\s+(vai\s+)?ser\s+tratado|pra\s+que\s+(e|serve)|qual\s+a\s+ideia)\b/,
 } as const;
 
 type ClarifyingKind = keyof typeof CLARIFYING_PATTERNS;
@@ -731,6 +731,21 @@ Responda APENAS com JSON:
     if (earlyParsed) {
       console.log("Skipping AI classification — earlyParsed set by pending-email fast-path");
       parsed = earlyParsed;
+    } else if (earlyClarifyingKind && !earlyInboundDt) {
+      // SHORT-CIRCUIT: pergunta esclarecedora sobre a reunião — não chama IA,
+      // não roteia para agenda. Responde determinístico e segue para o envio.
+      const replyText = clarifyingReplyFor(earlyClarifyingKind, meetingMinutes);
+      console.log(
+        `Clarifying short-circuit: kind=${earlyClarifyingKind} norm="${normalizePtText(cleanContent)}" reply="${replyText}"`,
+      );
+      parsed = {
+        action: "reply",
+        sentiment: "dúvida",
+        reasoning: `Pergunta esclarecedora detectada (${earlyClarifyingKind}) — resposta determinística sem IA.`,
+        reply_message: replyText,
+        selected_slot: null,
+        suggested_datetime: null,
+      };
     } else {
       const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
