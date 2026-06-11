@@ -1,28 +1,48 @@
 ## Problema
 
-A resposta automática para "quanto tempo dura?" informou **15 minutos**, mas o event type real no Cal.com tem **45 minutos**.
+Quando o lead disse "Quero desmarcar.", o SDR respondeu passivamente:
+> "Sem problema, Ju — cancelo a reunião. Se quiser remarcar, me avisa um dia e horário que funcionem melhor pra você."
 
-Causa: `getMeetingDurationMinutes()` lê `calcom_event_types.length_minutes` do banco. A linha do event type usado em agendamento (`2889964 — Secret Meeting`) está com `length_minutes = 15` (cache desatualizado desde 09/06). O Cal.com foi alterado para 45 min depois disso e nunca foi re-sincronizado.
+Isso entrega o controle ao lead. O SDR deveria assumir a iniciativa, cancelar o slot atual e **já oferecer novos horários** — só desistir de vez se o lead deixar claro que perdeu interesse.
+
+## Causa
+
+Em `inbound-webhook/index.ts` o branch `parsed.action === "cancel"` (linhas 1282–1362):
+- cancela o booking,
+- marca a cadência como `status: "cancelled"`,
+- responde com mensagem passiva ("Sem problemas, cancelei nossa reunião...").
+
+O `reschedule` (linhas 1144–1281) já faz tudo o que queremos (cancela + busca novos slots + propõe). Hoje, "desmarcar" sem novo horário cai em `cancel` em vez de `reschedule`.
 
 ## Solução
 
-Tornar a duração sempre fiel ao Cal.com, consultando a API ao vivo (com fallback ao banco) e refrescando o cache.
+Tratar **cancelamento ambíguo como reagendamento ativo**. Só fazer o "hard cancel" quando o lead explicitar que não tem mais interesse.
 
-### Mudanças
+### Mudanças em `supabase/functions/inbound-webhook/index.ts`
 
-1. **`supabase/functions/_shared/meeting-duration.ts`**
-   - Adicionar `resolveEventTypeId()` (mesma lógica do `calcom-slots/index.ts`: respeita secret `CALCOM_EVENT_TYPE_ID`, senão pega o primeiro event type da conta via `GET /v2/event-types`).
-   - Em `getMeetingDurationMinutes()`:
-     1. Tentar buscar `lengthInMinutes` ao vivo via `GET /v2/event-types/{id}` (header `cal-api-version: 2024-06-14`).
-     2. Se conseguir, atualizar `calcom_event_types.length_minutes` + `synced_at` para o `calcom_id` correspondente (mantém cache fresco) e retornar o número.
-     3. Em qualquer falha (sem `CALCOM_API_KEY`, rede, 4xx/5xx), cair no caminho atual baseado em DB (`calcom_default_event_type_id` → primeiro ativo).
-   - Compartilhar a função `resolveEventTypeId` em `_shared/calcom.ts` (novo) para evitar duplicação com `calcom-slots`. `calcom-slots/index.ts` passa a importá-la.
+1. **Detector de "hard cancel"** (novo helper local, perto dos outros regex utilitários):
+   ```
+   /\b(n[aã]o\s+(quero|tenho|vou)\s+(mais)?\b|sem\s+interesse|perdi\s+(o\s+)?interesse|cancela(r)?\s+de\s+vez|n[aã]o\s+rola|desisto|n[aã]o\s+precisa\s+mais)\b/i
+   ```
 
-2. **Validação**
-   - `curl_edge_functions` no `inbound-webhook` com mensagem "Quanto tempo dura a call?" → resposta deve usar **45 minutos** (valor real do Cal.com).
-   - Conferir log `MEETING_CLARIFIER_BYPASS action=reply kind=duration ... reply="É uma apresentação rápida, em torno de 45 minutos."`.
-   - `SELECT length_minutes FROM calcom_event_types WHERE calcom_id = 2889964` deve passar a mostrar 45.
+2. **No branch `parsed.action === "cancel"`**:
+   - Calcular `isHardCancel = HARD_CANCEL_REGEX.test(normalizePtText(cleanContent))`.
+   - Se **não** for hard cancel:
+     - Sobrescrever `parsed.action = "reschedule"` e cair no fluxo existente de reschedule (que cancela booking + busca/propõe novos slots + mantém cadência em `awaiting_slot_confirmation`).
+     - Adicionar log `CANCEL_PROMOTED_TO_RESCHEDULE` para visibilidade.
+   - Se for hard cancel: manter o fluxo atual (cancelar, encerrar cadência, mensagem de despedida cordial).
+
+3. **Atualizar o prompt do classifier interno** (string em `inbound-webhook/index.ts` ~linha 609) para refletir a nova regra:
+   - "cancel": use APENAS quando o prospect deixar claro que não quer mais a reunião nem remarcar (ex.: "não tenho mais interesse", "desisto", "cancela de vez"). Se ele só disser "quero desmarcar/cancelar a reunião" sem indicar perda de interesse → use "reschedule".
+
+4. **Mensagem padrão do hard cancel**: manter a atual, apenas cordial.
+
+### Validação
+
+- Reenviar "Quero desmarcar." no preview: SDR deve cancelar a reunião e **na mesma resposta** propor 2 novos horários (igual ao fluxo de reschedule).
+- Reenviar "Não tenho mais interesse, pode cancelar": SDR deve cancelar e responder com despedida cordial, encerrando a cadência.
+- Log `CANCEL_PROMOTED_TO_RESCHEDULE` aparece no primeiro caso e não no segundo.
 
 ### Resultado esperado
 
-A pergunta "Quanto tempo dura a reunião?" passará a responder com a duração real configurada no Cal.com no momento da resposta — sem depender de re-sync manual.
+O SDR mantém o controle: ao primeiro sinal de "desmarcar", já reage propondo novos horários. Só libera o lead quando ele explicitamente sinaliza desinteresse.

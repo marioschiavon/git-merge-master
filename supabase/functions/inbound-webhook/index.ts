@@ -606,7 +606,7 @@ AÇÕES POSSÍVEIS:
   → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
 - "reschedule": prospect quer remarcar/reagendar uma reunião JÁ CONFIRMADA anteriormente (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião", "trocar o horário"). NÃO use "reschedule" se não houver reunião confirmada — nesse caso use "check_availability".
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
-- "cancel": prospect quer CANCELAR uma reunião já confirmada SEM remarcar (ex: "não vou poder", "preciso cancelar a reunião", "vamos cancelar", "não tenho mais interesse na reunião"). NÃO usar para rejeição geral do produto (use "pause").
+- "cancel": use APENAS quando o prospect deixar EXPLÍCITO que não quer mais a reunião nem remarcar (ex: "não tenho mais interesse", "desisto", "cancela de vez", "não precisa mais", "não vou fazer"). Se ele só disser "quero desmarcar/cancelar a reunião" sem sinalizar perda de interesse → use "reschedule" (vamos oferecer novos horários). NÃO usar para rejeição geral do produto (use "pause").
 - "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência E enviar mensagem curta de agradecimento + porta aberta para retorno futuro
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
 - "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
@@ -1006,6 +1006,18 @@ Analise a última mensagem e decida a ação.`,
       parsed.selected_slot = null;
     }
 
+    // Soft-cancel promotion: if lead said "desmarcar/cancelar" without explicit loss
+    // of interest, treat as reschedule so the SDR keeps initiative and offers new slots.
+    if (parsed.action === "cancel") {
+      const HARD_CANCEL_REGEX = /\b(nao\s+(quero|tenho|vou)\s+mais|sem\s+interesse|perdi\s+(o\s+)?interesse|cancela(r)?\s+de\s+vez|nao\s+rola|desisto|nao\s+precisa\s+mais|nao\s+vou\s+fazer|nao\s+tenho\s+mais\s+interesse)\b/i;
+      const normalized = normalizePtText(cleanContent);
+      if (!HARD_CANCEL_REGEX.test(normalized)) {
+        console.log(`CANCEL_PROMOTED_TO_RESCHEDULE lead=${leadData?.id} norm="${normalized}"`);
+        parsed.action = "reschedule";
+        parsed.reply_message = null;
+      }
+    }
+
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
       const slotIndex = (parsed.selected_slot || 1) - 1;
@@ -1280,7 +1292,7 @@ Analise a última mensagem e decida a ação.`,
         });
       }
     } else if (parsed.action === "cancel") {
-      // Cancel: drop existing booking + held slots, no new offer
+      // Hard cancel: drop existing booking + held slots, no new offer
       console.log(`Cancel requested for lead ${leadData?.id}`);
 
       const { data: liveSlots } = await supabase
