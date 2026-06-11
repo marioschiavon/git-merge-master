@@ -412,16 +412,27 @@ serve(async (req) => {
           lastIntentSubIntent = clf.sub_intent || null;
           lastIntentEntities = clf.entities || null;
           lastIntentLogId = clf.intent_log_id;
-          const route = await routeAndEnqueue(supabase, {
-            company_id: companyId,
-            lead_id: leadData.id,
-            conversation_id: convId,
-            intent_log_id: clf.intent_log_id,
-            category: clf.category,
-            sub_intent: clf.sub_intent || null,
-            confidence: Number(clf.confidence) || 0,
-          }, { include_reply_actions: false });
-          console.log("intent routed:", clf.category, clf.sub_intent, "→", route);
+          if (clf?.is_auto_reply) {
+            console.log("intent skipped: auto-reply detected, no routing/actions");
+            await supabase.from("lead_activities").insert({
+              company_id: companyId,
+              lead_id: leadData.id,
+              type: "note",
+              description: "🤖 Mensagem identificada como resposta automática do número de destino — nenhuma ação tomada. Verifique se o número de WhatsApp do lead está correto.",
+              metadata: { source: "inbound-webhook", auto_reply: true, conversation_id: convId },
+            });
+          } else {
+            const route = await routeAndEnqueue(supabase, {
+              company_id: companyId,
+              lead_id: leadData.id,
+              conversation_id: convId,
+              intent_log_id: clf.intent_log_id,
+              category: clf.category,
+              sub_intent: clf.sub_intent || null,
+              confidence: Number(clf.confidence) || 0,
+            }, { include_reply_actions: false });
+            console.log("intent routed:", clf.category, clf.sub_intent, "→", route);
+          }
         } else if (clfErr) {
           console.error("classify-intent error:", clfErr);
         }

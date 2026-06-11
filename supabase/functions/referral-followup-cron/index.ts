@@ -20,7 +20,7 @@ Deno.serve(async (req) => {
 
     const { data: leads, error } = await supabase
       .from("leads")
-      .select("id, name, email, phone, company_id, company_name, referral_context")
+      .select("id, name, email, phone, whatsapp, company_id, company_name, referral_context")
       .eq("referral_stage", "aguardando_encaminhamento_interno")
       .is("referral_followup_sent_at", null)
       .lte("updated_at", twoDaysAgo)

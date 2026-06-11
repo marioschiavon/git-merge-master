@@ -411,7 +411,10 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
 
   async create_new_contact(ctx) {
     const { name, email, phone, role, context, company_name } = ctx.params;
-    if (!name && !email) throw new Error("create_new_contact requer ao menos name ou email");
+    if (!name && !email) {
+      await logActivity(ctx, "note", `⚠️ Tentou criar novo contato por indicação, mas faltaram nome e e-mail — ação ignorada.`, { params: ctx.params });
+      return { skipped: "missing name and email" };
+    }
     const lead = await loadLead(ctx);
     const { data: newLead, error } = await ctx.supabase
       .from("leads")
