@@ -14,7 +14,7 @@ const CHANNELS = [
 ];
 
 const defaultPolicy: Partial<CadencePolicy> = {
-  goal: "Agendar reunião de 15 minutos",
+  goal: "Agendar uma conversa rápida de apresentação",
   max_attempts: 6,
   max_days: 15,
   allowed_channels: ["whatsapp", "email"],

@@ -143,7 +143,7 @@ serve(async (req) => {
         ? "WhatsApp: até 80 palavras, informal."
         : step.channel === "linkedin"
           ? "LinkedIn: até 100 palavras, profissional."
-          : "Email: máximo 80 palavras. Subject curto (até 6 palavras). Hook + Conexão + CTA reunião 15min.";
+          : "Email: máximo 80 palavras. Subject curto (até 6 palavras). Hook + Conexão + CTA para uma conversa rápida (SEM citar minutos).";
 
       const variationsSystem = `Você é um SDR B2B sênior. Gere ${variationCount} VARIAÇÕES distintas da PRIMEIRA mensagem da cadência, cada uma com um ângulo diferente, mas todas conectando algo concreto do prospect com o que NÓS vendemos.
 
@@ -165,7 +165,7 @@ CANAL: ${step.channel} — ${channelHint}
 REGRAS:
 - Cada variação usa um ÂNGULO/GANCHO diferente (ex.: dor, oportunidade, prova social, benefício específico).
 - Nunca invente fatos sobre o prospect.
-- Sempre termine com CTA de reunião curta (15min).
+- Sempre termine com CTA de uma conversa rápida de apresentação (NUNCA cite minutos; a duração só é informada se o lead perguntar).
 - Mantenha o tom e estrutura do template, mas reescreva.
 
 Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"gancho usado"}]}`;
@@ -303,7 +303,7 @@ REGRAS GERAIS:
 - ${step.channel === "email" ? `Email: MÁXIMO 80 palavras. Estrutura obrigatória:
   1. HOOK (1 frase): Comece com algo específico do prospect (do insight do website) que chame atenção
   2. CONEXÃO (1-2 frases): Ligue o hook diretamente a 1 benefício concreto do seu produto/serviço
-  3. CTA (1 frase): Pergunta direta para agendar reunião de 15min
+  3. CTA (1 frase): Pergunta direta para agendar uma conversa rápida de apresentação (NÃO escreva minutos; revele duração só se o lead perguntar)
   - Subject: máximo 6 palavras, curioso, referenciando o negócio do prospect. NUNCA genérico.
   - PROIBIDO: "Meu nome é...", "Somos uma empresa...", "Gostaria de me apresentar...", introduções longas
   - Tom: direto, confiante, como se já conhecesse o mercado do prospect` : ""}

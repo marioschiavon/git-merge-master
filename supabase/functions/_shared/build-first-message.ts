@@ -31,13 +31,17 @@ export async function buildFirstMessage(input: FirstMessageInput): Promise<First
     mentalTriggers = [],
   } = input;
 
-  const [knowledgeRes, highlightsRes, aiInstructionsRes, insightRes, socialRes] = await Promise.all([
+  const { getMeetingDurationMinutes, meetingDurationPromptBlock } = await import("./meeting-duration.ts");
+
+  const [knowledgeRes, highlightsRes, aiInstructionsRes, insightRes, socialRes, meetingMinutes] = await Promise.all([
     supabase.from("company_knowledge").select("title, content").eq("company_id", companyId).not("type", "in", "(highlights,ai_instructions)").limit(10),
     supabase.from("company_knowledge").select("content").eq("company_id", companyId).eq("type", "highlights").maybeSingle(),
     supabase.from("company_knowledge").select("content").eq("company_id", companyId).eq("type", "ai_instructions").maybeSingle(),
     supabase.from("lead_insights").select("insights, raw_summary").eq("lead_id", lead.id).maybeSingle(),
     supabase.from("lead_social_profiles").select("network, handle, bio, followers, posts_summary, recent_posts").eq("lead_id", lead.id),
+    getMeetingDurationMinutes(supabase, companyId),
   ]);
+  const durationBlock = meetingDurationPromptBlock(meetingMinutes);
 
   const knowledgeContext = (knowledgeRes.data || [])
     .map((k: any) => `## ${k.title}\n${k.content}`)
@@ -108,6 +112,7 @@ ${insightsContext || "Sem diferenciais disponíveis do prospect."}
 === SINAIS DE REDES SOCIAIS DO PROSPECT (Instagram, LinkedIn, etc.) ===
 ${socialContext || "(sem dados de redes sociais)"}
 ${triggersBlock}${toneBlock}
+${durationBlock}
 
 CANAL: ${channel}
 CONTEXTO: PRIMEIRO CONTATO (abertura da cadência)
@@ -124,11 +129,11 @@ REGRAS GERAIS:
 - ${channel === "email" ? `Email: MÁXIMO 80 palavras. Estrutura obrigatória:
   1. HOOK (1 frase): Comece com algo específico do prospect que chame atenção
   2. CONEXÃO (1-2 frases): Ligue o hook diretamente a 1 benefício concreto do seu produto/serviço
-  3. CTA (1 frase): Pergunta direta para agendar reunião de 15min
+  3. CTA (1 frase): Pergunta direta para agendar uma conversa rápida de apresentação (SEM citar minutos)
   - Subject: máximo 6 palavras, curioso, referenciando o negócio do prospect. NUNCA genérico.
   - PROIBIDO: "Meu nome é...", "Somos uma empresa...", "Gostaria de me apresentar...", introduções longas
   - Tom: direto, confiante, como se já conhecesse o mercado do prospect` : ""}
-- SEMPRE inclua um CTA claro para agendar reunião
+- SEMPRE inclua um CTA claro para agendar uma conversa rápida (sem cravar duração)
 
 Responda APENAS com JSON:
 {

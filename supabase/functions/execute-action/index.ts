@@ -280,7 +280,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       return { slots };
     } catch (e) {
       // Fallback: AI message asking when the lead is free
-      const reply = await generateReply(ctx, { tone: "ofereça 2 horários genéricos esta semana para reunião de 20min", category: "scheduling" });
+      const reply = await generateReply(ctx, { tone: "ofereça 2 horários genéricos esta semana para uma conversa rápida de apresentação, sem citar duração em minutos", category: "scheduling" });
       const channel = await loadConversationChannel(ctx);
       await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "suggest_meeting_times", fallback: true });
       await logActivity(ctx, "note", `📅 Sugestão de horário enviada (fallback)`);
