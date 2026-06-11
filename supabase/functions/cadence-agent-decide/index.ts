@@ -464,29 +464,63 @@ Decida a próxima ação.`;
         .update({ handoff_required: true, handoff_reason: decision.rationale, handoff_at: new Date().toISOString() })
         .eq("id", lead.id);
     } else if (decision.action === "send" && decision.channel && decision.message) {
-      // Send via send-outbound-message (handles channel routing, conv, logging).
-      const sendRes = await supabase.functions.invoke("send-outbound-message", {
-        body: {
-          lead_id: lead.id,
-          company_id: cadence.company_id,
-          channel: decision.channel,
-          subject: decision.subject || null,
-          message: decision.message,
-          conversation_metadata: {
-            source: "cadence_agent",
-            cadence_id: cadence.id,
-            enrollment_id,
-            hook: decision.hook,
-            attempt: attemptNumber,
-          },
-        },
-      });
-      if (sendRes.error) {
-        console.error("send-outbound-message failed", sendRes.error);
+      // Inline send: email via gmail-send, whatsapp via Z-API.
+      const channel = decision.channel;
+      let sendAction = "sent";
+      let deliveryMeta: Record<string, any> = {};
+      const conversation = await findOrCreateConversation(
+        supabase, lead.id, cadence.company_id, channel, enrollment_id
+      );
+
+      if (channel === "email" && lead.email) {
+        try {
+          const { error: sendError } = await supabase.functions.invoke("gmail-send", {
+            body: {
+              to: lead.email,
+              subject: decision.subject || `Mensagem para ${lead.name}`,
+              html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${(decision.message || "").replace(/\n/g, "<br>")}</div>`,
+              text: decision.message,
+              lead_id: lead.id,
+              company_id: cadence.company_id,
+              conversation_id: conversation?.id,
+              extra_metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, hook: decision.hook, attempt: attemptNumber },
+            },
+          });
+          if (sendError) { console.error("gmail-send error", sendError); sendAction = "failed"; }
+        } catch (e) { console.error("gmail-send exception", e); sendAction = "failed"; }
+      } else if (channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
+        const zCfg = await getZApiConfig(supabase, cadence.company_id);
+        if (zCfg) {
+          const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, decision.message);
+          if (r.ok) deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status };
+          else { sendAction = "failed"; deliveryMeta = { delivery_status: "failed", zapi_error: r.error }; }
+        } else { sendAction = "pending_manual"; deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" }; }
+        // For non-email channels, persist outbound message
+        if (conversation) {
+          await supabase.from("messages").insert({
+            conversation_id: conversation.id,
+            content: decision.message,
+            direction: "outbound",
+            ai_suggested: true,
+            metadata: { source: "cadence_agent", hook: decision.hook, attempt: attemptNumber, channel, ...deliveryMeta },
+          });
+        }
+      } else {
+        sendAction = "failed";
+        deliveryMeta = { delivery_error: `Lead sem contato para canal ${channel}` };
       }
+
+      // Activity log
+      await supabase.from("lead_activities").insert({
+        company_id: cadence.company_id,
+        lead_id: lead.id,
+        type: channel,
+        description: `🤖 IA enviou (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${(decision.subject || decision.message || "").substring(0, 100)}`,
+        metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, action: sendAction, hook: decision.hook, ...deliveryMeta },
+      });
+
       await persistDecision(decision, { model: "google/gemini-2.5-flash" });
 
-      // Schedule next tick: pick a sensible delay (1 to 3 days depending on attempt)
       const nextDelayHours = attemptNumber <= 1 ? 48 : 72;
       const nextTick = nextAllowedSlot(
         new Date(Date.now() + nextDelayHours * 3600 * 1000),
