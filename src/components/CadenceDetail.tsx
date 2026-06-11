@@ -400,3 +400,63 @@ function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
     </div>
   );
 }
+
+function AgenticSimulationControls({
+  enrollmentId,
+  simulationEnabled,
+}: { enrollmentId: string; simulationEnabled: boolean }) {
+  const runNext = useRunNextStep();
+  const simulateReply = useSimulateReply();
+  const [reply, setReply] = useState("");
+
+  return (
+    <div className="space-y-2 border-t border-dashed pt-2 mt-1">
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          size="sm"
+          variant="default"
+          onClick={() => runNext.mutate(enrollmentId)}
+          disabled={runNext.isPending}
+          className="h-7 text-xs"
+        >
+          {runNext.isPending ? (
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+          ) : (
+            <Play className="mr-1 h-3 w-3" />
+          )}
+          Executar próximo passo
+        </Button>
+      </div>
+      {simulationEnabled && (
+        <div className="space-y-1.5">
+          <Textarea
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder='Simular resposta do lead (ex: "não tenho interesse", "podemos marcar?", "remover")'
+            rows={2}
+            className="text-xs"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!reply.trim() || simulateReply.isPending}
+            onClick={() => {
+              simulateReply.mutate(
+                { enrollmentId, replyText: reply.trim() },
+                { onSuccess: () => setReply("") },
+              );
+            }}
+            className="h-7 text-xs"
+          >
+            {simulateReply.isPending ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Send className="mr-1 h-3 w-3" />
+            )}
+            Simular resposta
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
