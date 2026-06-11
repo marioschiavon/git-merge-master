@@ -89,3 +89,26 @@ export async function verifyZApiCredentials(
     return { ok: false, error: e?.message || String(e) };
   }
 }
+
+// Verifica se um número de telefone está registrado no WhatsApp.
+// Usa endpoint Z-API GET /phone-exists/{phone}.
+export async function checkPhoneExistsOnWhatsApp(
+  cfg: ZApiConfig,
+  toPhone: string,
+): Promise<{ ok: boolean; exists?: boolean; status?: number; error?: string }> {
+  const phone = normalizePhoneForZApi(toPhone);
+  if (!phone) return { ok: false, error: "Telefone inválido" };
+  try {
+    const headers: Record<string, string> = {};
+    if (cfg.client_token) headers["Client-Token"] = cfg.client_token;
+    const res = await fetch(`${baseUrl(cfg)}/phone-exists/${phone}`, { headers });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, status: res.status, error: json?.error || json?.message || `HTTP ${res.status}` };
+    }
+    const exists = !!(json?.exists ?? json?.existsWhatsapp ?? json?.exists_whatsapp);
+    return { ok: true, exists, status: res.status };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
