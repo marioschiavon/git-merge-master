@@ -124,6 +124,75 @@ export type Database = {
           },
         ]
       }
+      cadence_agent_decisions: {
+        Row: {
+          action: string
+          attempt_number: number
+          channel: string | null
+          company_id: string
+          decided_at: string
+          enrollment_id: string
+          hook: string | null
+          id: string
+          message_body: string | null
+          message_subject: string | null
+          model: string | null
+          rationale: string | null
+          scheduled_for: string | null
+          stop_reason: string | null
+          tokens_used: number | null
+        }
+        Insert: {
+          action: string
+          attempt_number?: number
+          channel?: string | null
+          company_id: string
+          decided_at?: string
+          enrollment_id: string
+          hook?: string | null
+          id?: string
+          message_body?: string | null
+          message_subject?: string | null
+          model?: string | null
+          rationale?: string | null
+          scheduled_for?: string | null
+          stop_reason?: string | null
+          tokens_used?: number | null
+        }
+        Update: {
+          action?: string
+          attempt_number?: number
+          channel?: string | null
+          company_id?: string
+          decided_at?: string
+          enrollment_id?: string
+          hook?: string | null
+          id?: string
+          message_body?: string | null
+          message_subject?: string | null
+          model?: string | null
+          rationale?: string | null
+          scheduled_for?: string | null
+          stop_reason?: string | null
+          tokens_used?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cadence_agent_decisions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_agent_decisions_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cadence_custom_messages: {
         Row: {
           company_id: string
@@ -259,6 +328,75 @@ export type Database = {
           },
         ]
       }
+      cadence_policies: {
+        Row: {
+          allowed_channels: string[]
+          business_hours: Json
+          cadence_id: string
+          company_id: string
+          continue_criteria: string | null
+          created_at: string
+          goal: string
+          max_attempts: number
+          max_days: number
+          min_fit_score: number | null
+          primary_channel: string
+          stop_criteria_flags: Json
+          stop_criteria_text: string | null
+          tone_instructions: string
+          updated_at: string
+        }
+        Insert: {
+          allowed_channels?: string[]
+          business_hours?: Json
+          cadence_id: string
+          company_id: string
+          continue_criteria?: string | null
+          created_at?: string
+          goal?: string
+          max_attempts?: number
+          max_days?: number
+          min_fit_score?: number | null
+          primary_channel?: string
+          stop_criteria_flags?: Json
+          stop_criteria_text?: string | null
+          tone_instructions?: string
+          updated_at?: string
+        }
+        Update: {
+          allowed_channels?: string[]
+          business_hours?: Json
+          cadence_id?: string
+          company_id?: string
+          continue_criteria?: string | null
+          created_at?: string
+          goal?: string
+          max_attempts?: number
+          max_days?: number
+          min_fit_score?: number | null
+          primary_channel?: string
+          stop_criteria_flags?: Json
+          stop_criteria_text?: string | null
+          tone_instructions?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cadence_policies_cadence_id_fkey"
+            columns: ["cadence_id"]
+            isOneToOne: true
+            referencedRelation: "cadences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_policies_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cadence_steps: {
         Row: {
           cadence_id: string
@@ -322,6 +460,7 @@ export type Database = {
           created_by: string
           description: string | null
           id: string
+          mode: string
           name: string
           status: Database["public"]["Enums"]["cadence_status"]
           type: Database["public"]["Enums"]["cadence_type"]
@@ -333,6 +472,7 @@ export type Database = {
           created_by: string
           description?: string | null
           id?: string
+          mode?: string
           name: string
           status?: Database["public"]["Enums"]["cadence_status"]
           type?: Database["public"]["Enums"]["cadence_type"]
@@ -344,6 +484,7 @@ export type Database = {
           created_by?: string
           description?: string | null
           id?: string
+          mode?: string
           name?: string
           status?: Database["public"]["Enums"]["cadence_status"]
           type?: Database["public"]["Enums"]["cadence_type"]
