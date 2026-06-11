@@ -51,6 +51,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [previewLead, setPreviewLead] = useState<{ id: string; name: string } | null>(null);
+  const toggleSimulation = useToggleSimulation();
 
   if (!cadence) return null;
 
