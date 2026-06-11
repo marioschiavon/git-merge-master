@@ -329,9 +329,9 @@ serve(async (req) => {
       }
     }
 
-    if (!isFirstAttempt || !(decision! as any)) {
+    if (!isFirstAttempt || !decision!) {
 
-
+    const [convsRes, prevDecisionsRes, kbRes, highlightsRes, aiInstrRes] = await Promise.all([
       supabase.from("conversations").select("id, channel").eq("lead_id", lead.id),
       supabase
         .from("cadence_agent_decisions")
