@@ -418,7 +418,8 @@ serve(async (req) => {
 
 
     // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
-    if (!earlyParsed && companyId && leadData?.id) {
+    // Skip when message is a clarifying question (duration/format/etc) without datetime — would be mis-routed as scheduling.
+    if (!earlyParsed && companyId && leadData?.id && !(earlyClarifyingKind && !earlyInboundDt)) {
       try {
         // Build brief history for classifier
         const { data: recentMsgs } = await supabase
