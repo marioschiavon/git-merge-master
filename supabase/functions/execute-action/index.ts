@@ -608,6 +608,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
 
   async mark_meeting_attended(ctx) {
     const { booking_uid, attended } = ctx.params;
+    if (!booking_uid) await assertSubIntentAllowed(ctx, "mark_meeting_attended");
     const { data: booking } = await ctx.supabase.from("bookings").select("id").eq("calcom_booking_uid", booking_uid).maybeSingle();
     if (!booking) throw new Error("booking não encontrado");
     await ctx.supabase.from("bookings").update({ status: attended === false ? "no_show" : "completed" }).eq("id", booking.id);
