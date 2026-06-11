@@ -125,6 +125,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
             </TabsContent>
           )}
 
+          {!isAgentic && (
           <TabsContent value="steps" className="space-y-4 mt-4">
             {steps.length === 0 && (
               <div className="text-center py-6 space-y-3">
