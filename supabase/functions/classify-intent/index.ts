@@ -41,7 +41,7 @@ Para mensagens de scheduling, distinga claramente:
 - asks_location: pergunta o local/link da reunião
 - asks_objective: pergunta qual o objetivo da reunião / o que vai ser tratado
 
-IMPORTANTE: perguntas esclarecedoras sobre a reunião (duração, formato, quem participa, local, objetivo) NÃO são `asks_time_options`. Use o sub-intent específico (`asks_duration`, `asks_format`, ...).
+IMPORTANTE: perguntas esclarecedoras sobre a reunião (duração, formato, quem participa, local, objetivo) NÃO são asks_time_options. Use o sub-intent específico (asks_duration, asks_format, ...).
 
 Extraia entidades quando relevante: data/hora mencionada (ISO 8601 BRT-3 se possível), e-mail/nome/empresa referidos, motivo de cancelamento, fuso horário.
 
