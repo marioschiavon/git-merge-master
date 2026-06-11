@@ -1201,11 +1201,12 @@ Analise a última mensagem e decida a ação.`,
           ? parsed.provided_email.trim()
           : (emailRegex.exec(cleanContent)?.[0] || null);
 
-      if (providedEmail && !leadData?.email) {
+      if (providedEmail && providedEmail.toLowerCase() !== (leadData?.email || "").toLowerCase()) {
         await supabase.from("leads").update({ email: providedEmail }).eq("id", leadData.id);
         leadData.email = providedEmail;
-        console.log(`Lead email captured from conversation: ${providedEmail}`);
+        console.log(`Lead email captured/updated from conversation: ${providedEmail}`);
       }
+
 
       const emailRefused = !!parsed.email_refused;
 
