@@ -90,6 +90,57 @@ serve(async (req) => {
       });
     }
 
+    // ─── Auto-reply / bot greeting detection (deterministic) ───
+    // Catches business voicemail-style WhatsApp auto-attendants that would otherwise
+    // be mis-classified as a real prospect message and trigger referral/routing actions.
+    const autoReplySignals = [
+      /\bbem[- ]?vindo\b/i,
+      /\bhor[áa]rio de atendimento\b/i,
+      /\bcomo podemos (te )?ajudar\b/i,
+      /\bfique [aà] vontade\b/i,
+      /\batendimento autom[áa]tico\b/i,
+      /\beste (n[úu]mero|whats(app)?) (é|e) (comercial|empresarial|de atendimento)\b/i,
+      /\bn[ãa]o respondemos por esse (n[úu]mero|canal)\b/i,
+      /\bseg(unda)? a sex(ta)?\b/i,
+      /\b\d{1,2}:\d{2}\s*(às|as|hs|h)\s*\d{1,2}:\d{2}\b/i,
+    ];
+    const normalized = String(message_content);
+    const hits = autoReplySignals.filter((re) => re.test(normalized)).length;
+    if (hits >= 2 || (hits >= 1 && normalized.length > 200 && /[🐶🐱🐾🥇🕐👋📞📧]/.test(normalized))) {
+      console.log(`AUTO_REPLY_DETECTED hits=${hits} preview="${normalized.slice(0, 80)}"`);
+      const parsed = {
+        category: "silence",
+        sub_intent: "auto_reply",
+        sentiment: "neutro",
+        confidence: 1,
+        entities: {},
+        reasoning: "Mensagem detectada como resposta automática / bot de atendimento — ignorada.",
+      };
+      const { data: logRow } = await supabase
+        .from("lead_intents_log")
+        .insert({
+          company_id,
+          lead_id,
+          conversation_id: conversation_id || null,
+          message_id: message_id || null,
+          category: parsed.category,
+          sub_intent: parsed.sub_intent,
+          sentiment: parsed.sentiment,
+          confidence: parsed.confidence,
+          entities: parsed.entities,
+          message_excerpt: String(message_content).slice(0, 500),
+          model_used: "deterministic:auto-reply",
+          latency_ms: 0,
+          raw_response: parsed,
+        })
+        .select()
+        .single();
+      return new Response(
+        JSON.stringify({ ...parsed, intent_log_id: logRow?.id || null, latency_ms: 0, is_auto_reply: true }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const clarifierKind = detectMeetingClarifier(message_content);
     if (clarifierKind) {
       const parsed = {
