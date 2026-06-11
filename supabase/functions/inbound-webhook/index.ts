@@ -7,6 +7,7 @@ import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { cancelCalcomBooking, cancelCalcomReservation } from "../_shared/calcom.ts";
+import { clarifyingReplyFor, detectMeetingClarifier, normalizePtText } from "../_shared/meeting-clarifier.ts";
 
 
 const corsHeaders = {
@@ -169,45 +170,6 @@ function extractDateTimeFromText(text: string): string | null {
   return null;
 }
 
-/** Lowercase + remove accents + collapse punctuation/whitespace for robust matching. */
-function normalizePtText(text: string): string {
-  return String(text || "")
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-const CLARIFYING_PATTERNS = {
-  duration: /\b(quanto\s+tempo|quanto\s+(vai\s+)?dura|quanto\s+dura|qual\s+(a\s+)?duracao|duracao\s+(da|de|do)\s+(reuniao|call|conversa|apresentacao|encontro|papo|meet)|tempo\s+(de|da|do|pra|para|na|e\s+de|e\s+da)\s+(reuniao|call|conversa|apresentacao|encontro|papo|meet)|vai\s+demorar|leva\s+quanto|dura\s+quanto|e\s+rapid|demora\s+muito|reuniao\s+(longa|curta|rapida|demora)|quantos?\s+minutos)\b/,
-  format: /\b(e\s+(online|presencial|por\s+video|por\s+telefone|remota)|formato\s+(da|de)\s+reuniao|onde\s+(vai\s+)?ser|por\s+onde\s+vai\s+ser|google\s+meet|zoom|teams|link\s+da\s+(reuniao|call))\b/,
-  attendees: /\b(quem\s+(vai\s+)?(participa|estara|vai\s+estar|estarah)|quem\s+(e|sao)\s+o(s)?\s+(participante|convidado)|quem\s+mais\s+(vai|estara))\b/,
-  objective: /\b(qual\s+(o\s+)?(objetivo|assunto|pauta|tema)|sobre\s+o\s+que\s+(vai\s+)?ser|o\s+que\s+(vai\s+)?ser\s+tratado|pra\s+que\s+(e|serve)|qual\s+a\s+ideia)\b/,
-} as const;
-
-type ClarifyingKind = keyof typeof CLARIFYING_PATTERNS;
-
-function detectClarifyingQuestion(text: string): ClarifyingKind | null {
-  const norm = normalizePtText(text);
-  for (const [k, re] of Object.entries(CLARIFYING_PATTERNS)) {
-    if (re.test(norm)) return k as ClarifyingKind;
-  }
-  return null;
-}
-
-function clarifyingReplyFor(kind: ClarifyingKind, meetingMinutes: number | null): string {
-  if (kind === "duration") {
-    return meetingMinutes
-      ? `É uma apresentação rápida, em torno de ${meetingMinutes} minutos.`
-      : "É uma apresentação rápida, bem objetiva.";
-  }
-  if (kind === "format") return "É online, por videochamada. Te envio o link junto com a confirmação.";
-  if (kind === "attendees") return "Sou eu que conduzo a conversa inicial. Se fizer sentido, trazemos mais alguém do time depois.";
-  return "Quero entender melhor seu contexto e te mostrar como podemos ajudar — bem direto ao ponto.";
-}
-
 // stripQuotedEmail imported from _shared/strip-quoted-email.ts
 
 serve(async (req) => {
@@ -289,10 +251,10 @@ serve(async (req) => {
 
     // EARLY: detectar perguntas esclarecedoras (duração/formato/etc) — usado para impedir
     // que o classificador de intent roteie como scheduling e também como blindagem final.
-    const earlyClarifyingKind = detectClarifyingQuestion(cleanContent);
+    const earlyClarifyingKind = detectMeetingClarifier(cleanContent);
     const earlyInboundDt = extractDateTimeFromText(cleanContent);
     if (earlyClarifyingKind && !earlyInboundDt) {
-      console.log(`Early clarifying-question detected (${earlyClarifyingKind}) — will short-circuit scheduling routes`);
+      console.log(`MEETING_CLARIFIER_BYPASS detected kind=${earlyClarifyingKind} norm="${normalizePtText(cleanContent)}" stage=early`);
     }
 
     // Save inbound message (with clean content) — pulado quando a mensagem já foi inserida pelo caller (ex: gmail-sync-inbox)
@@ -735,9 +697,7 @@ Responda APENAS com JSON:
       // SHORT-CIRCUIT: pergunta esclarecedora sobre a reunião — não chama IA,
       // não roteia para agenda. Responde determinístico e segue para o envio.
       const replyText = clarifyingReplyFor(earlyClarifyingKind, meetingMinutes);
-      console.log(
-        `Clarifying short-circuit: kind=${earlyClarifyingKind} norm="${normalizePtText(cleanContent)}" reply="${replyText}"`,
-      );
+      console.log(`MEETING_CLARIFIER_BYPASS action=reply kind=${earlyClarifyingKind} norm="${normalizePtText(cleanContent)}" reply="${replyText}"`);
       parsed = {
         action: "reply",
         sentiment: "dúvida",
@@ -821,7 +781,7 @@ Analise a última mensagem e decida a ação.`,
     const inboundDt = earlyInboundDt;
 
     if (!earlyParsed && clarifyingKind && !inboundDt) {
-      console.log(`Clarifying question detected (${clarifyingKind}) — forcing reply`);
+      console.log(`MEETING_CLARIFIER_BYPASS forcing reply kind=${clarifyingKind} norm="${normalizePtText(cleanContent)}"`);
       parsed.action = "reply";
       if (!parsed.reply_message || /📅|hor[aá]rio|qual\s+dia|disponibilidade/i.test(parsed.reply_message)) {
         parsed.reply_message = clarifyingReplyFor(clarifyingKind, meetingMinutes);
@@ -855,7 +815,7 @@ Analise a última mensagem e decida a ação.`,
     }
 
     // FIX: If AI says "schedule" but scheduling is already in progress, redirect to check_availability
-    if (parsed.action === "schedule" && schedulingInProgress) {
+    if (!clarifyingKind && parsed.action === "schedule" && schedulingInProgress) {
       console.log("Schedule requested but scheduling already in progress — redirecting to check_availability");
       parsed.action = "check_availability";
       // Try to extract datetime from original message
@@ -888,7 +848,7 @@ Analise a última mensagem e decida a ação.`,
     }
 
 
-    if (parsed.action === "check_availability" && !parsed.suggested_datetime) {
+    if (!clarifyingKind && parsed.action === "check_availability" && !parsed.suggested_datetime) {
       const extracted = extractDateTimeFromText(content);
       if (extracted) {
         console.log("AI didn't provide suggested_datetime, extracted from text:", extracted);
@@ -1039,7 +999,7 @@ Analise a última mensagem e decida a ação.`,
     // guard posterior empurrou para uma ação de agenda, sobrescreve de volta para reply.
     if (!earlyParsed && earlyClarifyingKind && !earlyInboundDt &&
         ["schedule", "check_availability", "reject_slots", "confirm_slot", "reschedule", "suggest_meeting_times"].includes(parsed.action)) {
-      console.log(`Final clarifying guard: overriding action=${parsed.action} → reply (kind=${earlyClarifyingKind})`);
+      console.log(`MEETING_CLARIFIER_BYPASS final override action=${parsed.action} kind=${earlyClarifyingKind}`);
       parsed.action = "reply";
       parsed.reply_message = clarifyingReplyFor(earlyClarifyingKind, meetingMinutes);
       parsed.suggested_datetime = null;

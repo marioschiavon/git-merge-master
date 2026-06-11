@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { detectMeetingClarifier, meetingClarifierSubIntent, normalizePtText } from "../_shared/meeting-clarifier.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +41,7 @@ Para mensagens de scheduling, distinga claramente:
 - asks_location: pergunta o local/link da reunião
 - asks_objective: pergunta qual o objetivo da reunião / o que vai ser tratado
 
-IMPORTANTE: perguntas esclarecedoras sobre a reunião (duração, formato, quem participa, local, objetivo) NÃO são `asks_time_options`. Use o sub-intent específico (`asks_duration`, `asks_format`, ...).
+IMPORTANTE: perguntas esclarecedoras sobre a reunião (duração, formato, quem participa, local, objetivo) NÃO são asks_time_options. Use o sub-intent específico (asks_duration, asks_format, ...).
 
 Extraia entidades quando relevante: data/hora mencionada (ISO 8601 BRT-3 se possível), e-mail/nome/empresa referidos, motivo de cancelamento, fuso horário.
 
@@ -86,6 +87,45 @@ serve(async (req) => {
     if (!company_id || !lead_id || !message_content) {
       return new Response(JSON.stringify({ error: "company_id, lead_id, message_content são obrigatórios" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const clarifierKind = detectMeetingClarifier(message_content);
+    if (clarifierKind) {
+      const parsed = {
+        category: "info_request",
+        sub_intent: meetingClarifierSubIntent(clarifierKind),
+        sentiment: "dúvida",
+        confidence: 1,
+        entities: {},
+        reasoning: `Pergunta esclarecedora sobre reunião detectada deterministicamente (${clarifierKind})`,
+      };
+      console.log(`MEETING_CLARIFIER_CLASSIFIER_BYPASS kind=${clarifierKind} norm="${normalizePtText(message_content)}"`);
+
+      const { data: logRow, error: logErr } = await supabase
+        .from("lead_intents_log")
+        .insert({
+          company_id,
+          lead_id,
+          conversation_id: conversation_id || null,
+          message_id: message_id || null,
+          category: parsed.category,
+          sub_intent: parsed.sub_intent,
+          sentiment: parsed.sentiment,
+          confidence: parsed.confidence,
+          entities: parsed.entities,
+          message_excerpt: String(message_content).slice(0, 500),
+          model_used: "deterministic:meeting-clarifier",
+          latency_ms: 0,
+          raw_response: parsed,
+        })
+        .select()
+        .single();
+
+      if (logErr) console.error("classify-intent clarifier log error:", logErr);
+
+      return new Response(JSON.stringify({ ...parsed, intent_log_id: logRow?.id || null, latency_ms: 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
