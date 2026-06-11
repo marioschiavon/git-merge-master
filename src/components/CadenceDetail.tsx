@@ -177,6 +177,9 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
               )}
             </div>
           </TabsContent>
+          )}
+
+
 
           <TabsContent value="leads" className="space-y-4 mt-4">
             <div className="flex gap-2">
