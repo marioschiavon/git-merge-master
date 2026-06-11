@@ -1010,7 +1010,25 @@ Analise a última mensagem e decida a ação.`,
         ...heldSlots.map((s: any) => s.slot_datetime),
         ...lastOfferedSlots,
       ];
+      // Day-level exclusion: when the lead rejects slots, assume they want
+      // DIFFERENT DAYS, not just different times on the same day.
+      const toSptDate = (iso: string): string | null => {
+        try {
+          const parts = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "America/Sao_Paulo",
+            year: "numeric", month: "2-digit", day: "2-digit",
+          }).formatToParts(new Date(iso));
+          const y = parts.find((p) => p.type === "year")?.value;
+          const m = parts.find((p) => p.type === "month")?.value;
+          const d = parts.find((p) => p.type === "day")?.value;
+          return y && m && d ? `${y}-${m}-${d}` : null;
+        } catch { return null; }
+      };
+      const excludeDates = Array.from(new Set(
+        excludeDatetimes.map(toSptDate).filter((x): x is string => !!x)
+      ));
       console.log("Excluding previously offered datetimes:", excludeDatetimes);
+      console.log("Excluding previously offered dates (day-level):", excludeDates);
 
       // Fetch 2 new slots (excluding rejected ones)
       try {
@@ -1023,6 +1041,7 @@ Analise a última mensagem e decida a ação.`,
           conversation_id: convId,
           preferred_channel: channelLabel,
           exclude_datetimes: excludeDatetimes,
+          exclude_dates: excludeDates,
         };
         if (rangeHint?.start_after) slotsBody.start_after = rangeHint.start_after;
         if (rangeHint?.end_before) slotsBody.end_before = rangeHint.end_before;
