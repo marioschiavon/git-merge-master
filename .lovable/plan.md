@@ -1,30 +1,29 @@
-# Plano: Filtro por Step no Dashboard de Cadências
+# Remover duração fixa do objetivo e só citar tempo se o lead perguntar
 
-## Objetivo
-Adicionar um filtro por etapa (step) da cadência na tela `/cadences/dashboard`, permitindo que o usuário visualize leads que estão em uma etapa específica da sequência.
+## Problema
+Hoje o SDR (IA) abre conversa mencionando "reunião de 15 minutos" — tempo hard-coded em `src/components/AgenticPolicyForm.tsx` e propagado para os prompts. Queremos que o SDR fale de forma natural ("uma conversa rápida de apresentação") e só revele a duração real quando o lead perguntar.
 
-## Mudanças
+## Solução
 
-### 1. Estado do filtro
-- Adicionar `stepFilter` (string, default `"all"`) ao componente `CadencesDashboard`.
+### 1. Texto do objetivo padrão
+- **`src/components/AgenticPolicyForm.tsx`**: trocar `defaultPolicy.goal` de `"Agendar reunião de 15 minutos"` para algo como `"Agendar uma conversa rápida de apresentação"`. Sem número de minutos.
+- Não sobrescrever políticas já salvas; só afeta novas.
 
-### 2. UI — Select de Steps
-- Inserir um novo `<Select>` ao lado dos filtros existentes (busca, status, intent).
-- As opções do select serão dinâmicas, baseadas nos `steps` da cadência selecionada (já carregados via `useCadenceSteps`).
-- Cada opção mostrará: "Step N — Canal" (ex: "Step 2 — email").
-- Opção padrão: "Todos steps".
+### 2. Prompt do agente / primeira mensagem
+- **`supabase/functions/_shared/build-first-message.ts`** e **`supabase/functions/cadence-agent-decide/index.ts`** (e qualquer outro lugar onde o `goal` ou duração da reunião entra no prompt — confirmar via busca por `length_minutes`, `minutos`, `duration`):
+  - Adicionar instrução explícita no system prompt:
+    > "Nunca mencione a duração exata da reunião nas mensagens proativas. Refira-se como 'uma conversa rápida de apresentação' / 'um papo curto'. Só informe a duração ({N} minutos do Cal.com) se o lead perguntar diretamente quanto tempo vai durar."
+  - Passar a duração real do event type padrão do Cal.com como contexto (`meeting_duration_minutes`) buscando em `calcom_event_types` via `companies.calcom_default_event_type_id`. Esse valor fica disponível para a IA usar apenas quando o lead perguntar.
 
-### 3. Lógica de filtro
-- Aplicar `stepFilter` no `useMemo` de `filtered`:
-  - Se `stepFilter !== "all"`, comparar `String(enrollment.current_step) !== stepFilter`.
-- O `current_step` já está disponível em cada row retornado por `useCadenceLeadProgress`.
+### 3. Onde buscar a duração no backend
+- Em `cadence-agent-decide` e `generate-reply` (e `ai-reply` se aplicável): após carregar `company`, fazer `select length_minutes from calcom_event_types where company_id = ... and calcom_id = company.calcom_default_event_type_id` e injetar no prompt como variável de contexto.
+- Fallback: se não houver event type, omitir a variável e instruir a IA a responder algo genérico como "rapidinho, cerca de 30 minutos no máximo" — ou melhor, "vou confirmar a duração com você".
 
-### 4. Estatísticas (KPIs)
-- Os KPIs permanecem calculados sobre o total da cadência (não afetados pelo filtro de step).
+## Escopo
+- Texto padrão do formulário (frontend).
+- System prompt das funções que geram mensagens (backend edge functions).
+- Sem mudança de schema, sem mudança em UI de Cal.com Settings.
 
-## Arquivos alterados
-- `src/pages/CadencesDashboard.tsx`
-
-## Fora do escopo
-- Mudanças no drawer de lead.
-- Novos hooks ou queries ao backend.
+## Fora de escopo
+- Editar políticas já salvas com `goal` antigo (usuário pode atualizar manualmente).
+- UI para sincronizar/visualizar a duração na tela de política.
