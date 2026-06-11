@@ -449,7 +449,7 @@ Decida a próxima ação.`;
 
     // Normalize channel against allowed
     if (decision.channel && !(policy.allowed_channels || []).includes(decision.channel)) {
-      decision.channel = policy.primary_channel as any;
+      decision.channel = effectivePrimary as any;
     }
 
     // Compute scheduled_for respecting business hours when sending
