@@ -288,10 +288,11 @@ serve(async (req) => {
           && new Date(hold.expires_at).getTime() > Date.now();
 
         if (stillValid) {
-          if (!leadData.email) {
+          if (emailMatch && emailMatch.toLowerCase() !== (leadData.email || "").toLowerCase()) {
             await supabase.from("leads").update({ email: emailMatch }).eq("id", leadData.id);
             leadData.email = emailMatch;
           }
+
           console.log(`Pending email fulfilled — confirming held slot ${pendingHoldId} for lead ${leadData.id}`);
           try {
             const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
