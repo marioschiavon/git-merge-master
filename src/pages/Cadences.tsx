@@ -141,7 +141,7 @@ export default function Cadences() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{typeLabels[c.type] || c.type}</TableCell>
+                    <TableCell>{(c as any).mode === "agentic" ? "Inteligente (IA)" : (typeLabels[c.type] || c.type)}</TableCell>
                     <TableCell>
                       <Badge className={statusColors[c.status] || ""} variant="secondary">
                         {statusLabels[c.status] || c.status}
