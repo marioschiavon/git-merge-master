@@ -1,28 +1,32 @@
 ## Plano
 
-1. **Blindar antes do classificador de intent**
-   - Detectar perguntas esclarecedoras logo após limpar a mensagem recebida, antes de chamar `classify-intent` e antes de `routeAndEnqueue`.
-   - Assim, mensagens como “Quanto tempo e de reuniao?” não serão registradas/roteadas como `scheduling/event_type_question` nem entrarão no fluxo de disponibilidade.
+1. **Corrigir o detector de pergunta esclarecedora**
+   - Ajustar a normalização para remover acentos sem perder o sentido.
+   - Corrigir o regex de duração para capturar exatamente mensagens como `Quanto tempo e de reuniao?`, `quanto tempo é a reunião?`, `quanto tempo dura a call?`.
+   - Incluir variações comuns: `tempo de reuniao`, `tempo da reuniao`, `quanto tempo vai durar`, `é rápido?`.
 
-2. **Normalizar texto para regex robusta**
-   - Criar uma normalização simples: lowercase, remoção de acentos e pontuação redundante.
-   - Ampliar os padrões para cobrir variações sem acento/erro comum: `quanto tempo e de reuniao`, `tempo de reuniao`, `quanto dura a reuniao`, `duracao`, `demora muito`, etc.
+2. **Mover a resposta para um short-circuit real**
+   - Hoje a detecção acontece, mas o fluxo continua até a IA e os guards de agenda.
+   - Vou retornar a resposta diretamente logo após carregar o contexto mínimo e a duração da reunião, antes de classificador, prompt da IA e regras de agendamento.
+   - Isso impede completamente que a pergunta caia em `scheduling`, `check_availability` ou no fallback pedindo dia/horário.
 
-3. **Criar resposta determinística para pergunta esclarecedora**
-   - Se for duração: responder diretamente com a duração real do evento quando disponível: “É uma apresentação rápida, em torno de X minutos.”
-   - Se a duração não estiver disponível: responder sem inventar número: “É uma apresentação rápida, bem objetiva.”
-   - Manter respostas determinísticas para formato, participantes e objetivo.
+3. **Evitar side effects indevidos**
+   - Garantir que perguntas sobre duração/formato/participantes/objetivo não disparem `routeAndEnqueue` nem alterem o estado de agendamento.
+   - Manter o histórico da conversa e atividades normalmente, mas sem mexer em slots, holds ou cadência de reunião.
 
-4. **Adicionar trava final antes do envio**
-   - Mesmo se algum guard posterior transformar a ação em `schedule` ou `check_availability`, revalidar a última mensagem antes de enviar.
-   - Se for pergunta esclarecedora e não houver data/hora concreta, sobrescrever para `reply` e impedir o fallback “Poderia me dizer o dia e horário exato...”.
+4. **Adicionar logs de prova**
+   - Logar a mensagem normalizada, o tipo detectado e o fato de que o short-circuit respondeu diretamente.
+   - Assim, se acontecer novamente, os logs mostram se a versão nova rodou e qual rota foi tomada.
 
-5. **Adicionar logs claros de diagnóstico**
-   - Logar quando a pergunta esclarecedora for detectada cedo e quando a trava final impedir roteamento de agenda.
-   - Isso facilita confirmar no próximo teste que o fluxo correto foi usado.
+5. **Validar com teste local de lógica**
+   - Conferir que `Quanto tempo e de reuniao?` retorna `duration`.
+   - Conferir que frases com data/hora real continuam seguindo para agenda.
+   - Conferir que perguntas sobre formato, participantes e objetivo continuam respondendo diretamente.
 
-## Detalhes técnicos
+## Arquivo afetado
 
-- Arquivo principal: `supabase/functions/inbound-webhook/index.ts`.
-- Não haverá alteração de UI nem banco de dados.
-- A correção será determinística, não dependente da IA, porque o problema atual ocorre quando a IA/classificador ainda enxerga “reunião” e empurra para agendamento.
+- `supabase/functions/inbound-webhook/index.ts`
+
+## Observação técnica
+
+Os logs atuais mostram que a versão executada ainda passou por `intent routed: scheduling event_type_question` e depois caiu em `check_availability but no datetime...`. Então a correção precisa sair do modelo de “guard posterior” e virar um retorno antecipado determinístico antes de qualquer roteamento de agenda.
