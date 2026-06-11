@@ -1020,6 +1020,17 @@ Analise a última mensagem e decida a ação.`,
     }
 
 
+    // FINAL GUARD: se a mensagem do lead é pergunta esclarecedora (sem data/hora) e algum
+    // guard posterior empurrou para uma ação de agenda, sobrescreve de volta para reply.
+    if (!earlyParsed && earlyClarifyingKind && !earlyInboundDt &&
+        ["schedule", "check_availability", "reject_slots", "confirm_slot", "reschedule", "suggest_meeting_times"].includes(parsed.action)) {
+      console.log(`Final clarifying guard: overriding action=${parsed.action} → reply (kind=${earlyClarifyingKind})`);
+      parsed.action = "reply";
+      parsed.reply_message = clarifyingReplyFor(earlyClarifyingKind, meetingMinutes);
+      parsed.suggested_datetime = null;
+      parsed.selected_slot = null;
+    }
+
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
       const slotIndex = (parsed.selected_slot || 1) - 1;
