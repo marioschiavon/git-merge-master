@@ -77,6 +77,8 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id));
 
   const isAgentic = (cadence as any).mode === "agentic";
+  const isSimulation = !!(cadence as any).simulation_mode;
+  const toggleSimulation = useToggleSimulation();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
