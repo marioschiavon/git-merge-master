@@ -1,37 +1,65 @@
-## Problema
+## Opinião
 
-Na lista de cadências, a "Inteligente" aparece como **Tipo: E-mail** porque na criação o `type` do form (default `"email"`) é salvo no banco mesmo quando a cadência é agêntica. Além disso, mesmo quando o lead tem WhatsApp, a IA pode acabar mandando por e-mail se o `primary_channel` da política não refletir isso.
+Concordo 100%. Hoje a IA agêntica gera a 1ª mensagem do zero, ignorando o pipeline que já temos (instruções da empresa, highlights, knowledge, insights do site do lead, sinais de redes sociais, gatilhos mentais, estrutura HOOK→CONEXÃO→CTA). Isso é desperdício e gera inconsistência de tom entre cadências estáticas e inteligentes.
+
+A proposta: **a 1ª mensagem da Cadência Inteligente é gerada pela mesma engine do `preview-cadence-messages`** (apenas sem depender de `cadence_steps`). A partir do 2º toque, a IA decide canal/mensagem/quando parar normalmente, mas considerando o histórico da 1ª como contexto.
 
 ## Mudanças
 
-### 1. Tipo da cadência agêntica = "multi_channel" (e label "Inteligente")
-- `src/pages/Cadences.tsx` → `handleCreate`: quando `form.agentic === true`, gravar `type: 'multi_channel'` no insert (em vez de `email`), junto com `mode: 'agentic'` e `status: 'active'`.
-- Esconder o seletor de "Tipo" no diálogo quando agêntica (já está) — sem mudança.
-- Na coluna **Tipo** da tabela: se `mode === 'agentic'`, renderizar **"Inteligente (IA)"** em vez de `typeLabels[c.type]`. Mantém consistência visual com o badge IA já existente.
+### 1. Extrair "build first message" para helper compartilhado
+Criar `supabase/functions/_shared/build-first-message.ts` com a lógica de prompt que hoje vive em `preview-cadence-messages/index.ts` (linhas ~86–352).
 
-### 2. Política default: WhatsApp como canal principal sempre que possível
-Já está no `defaultPolicy` (`primary_channel: "whatsapp"`, `allowed_channels: ["whatsapp","email"]`). Sem mudança.
+Assinatura:
+```ts
+buildFirstMessage({
+  supabase, companyId, lead, channel,
+  tone,            // policy.tone_instructions
+  goal,            // policy.goal
+  useHighlights = true,
+  useMentalTriggers = false,
+  mentalTriggers = [],
+})
+→ { subject: string|null, message: string }
+```
 
-### 3. Edge function `cadence-agent-decide`: preferir WhatsApp quando o lead tem WhatsApp
-Hoje a IA escolhe livremente entre canais permitidos. Vamos adicionar uma **regra determinística antes do LLM**:
+Internamente ela faz exatamente o que já está no preview hoje:
+- Busca `company_knowledge` (regular + highlights + ai_instructions)
+- Busca `lead_insights` + `lead_social_profiles`
+- Monta o system prompt idêntico ao atual (HOOK→CONEXÃO→CTA, regras por canal, instruções obrigatórias da empresa em prioridade máxima, etc.)
+- Substitui "TEMPLATE BASE DO STEP" por uma seção **"TOM / INSTRUÇÕES DA CADÊNCIA"** alimentada pelo `tone` da política (quando vier da agêntica) — para estáticas continua usando o template do step.
+- Substitui "STEP X de N" por "PRIMEIRO CONTATO".
 
-- Detectar se o lead tem WhatsApp utilizável (`leads.whatsapp` ou `leads.phone` em formato E.164, e Z-API ativo na empresa).
-- Se sim **e** `whatsapp` ∈ `allowed_channels` da política → forçar `primary_channel = "whatsapp"` no contexto enviado ao LLM e adicionar instrução no system prompt: *"O lead tem WhatsApp disponível — prefira WhatsApp; só use e-mail como apoio se já tentou WhatsApp sem resposta nas últimas 2 tentativas, ou se o canal WhatsApp falhou."*
-- Se o lead **não** tem WhatsApp → usar `email` (ou o próximo canal permitido) como `primary_channel` efetivo na execução, independentemente do que está salvo na política.
+`preview-cadence-messages` passa a importar esse helper para o caso de step 1 (refatoração sem mudança de comportamento perceptível).
 
-Isso mantém a política do usuário como **preferência**, mas a execução respeita o que cada lead realmente tem.
+### 2. `cadence-agent-decide`: usar o helper no 1º toque
+Em `supabase/functions/cadence-agent-decide/index.ts`, antes da chamada do LLM de decisão:
 
-### 4. Pequeno ajuste na UI da Política
-Em `AgenticPolicyForm.tsx`, adicionar uma nota curta abaixo do "Canal principal": *"A IA prioriza este canal quando o lead tem o contato disponível. Caso contrário, usa um canal permitido alternativo."* (apenas texto, sem mudança de lógica no form).
+- Detectar **se é o primeiro envio** (sem decisões prévias de `send` para esse enrollment, ou `attempt_count === 0`).
+- Se sim:
+  1. Calcular `effectiveChannel` (já existe — whatsapp se lead tem; senão email).
+  2. Chamar `buildFirstMessage({ ..., channel: effectiveChannel, tone: policy.tone_instructions, goal: policy.goal })`.
+  3. Registrar a decisão como `action: "send"`, `channel: effectiveChannel`, `rationale: "Primeira mensagem usando engine padrão (knowledge + insights + tom da política)"`, com `subject/message` retornados.
+  4. Enviar via Z-API/Gmail (mesma rota atual).
+  5. Reagendar próximo tick (ex.: +2 dias úteis).
+  6. **Não chamar o LLM agêntico ainda.**
+- Do 2º toque em diante: fluxo agêntico atual (LLM decide `send/wait/stop/handoff`), recebendo no contexto o resumo da 1ª mensagem enviada para coerência de tom.
+
+### 3. UI — explicar a regra na Política
+Em `AgenticPolicyForm.tsx`, adicionar um aviso curto no topo:
+> "A primeira mensagem usa o mesmo motor das cadências padrão (knowledge da empresa, insights do lead, redes sociais, tom abaixo). A IA assume a partir do 2º toque, decidindo canal, conteúdo e quando parar."
+
+E manter o campo "Tom / instruções da IA" — esse tom alimenta **tanto** a 1ª mensagem quanto as próximas decisões.
 
 ## Validação
 
-1. Criar nova cadência inteligente → linha aparece como **Tipo: Inteligente (IA)** (não mais "E-mail").
-2. Lead com `whatsapp` preenchido + Z-API ativa → primeira decisão da IA registra `channel: "whatsapp"`.
-3. Lead **sem** whatsapp mas com e-mail → IA usa `email` mesmo com política preferindo whatsapp.
-4. Cadências antigas (estáticas) continuam mostrando E-mail/WhatsApp/LinkedIn normalmente.
+1. Criar cadência inteligente nova + 1 lead com website analisado + WhatsApp → 1ª decisão em `cadence_agent_decisions` deve ter `rationale` mencionando "Primeira mensagem usando engine padrão", e a mensagem deve refletir highlights/insights da empresa (não um texto genérico).
+2. Lead sem WhatsApp mas com email → 1ª mensagem sai por email com subject curto e estrutura HOOK→CONEXÃO→CTA.
+3. Tom configurado na política aparece refletido no estilo da 1ª mensagem.
+4. Após resposta (ou expirar o wait), 2ª decisão volta a passar pelo LLM agêntico com contexto da 1ª.
+5. Cadências estáticas continuam idênticas (preview-cadence-messages só foi refatorado).
 
 ## Fora de escopo
 
-- Migrar cadências agênticas já criadas com `type='email'` (posso fazer um UPDATE simples opcional, se quiser confirmo no build).
-- Mudar a lógica de fallback entre canais após falha — fica como evolução futura.
+- Migrar políticas existentes (nada muda no schema).
+- Permitir editar/visualizar a 1ª mensagem antes do envio na cadência inteligente — fica como evolução futura (poderia reaproveitar o `CadenceFirstMessageInline`).
+- Variações A/B na 1ª mensagem para agênticas.
