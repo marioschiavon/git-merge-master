@@ -279,7 +279,7 @@ serve(async (req) => {
         // requested window. If nothing fits, expand the window by +14 days
         // and refetch once before giving up.
         let workingSlotsData = slotsData;
-        let selectedSlots = pickSpreadSlots(workingSlotsData, excludeSet, MIN_SPREAD_HOURS);
+        let selectedSlots = pickSpreadSlots(workingSlotsData, excludeSet, MIN_SPREAD_HOURS, excludeDateSet);
 
         if (selectedSlots.length === 0) {
           const expandedEnd = new Date(endDate.getTime() + 14 * 86400000);
@@ -299,7 +299,7 @@ serve(async (req) => {
             if (r.ok) {
               const j = await r.json();
               workingSlotsData = j.data || {};
-              selectedSlots = pickSpreadSlots(workingSlotsData, excludeSet, MIN_SPREAD_HOURS);
+              selectedSlots = pickSpreadSlots(workingSlotsData, excludeSet, MIN_SPREAD_HOURS, excludeDateSet);
             }
           } catch (e) {
             console.error("Expanded fetch error:", e);
@@ -353,7 +353,7 @@ serve(async (req) => {
     }
 
     // Normal flow: Pick 2 slots on different days spread apart
-    const selectedSlots = pickSpreadSlots(slotsData, excludeSet, MIN_SPREAD_HOURS);
+    const selectedSlots = pickSpreadSlots(slotsData, excludeSet, MIN_SPREAD_HOURS, excludeDateSet);
 
     if (selectedSlots.length < 1) {
       return new Response(JSON.stringify({
