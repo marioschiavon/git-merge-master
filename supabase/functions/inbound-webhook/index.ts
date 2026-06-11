@@ -251,10 +251,10 @@ serve(async (req) => {
 
     // EARLY: detectar perguntas esclarecedoras (duração/formato/etc) — usado para impedir
     // que o classificador de intent roteie como scheduling e também como blindagem final.
-    const earlyClarifyingKind = detectClarifyingQuestion(cleanContent);
+    const earlyClarifyingKind = detectMeetingClarifier(cleanContent);
     const earlyInboundDt = extractDateTimeFromText(cleanContent);
     if (earlyClarifyingKind && !earlyInboundDt) {
-      console.log(`Early clarifying-question detected (${earlyClarifyingKind}) — will short-circuit scheduling routes`);
+      console.log(`MEETING_CLARIFIER_BYPASS detected kind=${earlyClarifyingKind} norm="${normalizePtText(cleanContent)}" stage=early`);
     }
 
     // Save inbound message (with clean content) — pulado quando a mensagem já foi inserida pelo caller (ex: gmail-sync-inbox)
@@ -697,9 +697,7 @@ Responda APENAS com JSON:
       // SHORT-CIRCUIT: pergunta esclarecedora sobre a reunião — não chama IA,
       // não roteia para agenda. Responde determinístico e segue para o envio.
       const replyText = clarifyingReplyFor(earlyClarifyingKind, meetingMinutes);
-      console.log(
-        `Clarifying short-circuit: kind=${earlyClarifyingKind} norm="${normalizePtText(cleanContent)}" reply="${replyText}"`,
-      );
+      console.log(`MEETING_CLARIFIER_BYPASS action=reply kind=${earlyClarifyingKind} norm="${normalizePtText(cleanContent)}" reply="${replyText}"`);
       parsed = {
         action: "reply",
         sentiment: "dúvida",
@@ -783,7 +781,7 @@ Analise a última mensagem e decida a ação.`,
     const inboundDt = earlyInboundDt;
 
     if (!earlyParsed && clarifyingKind && !inboundDt) {
-      console.log(`Clarifying question detected (${clarifyingKind}) — forcing reply`);
+      console.log(`MEETING_CLARIFIER_BYPASS forcing reply kind=${clarifyingKind} norm="${normalizePtText(cleanContent)}"`);
       parsed.action = "reply";
       if (!parsed.reply_message || /📅|hor[aá]rio|qual\s+dia|disponibilidade/i.test(parsed.reply_message)) {
         parsed.reply_message = clarifyingReplyFor(clarifyingKind, meetingMinutes);
@@ -817,7 +815,7 @@ Analise a última mensagem e decida a ação.`,
     }
 
     // FIX: If AI says "schedule" but scheduling is already in progress, redirect to check_availability
-    if (parsed.action === "schedule" && schedulingInProgress) {
+    if (!clarifyingKind && parsed.action === "schedule" && schedulingInProgress) {
       console.log("Schedule requested but scheduling already in progress — redirecting to check_availability");
       parsed.action = "check_availability";
       // Try to extract datetime from original message
@@ -850,7 +848,7 @@ Analise a última mensagem e decida a ação.`,
     }
 
 
-    if (parsed.action === "check_availability" && !parsed.suggested_datetime) {
+    if (!clarifyingKind && parsed.action === "check_availability" && !parsed.suggested_datetime) {
       const extracted = extractDateTimeFromText(content);
       if (extracted) {
         console.log("AI didn't provide suggested_datetime, extracted from text:", extracted);
@@ -1001,7 +999,7 @@ Analise a última mensagem e decida a ação.`,
     // guard posterior empurrou para uma ação de agenda, sobrescreve de volta para reply.
     if (!earlyParsed && earlyClarifyingKind && !earlyInboundDt &&
         ["schedule", "check_availability", "reject_slots", "confirm_slot", "reschedule", "suggest_meeting_times"].includes(parsed.action)) {
-      console.log(`Final clarifying guard: overriding action=${parsed.action} → reply (kind=${earlyClarifyingKind})`);
+      console.log(`MEETING_CLARIFIER_BYPASS final override action=${parsed.action} kind=${earlyClarifyingKind}`);
       parsed.action = "reply";
       parsed.reply_message = clarifyingReplyFor(earlyClarifyingKind, meetingMinutes);
       parsed.suggested_datetime = null;
