@@ -1006,6 +1006,18 @@ Analise a última mensagem e decida a ação.`,
       parsed.selected_slot = null;
     }
 
+    // Soft-cancel promotion: if lead said "desmarcar/cancelar" without explicit loss
+    // of interest, treat as reschedule so the SDR keeps initiative and offers new slots.
+    if (parsed.action === "cancel") {
+      const HARD_CANCEL_REGEX = /\b(nao\s+(quero|tenho|vou)\s+mais|sem\s+interesse|perdi\s+(o\s+)?interesse|cancela(r)?\s+de\s+vez|nao\s+rola|desisto|nao\s+precisa\s+mais|nao\s+vou\s+fazer|nao\s+tenho\s+mais\s+interesse)\b/i;
+      const normalized = normalizePtText(cleanContent);
+      if (!HARD_CANCEL_REGEX.test(normalized)) {
+        console.log(`CANCEL_PROMOTED_TO_RESCHEDULE lead=${leadData?.id} norm="${normalized}"`);
+        parsed.action = "reschedule";
+        parsed.reply_message = null;
+      }
+    }
+
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
       const slotIndex = (parsed.selected_slot || 1) - 1;
