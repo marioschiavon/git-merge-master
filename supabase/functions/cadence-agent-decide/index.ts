@@ -384,13 +384,10 @@ ${policy.goal}
 - Prazo: ${policy.max_days} dias (já se passaram ${Math.round(daysSinceEnroll)} dias)
 - Canais permitidos: ${(policy.allowed_channels || []).join(", ")}
 - Canal principal preferido: ${effectivePrimary}${channelNote ? `\n- IMPORTANTE: ${channelNote}` : ""}
-- Tom: ${policy.tone_instructions}
-${policy.continue_criteria ? `- Critérios para continuar: ${policy.continue_criteria}` : ""}
-${policy.stop_criteria_text ? `- Critérios extras para parar: ${policy.stop_criteria_text}` : ""}
 
 === BASE DE CONHECIMENTO (ÚNICA FONTE DE FATOS) ===
 ${highlightsRes.data?.content ? `DIFERENCIAIS:\n${highlightsRes.data.content}\n\n` : ""}${knowledgeContext || "(vazia)"}
-${aiInstrRes.data?.content ? `\nINSTRUÇÕES DA EMPRESA:\n${aiInstrRes.data.content}` : ""}
+${aiInstrRes.data?.content ? `\n=== INSTRUÇÕES E TOM DA EMPRESA (siga rigorosamente) ===\n${aiInstrRes.data.content}` : ""}
 
 === REGRAS ANTI-ALUCINAÇÃO ===
 - Use APENAS fatos da base. Nunca invente features, números, integrações ou clientes.
