@@ -287,6 +287,14 @@ serve(async (req) => {
     const cleanContent = stripQuotedEmail(content);
     console.log("Original content length:", content.length, "Clean content length:", cleanContent.length, "skip_insert:", !!skip_insert);
 
+    // EARLY: detectar perguntas esclarecedoras (duração/formato/etc) — usado para impedir
+    // que o classificador de intent roteie como scheduling e também como blindagem final.
+    const earlyClarifyingKind = detectClarifyingQuestion(cleanContent);
+    const earlyInboundDt = extractDateTimeFromText(cleanContent);
+    if (earlyClarifyingKind && !earlyInboundDt) {
+      console.log(`Early clarifying-question detected (${earlyClarifyingKind}) — will short-circuit scheduling routes`);
+    }
+
     // Save inbound message (with clean content) — pulado quando a mensagem já foi inserida pelo caller (ex: gmail-sync-inbox)
     if (!skip_insert) {
       await supabase.from("messages").insert({
