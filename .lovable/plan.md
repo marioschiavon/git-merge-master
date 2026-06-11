@@ -1,29 +1,37 @@
-# Remover duração fixa do objetivo e só citar tempo se o lead perguntar
+# Excluir DIAS inteiros (não só horários) ao oferecer novos slots em reject_slots
 
-## Problema
-Hoje o SDR (IA) abre conversa mencionando "reunião de 15 minutos" — tempo hard-coded em `src/components/AgenticPolicyForm.tsx` e propagado para os prompts. Queremos que o SDR fale de forma natural ("uma conversa rápida de apresentação") e só revele a duração real quando o lead perguntar.
+## Problema observado
+Na conversa do Ju, ele rejeitou os horários oferecidos e pediu outras opções de **dia**. O SDR ofereceu novos horários, mas nos **mesmos dias** (12/06 e 15/06). Logs confirmam:
+
+```
+Excluding previously offered datetimes: [ "2026-06-12T19:45:00+00:00", "2026-06-15T20:00:00+00:00" ]
+Slot reserved: 2026-06-12T19:00:00 ... 2026-06-15T12:45:00
+```
+
+A exclusão hoje é só por timestamp (`exclude_datetimes`) — diferenças de minutos no mesmo dia passam.
 
 ## Solução
+Adicionar exclusão por **dia inteiro** no fluxo de rejeição de slots.
 
-### 1. Texto do objetivo padrão
-- **`src/components/AgenticPolicyForm.tsx`**: trocar `defaultPolicy.goal` de `"Agendar reunião de 15 minutos"` para algo como `"Agendar uma conversa rápida de apresentação"`. Sem número de minutos.
-- Não sobrescrever políticas já salvas; só afeta novas.
+### `supabase/functions/calcom-slots/index.ts`
+- Aceitar novo parâmetro opcional `exclude_dates: string[]` (YYYY-MM-DD em `America/Sao_Paulo`).
+- Em `pickSpreadSlots`, antes de filtrar slots, descartar qualquer `date` cuja chave (já em YYYY-MM-DD na TZ do Cal.com) esteja no set.
+- Log: `Excluding N previously offered dates`.
 
-### 2. Prompt do agente / primeira mensagem
-- **`supabase/functions/_shared/build-first-message.ts`** e **`supabase/functions/cadence-agent-decide/index.ts`** (e qualquer outro lugar onde o `goal` ou duração da reunião entra no prompt — confirmar via busca por `length_minutes`, `minutos`, `duration`):
-  - Adicionar instrução explícita no system prompt:
-    > "Nunca mencione a duração exata da reunião nas mensagens proativas. Refira-se como 'uma conversa rápida de apresentação' / 'um papo curto'. Só informe a duração ({N} minutos do Cal.com) se o lead perguntar diretamente quanto tempo vai durar."
-  - Passar a duração real do event type padrão do Cal.com como contexto (`meeting_duration_minutes`) buscando em `calcom_event_types` via `companies.calcom_default_event_type_id`. Esse valor fica disponível para a IA usar apenas quando o lead perguntar.
+### `supabase/functions/inbound-webhook/index.ts` (branch `reject_slots`)
+- Calcular `excludeDates` a partir de `heldSlots` + `lastOfferedSlots`, convertendo cada datetime para `YYYY-MM-DD` em `America/Sao_Paulo`.
+- Passar no body do `calcom-slots`:
+  ```
+  exclude_datetimes: [...],
+  exclude_dates: excludeDates,
+  ```
+- Manter `exclude_datetimes` para retro-compat (outros caminhos).
 
-### 3. Onde buscar a duração no backend
-- Em `cadence-agent-decide` e `generate-reply` (e `ai-reply` se aplicável): após carregar `company`, fazer `select length_minutes from calcom_event_types where company_id = ... and calcom_id = company.calcom_default_event_type_id` e injetar no prompt como variável de contexto.
-- Fallback: se não houver event type, omitir a variável e instruir a IA a responder algo genérico como "rapidinho, cerca de 30 minutos no máximo" — ou melhor, "vou confirmar a duração com você".
-
-## Escopo
-- Texto padrão do formulário (frontend).
-- System prompt das funções que geram mensagens (backend edge functions).
-- Sem mudança de schema, sem mudança em UI de Cal.com Settings.
+### Considerações
+- Mantém `start_after`/`end_before` se o lead deu hint de range ("semana que vem").
+- Se não houver disponibilidade fora dos dias excluídos, o fallback existente (`CALCOM_BOOKING_LINK`) continua valendo.
+- Sem mudança de schema, sem mudança em UI.
 
 ## Fora de escopo
-- Editar políticas já salvas com `goal` antigo (usuário pode atualizar manualmente).
-- UI para sincronizar/visualizar a duração na tela de política.
+- Reescrever o filtro de exclusão para todos os outros caminhos do `calcom-slots` (só o reject_slots passa `exclude_dates`).
+- Detectar via NLP se o lead pediu "outro dia" vs "outro horário" — no reject_slots assumimos sempre que o lead quer dias diferentes.
