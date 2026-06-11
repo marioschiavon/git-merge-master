@@ -139,6 +139,7 @@ export type Database = {
           model: string | null
           rationale: string | null
           scheduled_for: string | null
+          simulated: boolean
           stop_reason: string | null
           tokens_used: number | null
         }
@@ -156,6 +157,7 @@ export type Database = {
           model?: string | null
           rationale?: string | null
           scheduled_for?: string | null
+          simulated?: boolean
           stop_reason?: string | null
           tokens_used?: number | null
         }
@@ -173,6 +175,7 @@ export type Database = {
           model?: string | null
           rationale?: string | null
           scheduled_for?: string | null
+          simulated?: boolean
           stop_reason?: string | null
           tokens_used?: number | null
         }
@@ -462,6 +465,7 @@ export type Database = {
           id: string
           mode: string
           name: string
+          simulation_mode: boolean
           status: Database["public"]["Enums"]["cadence_status"]
           type: Database["public"]["Enums"]["cadence_type"]
           updated_at: string
@@ -474,6 +478,7 @@ export type Database = {
           id?: string
           mode?: string
           name: string
+          simulation_mode?: boolean
           status?: Database["public"]["Enums"]["cadence_status"]
           type?: Database["public"]["Enums"]["cadence_type"]
           updated_at?: string
@@ -486,6 +491,7 @@ export type Database = {
           id?: string
           mode?: string
           name?: string
+          simulation_mode?: boolean
           status?: Database["public"]["Enums"]["cadence_status"]
           type?: Database["public"]["Enums"]["cadence_type"]
           updated_at?: string

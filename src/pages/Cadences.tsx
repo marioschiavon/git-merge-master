@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCadences, useCreateCadence, useDeleteCadence, useUpdateCadence } from "@/hooks/useCadences";
 import { CadenceDetail } from "@/components/CadenceDetail";
-import { MessageSquare, Plus, Trash2, Pause, Zap, Sparkles } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Pause, Zap, Sparkles, FlaskConical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/useAuth";
 import { useUpsertCadencePolicy } from "@/hooks/useAgenticCadence";
@@ -132,11 +132,16 @@ export default function Cadences() {
                 cadences.map((c: any) => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => setSelectedCadenceId(c.id)}>
                     <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {c.name}
                         {(c as any).mode === "agentic" && (
                           <Badge variant="secondary" className="text-xs gap-1">
                             <Sparkles className="h-3 w-3" />IA
+                          </Badge>
+                        )}
+                        {(c as any).simulation_mode && (
+                          <Badge className="bg-amber-100 text-amber-800 text-xs gap-1">
+                            <FlaskConical className="h-3 w-3" />Simulação
                           </Badge>
                         )}
                       </div>

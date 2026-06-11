@@ -9,9 +9,12 @@ import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
 import { LeadMessagePreview } from "@/components/LeadMessagePreview";
 import { CadenceFirstMessageInline } from "@/components/CadenceFirstMessageInline";
-import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain } from "lucide-react";
+import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain, FlaskConical, Send } from "lucide-react";
 import { AgenticPolicyForm } from "@/components/AgenticPolicyForm";
 import { useAllAgentDecisions } from "@/hooks/useAgenticCadence";
+import { useToggleSimulation, useRunNextStep, useSimulateReply } from "@/hooks/useSimulateCadence";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -74,6 +77,8 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id));
 
   const isAgentic = (cadence as any).mode === "agentic";
+  const isSimulation = !!(cadence as any).simulation_mode;
+  const toggleSimulation = useToggleSimulation();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -86,11 +91,38 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                 <Sparkles className="h-3 w-3" />IA
               </Badge>
             )}
+            {isSimulation && (
+              <Badge className="bg-amber-100 text-amber-800 text-xs gap-1">
+                <FlaskConical className="h-3 w-3" />Simulação
+              </Badge>
+            )}
           </SheetTitle>
           {cadence.description && (
             <p className="text-sm text-muted-foreground">{cadence.description}</p>
           )}
         </SheetHeader>
+
+        {isAgentic && cadenceId && (
+          <div className={`mt-4 rounded-md border p-3 flex items-center justify-between gap-3 ${isSimulation ? "border-amber-300 bg-amber-50" : "border-border bg-muted/30"}`}>
+            <div className="flex-1">
+              <div className="text-sm font-medium flex items-center gap-2">
+                <FlaskConical className="h-4 w-4" />
+                Modo simulação (dry-run)
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {isSimulation
+                  ? "Ligado: a IA gera decisões e mensagens, mas NADA é enviado. Use os botões em cada lead para avançar passos e simular respostas."
+                  : "Desligado: a IA envia mensagens reais nos canais configurados."}
+              </p>
+            </div>
+            <Switch
+              checked={isSimulation}
+              onCheckedChange={(v) => toggleSimulation.mutate({ cadenceId, enabled: v })}
+              disabled={toggleSimulation.isPending}
+            />
+          </div>
+        )}
+
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
           <TabsList className={`grid w-full ${isAgentic ? "grid-cols-3" : "grid-cols-2"}`}>
@@ -280,11 +312,17 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                           )}
                         </div>
                       </div>
-                      {cadenceId && steps.length > 0 && (
+                      {cadenceId && steps.length > 0 && !isAgentic && (
                         <CadenceFirstMessageInline
                           cadenceId={cadenceId}
                           leadId={e.lead_id}
                           onEdit={() => setPreviewLead({ id: e.lead_id, name: e.leads?.name || "Lead" })}
+                        />
+                      )}
+                      {isAgentic && (
+                        <AgenticSimulationControls
+                          enrollmentId={e.id}
+                          simulationEnabled={isSimulation}
                         />
                       )}
                     </CardContent>
@@ -335,6 +373,11 @@ function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
                   {d.channel && <Badge variant="outline" className="text-xs">{d.channel}</Badge>}
                   {d.hook && <Badge variant="outline" className="text-xs">{d.hook}</Badge>}
                   <Badge variant="outline" className="text-xs">tentativa {d.attempt_number}</Badge>
+                  {d.simulated && (
+                    <Badge className="bg-amber-100 text-amber-800 text-xs gap-1">
+                      <FlaskConical className="h-3 w-3" />Simulação
+                    </Badge>
+                  )}
                 </div>
                 <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                   {new Date(d.decided_at).toLocaleString("pt-BR")}
@@ -354,6 +397,66 @@ function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
           </Card>
         );
       })}
+    </div>
+  );
+}
+
+function AgenticSimulationControls({
+  enrollmentId,
+  simulationEnabled,
+}: { enrollmentId: string; simulationEnabled: boolean }) {
+  const runNext = useRunNextStep();
+  const simulateReply = useSimulateReply();
+  const [reply, setReply] = useState("");
+
+  return (
+    <div className="space-y-2 border-t border-dashed pt-2 mt-1">
+      <div className="flex gap-2 flex-wrap">
+        <Button
+          size="sm"
+          variant="default"
+          onClick={() => runNext.mutate(enrollmentId)}
+          disabled={runNext.isPending}
+          className="h-7 text-xs"
+        >
+          {runNext.isPending ? (
+            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+          ) : (
+            <Play className="mr-1 h-3 w-3" />
+          )}
+          Executar próximo passo
+        </Button>
+      </div>
+      {simulationEnabled && (
+        <div className="space-y-1.5">
+          <Textarea
+            value={reply}
+            onChange={(e) => setReply(e.target.value)}
+            placeholder='Simular resposta do lead (ex: "não tenho interesse", "podemos marcar?", "remover")'
+            rows={2}
+            className="text-xs"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!reply.trim() || simulateReply.isPending}
+            onClick={() => {
+              simulateReply.mutate(
+                { enrollmentId, replyText: reply.trim() },
+                { onSuccess: () => setReply("") },
+              );
+            }}
+            className="h-7 text-xs"
+          >
+            {simulateReply.isPending ? (
+              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+            ) : (
+              <Send className="mr-1 h-3 w-3" />
+            )}
+            Simular resposta
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
