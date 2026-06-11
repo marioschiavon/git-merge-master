@@ -212,17 +212,12 @@ export function LeadProgressDrawer({
                 ))}
               </TabsContent>
 
-              <TabsContent value="data" className="mt-0 space-y-2 text-sm">
-                <DataRow label="Nome" value={lead?.name} />
-                <DataRow label="Cargo" value={lead?.title} />
-                <DataRow label="Empresa" value={lead?.company_name} />
-                <DataRow label="Email" value={lead?.email} />
-                <DataRow label="Telefone" value={lead?.phone} />
-                <DataRow label="Website" value={lead?.website} />
-                <DataRow label="Origem" value={lead?.source} />
-                <DataRow label="Status" value={lead?.status} />
-                <DataRow label="Score" value={lead?.score?.toString()} />
-                <DataRow label="Canal preferido" value={lead?.preferred_channel} />
+              <TabsContent value="profile" className="mt-0">
+                {lead ? (
+                  <LeadDetailContent lead={lead} showHeader={false} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">Lead não encontrado.</p>
+                )}
               </TabsContent>
             </div>
           </ScrollArea>
