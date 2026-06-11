@@ -669,6 +669,8 @@ CAPTURA DE E-MAIL (para confirmar reunião por convite):
 - Se a última mensagem do prospect contém um e-mail válido (formato algo@dominio.tld) E há contexto de agendamento (slots pendentes OU pedido recente de e-mail) → preencha "provided_email" com o endereço informado.
 - Se o prospect disser explicitamente que NÃO tem e-mail / não quer informar / prefere sem convite → preencha "email_refused": true.
 - Caso contrário, "provided_email": null e "email_refused": false.
+- IMPORTANTE: se o prospect pedir contato/material/resumo por e-mail E o contexto do lead já mostrar "E-mail cadastrado: <algo>" (não "nenhum"), NÃO pergunte "qual o melhor e-mail". Apenas confirme curto, ex.: "Combinado! Posso te enviar para <email>?". Só pergunte um novo se ele recusar ou pedir outro endereço.
+
 
 
 DETECÇÃO DE INDICAÇÃO / ENCAMINHAMENTO (action = "referral"):
