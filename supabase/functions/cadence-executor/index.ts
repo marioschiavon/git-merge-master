@@ -64,7 +64,7 @@ serve(async (req) => {
       .select(`
         *,
         leads(id, name, email, phone, whatsapp, company_name, status),
-        cadences(id, name, type, company_id, status)
+        cadences(id, name, type, company_id, status, mode)
       `)
       .eq("status", "active")
       .eq("meeting_scheduled", false)
@@ -129,6 +129,22 @@ serve(async (req) => {
             .eq("id", enrollment.id);
           continue;
         }
+
+        // === AGENTIC MODE: delegate decision to cadence-agent-decide ===
+        if (cadence.mode === "agentic") {
+          try {
+            const { error: agentErr } = await supabase.functions.invoke("cadence-agent-decide", {
+              body: { enrollment_id: enrollment.id },
+            });
+            if (agentErr) console.error(`agent-decide error for ${enrollment.id}:`, agentErr);
+            else processed++;
+          } catch (e) {
+            console.error(`agent-decide exception for ${enrollment.id}:`, e);
+          }
+          continue;
+        }
+
+
 
 
 

@@ -9,7 +9,9 @@ import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
 import { LeadMessagePreview } from "@/components/LeadMessagePreview";
 import { CadenceFirstMessageInline } from "@/components/CadenceFirstMessageInline";
-import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw } from "lucide-react";
+import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain } from "lucide-react";
+import { AgenticPolicyForm } from "@/components/AgenticPolicyForm";
+import { useAllAgentDecisions } from "@/hooks/useAgenticCadence";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -71,26 +73,59 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const enrolledLeadIds = new Set(enrollments.map((e: any) => e.lead_id));
   const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id));
 
+  const isAgentic = (cadence as any).mode === "agentic";
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-xl overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{cadence.name}</SheetTitle>
+          <SheetTitle className="flex items-center gap-2">
+            {cadence.name}
+            {isAgentic && (
+              <Badge variant="secondary" className="text-xs gap-1">
+                <Sparkles className="h-3 w-3" />IA
+              </Badge>
+            )}
+          </SheetTitle>
           {cadence.description && (
             <p className="text-sm text-muted-foreground">{cadence.description}</p>
           )}
         </SheetHeader>
 
-        <Tabs defaultValue="steps" className="mt-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="steps">
-              <ListOrdered className="mr-2 h-4 w-4" />Steps ({steps.length})
-            </TabsTrigger>
+        <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
+          <TabsList className={`grid w-full ${isAgentic ? "grid-cols-3" : "grid-cols-2"}`}>
+            {isAgentic ? (
+              <TabsTrigger value="policy">
+                <Sparkles className="mr-2 h-4 w-4" />Política
+              </TabsTrigger>
+            ) : (
+              <TabsTrigger value="steps">
+                <ListOrdered className="mr-2 h-4 w-4" />Steps ({steps.length})
+              </TabsTrigger>
+            )}
             <TabsTrigger value="leads">
               <Users className="mr-2 h-4 w-4" />Leads ({enrollments.length})
             </TabsTrigger>
+            {isAgentic && (
+              <TabsTrigger value="decisions">
+                <Brain className="mr-2 h-4 w-4" />Decisões
+              </TabsTrigger>
+            )}
           </TabsList>
 
+          {isAgentic && cadenceId && (
+            <TabsContent value="policy" className="mt-4">
+              <AgenticPolicyForm cadenceId={cadenceId} />
+            </TabsContent>
+          )}
+
+          {isAgentic && cadenceId && (
+            <TabsContent value="decisions" className="mt-4">
+              <AgentDecisionsList cadenceId={cadenceId} />
+            </TabsContent>
+          )}
+
+          {!isAgentic && (
           <TabsContent value="steps" className="space-y-4 mt-4">
             {steps.length === 0 && (
               <div className="text-center py-6 space-y-3">
@@ -142,6 +177,9 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
               )}
             </div>
           </TabsContent>
+          )}
+
+
 
           <TabsContent value="leads" className="space-y-4 mt-4">
             <div className="flex gap-2">
@@ -268,5 +306,54 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
         />
       )}
     </Sheet>
+  );
+}
+
+const actionLabels: Record<string, { label: string; cls: string }> = {
+  send: { label: "Enviou", cls: "bg-blue-100 text-blue-800" },
+  wait: { label: "Aguardar", cls: "bg-gray-100 text-gray-700" },
+  stop: { label: "Encerrou", cls: "bg-red-100 text-red-800" },
+  handoff_human: { label: "Handoff", cls: "bg-amber-100 text-amber-800" },
+};
+
+function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
+  const { data: decisions = [], isLoading } = useAllAgentDecisions(cadenceId);
+  if (isLoading) return <p className="text-sm text-muted-foreground">Carregando...</p>;
+  if (decisions.length === 0)
+    return <p className="text-sm text-muted-foreground text-center py-4">A IA ainda não tomou nenhuma decisão para esta cadência.</p>;
+  return (
+    <div className="space-y-2">
+      {decisions.map((d: any) => {
+        const meta = actionLabels[d.action] || { label: d.action, cls: "bg-muted" };
+        return (
+          <Card key={d.id}>
+            <CardContent className="p-3 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{d.lead_name}</span>
+                  <Badge className={`text-xs ${meta.cls}`} variant="secondary">{meta.label}</Badge>
+                  {d.channel && <Badge variant="outline" className="text-xs">{d.channel}</Badge>}
+                  {d.hook && <Badge variant="outline" className="text-xs">{d.hook}</Badge>}
+                  <Badge variant="outline" className="text-xs">tentativa {d.attempt_number}</Badge>
+                </div>
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                  {new Date(d.decided_at).toLocaleString("pt-BR")}
+                </span>
+              </div>
+              {d.rationale && <p className="text-xs text-muted-foreground italic">"{d.rationale}"</p>}
+              {d.message_body && (
+                <div className="text-xs bg-muted/50 rounded p-2 mt-1 whitespace-pre-wrap">
+                  {d.message_subject && <div className="font-medium mb-1">{d.message_subject}</div>}
+                  {d.message_body}
+                </div>
+              )}
+              {d.stop_reason && (
+                <p className="text-xs"><span className="font-medium">Motivo:</span> {d.stop_reason}</p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
   );
 }

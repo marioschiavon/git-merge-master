@@ -10,7 +10,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCadences, useCreateCadence, useDeleteCadence, useUpdateCadence } from "@/hooks/useCadences";
 import { CadenceDetail } from "@/components/CadenceDetail";
-import { MessageSquare, Plus, Trash2, Pause, Zap } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Pause, Zap, Sparkles } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { useAuth } from "@/hooks/useAuth";
+import { useUpsertCadencePolicy } from "@/hooks/useAgenticCadence";
+import { supabase } from "@/integrations/supabase/client";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -34,18 +38,25 @@ const typeLabels: Record<string, string> = {
 };
 
 export default function Cadences() {
+  const { companyId } = useAuth();
   const { data: cadences = [], isLoading } = useCadences();
   const createMutation = useCreateCadence();
   const deleteMutation = useDeleteCadence();
   const updateMutation = useUpdateCadence();
+  const upsertPolicy = useUpsertCadencePolicy();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedCadenceId, setSelectedCadenceId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", type: "email" });
+  const [form, setForm] = useState({ name: "", description: "", type: "email", agentic: false });
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
-    await createMutation.mutateAsync(form);
-    setForm({ name: "", description: "", type: "email" });
+    const created = await createMutation.mutateAsync({ name: form.name, description: form.description, type: form.type });
+    if (form.agentic && created?.id && companyId) {
+      // Mark cadence as agentic + create default policy
+      await supabase.from("cadences").update({ mode: "agentic", status: "active" } as any).eq("id", created.id);
+      await upsertPolicy.mutateAsync({ cadence_id: created.id, company_id: companyId } as any);
+    }
+    setForm({ name: "", description: "", type: "email", agentic: false });
     setCreateOpen(false);
   };
 
@@ -119,7 +130,16 @@ export default function Cadences() {
               ) : (
                 cadences.map((c: any) => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => setSelectedCadenceId(c.id)}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {c.name}
+                        {(c as any).mode === "agentic" && (
+                          <Badge variant="secondary" className="text-xs gap-1">
+                            <Sparkles className="h-3 w-3" />IA
+                          </Badge>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>{typeLabels[c.type] || c.type}</TableCell>
                     <TableCell>
                       <Badge className={statusColors[c.status] || ""} variant="secondary">
@@ -175,7 +195,7 @@ export default function Cadences() {
 }
 
 function CreateCadenceDialog({ form, setForm, onCreate, isPending }: {
-  form: { name: string; description: string; type: string };
+  form: { name: string; description: string; type: string; agentic: boolean };
   setForm: (f: any) => void;
   onCreate: () => void;
   isPending: boolean;
@@ -202,22 +222,43 @@ function CreateCadenceDialog({ form, setForm, onCreate, isPending }: {
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
         </div>
-        <div className="space-y-2">
-          <Label>Tipo</Label>
-          <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="email">E-mail</SelectItem>
-              <SelectItem value="whatsapp">WhatsApp</SelectItem>
-              <SelectItem value="linkedin">LinkedIn</SelectItem>
-              <SelectItem value="multi_channel">Multi-canal</SelectItem>
-            </SelectContent>
-          </Select>
+
+        <div className="flex items-start gap-3 rounded-md border p-3 bg-muted/30">
+          <Switch
+            checked={form.agentic}
+            onCheckedChange={(v) => setForm({ ...form, agentic: v })}
+            id="agentic-toggle"
+          />
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="agentic-toggle" className="flex items-center gap-2 cursor-pointer">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Cadência Inteligente (IA decide)
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Você define objetivo, limites e tom — a IA escolhe canal, mensagem e quando encerrar a cada tentativa.
+            </p>
+          </div>
         </div>
+
+        {!form.agentic && (
+          <div className="space-y-2">
+            <Label>Tipo</Label>
+            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="email">E-mail</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="linkedin">LinkedIn</SelectItem>
+                <SelectItem value="multi_channel">Multi-canal</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <Button onClick={onCreate} disabled={isPending || !form.name.trim()} className="w-full">
-          {isPending ? "Criando..." : "Criar Cadência"}
+          {isPending ? "Criando..." : form.agentic ? "Criar Cadência Inteligente" : "Criar Cadência"}
         </Button>
       </div>
     </DialogContent>
