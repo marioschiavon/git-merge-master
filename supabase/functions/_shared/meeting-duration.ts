@@ -1,10 +1,47 @@
 // Returns the default Cal.com meeting duration (minutes) for a company, or null
-// if not configured. Used to inject a "só mencione se o lead perguntar" hint
-// into AI prompts.
+// if not configured. Prefers live data from the Cal.com API, falling back to
+// the cached calcom_event_types table.
+import { fetchEventTypeLengthMinutes, resolveEventTypeId } from "./calcom.ts";
+
 export async function getMeetingDurationMinutes(
   supabase: any,
   companyId: string,
 ): Promise<number | null> {
+  // 1. Try live Cal.com API first (always fresh).
+  try {
+    const apiKey = Deno.env.get("CALCOM_API_KEY");
+    if (apiKey) {
+      let eventTypeId: number | null = null;
+      const { data: comp } = await supabase
+        .from("companies")
+        .select("calcom_default_event_type_id")
+        .eq("id", companyId)
+        .maybeSingle();
+      if (comp?.calcom_default_event_type_id) {
+        eventTypeId = Number(comp.calcom_default_event_type_id);
+      }
+      if (!eventTypeId) {
+        try { eventTypeId = await resolveEventTypeId(apiKey); } catch (_e) { /* ignore */ }
+      }
+      if (eventTypeId) {
+        const liveLen = await fetchEventTypeLengthMinutes(apiKey, eventTypeId);
+        if (liveLen) {
+          // Refresh cache in background (don't block on it).
+          supabase
+            .from("calcom_event_types")
+            .update({ length_minutes: liveLen, synced_at: new Date().toISOString() })
+            .eq("company_id", companyId)
+            .eq("calcom_id", eventTypeId)
+            .then(() => {}, () => {});
+          return liveLen;
+        }
+      }
+    }
+  } catch (e) {
+    console.error("getMeetingDurationMinutes live fetch failed", e);
+  }
+
+  // 2. Fallback: cached DB lookup.
   try {
     const { data: comp } = await supabase
       .from("companies")
@@ -21,7 +58,6 @@ export async function getMeetingDurationMinutes(
         .maybeSingle();
       if (et?.length_minutes) return Number(et.length_minutes);
     }
-    // Fallback: first active event type
     const { data: any1 } = await supabase
       .from("calcom_event_types")
       .select("length_minutes")
@@ -34,7 +70,7 @@ export async function getMeetingDurationMinutes(
     if (any1?.length_minutes) return Number(any1.length_minutes);
     return null;
   } catch (e) {
-    console.error("getMeetingDurationMinutes failed", e);
+    console.error("getMeetingDurationMinutes db fallback failed", e);
     return null;
   }
 }
