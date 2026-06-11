@@ -1,42 +1,29 @@
-## Objetivo
+## Diagnóstico
 
-Em `/conversations`, quando um lead tiver mais de uma `conversation` (ex.: WhatsApp + Email), exibir uma única linha por lead na lista e uma única thread no detalhe, intercalando todas as mensagens em ordem cronológica e mostrando o canal de cada uma. O schema do banco fica inalterado — a unificação acontece só no frontend.
+Em `/conversations` a Juju2 (só WhatsApp) usa o hook unificado `useLeadMessages` com queryKey `["lead-messages", ids]`. Quando o SDR envia uma resposta, `useSendMessage.onSuccess` invalida apenas `["messages", conversation_id]` — chave do hook antigo. A view unificada não recebe invalidação direta, dependendo só do realtime para atualizar.
 
-## Mudanças
+Resultado: a mensagem entra no banco (confirmado: `direction=outbound` salvo em `messages`), mas o balão não aparece na UI até o evento de realtime chegar — e em casos onde o evento atrasa/falha, a mensagem some até refresh manual.
 
-### 1. Lista de conversas (`src/pages/Conversations.tsx`)
-- Agrupar `conversations` por `lead_id` no client.
-- Cada card mostra: nome do lead, empresa, email, badges com os canais ativos (ex.: `whatsapp`, `email`) e data da última atividade do grupo.
-- Selecionar o card passa a definir um `selectedLeadId` (em vez de `selectedConvId`) com a lista de `conversation.id` daquele lead.
+## Correção
 
-### 2. Hook de mensagens unificadas (`src/hooks/useConversations.ts`)
-- Novo hook `useLeadMessages(conversationIds: string[])`:
-  - `select("*", { conversation_id IN (...) })` ordenado por `sent_at asc`.
-  - Anexa `channel` em cada mensagem via lookup local pelas conversations do lead (para renderizar o badge no balão).
-- Mantém `useMessages` para retrocompatibilidade.
+### 1. `src/hooks/useConversations.ts` — `useSendMessage`
+- Em `onSuccess`, invalidar também:
+  - `["lead-messages"]` (partial match cobre qualquer agregação)
+  - `["conversations", companyId]` (atualiza `lastActivity` na lista)
+- Para isso, ler `companyId` via `useAuth()` dentro do hook.
 
-### 3. Detalhe da conversa unificada
-- Header: nome do lead + chips dos canais disponíveis.
-- Lista de mensagens intercalada (uma só timeline). Cada balão ganha um badge pequeno (`WhatsApp` / `Email`) ao lado do "SDR/Prospect".
-- `BookingCard` e `SlotHoldsCard` continuam por `lead_id` (já é o caso).
+### 2. `src/pages/Conversations.tsx` — feedback imediato
+- Após `await sendMessage.mutateAsync(...)`, chamar `queryClient.invalidateQueries({ queryKey: ["lead-messages"] })` como reforço (defensivo, caso o hook seja reutilizado em outro lugar sem o fix).
+- Manter o realtime como está (já invalida `["lead-messages"]`).
 
-### 4. Envio outbound (regra de canal)
-- Calcular `replyChannel` = canal da mensagem **inbound** mais recente do lead; fallback: canal da conversa mais antiga.
-- Resolver `conversation_id` para envio = a conversation do lead cujo `channel === replyChannel`.
-- Mostrar acima do input: "Respondendo via **{canal}**" (informativo, sem seletor).
-- `useSendMessage` segue como está — só muda qual `conversation_id` é passado.
-
-### 5. Realtime
-- O subscribe atual em `messages` já invalida por `conversation_id`. Adicionar invalidação adicional da query agregada `["lead-messages", leadId]` quando o `conversation_id` recebido pertence a alguma conversation do lead aberto.
-
-### 6. Sugestão IA
-- `useAiReply` recebe o histórico unificado e o `channel` = `replyChannel` (para o prompt gerar resposta no tom certo do canal).
+### 3. Verificação visual no replay
+O replay também mostrou um flicker (balão aparece à esquerda e depois reposiciona à direita). Isso é consequência da chegada em duas etapas (insert otimista do realtime + refetch). Com o invalidate correto no `onSuccess` o refetch dispara antes do realtime na maioria dos casos, eliminando o flicker.
 
 ## Fora de escopo
-- Nenhuma alteração de schema, migração ou edge function.
-- Não mexe em cadências, roteamento de intents nem `inbound-webhook`.
-- Conversa única no banco (1 row por lead) fica para outro momento.
+- Sem mudanças de schema, edge functions, RLS ou realtime publication.
+- Sem mexer em cadências, intents ou no webhook de inbound.
 
 ## Validação
-- Lead com só 1 canal: comportamento idêntico ao atual.
-- Lead Nico (WhatsApp + Email): aparece 1 card; abrir mostra mensagens intercaladas com badges de canal; responder envia pelo canal da última mensagem inbound do lead.
+1. Abrir chat da Juju2, digitar texto e enviar → balão aparece imediatamente do lado direito (SDR), sem precisar de F5.
+2. Card da Juju2 na lista sobe para o topo com `lastActivity` atualizada.
+3. Lead com WhatsApp+Email (Nico) continua intercalando mensagens corretamente após envio.
