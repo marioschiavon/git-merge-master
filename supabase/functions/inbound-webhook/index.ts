@@ -381,6 +381,10 @@ serve(async (req) => {
 
     // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
     // Skip when message is a clarifying question (duration/format/etc) without datetime — would be mis-routed as scheduling.
+    let lastIntentCategory: string | null = null;
+    let lastIntentSubIntent: string | null = null;
+    let lastIntentEntities: Record<string, any> | null = null;
+    let lastIntentLogId: string | null = null;
     if (!earlyParsed && companyId && leadData?.id && !(earlyClarifyingKind && !earlyInboundDt)) {
       try {
         // Build brief history for classifier
@@ -403,6 +407,10 @@ serve(async (req) => {
         });
 
         if (!clfErr && clf?.intent_log_id && clf?.category) {
+          lastIntentCategory = clf.category;
+          lastIntentSubIntent = clf.sub_intent || null;
+          lastIntentEntities = clf.entities || null;
+          lastIntentLogId = clf.intent_log_id;
           const route = await routeAndEnqueue(supabase, {
             company_id: companyId,
             lead_id: leadData.id,
@@ -420,6 +428,7 @@ serve(async (req) => {
         console.error("intent pipeline error:", e);
       }
     }
+
 
     // Check for held slots (FIX: filter out expired slots)
     let heldSlots: any[] = [];
