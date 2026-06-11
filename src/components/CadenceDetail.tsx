@@ -444,7 +444,12 @@ function AgenticSimulationControls({
             onClick={() => {
               simulateReply.mutate(
                 { enrollmentId, replyText: reply.trim() },
-                { onSuccess: () => setReply("") },
+                {
+                  onSuccess: (data: any) => {
+                    setReply("");
+                    if (data?.reply_text) setLastAiReply({ text: data.reply_text, intent: data.intent });
+                  },
+                },
               );
             }}
             className="h-7 text-xs"
