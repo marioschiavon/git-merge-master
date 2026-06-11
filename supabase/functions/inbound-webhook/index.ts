@@ -427,7 +427,9 @@ serve(async (req) => {
         }
       } catch (e) {
         console.error("intent pipeline error:", e);
+      }
     }
+
 
     // ─── Capture/overwrite lead's own email when they include one in the message ───
     // Runs after intent classification so we know whether the email is a referral.
