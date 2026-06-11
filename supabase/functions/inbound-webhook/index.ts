@@ -606,7 +606,7 @@ AÇÕES POSSÍVEIS:
   → inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)
 - "reschedule": prospect quer remarcar/reagendar uma reunião JÁ CONFIRMADA anteriormente (ex: "preciso remarcar", "surgiu um imprevisto", "mudar a reunião", "trocar o horário"). NÃO use "reschedule" se não houver reunião confirmada — nesse caso use "check_availability".
   → se o prospect já indicou novo horário, inclua "suggested_datetime" no formato ISO 8601
-- "cancel": prospect quer CANCELAR uma reunião já confirmada SEM remarcar (ex: "não vou poder", "preciso cancelar a reunião", "vamos cancelar", "não tenho mais interesse na reunião"). NÃO usar para rejeição geral do produto (use "pause").
+- "cancel": use APENAS quando o prospect deixar EXPLÍCITO que não quer mais a reunião nem remarcar (ex: "não tenho mais interesse", "desisto", "cancela de vez", "não precisa mais", "não vou fazer"). Se ele só disser "quero desmarcar/cancelar a reunião" sem sinalizar perda de interesse → use "reschedule" (vamos oferecer novos horários). NÃO usar para rejeição geral do produto (use "pause").
 - "pause": prospect rejeitou totalmente a abordagem/produto → pausar cadência E enviar mensagem curta de agradecimento + porta aberta para retorno futuro
 - "referral": prospect indicou outra pessoa, disse que não é responsável, vai encaminhar internamente, ou é um gatekeeper (recepção/atendimento)
 - "request_call": prospect pediu para ser contatado por TELEFONE/LIGAÇÃO ("me liga", "prefiro por telefone", "pode me ligar amanhã às 10h") → criar tarefa de ligação para o time humano. Inclua "call_window" (frase curta com horário/data preferida, se informada) e "call_phone" (telefone, se informado ou já presente no lead).
@@ -1280,7 +1280,20 @@ Analise a última mensagem e decida a ação.`,
         });
       }
     } else if (parsed.action === "cancel") {
-      // Cancel: drop existing booking + held slots, no new offer
+      // Soft-cancel: if the lead didn't signal loss of interest, promote to reschedule
+      // so the SDR keeps the initiative and proactively offers new slots.
+      const HARD_CANCEL_REGEX = /\b(n[aã]o\s+(quero|tenho|vou)\s+mais\b|sem\s+interesse|perdi\s+(o\s+)?interesse|cancela(r)?\s+de\s+vez|n[aã]o\s+rola|desisto|n[aã]o\s+precisa\s+mais|n[aã]o\s+vou\s+fazer)\b/i;
+      const isHardCancel = HARD_CANCEL_REGEX.test(normalizePtText(cleanContent));
+      if (!isHardCancel) {
+        console.log(`CANCEL_PROMOTED_TO_RESCHEDULE lead=${leadData?.id} norm="${normalizePtText(cleanContent)}"`);
+        parsed.action = "reschedule";
+        parsed.reply_message = null;
+        // Re-enter the loop by skipping this block; simplest: fall through via recursion-free goto.
+        // We replicate the reschedule flow inline by reassigning and continuing the chain below.
+      }
+    }
+    if (parsed.action === "cancel") {
+      // Hard cancel: drop existing booking + held slots, no new offer
       console.log(`Cancel requested for lead ${leadData?.id}`);
 
       const { data: liveSlots } = await supabase
