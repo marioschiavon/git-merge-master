@@ -1,5 +1,5 @@
 // Simula uma resposta do lead numa cadência inteligente em modo simulação.
-// Cria mensagem inbound, classifica intent, retorna o resultado.
+// Cria mensagem inbound, classifica intent, gera e insere a resposta da IA como outbound simulada.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -69,15 +69,16 @@ serve(async (req) => {
     }
     if (!convId) throw new Error("could not create conversation");
 
-    // Insert inbound message
+    // Insert inbound (simulated) message
     await supabase.from("messages").insert({
       conversation_id: convId,
       content: reply_text,
       direction: "inbound",
+      channel: ch,
       metadata: { simulated: true, source: "cadence_simulate" },
     });
 
-    // Classify intent (uses service role internally)
+    // Classify intent
     const { data: clf, error: clfErr } = await supabase.functions.invoke("classify-intent", {
       body: {
         company_id: companyId,
@@ -87,13 +88,64 @@ serve(async (req) => {
         history: [],
       },
     });
-
     if (clfErr) console.error("classify-intent error", clfErr);
+
+    const intentCategory = clf?.category || "info_request";
+    const intentSub = clf?.sub_intent || null;
+
+    // Load lead + recent history for the AI reply
+    const [{ data: lead }, { data: histRows }] = await Promise.all([
+      supabase.from("leads").select("name, company_name").eq("id", enrollment.lead_id).maybeSingle(),
+      supabase.from("messages").select("direction, content").eq("conversation_id", convId).order("sent_at", { ascending: true }).limit(20),
+    ]);
+
+    // Generate AI reply
+    let replyText: string | null = null;
+    let replySubject: string | null = null;
+    let replyMessageId: string | null = null;
+
+    try {
+      const { data: gen, error: genErr } = await supabase.functions.invoke("generate-reply", {
+        body: {
+          company_id: companyId,
+          lead: { name: lead?.name, company_name: lead?.company_name },
+          intent: { category: intentCategory, sub_intent: intentSub },
+          history: histRows || [],
+          channel: ch,
+        },
+      });
+      if (genErr) console.error("generate-reply error", genErr);
+      replyText = gen?.body || null;
+      replySubject = gen?.subject || null;
+    } catch (e) {
+      console.error("generate-reply invoke failed", e);
+    }
+
+    if (replyText) {
+      const { data: inserted } = await supabase.from("messages").insert({
+        conversation_id: convId,
+        content: replyText,
+        direction: "outbound",
+        channel: ch,
+        ai_suggested: true,
+        metadata: {
+          simulated: true,
+          source: "cadence_simulate",
+          intent: intentCategory,
+          subject: replySubject,
+        },
+      }).select("id").single();
+      replyMessageId = inserted?.id || null;
+    }
 
     return new Response(JSON.stringify({
       ok: true,
-      intent: clf?.category || null,
-      sub_intent: clf?.sub_intent || null,
+      intent: intentCategory,
+      sub_intent: intentSub,
+      conversation_id: convId,
+      reply_text: replyText,
+      reply_subject: replySubject,
+      reply_message_id: replyMessageId,
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error("cadence-simulate-reply error:", e);

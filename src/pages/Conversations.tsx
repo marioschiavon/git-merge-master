@@ -241,6 +241,7 @@ export default function Conversations() {
                       <Badge variant="secondary" className="text-[10px] h-4">{channelLabel(msg.channel)}</Badge>
                     )}
                     {msg.ai_suggested && <Badge variant="secondary" className="text-[10px] h-4"><Sparkles className="h-2 w-2 mr-0.5" />IA</Badge>}
+                    {msg.metadata?.simulated && <Badge className="bg-amber-100 text-amber-800 text-[10px] h-4">🧪 Simulado</Badge>}
                   </div>
                   <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                   {msg.metadata?.tone_detected && (

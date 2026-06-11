@@ -408,6 +408,7 @@ function AgenticSimulationControls({
   const runNext = useRunNextStep();
   const simulateReply = useSimulateReply();
   const [reply, setReply] = useState("");
+  const [lastAiReply, setLastAiReply] = useState<{ text: string; intent?: string } | null>(null);
 
   return (
     <div className="space-y-2 border-t border-dashed pt-2 mt-1">
@@ -443,7 +444,12 @@ function AgenticSimulationControls({
             onClick={() => {
               simulateReply.mutate(
                 { enrollmentId, replyText: reply.trim() },
-                { onSuccess: () => setReply("") },
+                {
+                  onSuccess: (data: any) => {
+                    setReply("");
+                    if (data?.reply_text) setLastAiReply({ text: data.reply_text, intent: data.intent });
+                  },
+                },
               );
             }}
             className="h-7 text-xs"
@@ -455,6 +461,16 @@ function AgenticSimulationControls({
             )}
             Simular resposta
           </Button>
+        </div>
+      )}
+      {lastAiReply && (
+        <div className="rounded border border-amber-200 bg-amber-50/60 p-2 space-y-1">
+          <div className="flex items-center gap-1 text-[10px] text-amber-800">
+            <Sparkles className="h-3 w-3" />
+            <span className="font-medium">IA respondeu (simulado)</span>
+            {lastAiReply.intent && <Badge variant="outline" className="text-[10px] h-4">{lastAiReply.intent}</Badge>}
+          </div>
+          <p className="text-xs whitespace-pre-wrap text-foreground/90">{lastAiReply.text}</p>
         </div>
       )}
     </div>
