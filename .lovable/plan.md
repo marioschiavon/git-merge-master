@@ -1,32 +1,30 @@
 ## Plano
 
-1. **Corrigir o detector de pergunta esclarecedora**
-   - Ajustar a normalização para remover acentos sem perder o sentido.
-   - Corrigir o regex de duração para capturar exatamente mensagens como `Quanto tempo e de reuniao?`, `quanto tempo é a reunião?`, `quanto tempo dura a call?`.
-   - Incluir variações comuns: `tempo de reuniao`, `tempo da reuniao`, `quanto tempo vai durar`, `é rápido?`.
+1. **Confirmar a causa real no fluxo implantado**
+   - Os logs atuais mostram que a mensagem entrou em `classify-intent` como `scheduling event_type_question` e depois caiu em `check_availability`, sem aparecer nenhum log de `Early clarifying-question` ou `Clarifying short-circuit`.
+   - Isso indica que o código atualmente rodando não passou pelo detector novo, ou que outro ponto está classificando antes/fora do short-circuit.
 
-2. **Mover a resposta para um short-circuit real**
-   - Hoje a detecção acontece, mas o fluxo continua até a IA e os guards de agenda.
-   - Vou retornar a resposta diretamente logo após carregar o contexto mínimo e a duração da reunião, antes de classificador, prompt da IA e regras de agendamento.
-   - Isso impede completamente que a pergunta caia em `scheduling`, `check_availability` ou no fallback pedindo dia/horário.
+2. **Tornar a proteção compartilhada e impossível de contornar**
+   - Criar um helper compartilhado para detectar perguntas esclarecedoras de reunião: duração, formato, participantes, objetivo/local.
+   - Usar esse mesmo helper em `inbound-webhook` e também em `classify-intent`.
+   - Assim, mesmo que o classificador seja chamado, ele não poderá retornar `scheduling/event_type_question` para frases como `Quanto tempo e de reuniao?`.
 
-3. **Evitar side effects indevidos**
-   - Garantir que perguntas sobre duração/formato/participantes/objetivo não disparem `routeAndEnqueue` nem alterem o estado de agendamento.
-   - Manter o histórico da conversa e atividades normalmente, mas sem mexer em slots, holds ou cadência de reunião.
+3. **Bloquear o roteamento no ponto de origem**
+   - Em `inbound-webhook`, antes de chamar `classify-intent` e antes de `routeAndEnqueue`, se a mensagem for pergunta esclarecedora sem data/hora, marcar explicitamente como `reply`.
+   - Adicionar log com marcador único, por exemplo `MEETING_CLARIFIER_BYPASS`, contendo texto normalizado, tipo detectado e ação final.
 
-4. **Adicionar logs de prova**
-   - Logar a mensagem normalizada, o tipo detectado e o fato de que o short-circuit respondeu diretamente.
-   - Assim, se acontecer novamente, os logs mostram se a versão nova rodou e qual rota foi tomada.
+4. **Corrigir o fallback que está sobrescrevendo a resposta**
+   - Blindar os guards de agenda (`schedulingInProgress`, `check_availability sem datetime`, etc.) para não rodarem quando a mensagem é uma pergunta esclarecedora.
+   - Isso evita a resposta errada: `Poderia me dizer o dia e horário exato...`.
 
-5. **Validar com teste local de lógica**
-   - Conferir que `Quanto tempo e de reuniao?` retorna `duration`.
-   - Conferir que frases com data/hora real continuam seguindo para agenda.
-   - Conferir que perguntas sobre formato, participantes e objetivo continuam respondendo diretamente.
+5. **Validar e publicar as funções corretas**
+   - Testar localmente os exemplos:
+     - `Quanto tempo e de reuniao?` → resposta sobre duração.
+     - `Quanto tempo dura a call?` → resposta sobre duração.
+     - `É online?` → resposta sobre formato.
+     - `terça às 14h` → continua verificando disponibilidade.
+   - Implantar as edge functions alteradas para garantir que o preview use a versão corrigida.
 
-## Arquivo afetado
+## Resultado esperado
 
-- `supabase/functions/inbound-webhook/index.ts`
-
-## Observação técnica
-
-Os logs atuais mostram que a versão executada ainda passou por `intent routed: scheduling event_type_question` e depois caiu em `check_availability but no datetime...`. Então a correção precisa sair do modelo de “guard posterior” e virar um retorno antecipado determinístico antes de qualquer roteamento de agenda.
+A mensagem `Quanto tempo e de reuniao?` deve responder algo como `É uma apresentação rápida, em torno de X minutos.`, sem acionar classificação de agendamento, fila de ações ou pedido de dia/horário.
