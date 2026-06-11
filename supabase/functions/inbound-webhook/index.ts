@@ -1559,17 +1559,64 @@ Analise a última mensagem e decida a ação.`,
       }
     } else if (parsed.action === "pause") {
       // FIX (Kiko): cancel any pending slot holds when lead rejects approach
+      let cancelledBookingUid: string | null = null;
+      let cancelledScheduledAt: string | null = null;
+      let calcomCancelFailed = false;
       if (leadData?.id) {
         const { data: pendingHolds } = await supabase
           .from("slot_holds")
-          .select("id, cal_booking_uid")
+          .select("id, cal_booking_uid, status, slot_datetime")
           .eq("lead_id", leadData.id)
-          .eq("status", "held");
+          .in("status", ["held", "confirmed"]);
         for (const h of (pendingHolds || [])) {
           if (h.cal_booking_uid) {
-            try { await cancelCalcomReservation(h.cal_booking_uid); } catch (_) { /* ignore */ }
+            try {
+              const r = h.status === "confirmed"
+                ? await cancelCalcomBooking(h.cal_booking_uid, "Lead perdeu interesse")
+                : await cancelCalcomReservation(h.cal_booking_uid);
+              if (!r.ok) calcomCancelFailed = true;
+              if (h.status === "confirmed") {
+                cancelledBookingUid = h.cal_booking_uid;
+                cancelledScheduledAt = h.slot_datetime;
+              }
+            } catch (_) { calcomCancelFailed = true; }
           }
           await supabase.from("slot_holds").update({ status: "cancelled" }).eq("id", h.id);
+        }
+
+        // Also cancel any active confirmed bookings in the bookings table
+        const { data: activeBookings } = await supabase
+          .from("bookings")
+          .select("id, calcom_booking_uid, scheduled_at, status")
+          .eq("lead_id", leadData.id)
+          .neq("status", "cancelled");
+        for (const b of (activeBookings || [])) {
+          if (b.calcom_booking_uid && b.calcom_booking_uid !== cancelledBookingUid) {
+            const r = await cancelCalcomBooking(b.calcom_booking_uid, "Lead perdeu interesse");
+            if (!r.ok) calcomCancelFailed = true;
+          }
+          await supabase.from("bookings").update({ status: "cancelled", updated_at: new Date().toISOString() }).eq("id", b.id);
+          cancelledBookingUid = cancelledBookingUid || b.calcom_booking_uid;
+          cancelledScheduledAt = cancelledScheduledAt || b.scheduled_at;
+        }
+
+        if (cancelledBookingUid && companyId) {
+          await insertBookingSystemMessage(supabase, {
+            lead_id: leadData.id,
+            company_id: companyId,
+            event_type: "booking_cancelled",
+            booking_uid: cancelledBookingUid,
+            scheduled_at: cancelledScheduledAt,
+          });
+        }
+        if (calcomCancelFailed && companyId) {
+          await supabase.from("lead_activities").insert({
+            company_id: companyId,
+            lead_id: leadData.id,
+            type: "alert",
+            description: "⚠️ Cancelamento no Cal.com falhou — verifique o painel e cancele manualmente",
+            metadata: { stage: "pause_rejection", booking_uid: cancelledBookingUid },
+          });
         }
       }
       if (enrollment) {
