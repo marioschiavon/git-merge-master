@@ -520,13 +520,19 @@ Decida a próxima ação.`;
     } else if (decision.action === "send" && decision.channel && decision.message) {
       // Inline send: email via gmail-send, whatsapp via Z-API.
       const channel = decision.channel;
-      let sendAction = "sent";
-      let deliveryMeta: Record<string, any> = {};
-      const conversation = await findOrCreateConversation(
-        supabase, lead.id, cadence.company_id, channel, enrollment_id
-      );
+      const isSimulation = !!cadence.simulation_mode;
+      let sendAction = isSimulation ? "simulated" : "sent";
+      let deliveryMeta: Record<string, any> = isSimulation ? { delivery_status: "simulated" } : {};
+      const conversation = isSimulation
+        ? null
+        : await findOrCreateConversation(
+            supabase, lead.id, cadence.company_id, channel, enrollment_id
+          );
 
-      if (channel === "email" && lead.email) {
+      if (isSimulation) {
+        // Dry-run: do NOT call gmail-send / Z-API and do NOT insert into messages.
+        // The message text stays in cadence_agent_decisions.message_body.
+      } else if (channel === "email" && lead.email) {
         try {
           const { error: sendError } = await supabase.functions.invoke("gmail-send", {
             body: {
@@ -549,7 +555,6 @@ Decida a próxima ação.`;
           if (r.ok) deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status };
           else { sendAction = "failed"; deliveryMeta = { delivery_status: "failed", zapi_error: r.error }; }
         } else { sendAction = "pending_manual"; deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" }; }
-        // For non-email channels, persist outbound message
         if (conversation) {
           await supabase.from("messages").insert({
             conversation_id: conversation.id,
@@ -565,12 +570,15 @@ Decida a próxima ação.`;
       }
 
       // Activity log
+      const actDesc = isSimulation
+        ? `🧪 [SIMULAÇÃO] IA geraria (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${(decision.subject || decision.message || "").substring(0, 100)}`
+        : `🤖 IA enviou (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${(decision.subject || decision.message || "").substring(0, 100)}`;
       await supabase.from("lead_activities").insert({
         company_id: cadence.company_id,
         lead_id: lead.id,
         type: channel,
-        description: `🤖 IA enviou (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${(decision.subject || decision.message || "").substring(0, 100)}`,
-        metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, action: sendAction, hook: decision.hook, ...deliveryMeta },
+        description: actDesc,
+        metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, action: sendAction, hook: decision.hook, simulated: isSimulation, ...deliveryMeta },
       });
 
       await persistDecision(decision, { model: "google/gemini-2.5-flash" });
