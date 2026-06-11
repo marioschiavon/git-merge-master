@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCadences, useCreateCadence, useDeleteCadence, useUpdateCadence } from "@/hooks/useCadences";
 import { CadenceDetail } from "@/components/CadenceDetail";
-import { MessageSquare, Plus, Trash2, Pause, Zap, Sparkles } from "lucide-react";
+import { MessageSquare, Plus, Trash2, Pause, Zap, Sparkles, FlaskConical } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/useAuth";
 import { useUpsertCadencePolicy } from "@/hooks/useAgenticCadence";
