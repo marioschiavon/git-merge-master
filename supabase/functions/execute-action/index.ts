@@ -467,6 +467,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
 
   async reschedule_booking(ctx) {
     const { booking_uid, start, reason } = ctx.params;
+    if (!booking_uid) await assertSubIntentAllowed(ctx, "reschedule_booking");
     let uid = booking_uid as string | undefined;
     if (!uid) {
       const { data: existing } = await ctx.supabase
