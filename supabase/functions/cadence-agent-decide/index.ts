@@ -288,7 +288,50 @@ serve(async (req) => {
     }
 
 
-    const [convsRes, prevDecisionsRes, kbRes, highlightsRes, aiInstrRes] = await Promise.all([
+    // === FIRST-ATTEMPT SHORTCUT ===
+    // For the first outbound, reuse the standard first-message engine
+    // (knowledge + highlights + ai_instructions + insights + social + tone)
+    // instead of asking the agent LLM to decide. The agent only takes over
+    // from the 2nd touch onward.
+    const { data: priorSends } = await supabase
+      .from("cadence_agent_decisions")
+      .select("id")
+      .eq("enrollment_id", enrollment_id)
+      .eq("action", "send")
+      .limit(1);
+    const isFirstAttempt = !priorSends || priorSends.length === 0;
+
+    let decision: Decision;
+
+    if (isFirstAttempt) {
+      try {
+        const first = await buildFirstMessage({
+          supabase,
+          lovableApiKey: LOVABLE_API_KEY,
+          companyId: cadence.company_id,
+          lead,
+          channel: effectivePrimary as "whatsapp" | "email",
+          tone: policy.tone_instructions,
+          goal: policy.goal,
+        });
+        decision = {
+          action: "send",
+          channel: effectivePrimary as any,
+          hook: "diagnostic",
+          subject: first.subject || undefined,
+          message: first.message,
+          rationale:
+            "Primeira mensagem gerada pelo motor padrão (knowledge da empresa, highlights, insights do lead, redes sociais e tom da política). IA agêntica assume a partir do 2º toque.",
+        };
+      } catch (e) {
+        console.error("buildFirstMessage failed, falling back to agent LLM", e);
+        // fall through to agent LLM path
+      }
+    }
+
+    if (!isFirstAttempt || !(decision! as any)) {
+
+
       supabase.from("conversations").select("id, channel").eq("lead_id", lead.id),
       supabase
         .from("cadence_agent_decisions")
