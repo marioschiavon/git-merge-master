@@ -227,11 +227,5 @@ export function LeadProgressDrawer({
   );
 }
 
-function DataRow({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div className="flex justify-between gap-2 border-b py-1.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-foreground text-right truncate">{value || "—"}</span>
-    </div>
   );
 }
