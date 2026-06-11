@@ -169,6 +169,45 @@ function extractDateTimeFromText(text: string): string | null {
   return null;
 }
 
+/** Lowercase + remove accents + collapse punctuation/whitespace for robust matching. */
+function normalizePtText(text: string): string {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const CLARIFYING_PATTERNS = {
+  duration: /\b(quanto\s+tempo|quanto\s+(vai\s+)?dura|quanto\s+dura|qual\s+(a\s+)?duracao|duracao\s+da\s+(reuniao|call|conversa|apresentacao)|tempo\s+(de|da)\s+(reuniao|call|conversa)|vai\s+demorar|leva\s+quanto|dura\s+quanto|e\s+rapid|demora\s+muito|reuniao\s+(longa|curta|rapida))\b/,
+  format: /\b(e\s+(online|presencial|por\s+video|por\s+telefone|remota)|formato\s+da\s+reuniao|onde\s+(vai\s+)?ser|por\s+onde\s+vai\s+ser|google\s+meet|zoom|teams)\b/,
+  attendees: /\b(quem\s+(vai\s+)?(participa|estara|vai\s+estar)|quem\s+(e|sao)\s+o(s)?\s+(participante|convidado))\b/,
+  objective: /\b(qual\s+(o\s+)?(objetivo|assunto|pauta|tema)|sobre\s+o\s+que\s+(vai\s+)?ser|o\s+que\s+(vai\s+)?ser\s+tratado|pra\s+que\s+(e|serve))\b/,
+} as const;
+
+type ClarifyingKind = keyof typeof CLARIFYING_PATTERNS;
+
+function detectClarifyingQuestion(text: string): ClarifyingKind | null {
+  const norm = normalizePtText(text);
+  for (const [k, re] of Object.entries(CLARIFYING_PATTERNS)) {
+    if (re.test(norm)) return k as ClarifyingKind;
+  }
+  return null;
+}
+
+function clarifyingReplyFor(kind: ClarifyingKind, meetingMinutes: number | null): string {
+  if (kind === "duration") {
+    return meetingMinutes
+      ? `É uma apresentação rápida, em torno de ${meetingMinutes} minutos.`
+      : "É uma apresentação rápida, bem objetiva.";
+  }
+  if (kind === "format") return "É online, por videochamada. Te envio o link junto com a confirmação.";
+  if (kind === "attendees") return "Sou eu que conduzo a conversa inicial. Se fizer sentido, trazemos mais alguém do time depois.";
+  return "Quero entender melhor seu contexto e te mostrar como podemos ajudar — bem direto ao ponto.";
+}
+
 // stripQuotedEmail imported from _shared/strip-quoted-email.ts
 
 serve(async (req) => {
@@ -247,6 +286,14 @@ serve(async (req) => {
     // FIX: Strip quoted email content before saving
     const cleanContent = stripQuotedEmail(content);
     console.log("Original content length:", content.length, "Clean content length:", cleanContent.length, "skip_insert:", !!skip_insert);
+
+    // EARLY: detectar perguntas esclarecedoras (duração/formato/etc) — usado para impedir
+    // que o classificador de intent roteie como scheduling e também como blindagem final.
+    const earlyClarifyingKind = detectClarifyingQuestion(cleanContent);
+    const earlyInboundDt = extractDateTimeFromText(cleanContent);
+    if (earlyClarifyingKind && !earlyInboundDt) {
+      console.log(`Early clarifying-question detected (${earlyClarifyingKind}) — will short-circuit scheduling routes`);
+    }
 
     // Save inbound message (with clean content) — pulado quando a mensagem já foi inserida pelo caller (ex: gmail-sync-inbox)
     if (!skip_insert) {
@@ -371,7 +418,8 @@ serve(async (req) => {
 
 
     // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
-    if (!earlyParsed && companyId && leadData?.id) {
+    // Skip when message is a clarifying question (duration/format/etc) without datetime — would be mis-routed as scheduling.
+    if (!earlyParsed && companyId && leadData?.id && !(earlyClarifyingKind && !earlyInboundDt)) {
       try {
         // Build brief history for classifier
         const { data: recentMsgs } = await supabase
@@ -754,38 +802,17 @@ Analise a última mensagem e decida a ação.`,
 
     // FIX: Detectar perguntas esclarecedoras (duração, formato, local, etc.) ANTES dos guards
     // que redirecionam para schedule/check_availability. Essas perguntas devem virar reply direto.
-    const clarifyingPatterns = {
-      duration: /\b(quanto\s+tempo|quanto\s+(vai\s+)?dura|qual\s+(a\s+)?duraç|vai\s+demorar|leva\s+quanto|dura\s+quanto|é\s+r[aá]pid|demora\s+muito)\b/i,
-      format: /\b(é\s+(online|presencial|por\s+v[ií]deo|por\s+telefone|remota)|formato\s+da\s+reuni|onde\s+(vai\s+)?ser|por\s+onde\s+vai\s+ser|google\s+meet|zoom|teams)\b/i,
-      attendees: /\b(quem\s+(vai\s+)?(participa|estar[aá]|vai\s+estar)|quem\s+(é|s[ãa]o)\s+o(s)?\s+(participante|convidado))\b/i,
-      objective: /\b(qual\s+(o\s+)?(objetivo|assunto|pauta|tema)|sobre\s+o\s+que\s+(vai\s+)?ser|o\s+que\s+(vai\s+)?ser\s+tratado|pra\s+que\s+(é|serve))\b/i,
-    };
-    const isClarifyingQuestion = (text: string): keyof typeof clarifyingPatterns | null => {
-      for (const [k, re] of Object.entries(clarifyingPatterns)) {
-        if (re.test(text)) return k as keyof typeof clarifyingPatterns;
-      }
-      return null;
-    };
-    const clarifyingKind = isClarifyingQuestion(cleanContent);
-    const inboundDt = extractDateTimeFromText(cleanContent);
+    const clarifyingKind = earlyClarifyingKind;
+    const inboundDt = earlyInboundDt;
 
     if (!earlyParsed && clarifyingKind && !inboundDt) {
       console.log(`Clarifying question detected (${clarifyingKind}) — forcing reply`);
       parsed.action = "reply";
       if (!parsed.reply_message || /📅|hor[aá]rio|qual\s+dia|disponibilidade/i.test(parsed.reply_message)) {
-        if (clarifyingKind === "duration") {
-          parsed.reply_message = meetingMinutes
-            ? `É uma apresentação rápida, em torno de ${meetingMinutes} minutos.`
-            : "É uma apresentação rápida, bem objetiva.";
-        } else if (clarifyingKind === "format") {
-          parsed.reply_message = "É online, por videochamada. Te envio o link junto com a confirmação.";
-        } else if (clarifyingKind === "attendees") {
-          parsed.reply_message = "Sou eu que conduzo a conversa inicial. Se fizer sentido, trazemos mais alguém do time depois.";
-        } else if (clarifyingKind === "objective") {
-          parsed.reply_message = "Quero entender melhor seu contexto e te mostrar como podemos ajudar — bem direto ao ponto.";
-        }
+        parsed.reply_message = clarifyingReplyFor(clarifyingKind, meetingMinutes);
       }
       parsed.suggested_datetime = null;
+      parsed.selected_slot = null;
     }
 
     // FIX: Guard on INBOUND content — if prospect has scheduling intent but AI said "reply"
@@ -992,6 +1019,17 @@ Analise a última mensagem e decida a ação.`,
       }
     }
 
+
+    // FINAL GUARD: se a mensagem do lead é pergunta esclarecedora (sem data/hora) e algum
+    // guard posterior empurrou para uma ação de agenda, sobrescreve de volta para reply.
+    if (!earlyParsed && earlyClarifyingKind && !earlyInboundDt &&
+        ["schedule", "check_availability", "reject_slots", "confirm_slot", "reschedule", "suggest_meeting_times"].includes(parsed.action)) {
+      console.log(`Final clarifying guard: overriding action=${parsed.action} → reply (kind=${earlyClarifyingKind})`);
+      parsed.action = "reply";
+      parsed.reply_message = clarifyingReplyFor(earlyClarifyingKind, meetingMinutes);
+      parsed.suggested_datetime = null;
+      parsed.selected_slot = null;
+    }
 
     // Execute action based on AI decision
     if (parsed.action === "confirm_slot" && heldSlots.length >= 1) {
