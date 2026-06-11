@@ -3,6 +3,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { buildFirstMessage } from "../_shared/build-first-message.ts";
 
 async function findOrCreateConversation(
   supabase: any,
@@ -287,6 +288,49 @@ serve(async (req) => {
     }
 
 
+    // === FIRST-ATTEMPT SHORTCUT ===
+    // For the first outbound, reuse the standard first-message engine
+    // (knowledge + highlights + ai_instructions + insights + social + tone)
+    // instead of asking the agent LLM to decide. The agent only takes over
+    // from the 2nd touch onward.
+    const { data: priorSends } = await supabase
+      .from("cadence_agent_decisions")
+      .select("id")
+      .eq("enrollment_id", enrollment_id)
+      .eq("action", "send")
+      .limit(1);
+    const isFirstAttempt = !priorSends || priorSends.length === 0;
+
+    let decision: Decision;
+
+    if (isFirstAttempt) {
+      try {
+        const first = await buildFirstMessage({
+          supabase,
+          lovableApiKey: LOVABLE_API_KEY,
+          companyId: cadence.company_id,
+          lead,
+          channel: effectivePrimary as "whatsapp" | "email",
+          tone: policy.tone_instructions,
+          goal: policy.goal,
+        });
+        decision = {
+          action: "send",
+          channel: effectivePrimary as any,
+          hook: "diagnostic",
+          subject: first.subject || undefined,
+          message: first.message,
+          rationale:
+            "Primeira mensagem gerada pelo motor padrão (knowledge da empresa, highlights, insights do lead, redes sociais e tom da política). IA agêntica assume a partir do 2º toque.",
+        };
+      } catch (e) {
+        console.error("buildFirstMessage failed, falling back to agent LLM", e);
+        // fall through to agent LLM path
+      }
+    }
+
+    if (!isFirstAttempt || !decision!) {
+
     const [convsRes, prevDecisionsRes, kbRes, highlightsRes, aiInstrRes] = await Promise.all([
       supabase.from("conversations").select("id, channel").eq("lead_id", lead.id),
       supabase
@@ -439,13 +483,16 @@ Decida a próxima ação.`;
 
     const aiData = await aiRes.json();
     const content = aiData.choices?.[0]?.message?.content || "{}";
-    let decision: Decision;
     try {
       decision = JSON.parse(content);
     } catch {
       const m = content.match(/\{[\s\S]*\}/);
       decision = m ? JSON.parse(m[0]) : { action: "wait", rationale: "parse_failed" };
     }
+
+    } // end if(!isFirstAttempt || !decision)
+
+
 
     // Normalize channel against allowed
     if (decision.channel && !(policy.allowed_channels || []).includes(decision.channel)) {

@@ -70,6 +70,11 @@ export function AgenticPolicyForm({ cadenceId }: { cadenceId: string }) {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-foreground">
+        <strong>Como funciona:</strong> a <em>primeira mensagem</em> usa o mesmo motor das cadências padrão
+        (knowledge da empresa, destaques, instruções, insights do lead e redes sociais), respeitando o tom abaixo.
+        A IA assume <strong>a partir do 2º toque</strong>, decidindo canal, conteúdo e quando parar.
+      </div>
       <div className="space-y-2">
         <Label>Objetivo</Label>
         <Input value={form.goal || ""} onChange={(e) => setForm({ ...form, goal: e.target.value })} />
