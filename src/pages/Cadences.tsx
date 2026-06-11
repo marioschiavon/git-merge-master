@@ -195,7 +195,7 @@ export default function Cadences() {
 }
 
 function CreateCadenceDialog({ form, setForm, onCreate, isPending }: {
-  form: { name: string; description: string; type: string };
+  form: { name: string; description: string; type: string; agentic: boolean };
   setForm: (f: any) => void;
   onCreate: () => void;
   isPending: boolean;
@@ -222,22 +222,43 @@ function CreateCadenceDialog({ form, setForm, onCreate, isPending }: {
             onChange={(e) => setForm({ ...form, description: e.target.value })}
           />
         </div>
-        <div className="space-y-2">
-          <Label>Tipo</Label>
-          <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="email">E-mail</SelectItem>
-              <SelectItem value="whatsapp">WhatsApp</SelectItem>
-              <SelectItem value="linkedin">LinkedIn</SelectItem>
-              <SelectItem value="multi_channel">Multi-canal</SelectItem>
-            </SelectContent>
-          </Select>
+
+        <div className="flex items-start gap-3 rounded-md border p-3 bg-muted/30">
+          <Switch
+            checked={form.agentic}
+            onCheckedChange={(v) => setForm({ ...form, agentic: v })}
+            id="agentic-toggle"
+          />
+          <div className="flex-1 space-y-1">
+            <Label htmlFor="agentic-toggle" className="flex items-center gap-2 cursor-pointer">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Cadência Inteligente (IA decide)
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Você define objetivo, limites e tom — a IA escolhe canal, mensagem e quando encerrar a cada tentativa.
+            </p>
+          </div>
         </div>
+
+        {!form.agentic && (
+          <div className="space-y-2">
+            <Label>Tipo</Label>
+            <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="email">E-mail</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+                <SelectItem value="linkedin">LinkedIn</SelectItem>
+                <SelectItem value="multi_channel">Multi-canal</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
         <Button onClick={onCreate} disabled={isPending || !form.name.trim()} className="w-full">
-          {isPending ? "Criando..." : "Criar Cadência"}
+          {isPending ? "Criando..." : form.agentic ? "Criar Cadência Inteligente" : "Criar Cadência"}
         </Button>
       </div>
     </DialogContent>
