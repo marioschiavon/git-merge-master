@@ -38,18 +38,25 @@ const typeLabels: Record<string, string> = {
 };
 
 export default function Cadences() {
+  const { companyId } = useAuth();
   const { data: cadences = [], isLoading } = useCadences();
   const createMutation = useCreateCadence();
   const deleteMutation = useDeleteCadence();
   const updateMutation = useUpdateCadence();
+  const upsertPolicy = useUpsertCadencePolicy();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedCadenceId, setSelectedCadenceId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", type: "email" });
+  const [form, setForm] = useState({ name: "", description: "", type: "email", agentic: false });
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
-    await createMutation.mutateAsync(form);
-    setForm({ name: "", description: "", type: "email" });
+    const created = await createMutation.mutateAsync({ name: form.name, description: form.description, type: form.type });
+    if (form.agentic && created?.id && companyId) {
+      // Mark cadence as agentic + create default policy
+      await supabase.from("cadences").update({ mode: "agentic", status: "active" } as any).eq("id", created.id);
+      await upsertPolicy.mutateAsync({ cadence_id: created.id, company_id: companyId } as any);
+    }
+    setForm({ name: "", description: "", type: "email", agentic: false });
     setCreateOpen(false);
   };
 
