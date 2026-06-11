@@ -535,7 +535,7 @@ NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
       if (cs?.length) confirmedSlotForPrompt = cs[0] as any;
     }
     const confirmedBookingBlock = confirmedSlotForPrompt
-      ? `\n=== REUNIÃO ATUALMENTE CONFIRMADA ===\n${formatDateTimeBrt(confirmedSlotForPrompt.slot_datetime)}\n→ Se o prospect pedir para TROCAR/ALTERAR/MOVER/REMARCAR esse horário (com ou sem nova data), use action = "reschedule" e preencha "suggested_datetime" se ele indicou um novo horário.\n→ NUNCA use "check_availability" quando já existe reunião confirmada — sempre use "reschedule".\n→ Se ele quiser CANCELAR sem remarcar, use "cancel".\n=====================================\n`
+      ? `\n=== REUNIÃO ATUALMENTE CONFIRMADA ===\n${formatDateTimeBrt(confirmedSlotForPrompt.slot_datetime)}\n→ Se o prospect pedir para TROCAR/ALTERAR/MOVER/REMARCAR esse horário (com ou sem nova data), use action = "reschedule" e preencha "suggested_datetime" se ele indicou um novo horário.\n→ NUNCA use "check_availability" quando já existe reunião confirmada — sempre use "reschedule".\n→ Se ele quiser CANCELAR sem remarcar, use "cancel".\n→ Se a mensagem do prospect for apenas agradecimento ou confirmação social (ex.: "obrigado", "valeu", "ok", "perfeito", "combinado", "até lá", "show", "beleza") → use action = "reply" com uma resposta curta e amigável (ex.: "Combinado! Até lá 👋"). NÃO use "schedule", "check_availability" nem "suggest_meeting_times" nesse caso.\n=====================================\n`
       : "";
 
     const hasKnowledge = !!(knowledgeContext || highlightsContext);
@@ -767,7 +767,29 @@ Analise a última mensagem e decida a ação.`,
       }
     }
 
-    // FIX: Fallback datetime extraction for check_availability when AI didn't provide it
+    // FIX: Acknowledgment guard — quando já existe reunião confirmada e o AI ainda assim
+    // tentou rotear para uma ação de agendamento sem que o lead tenha pedido remarcar/cancelar,
+    // forçamos um reply curto e amigável em vez de cair em fallbacks que oferecem horários.
+    if (
+      confirmedSlotForPrompt &&
+      ["check_availability", "schedule", "suggest_meeting_times"].includes(parsed.action)
+    ) {
+      const reschedKeywords = /\b(remarcar|reagendar|remarca|reagenda|mudar|trocar|cancelar|cancela|nao\s+vou\s+poder|não\s+vou\s+poder|outro\s+hor[aá]rio|nova\s+data|antecipar|adiar)\b/i;
+      const ackPatterns = /\b(obrigad[oa]|valeu|ok|okay|perfeito|combinado|at[eé]\s+l[aá]|show|beleza|legal|tranquilo|fechou|👍|🙏|😊)\b/i;
+      if (!reschedKeywords.test(cleanContent)) {
+        const isAck = ackPatterns.test(cleanContent) || cleanContent.trim().length <= 25;
+        console.log(
+          `Acknowledgment guard: booking already confirmed and no reschedule/cancel intent — overriding action=${parsed.action} → reply (isAck=${isAck})`,
+        );
+        parsed.action = "reply";
+        if (!parsed.reply_message || /📅|hor[aá]rio|dispon|agend/i.test(parsed.reply_message)) {
+          parsed.reply_message = isAck ? "Combinado! Até lá 👋" : "Combinado! Qualquer coisa antes da reunião é só me chamar por aqui.";
+        }
+        parsed.suggested_datetime = null;
+      }
+    }
+
+
     if (parsed.action === "check_availability" && !parsed.suggested_datetime) {
       const extracted = extractDateTimeFromText(content);
       if (extracted) {
