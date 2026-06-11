@@ -535,7 +535,7 @@ NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
       if (cs?.length) confirmedSlotForPrompt = cs[0] as any;
     }
     const confirmedBookingBlock = confirmedSlotForPrompt
-      ? `\n=== REUNIÃO ATUALMENTE CONFIRMADA ===\n${formatDateTimeBrt(confirmedSlotForPrompt.slot_datetime)}\n→ Se o prospect pedir para TROCAR/ALTERAR/MOVER/REMARCAR esse horário (com ou sem nova data), use action = "reschedule" e preencha "suggested_datetime" se ele indicou um novo horário.\n→ NUNCA use "check_availability" quando já existe reunião confirmada — sempre use "reschedule".\n→ Se ele quiser CANCELAR sem remarcar, use "cancel".\n=====================================\n`
+      ? `\n=== REUNIÃO ATUALMENTE CONFIRMADA ===\n${formatDateTimeBrt(confirmedSlotForPrompt.slot_datetime)}\n→ Se o prospect pedir para TROCAR/ALTERAR/MOVER/REMARCAR esse horário (com ou sem nova data), use action = "reschedule" e preencha "suggested_datetime" se ele indicou um novo horário.\n→ NUNCA use "check_availability" quando já existe reunião confirmada — sempre use "reschedule".\n→ Se ele quiser CANCELAR sem remarcar, use "cancel".\n→ Se a mensagem do prospect for apenas agradecimento ou confirmação social (ex.: "obrigado", "valeu", "ok", "perfeito", "combinado", "até lá", "show", "beleza") → use action = "reply" com uma resposta curta e amigável (ex.: "Combinado! Até lá 👋"). NÃO use "schedule", "check_availability" nem "suggest_meeting_times" nesse caso.\n=====================================\n`
       : "";
 
     const hasKnowledge = !!(knowledgeContext || highlightsContext);
