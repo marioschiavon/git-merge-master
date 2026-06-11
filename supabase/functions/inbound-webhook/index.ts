@@ -288,10 +288,11 @@ serve(async (req) => {
           && new Date(hold.expires_at).getTime() > Date.now();
 
         if (stillValid) {
-          if (!leadData.email) {
+          if (emailMatch && emailMatch.toLowerCase() !== (leadData.email || "").toLowerCase()) {
             await supabase.from("leads").update({ email: emailMatch }).eq("id", leadData.id);
             leadData.email = emailMatch;
           }
+
           console.log(`Pending email fulfilled — confirming held slot ${pendingHoldId} for lead ${leadData.id}`);
           try {
             const confirmRes = await supabase.functions.invoke("calcom-confirm-booking", {
@@ -428,6 +429,52 @@ serve(async (req) => {
         console.error("intent pipeline error:", e);
       }
     }
+
+
+    // ─── Capture/overwrite lead's own email when they include one in the message ───
+    // Runs after intent classification so we know whether the email is a referral.
+    if (leadData?.id) {
+      const emailRe = /[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/gi;
+      const matches = cleanContent.match(emailRe) || [];
+      if (matches.length === 1) {
+        const candidate = matches[0].toLowerCase().trim();
+        const referredEmail = (lastIntentEntities?.referred_email as string | undefined)?.toLowerCase().trim();
+        const isReferral =
+          lastIntentCategory === "routing" ||
+          lastIntentSubIntent === "referral" ||
+          (referredEmail && referredEmail === candidate);
+        const isLikelyOwnEmail =
+          !isReferral &&
+          (
+            (lastIntentCategory === "channel_switch" && lastIntentSubIntent === "send_by_email") ||
+            cleanContent.trim().length <= 80
+          );
+        const currentEmail = (leadData.email as string | undefined)?.toLowerCase().trim() || null;
+        if (isLikelyOwnEmail && candidate !== currentEmail) {
+          const { error: upErr } = await supabase
+            .from("leads")
+            .update({ email: candidate })
+            .eq("id", leadData.id);
+          if (upErr) {
+            console.error("failed to overwrite lead email:", upErr);
+          } else {
+            console.log(`Lead email overwritten: ${currentEmail || "(empty)"} → ${candidate}`);
+            await supabase.from("lead_activities").insert({
+              company_id: companyId,
+              lead_id: leadData.id,
+              type: "note",
+              description: currentEmail
+                ? `✉️ E-mail do lead atualizado: ${currentEmail} → ${candidate}`
+                : `✉️ E-mail do lead capturado da conversa: ${candidate}`,
+              metadata: { source: "inbound-webhook", previous: currentEmail, new: candidate },
+            });
+            leadData.email = candidate;
+          }
+        }
+      }
+    }
+
+
 
 
     // Check for held slots (FIX: filter out expired slots)
@@ -625,6 +672,8 @@ CAPTURA DE E-MAIL (para confirmar reunião por convite):
 - Se a última mensagem do prospect contém um e-mail válido (formato algo@dominio.tld) E há contexto de agendamento (slots pendentes OU pedido recente de e-mail) → preencha "provided_email" com o endereço informado.
 - Se o prospect disser explicitamente que NÃO tem e-mail / não quer informar / prefere sem convite → preencha "email_refused": true.
 - Caso contrário, "provided_email": null e "email_refused": false.
+- IMPORTANTE: se o prospect pedir contato/material/resumo por e-mail E o contexto do lead já mostrar "E-mail cadastrado: <algo>" (não "nenhum"), NÃO pergunte "qual o melhor e-mail". Apenas confirme curto, ex.: "Combinado! Posso te enviar para <email>?". Só pergunte um novo se ele recusar ou pedir outro endereço.
+
 
 
 DETECÇÃO DE INDICAÇÃO / ENCAMINHAMENTO (action = "referral"):
@@ -729,6 +778,8 @@ Responda APENAS com JSON:
             {
               role: "user",
               content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
+E-mail cadastrado: ${leadData?.email || "nenhum"}
+WhatsApp cadastrado: ${leadData?.whatsapp || leadData?.phone || "nenhum"}
 
 Histórico:
 ${(messages || []).slice(0, -1).map((m: any) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`).join("\n")}
@@ -968,6 +1019,20 @@ Analise a última mensagem e decida a ação.`,
       }
     }
 
+    // Safety-net: if AI asked for "melhor e-mail" but lead already has one cadastrado,
+    // rewrite as a confirmation instead of asking again.
+    if (
+      parsed.action === "reply" &&
+      typeof parsed.reply_message === "string" &&
+      leadData?.email &&
+      /(qual|me\s+pass|me\s+envia|melhor|seu)\s+(o|seu)?\s*e-?mail/i.test(parsed.reply_message)
+    ) {
+      const first = (leadData.name as string | undefined)?.split(" ")[0] || "";
+      console.log(`Rewriting reply — AI asked for email but lead already has ${leadData.email}`);
+      parsed.reply_message = `Combinado${first ? `, ${first}` : ""}! Posso te enviar para ${leadData.email}?`;
+    }
+
+
     // Fallback: if AI says confirm_slot but no held slots exist, reclassify as reply
     if (parsed.action === "confirm_slot" && heldSlots.length < 2) {
       console.log("confirm_slot requested but no held slots found — falling back to check_availability or reply");
@@ -1138,11 +1203,12 @@ Analise a última mensagem e decida a ação.`,
           ? parsed.provided_email.trim()
           : (emailRegex.exec(cleanContent)?.[0] || null);
 
-      if (providedEmail && !leadData?.email) {
+      if (providedEmail && providedEmail.toLowerCase() !== (leadData?.email || "").toLowerCase()) {
         await supabase.from("leads").update({ email: providedEmail }).eq("id", leadData.id);
         leadData.email = providedEmail;
-        console.log(`Lead email captured from conversation: ${providedEmail}`);
+        console.log(`Lead email captured/updated from conversation: ${providedEmail}`);
       }
+
 
       const emailRefused = !!parsed.email_refused;
 

@@ -1,84 +1,69 @@
-# Corrigir resposta indevida e respeitar pedido de "contato em X horas"
+# Sobrescrever e-mail do lead via mensagens + evitar perguntar quando já existe
 
 ## Diagnóstico
 
-Lead **Nico** (`35169ba4...`) mandou às 16:54:04:
-> *"Recomendo que envie o e-mail daqui umas 4h para que seja o momento mais oportuno..."*
+Caso Nico:
+- Lead já tinha `email = nico@leaderei.com.br` no banco.
+- SDR perguntou "qual o melhor e-mail?" (mensagem gerada pela IA).
+- Lead respondeu `nico@leaderei.com` (sem `.br`).
+- Banco **continuou** com `nico@leaderei.com.br` — a atualização não rolou porque o único trecho de update do email é `if (providedEmail && !leadData?.email)` (linha 1141 do `inbound-webhook`), só captura quando o lead **não tinha** e-mail. Também há outro update em linha 292, gated por `if (!leadData.email)`. 
 
-O classifier acertou: `channel_switch / send_by_email` com `entities.datetime = "daqui 4h"`. **Mas o SDR respondeu oferecendo horários de reunião** ("Infelizmente esse horário não está disponível. Que tal uma dessas opções? 📅 sexta 12/06 às 16:00...").
-
-**Causa-raiz** — `inbound-webhook/index.ts:809-814`:
-
-```ts
-} else if (extractedDt) {
-  console.log("Inbound mentions datetime without keyword — redirecting to check_availability");
-  parsed.action = "check_availability";
-  ...
-}
-```
-
-A heurística "se a mensagem menciona datetime sem palavra-chave de agendamento, redireciona pra check_availability" ignora completamente o `intent.category` real. Qualquer "daqui X horas" / "amanhã" / "semana que vem" vira pedido de agendamento, mesmo quando o lead está claramente pedindo OUTRA coisa (mudar canal, adiar contato, rejeição com prazo, etc.).
-
-**Segundo problema:** mesmo que o redirect não tivesse acontecido, hoje não há mecanismo para **honrar o pedido** ("entre em contato comigo daqui 4h por email"). A regra `channel_switch / send_by_email` simplesmente respondeu na hora pedindo o email, sem agendar o envio futuro.
+Duas falhas combinadas:
+1. **Captura passiva**: e-mail vindo do lead nunca sobrescreve um existente — então correções (`nico@…br` → `nico@…com`) são ignoradas.
+2. **Geração de mensagem**: o prompt principal (`inbound-webhook` linhas 727-740) só manda `Lead: <nome> (<empresa>)` — a IA **não sabe** que já existe e-mail cadastrado, então pede "qual o melhor".
 
 ## Correções
 
-### 1. Bug-fix: não sequestrar para `check_availability` quando intent já foi classificado como não-agendamento
+### 1. Sempre atualizar `leads.email` quando o lead envia um e-mail próprio na conversa
 
-`supabase/functions/inbound-webhook/index.ts` (linhas 793-815):
+Onde: novo bloco logo após classificar intent no `inbound-webhook` (antes do redirect/guards), e remover o gate `&& !leadData?.email` dos dois pontos atuais.
 
-Antes de aplicar a heurística "menciona datetime → check_availability", consultar o `lead_intents_log` recém-criado e **abortar o redirect** quando `category` for um dos seguintes (datetime ali se refere a próximo contato, não a reunião):
+Regra de captura:
+- Extrair com regex `/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i` na `cleanContent`.
+- Aceitar como "e-mail do próprio lead" quando **uma** das condições for verdade:
+  - `intent.category === 'channel_switch'` e `sub_intent === 'send_by_email'`
+  - `parsed.provided_email` (campo já existente no JSON do prompt) bate com o regex
+  - Mensagem tem **apenas o e-mail** (≤80 chars, 1 endereço, sem nome próprio antes)
+- **Excluir** quando `intent.category === 'routing'` ou `sub_intent === 'referral'` (esse caso é tratado em `referred_email`, não muda o do lead) — e quando o e-mail extraído **bate** com `entities.referred_email`.
+- Comparação case-insensitive; só faz `UPDATE leads SET email = … WHERE id = …` se for **diferente** do atual.
+- Logar em `lead_activities` tipo `note`:  
+  `✉️ E-mail do lead atualizado: <antigo> → <novo>`
 
-- `channel_switch` (qualquer sub_intent)
-- `rejection` (sub_intent `no_time`, `try_later`, etc.)
-- `info_request` puro sem keyword de agendamento
-- `referral`
+Implicação: se o lead errar e mandar `nico@leaderei.com`, vira email novo; se depois mandar `nico@leaderei.com.br` corrigindo, troca de novo.
 
-Manter o redirect apenas quando o intent for `scheduling_request`, `confirmation`, ou similar.
+### 2. Injetar o e-mail atual no prompt da IA
 
-### 2. Honrar "entre em contato em X horas por canal Y"
+Onde: `inbound-webhook` linhas 727-740 (e equivalente em `cadence-agent-decide` se gerar respostas a inbound também).
 
-Quando o classifier retorna `channel_switch` (ou `rejection/try_later`) **com `entities.datetime` futuro**, em vez de responder no ato com pergunta + fluxo padrão de cadência:
+Mudança no `content` da role user:
+```
+Lead: <nome> (<empresa>)
+E-mail cadastrado: <email ou "nenhum">
+WhatsApp cadastrado: <whatsapp ou "nenhum">
+```
 
-a. **Enfileirar ação** em `lead_action_queue`:
-   - `action_type = 'schedule_followup'`
-   - `scheduled_for = entities.datetime`
-   - `params = { channel: 'email'|'whatsapp', source: 'lead_request', original_request: <texto>, requested_at: now() }`
+E uma regra explícita no `systemPrompt`:
+> Se o prospect pedir contato por e-mail/material/resumo e já houver "E-mail cadastrado", **não pergunte "qual o melhor e-mail"**. Apenas confirme curto: *"Posso te enviar para `<email>`?"*. Só pergunte um novo se ele recusar/disser que prefere outro.
 
-b. **Pausar a cadência** automática para esse lead até `scheduled_for` (`cadence_enrollments.next_execution_at = scheduled_for + 1min` + flag em `paused_reason`).
+### 3. Endurecer a confirmação ("é esse mesmo?") como caminho padrão
 
-c. **Responder na hora com confirmação curta**, gerada pela IA, ex.:
-   > *"Combinado, Nico — te mando o resumo por e-mail daqui ~4h então. Até já 👋"*
-   
-   Sem oferecer horários, sem pedir email novamente (se já tiver).
+Adicionar no mesmo bloco do passo 1: quando o intent é `channel_switch / send_by_email` **e o lead não mandou e-mail novo** **e** já existe email cadastrado:
+- Substituir o `parsed.reply_message` (quando AI ainda fez a pergunta indevida) por:  
+  *"Combinado! Posso te enviar para `<email cadastrado>`?"*  
+  Detecção: AI gerou texto cuja regex bate `/(qual|me\s+pass|me\s+envia|melhor)\s+(o|seu)?\s*e-?mail/i` mas lead já tem email. Fallback de segurança, caso a regra do prompt no passo 2 não pegue.
 
-d. **Logar `lead_activities`** tipo `note`: `⏰ Lead pediu contato em <horário> via <canal>`.
+### 4. Backfill imediato do Nico (opcional, manual)
 
-### 3. Processador da fila no `intent-cron` / `execute-action`
-
-`execute-action` já tem `schedule_followup`. Adicionar/ajustar handler para quando o item da fila vence (`scheduled_for <= now()`):
-
-- Se `params.source === 'lead_request'`: gerar mensagem com a IA usando o `build-first-message` (ou reply contextual) pelo `channel` solicitado, enviar via gmail-send / Z-API, e **retomar** a cadência (`cadence_enrollments.status = 'active'`, `next_execution_at` recalculado).
-
-`intent-cron` já roda a cada minuto e processa `lead_action_queue` pendentes — basta garantir que esse novo caminho passa por lá.
-
-### 4. Limpar resposta indevida do Nico (opcional, manual)
-
-Marcar a sequência 16:54:32 → 16:55:50 como "resposta automática equivocada" em `lead_activities` para auditoria. Não apagar mensagens (preserva histórico real do que o lead recebeu).
+Atualizar `leads.email` do Nico (`35169ba4...`) de `nico@leaderei.com.br` para `nico@leaderei.com` (o último valor que ele forneceu) — confirma com usuário antes de rodar.
 
 ## Arquivos tocados
 
-- `supabase/functions/inbound-webhook/index.ts` — guard antes do redirect + novo branch `channel_switch + datetime futuro`
-- `supabase/functions/_shared/route-intent.ts` — mapear `channel_switch + datetime` para `schedule_followup` com `scheduled_for` correto
-- `supabase/functions/execute-action/index.ts` — handler `schedule_followup` com `source=lead_request` (gera e envia mensagem)
-- `supabase/functions/intent-cron/index.ts` — confirmar que processa a fila no horário
+- `supabase/functions/inbound-webhook/index.ts` — bloco de captura/sobrescrita de e-mail; injeção de contexto no prompt; fallback de reply quando AI pede email já existente; remover gate `!leadData?.email` nos dois pontos de update.
+- `supabase/functions/cadence-agent-decide/index.ts` — mesma injeção de "E-mail cadastrado" no contexto do prompt (verificar se ele gera reply para inbound).
 
 ## Validação
 
-1. **Simular** mensagem "me chame daqui 2h por email" no Nico → esperar:
-   - Sem oferta de horários.
-   - Resposta curta de confirmação.
-   - `lead_action_queue` com 1 row `schedule_followup` em ~2h.
-   - `cadence_enrollments.next_execution_at` empurrado para depois disso.
-2. **Avançar relógio** / aguardar → cron envia o email gerado pela IA.
-3. **Mensagem "amanhã às 14h"** com intent `scheduling_request` → deve continuar caindo em `check_availability` (regressão).
+1. Inbound `"meu email é teste@x.com"` em lead **sem email** → `leads.email = teste@x.com`, activity log.
+2. Inbound `"na verdade é teste@y.com"` no mesmo lead → `leads.email = teste@y.com`, activity log de troca.
+3. Inbound `"me envia um material"` com lead que **já tem email** → resposta da IA confirma o e-mail existente, não pergunta novo.
+4. Inbound `"indica meu colega: ana@empresa.com"` (`routing`/`referral`) → e-mail do lead **não** é alterado; cai no fluxo de criar contato indicado.
