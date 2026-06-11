@@ -58,7 +58,12 @@ export function useSimulateReply() {
     },
     onSuccess: (data: any) => {
       qc.invalidateQueries({ queryKey: ["agent_decisions_cadence"] });
-      toast.success(`Resposta simulada${data?.intent ? ` (intent: ${data.intent})` : ""}`);
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      qc.invalidateQueries({ queryKey: ["lead-messages"] });
+      const parts = [`Resposta simulada${data?.intent ? ` (intent: ${data.intent})` : ""}`];
+      if (data?.reply_text) parts.push("IA respondeu na conversa");
+      toast.success(parts.join(" — "));
     },
     onError: (e: any) => toast.error(`Falha: ${e.message}`),
   });
