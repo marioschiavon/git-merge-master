@@ -483,13 +483,16 @@ Decida a próxima ação.`;
 
     const aiData = await aiRes.json();
     const content = aiData.choices?.[0]?.message?.content || "{}";
-    let decision: Decision;
     try {
       decision = JSON.parse(content);
     } catch {
       const m = content.match(/\{[\s\S]*\}/);
       decision = m ? JSON.parse(m[0]) : { action: "wait", rationale: "parse_failed" };
     }
+
+    } // end if(!isFirstAttempt || !decision)
+
+
 
     // Normalize channel against allowed
     if (decision.channel && !(policy.allowed_channels || []).includes(decision.channel)) {
