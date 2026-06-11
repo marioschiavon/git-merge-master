@@ -10,6 +10,7 @@ import { ptBR } from "date-fns/locale";
 import { useLeadDrawerData } from "@/hooks/useCadenceLeadProgress";
 import { useCadenceSteps, useResetEnrollment } from "@/hooks/useCadences";
 import { LeadTimeline } from "./LeadTimeline";
+import { LeadDetailContent } from "@/components/LeadDetailContent";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
