@@ -136,7 +136,7 @@ export function LeadProgressDrawer({
             <TabsTrigger value="timeline">Cadência</TabsTrigger>
             <TabsTrigger value="conversation">Conversa</TabsTrigger>
             <TabsTrigger value="activity">Atividades</TabsTrigger>
-            <TabsTrigger value="data">Dados</TabsTrigger>
+            <TabsTrigger value="profile">Cadastro</TabsTrigger>
           </TabsList>
 
           <ScrollArea className="flex-1">
