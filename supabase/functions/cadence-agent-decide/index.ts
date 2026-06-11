@@ -154,6 +154,7 @@ serve(async (req) => {
         message_body: d.message || null,
         rationale: d.rationale,
         stop_reason: d.stop_reason || null,
+        simulated: !!cadence.simulation_mode,
         ...extras,
       });
     };
