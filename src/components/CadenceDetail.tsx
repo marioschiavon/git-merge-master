@@ -308,3 +308,52 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
     </Sheet>
   );
 }
+
+const actionLabels: Record<string, { label: string; cls: string }> = {
+  send: { label: "Enviou", cls: "bg-blue-100 text-blue-800" },
+  wait: { label: "Aguardar", cls: "bg-gray-100 text-gray-700" },
+  stop: { label: "Encerrou", cls: "bg-red-100 text-red-800" },
+  handoff_human: { label: "Handoff", cls: "bg-amber-100 text-amber-800" },
+};
+
+function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
+  const { data: decisions = [], isLoading } = useAllAgentDecisions(cadenceId);
+  if (isLoading) return <p className="text-sm text-muted-foreground">Carregando...</p>;
+  if (decisions.length === 0)
+    return <p className="text-sm text-muted-foreground text-center py-4">A IA ainda não tomou nenhuma decisão para esta cadência.</p>;
+  return (
+    <div className="space-y-2">
+      {decisions.map((d: any) => {
+        const meta = actionLabels[d.action] || { label: d.action, cls: "bg-muted" };
+        return (
+          <Card key={d.id}>
+            <CardContent className="p-3 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">{d.lead_name}</span>
+                  <Badge className={`text-xs ${meta.cls}`} variant="secondary">{meta.label}</Badge>
+                  {d.channel && <Badge variant="outline" className="text-xs">{d.channel}</Badge>}
+                  {d.hook && <Badge variant="outline" className="text-xs">{d.hook}</Badge>}
+                  <Badge variant="outline" className="text-xs">tentativa {d.attempt_number}</Badge>
+                </div>
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                  {new Date(d.decided_at).toLocaleString("pt-BR")}
+                </span>
+              </div>
+              {d.rationale && <p className="text-xs text-muted-foreground italic">"{d.rationale}"</p>}
+              {d.message_body && (
+                <div className="text-xs bg-muted/50 rounded p-2 mt-1 whitespace-pre-wrap">
+                  {d.message_subject && <div className="font-medium mb-1">{d.message_subject}</div>}
+                  {d.message_body}
+                </div>
+              )}
+              {d.stop_reason && (
+                <p className="text-xs"><span className="font-medium">Motivo:</span> {d.stop_reason}</p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </div>
+  );
+}
