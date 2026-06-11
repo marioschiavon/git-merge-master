@@ -63,7 +63,7 @@ serve(async (req) => {
       .from("cadence_enrollments")
       .select(`
         *,
-        leads(id, name, email, phone, whatsapp, company_name, status),
+        leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status),
         cadences(id, name, type, company_id, status, mode)
       `)
       .eq("status", "active")
@@ -164,6 +164,28 @@ serve(async (req) => {
             .from("cadence_enrollments")
             .update({ status: "completed", completed_at: new Date().toISOString() })
             .eq("id", enrollment.id);
+          continue;
+        }
+
+        // Skip WhatsApp steps if lead has been verified as NOT having WhatsApp
+        if (currentStep.channel === "whatsapp" && lead.whatsapp_valid === false) {
+          await supabase.from("execution_logs").insert({
+            company_id: cadence.company_id, enrollment_id: enrollment.id,
+            step_id: currentStep.id, lead_id: lead.id, channel: currentStep.channel,
+            action: "skipped", message_content: null,
+            ai_context: { skip_reason: "lead_has_no_whatsapp", step_order: currentStep.step_order },
+          });
+          await supabase.from("lead_activities").insert({
+            company_id: cadence.company_id, lead_id: lead.id, type: "whatsapp",
+            description: `⏭️ WhatsApp pulado - Step ${currentStep.step_order} (lead não tem WhatsApp)`,
+            metadata: { step_order: currentStep.step_order, cadence_id: cadence.id, action: "skipped", skip_reason: "no_whatsapp" },
+          });
+          const nextStep = steps.find((s: any) => s.step_order === enrollment.current_step + 1);
+          const updateData: any = { current_step: enrollment.current_step + 1, last_executed_at: new Date().toISOString() };
+          if (nextStep) { const nd = new Date(); nd.setDate(nd.getDate() + nextStep.delay_days); updateData.next_execution_at = nd.toISOString(); }
+          else { updateData.status = "completed"; updateData.completed_at = new Date().toISOString(); updateData.next_execution_at = null; }
+          await supabase.from("cadence_enrollments").update(updateData).eq("id", enrollment.id);
+          processed++;
           continue;
         }
 

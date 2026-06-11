@@ -487,6 +487,45 @@ async function runJob(job_id: string) {
       }
     }
 
+    // Step 5: validate WhatsApp via Z-API
+    if (settings.validate_whatsapp) {
+      try {
+        const { getZApiConfig, checkPhoneExistsOnWhatsApp } = await import("../_shared/zapi-whatsapp.ts");
+        const finalWa = leadPatch.whatsapp || lead.whatsapp || leadPatch.phone || lead.phone;
+        if (!finalWa) {
+          await supabase.from("leads").update({
+            whatsapp_valid: false,
+            whatsapp_checked_at: new Date().toISOString(),
+            whatsapp_check_error: "phone_missing",
+          }).eq("id", lead.id);
+          steps.validate_whatsapp = "no_phone";
+        } else {
+          const cfg = await getZApiConfig(supabase, job.company_id);
+          if (!cfg) {
+            steps.validate_whatsapp = "zapi_not_configured";
+          } else {
+            const r = await checkPhoneExistsOnWhatsApp(cfg, finalWa);
+            if (r.ok) {
+              await supabase.from("leads").update({
+                whatsapp_valid: !!r.exists,
+                whatsapp_checked_at: new Date().toISOString(),
+                whatsapp_check_error: null,
+              }).eq("id", lead.id);
+              steps.validate_whatsapp = r.exists ? "valid" : "not_on_whatsapp";
+            } else {
+              await supabase.from("leads").update({
+                whatsapp_checked_at: new Date().toISOString(),
+                whatsapp_check_error: r.error || "zapi_error",
+              }).eq("id", lead.id);
+              steps.validate_whatsapp = `error: ${r.error}`;
+            }
+          }
+        }
+      } catch (e) {
+        steps.validate_whatsapp = `error: ${e instanceof Error ? e.message : e}`;
+      }
+    }
+
     await supabase.from("lead_enrichment_jobs").update({
       status: "completed", steps_done: steps, error: null, updated_at: new Date().toISOString(),
     }).eq("id", job.id);

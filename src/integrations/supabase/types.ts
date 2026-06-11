@@ -1487,7 +1487,10 @@ export type Database = {
           updated_at: string
           website: string | null
           whatsapp: string | null
+          whatsapp_check_error: string | null
+          whatsapp_checked_at: string | null
           whatsapp_source: string | null
+          whatsapp_valid: boolean | null
         }
         Insert: {
           address?: string | null
@@ -1526,7 +1529,10 @@ export type Database = {
           updated_at?: string
           website?: string | null
           whatsapp?: string | null
+          whatsapp_check_error?: string | null
+          whatsapp_checked_at?: string | null
           whatsapp_source?: string | null
+          whatsapp_valid?: boolean | null
         }
         Update: {
           address?: string | null
@@ -1565,7 +1571,10 @@ export type Database = {
           updated_at?: string
           website?: string | null
           whatsapp?: string | null
+          whatsapp_check_error?: string | null
+          whatsapp_checked_at?: string | null
           whatsapp_source?: string | null
+          whatsapp_valid?: boolean | null
         }
         Relationships: [
           {

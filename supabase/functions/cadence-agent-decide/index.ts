@@ -244,7 +244,7 @@ serve(async (req) => {
 
     // === RESOLVE EFFECTIVE PRIMARY CHANNEL BASED ON LEAD CONTACT ===
     const allowed: string[] = policy.allowed_channels || [];
-    const hasWhatsapp = !!(lead.whatsapp || lead.phone);
+    const hasWhatsapp = !!(lead.whatsapp || lead.phone) && lead.whatsapp_valid !== false;
     const hasEmail = !!lead.email;
     let effectivePrimary: string = policy.primary_channel;
     let channelNote = "";

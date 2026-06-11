@@ -18,6 +18,7 @@ type Settings = {
   apify_scrape?: boolean;
   generate_message?: boolean;
   autofill_contacts?: boolean;
+  validate_whatsapp?: boolean;
   default_cadence_id?: string | null;
   apify_actors?: { instagram?: boolean; facebook?: boolean; linkedin_person?: boolean; linkedin_company?: boolean };
 };
@@ -142,6 +143,13 @@ export function EnrichmentSettingsCard() {
             </div>
           </div>
         )}
+
+        <div className="space-y-1">
+          <Toggle id="vw" label="Validar se o número tem WhatsApp (Z-API)" checked={!!settings.validate_whatsapp} onChange={(v) => set("validate_whatsapp", v)} />
+          <p className="text-xs text-muted-foreground pl-0">
+            Consulta a Z-API para confirmar se o telefone do lead está registrado no WhatsApp. Se não estiver, a cadência pula automaticamente os passos de WhatsApp. Requer integração Z-API ativa.
+          </p>
+        </div>
 
         <Toggle id="gm" label="Gerar rascunho de mensagem personalizada" checked={!!settings.generate_message} onChange={(v) => set("generate_message", v)} />
 
