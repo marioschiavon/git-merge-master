@@ -775,6 +775,8 @@ Responda APENAS com JSON:
             {
               role: "user",
               content: `Lead: ${leadData?.name || "N/A"} (${leadData?.company_name || "N/A"})
+E-mail cadastrado: ${leadData?.email || "nenhum"}
+WhatsApp cadastrado: ${leadData?.whatsapp || leadData?.phone || "nenhum"}
 
 Histórico:
 ${(messages || []).slice(0, -1).map((m: any) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`).join("\n")}
