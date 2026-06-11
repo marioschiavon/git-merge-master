@@ -258,7 +258,35 @@ serve(async (req) => {
       });
     }
 
-    // === LOAD CONTEXT FOR LLM ===
+    // === RESOLVE EFFECTIVE PRIMARY CHANNEL BASED ON LEAD CONTACT ===
+    const allowed: string[] = policy.allowed_channels || [];
+    const hasWhatsapp = !!(lead.whatsapp || lead.phone);
+    const hasEmail = !!lead.email;
+    let effectivePrimary: string = policy.primary_channel;
+    let channelNote = "";
+    if (hasWhatsapp && allowed.includes("whatsapp")) {
+      effectivePrimary = "whatsapp";
+      channelNote = "O lead tem WhatsApp disponível — prefira WhatsApp. Só use e-mail como apoio se já tentou WhatsApp nas últimas 2 tentativas sem resposta, ou se o envio por WhatsApp falhou.";
+    } else if (!hasWhatsapp && hasEmail && allowed.includes("email")) {
+      effectivePrimary = "email";
+      channelNote = "O lead NÃO tem WhatsApp cadastrado — use e-mail.";
+    } else if (!hasWhatsapp && !hasEmail) {
+      // No contact at all — stop
+      await persistDecision({
+        action: "stop",
+        rationale: "Lead sem WhatsApp e sem e-mail — sem canal disponível.",
+        stop_reason: "no_contact",
+      });
+      await supabase
+        .from("cadence_enrollments")
+        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
+        .eq("id", enrollment_id);
+      return new Response(JSON.stringify({ action: "stop", reason: "no_contact" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+
     const [convsRes, prevDecisionsRes, kbRes, highlightsRes, aiInstrRes] = await Promise.all([
       supabase.from("conversations").select("id, channel").eq("lead_id", lead.id),
       supabase
