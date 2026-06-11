@@ -312,11 +312,17 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                           )}
                         </div>
                       </div>
-                      {cadenceId && steps.length > 0 && (
+                      {cadenceId && steps.length > 0 && !isAgentic && (
                         <CadenceFirstMessageInline
                           cadenceId={cadenceId}
                           leadId={e.lead_id}
                           onEdit={() => setPreviewLead({ id: e.lead_id, name: e.leads?.name || "Lead" })}
+                        />
+                      )}
+                      {isAgentic && (
+                        <AgenticSimulationControls
+                          enrollmentId={e.id}
+                          simulationEnabled={isSimulation}
                         />
                       )}
                     </CardContent>
