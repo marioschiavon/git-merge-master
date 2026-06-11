@@ -426,8 +426,52 @@ serve(async (req) => {
         }
       } catch (e) {
         console.error("intent pipeline error:", e);
+    }
+
+    // ─── Capture/overwrite lead's own email when they include one in the message ───
+    // Runs after intent classification so we know whether the email is a referral.
+    if (leadData?.id) {
+      const emailRe = /[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/gi;
+      const matches = cleanContent.match(emailRe) || [];
+      if (matches.length === 1) {
+        const candidate = matches[0].toLowerCase().trim();
+        const referredEmail = (lastIntentEntities?.referred_email as string | undefined)?.toLowerCase().trim();
+        const isReferral =
+          lastIntentCategory === "routing" ||
+          lastIntentSubIntent === "referral" ||
+          (referredEmail && referredEmail === candidate);
+        const isLikelyOwnEmail =
+          !isReferral &&
+          (
+            (lastIntentCategory === "channel_switch" && lastIntentSubIntent === "send_by_email") ||
+            cleanContent.trim().length <= 80
+          );
+        const currentEmail = (leadData.email as string | undefined)?.toLowerCase().trim() || null;
+        if (isLikelyOwnEmail && candidate !== currentEmail) {
+          const { error: upErr } = await supabase
+            .from("leads")
+            .update({ email: candidate })
+            .eq("id", leadData.id);
+          if (upErr) {
+            console.error("failed to overwrite lead email:", upErr);
+          } else {
+            console.log(`Lead email overwritten: ${currentEmail || "(empty)"} → ${candidate}`);
+            await supabase.from("lead_activities").insert({
+              company_id: companyId,
+              lead_id: leadData.id,
+              type: "note",
+              description: currentEmail
+                ? `✉️ E-mail do lead atualizado: ${currentEmail} → ${candidate}`
+                : `✉️ E-mail do lead capturado da conversa: ${candidate}`,
+              metadata: { source: "inbound-webhook", previous: currentEmail, new: candidate },
+            });
+            leadData.email = candidate;
+          }
+        }
       }
     }
+
+
 
 
     // Check for held slots (FIX: filter out expired slots)
