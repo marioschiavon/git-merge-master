@@ -158,9 +158,8 @@ serve(async (req) => {
       });
     };
 
-    // === DETERMINISTIC STOP CHECKS ===
-    const flags = policy.stop_criteria_flags || {};
-    if (flags.max_attempts && attemptNumber > policy.max_attempts) {
+    // === DETERMINISTIC STOP CHECKS (sempre ativos) ===
+    if (attemptNumber > policy.max_attempts) {
       await persistDecision({
         action: "stop",
         rationale: `Atingiu máximo de ${policy.max_attempts} tentativas.`,
@@ -174,7 +173,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (flags.max_days && daysSinceEnroll > policy.max_days) {
+    if (daysSinceEnroll > policy.max_days) {
       await persistDecision({
         action: "stop",
         rationale: `Passou do prazo de ${policy.max_days} dias.`,
@@ -188,7 +187,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (flags.meeting_booked && enrollment.meeting_scheduled) {
+    if (enrollment.meeting_scheduled) {
       await persistDecision({
         action: "stop",
         rationale: "Reunião já agendada.",
@@ -212,7 +211,7 @@ serve(async (req) => {
       .limit(5);
 
     const lastIntent = intents?.[0];
-    if (flags.no_interest && lastIntent?.category === "rejection") {
+    if (lastIntent?.category === "rejection") {
       await persistDecision({
         action: "stop",
         rationale: "Lead manifestou rejeição/sem interesse.",
@@ -226,7 +225,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (flags.opt_out && lastIntent?.category === "compliance") {
+    if (lastIntent?.category === "compliance") {
       await persistDecision({
         action: "stop",
         rationale: "Lead pediu opt-out / remoção.",
@@ -240,24 +239,7 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-    if (
-      policy.min_fit_score !== null &&
-      typeof lead.score === "number" &&
-      lead.score < policy.min_fit_score
-    ) {
-      await persistDecision({
-        action: "stop",
-        rationale: `Fit score ${lead.score} abaixo do mínimo ${policy.min_fit_score}.`,
-        stop_reason: "low_fit",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "low_fit" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+
 
     // === RESOLVE EFFECTIVE PRIMARY CHANNEL BASED ON LEAD CONTACT ===
     const allowed: string[] = policy.allowed_channels || [];
