@@ -64,7 +64,7 @@ serve(async (req) => {
       .select(`
         *,
         leads(id, name, email, phone, whatsapp, company_name, status),
-        cadences(id, name, type, company_id, status)
+        cadences(id, name, type, company_id, status, mode)
       `)
       .eq("status", "active")
       .eq("meeting_scheduled", false)
