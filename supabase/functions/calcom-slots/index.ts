@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { formatBRTLong } from "../_shared/datetime.ts";
+import { resolveEventTypeId } from "../_shared/calcom.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,38 +9,6 @@ const corsHeaders = {
 };
 
 const CALCOM_SLOTS_API_VERSION = "2024-09-04";
-const CALCOM_EVENT_TYPES_API_VERSION = "2024-06-14";
-
-async function resolveEventTypeId(apiKey: string): Promise<number> {
-  const manualId = Deno.env.get("CALCOM_EVENT_TYPE_ID");
-  if (manualId && !isNaN(Number(manualId))) {
-    console.log(`Using manually configured event type ID: ${manualId}`);
-    return Number(manualId);
-  }
-
-  console.log("CALCOM_EVENT_TYPE_ID not set or non-numeric, fetching from API...");
-  const res = await fetch("https://api.cal.com/v2/event-types", {
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
-    },
-  });
-
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("Failed to fetch event types:", errText);
-    throw new Error(`Failed to fetch event types from Cal.com: ${res.status}`);
-  }
-
-  const json = await res.json();
-  const eventTypes = json.data?.eventTypes || json.data || [];
-  if (!eventTypes.length) {
-    throw new Error("No event types found in your Cal.com account");
-  }
-
-  console.log(`Auto-detected event type: ${eventTypes[0].id} (${eventTypes[0].title || eventTypes[0].slug})`);
-  return eventTypes[0].id;
-}
 /** Returns YYYY-MM-DD for an ISO datetime in America/Sao_Paulo. */
 function sptDateKey(iso: string): string {
   const d = new Date(iso);
