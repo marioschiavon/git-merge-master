@@ -26,6 +26,30 @@ const REPLY_ACTIONS = new Set([
   "request_feedback",
 ]);
 
+/**
+ * Destructive / transactional actions that must only fire when the
+ * classified sub_intent matches a clear user request. Without this guard,
+ * an omnibus rule (sub_intent=NULL listing many actions) would
+ * cancel/reschedule meetings every time a prospect mentions a date.
+ */
+const SUB_INTENT_GATED: Record<string, Set<string>> = {
+  cancel_booking: new Set([
+    "cancel_request",
+    "cancel_meeting",
+    "wants_to_cancel",
+  ]),
+  reschedule_booking: new Set([
+    "reschedule_request",
+    "wants_to_reschedule",
+    "change_time",
+  ]),
+  mark_meeting_attended: new Set([
+    "attended_confirmation",
+    "post_meeting_followup",
+    "no_show_explanation",
+  ]),
+};
+
 export type RouteOptions = {
   /** When true, enqueue ALL actions (full pipeline mode). When false (default),
    * skip reply-generating actions so legacy inbound flow handles them. */
@@ -75,6 +99,14 @@ export async function routeAndEnqueue(
 
   for (const a of actions) {
     if (!opts.include_reply_actions && REPLY_ACTIONS.has(a.type)) {
+      skipped++;
+      continue;
+    }
+    const gated = SUB_INTENT_GATED[a.type];
+    if (gated && !gated.has(args.sub_intent || "")) {
+      console.log(
+        `routeAndEnqueue: skipping ${a.type} — sub_intent_not_allowed (sub_intent=${args.sub_intent}, rule=${rule.id})`,
+      );
       skipped++;
       continue;
     }

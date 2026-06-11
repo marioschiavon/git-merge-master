@@ -65,6 +65,29 @@ async function loadIntent(ctx: ActionContext) {
   return data;
 }
 
+/**
+ * Defense in depth: guard destructive actions so a misconfigured rule cannot
+ * cancel/reschedule meetings just because the prospect mentioned a date.
+ * Only enforced when triggered automatically (no explicit booking_uid param).
+ */
+const DESTRUCTIVE_SUB_INTENTS: Record<string, Set<string>> = {
+  cancel_booking: new Set(["cancel_request", "cancel_meeting", "wants_to_cancel"]),
+  reschedule_booking: new Set(["reschedule_request", "wants_to_reschedule", "change_time"]),
+  mark_meeting_attended: new Set(["attended_confirmation", "post_meeting_followup", "no_show_explanation"]),
+};
+
+async function assertSubIntentAllowed(ctx: ActionContext, action: string) {
+  const allowed = DESTRUCTIVE_SUB_INTENTS[action];
+  if (!allowed) return;
+  const intent = await loadIntent(ctx);
+  const sub = intent?.sub_intent || "";
+  if (!allowed.has(sub)) {
+    throw new Error(
+      `${action}: sub_intent não compatível (${sub || "vazio"}) — nenhuma ação tomada`,
+    );
+  }
+}
+
 /* ─── Generate-reply helper ─────────────────────────────────────── */
 async function generateReply(ctx: ActionContext, opts: { tone?: string; category?: string; sub_intent?: string }) {
   const [lead, history, channel] = await Promise.all([loadLead(ctx), loadHistory(ctx), loadConversationChannel(ctx)]);
@@ -444,6 +467,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
 
   async reschedule_booking(ctx) {
     const { booking_uid, start, reason } = ctx.params;
+    if (!booking_uid) await assertSubIntentAllowed(ctx, "reschedule_booking");
     let uid = booking_uid as string | undefined;
     if (!uid) {
       const { data: existing } = await ctx.supabase
@@ -462,6 +486,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
 
   async cancel_booking(ctx) {
     const { booking_uid, reason } = ctx.params;
+    if (!booking_uid) await assertSubIntentAllowed(ctx, "cancel_booking");
     let uid = booking_uid as string | undefined;
     if (!uid) {
       const { data: existing } = await ctx.supabase
@@ -583,6 +608,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
 
   async mark_meeting_attended(ctx) {
     const { booking_uid, attended } = ctx.params;
+    if (!booking_uid) await assertSubIntentAllowed(ctx, "mark_meeting_attended");
     const { data: booking } = await ctx.supabase.from("bookings").select("id").eq("calcom_booking_uid", booking_uid).maybeSingle();
     if (!booking) throw new Error("booking não encontrado");
     await ctx.supabase.from("bookings").update({ status: attended === false ? "no_show" : "completed" }).eq("id", booking.id);
