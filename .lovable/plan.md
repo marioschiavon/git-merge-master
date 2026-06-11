@@ -1,68 +1,48 @@
-## Modo Simulação (Dry-run) para Cadência Inteligente
+## Objetivo
 
-Permitir testar a cadência agêntica em segundos, sem enviar nada de verdade. Você dispara cada passo manualmente, vê a decisão da IA + texto da mensagem, e pode simular respostas do lead para ver como a IA reage no próximo passo.
+Quando o usuário simular uma resposta do lead em uma cadência em modo simulação, a IA deve gerar a próxima mensagem outbound e inseri-la na conversa (marcada como simulada), permitindo testar o diálogo completo na tela `/conversations` sem enviar nada real.
 
 ## Mudanças
 
-### 1. Schema — flag de simulação
-Migration:
-- `cadences.simulation_mode boolean NOT NULL DEFAULT false` (só faz efeito quando `mode = 'agentic'`).
-- `cadence_agent_decisions.simulated boolean NOT NULL DEFAULT false` — marca decisões geradas em modo dry-run.
+### 1. `supabase/functions/cadence-simulate-reply/index.ts`
+Após classificar a intent, encadear a geração da resposta do agente:
 
-### 2. `cadence-agent-decide` — respeitar simulation_mode
-- Quando `cadence.simulation_mode = true`:
-  - **Não chama** `gmail-send` nem `sendWhatsAppViaZApi`.
-  - **Não insere** linha em `messages` (a mensagem da IA fica só em `cadence_agent_decisions.message_body`).
-  - Insere `lead_activities` com prefixo "🧪 [SIMULAÇÃO]" para diferenciar.
-  - Persiste decisão com `simulated: true`.
-  - Reagenda `next_execution_at` igual hoje (mas você pode disparar manualmente; veja item 4).
+- Chamar `cadence-agent-decide` com `{ enrollment_id, simulate_only: true }` para obter a próxima decisão (action + message) sem reenfileirar.
+- Alternativa mais simples: invocar `generate-reply` (ou `ai-reply`) com o histórico da conversa, persona da cadência e contexto do lead, retornando o texto sugerido.
+- Inserir o texto gerado como `messages` outbound com:
+  - `conversation_id` = mesma conversa criada/usada
+  - `direction: "outbound"`
+  - `ai_suggested: true`
+  - `channel` = canal da conversa
+  - `metadata: { simulated: true, source: "cadence_simulate", intent: <classificada> }`
+- Não chamar `gmail-send` nem `sendWhatsAppViaZApi`.
+- Retornar `{ ok, intent, reply_text, reply_message_id }`.
 
-### 3. Nova edge function `cadence-simulate-reply`
-Body: `{ enrollment_id, reply_text, channel? }`.
-- Valida que a enrollment pertence à empresa do usuário (RLS via JWT).
-- Insere uma `message` com `direction: 'inbound'`, `metadata: { simulated: true }`, no conversation correspondente (cria se não existir).
-- Roda o pipeline normal de classificação de intent (`classify-intent`) sobre o texto — assim "não tenho interesse" pára a cadência, "quer reunião" registra `meeting_request`, etc.
-- Retorna `{ ok, intent }`.
+### 2. `cadence-agent-decide` (ajuste leve)
+Garantir que, quando invocado por `cadence-simulate-reply` (flag `from_simulation: true` no body), também insira a mensagem outbound simulada em `messages` (hoje, em `simulation_mode`, ele só registra `lead_activities` e decisões, sem popular `messages`). Isso uniformiza a visualização em `/conversations`.
 
-### 4. UI — controles no `CadenceDetail` agêntico
-Em `src/components/CadenceDetail.tsx`, na aba "Decisões" da cadência agêntica adicionar:
+Opção escolhida: deixar `cadence-agent-decide` como está e fazer a inserção de outbound dentro do próprio `cadence-simulate-reply` (menor blast radius).
 
-**No topo da aba (quando `mode === 'agentic'`):**
-- Toggle "Modo simulação" (atualiza `cadences.simulation_mode`). Aviso amarelo quando ligado: "Mensagens não serão enviadas".
+### 3. `src/hooks/useSimulateCadence.ts`
+`useSimulateReply` já invalida `agent_decisions_cadence`. Adicionar invalidação de:
+- `["conversations", companyId]`
+- `["messages"]` / `["lead-messages"]`
 
-**Na lista de leads enrolados (nova aba ou seção):**
-Para cada enrollment, mostrar:
-- Última decisão + status.
-- Botão **"Executar próximo passo agora"** → invoca `cadence-agent-decide` com aquele `enrollment_id` (zera `next_execution_at` antes de invocar para evitar idempotência).
-- Caixa de texto **"Simular resposta do lead"** + botão Enviar → invoca `cadence-simulate-reply`. Depois sugere clicar em "Executar próximo passo" para ver como a IA reage.
+Toast passa a mostrar também: "Resposta da IA gerada (simulada)".
 
-### 5. Hook + tipos
-- `useSimulateCadence.ts`: `useToggleSimulation(cadenceId)`, `useRunNextStep(enrollmentId)`, `useSimulateReply(enrollmentId)`.
-- Atualizar `useAllAgentDecisions` para exibir badge "🧪 SIMULADO" quando `simulated: true`.
+### 4. `src/components/CadenceDetail.tsx` (AgenticSimulationControls)
+Após sucesso de `simulateReply`, exibir um pequeno preview inline da resposta gerada (texto + badge "🧪 IA simulada") com link "Ver na conversa" que navega para `/conversations` filtrando pelo lead.
 
-### 6. Indicador visual
-- Na tabela de Cadências (`Cadences.tsx`), se `simulation_mode === true`, mostrar badge amarelo "Simulação" ao lado do badge "IA".
-
-## Fluxo de uso
-
-1. Criar cadência inteligente → ativar "Modo simulação".
-2. Adicionar 1 lead (com email/whatsapp falso ok).
-3. Aba Decisões → "Executar próximo passo agora" → vê a 1ª mensagem gerada (não foi enviada).
-4. Digitar resposta do lead → "Simular resposta" → intent classifica.
-5. Clicar de novo "Executar próximo passo" → vê a IA decidir (send com novo texto, stop por opt-out, handoff, etc.).
-6. Repetir até atingir condição de parada ou max_attempts.
-7. Quando estiver satisfeito, desligar "Modo simulação" e enrolar leads reais.
-
-## Validação
-
-1. Toggle ligado: enroll lead, dispara passo → decisão registrada com `simulated=true`, nenhum envio externo (verificar logs do gmail-send/Z-API quietos).
-2. Simular resposta "não tenho interesse" → próxima execução do agente para com `stop_reason: no_interest`.
-3. Simular resposta "podemos marcar?" → IA responde com `hook: suggest_slot` ou similar.
-4. Toggle desligado: comportamento normal, envia de verdade.
-5. Decisões simuladas aparecem com badge na aba Decisões.
+### 5. `src/pages/Conversations.tsx`
+Renderizar badge "🧪 Simulado" em mensagens cujo `metadata.simulated === true` (inbound e outbound), reaproveitando o estilo do badge IA existente. Sem novas queries.
 
 ## Fora de escopo
+- Loop automático multi-turno (continuar simulando várias trocas com um clique).
+- Avanço de tempo simulado / pular delays entre passos.
+- Troca de canal no meio da simulação.
 
-- Resetar enrollment para começar a simulação do zero (poderia ser um botão "Reiniciar simulação para este lead"; posso adicionar se quiser).
-- "Avançar tempo" simulado (mudar `enrolled_at` para forçar `max_days`). Em vez disso, basta clicar "Executar próximo passo" até `max_attempts`.
-- Gerar leads sintéticos automaticamente para teste em massa.
+## Validação
+1. Cadência agentic com `simulation_mode = true`, lead inscrito.
+2. Em `CadenceDetail`, "Simular resposta do lead" → "podemos marcar amanhã?".
+3. Esperado: toast com intent detectada; nova mensagem outbound aparece na conversa com badge simulado; nenhum envio real (sem chamadas a gmail-send / z-api nos logs).
+4. Em `/conversations`, a thread mostra inbound + outbound simuladas, badges visíveis.
