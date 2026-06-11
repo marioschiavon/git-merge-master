@@ -226,6 +226,3 @@ export function LeadProgressDrawer({
     </Sheet>
   );
 }
-
-  );
-}
