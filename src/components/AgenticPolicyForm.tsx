@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -14,28 +13,12 @@ const CHANNELS = [
   { id: "linkedin", label: "LinkedIn" },
 ];
 
-const STOP_FLAGS: { key: string; label: string }[] = [
-  { key: "no_interest", label: "Respondeu que não tem interesse" },
-  { key: "opt_out", label: "Pediu para remover (opt-out)" },
-  { key: "meeting_booked", label: "Reunião agendada" },
-  { key: "handoff", label: "Passou para humano" },
-  { key: "max_attempts", label: "Atingiu máx. tentativas" },
-  { key: "max_days", label: "Passou do prazo" },
-];
-
 const defaultPolicy: Partial<CadencePolicy> = {
   goal: "Agendar reunião de 15 minutos",
   max_attempts: 6,
   max_days: 15,
   allowed_channels: ["whatsapp", "email"],
   primary_channel: "whatsapp",
-  tone_instructions: "Consultivo, curto, personalizado, sem pressão",
-  continue_criteria: "",
-  stop_criteria_flags: {
-    no_interest: true, opt_out: true, meeting_booked: true, handoff: true, max_attempts: true, max_days: true,
-  },
-  stop_criteria_text: "",
-  min_fit_score: null,
   business_hours: { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5], tz: "America/Sao_Paulo" },
 };
 
@@ -55,12 +38,6 @@ export function AgenticPolicyForm({ cadenceId }: { cadenceId: string }) {
     setForm({ ...form, allowed_channels: next });
   };
 
-  const toggleFlag = (k: string) => {
-    const flags = { ...(form.stop_criteria_flags || {}) };
-    flags[k] = !flags[k];
-    setForm({ ...form, stop_criteria_flags: flags });
-  };
-
   const save = () => {
     if (!companyId) return;
     upsert.mutate({ cadence_id: cadenceId, company_id: companyId, ...form } as any);
@@ -70,10 +47,19 @@ export function AgenticPolicyForm({ cadenceId }: { cadenceId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-foreground">
-        <strong>Como funciona:</strong> a <em>primeira mensagem</em> usa o mesmo motor das cadências padrão
-        (knowledge da empresa, destaques, instruções, insights do lead e redes sociais), respeitando o tom abaixo.
-        A IA assume <strong>a partir do 2º toque</strong>, decidindo canal, conteúdo e quando parar.
+      <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-foreground space-y-1">
+        <div>
+          <strong>Como funciona:</strong> a <em>primeira mensagem</em> usa o mesmo motor das cadências padrão
+          (knowledge da empresa, destaques, instruções e insights do lead). A IA assume{" "}
+          <strong>a partir do 2º toque</strong>, decidindo canal, conteúdo e quando parar.
+        </div>
+        <div>
+          <strong>Tom da IA</strong> vem das <em>Instruções da empresa</em> em Knowledge (global para todas as cadências).
+        </div>
+        <div>
+          <strong>Paradas automáticas:</strong> reunião agendada, opt-out, "sem interesse",
+          máx. tentativas e prazo são tratados sem configuração.
+        </div>
       </div>
       <div className="space-y-2">
         <Label>Objetivo</Label>
@@ -113,34 +99,6 @@ export function AgenticPolicyForm({ cadenceId }: { cadenceId: string }) {
         <p className="text-xs text-muted-foreground">
           A IA prioriza este canal quando o lead tem o contato disponível. Caso contrário, usa um canal permitido alternativo (ex: lead sem WhatsApp → e-mail).
         </p>
-      </div>
-      <div className="space-y-2">
-        <Label>Tom / instruções da IA</Label>
-        <Textarea rows={2} value={form.tone_instructions || ""} onChange={(e) => setForm({ ...form, tone_instructions: e.target.value })} />
-      </div>
-      <div className="space-y-2">
-        <Label>Critérios para continuar (opcional)</Label>
-        <Textarea rows={2} placeholder="Ex: fit > 60, ainda há responsável a encontrar"
-          value={form.continue_criteria || ""} onChange={(e) => setForm({ ...form, continue_criteria: e.target.value })} />
-      </div>
-      <div className="space-y-2">
-        <Label>Critérios para parar</Label>
-        <div className="grid grid-cols-2 gap-2">
-          {STOP_FLAGS.map((f) => (
-            <label key={f.key} className="flex items-center gap-2 text-sm">
-              <Checkbox checked={!!form.stop_criteria_flags?.[f.key]} onCheckedChange={() => toggleFlag(f.key)} />
-              {f.label}
-            </label>
-          ))}
-        </div>
-        <Textarea rows={2} placeholder="Critérios extras em texto livre (opcional)"
-          value={form.stop_criteria_text || ""} onChange={(e) => setForm({ ...form, stop_criteria_text: e.target.value })} />
-      </div>
-      <div className="space-y-2">
-        <Label>Fit score mínimo (opcional)</Label>
-        <Input type="number" placeholder="Ex: 60"
-          value={form.min_fit_score ?? ""}
-          onChange={(e) => setForm({ ...form, min_fit_score: e.target.value === "" ? null : +e.target.value })} />
       </div>
       <Button onClick={save} disabled={upsert.isPending} className="w-full">
         {upsert.isPending ? "Salvando..." : existing ? "Salvar política" : "Criar política"}
