@@ -102,6 +102,14 @@ export async function routeAndEnqueue(
       skipped++;
       continue;
     }
+    const gated = SUB_INTENT_GATED[a.type];
+    if (gated && !gated.has(args.sub_intent || "")) {
+      console.log(
+        `routeAndEnqueue: skipping ${a.type} — sub_intent_not_allowed (sub_intent=${args.sub_intent}, rule=${rule.id})`,
+      );
+      skipped++;
+      continue;
+    }
     const { error: insErr } = await supabase.from("lead_action_queue").insert({
       company_id: args.company_id,
       lead_id: args.lead_id,
