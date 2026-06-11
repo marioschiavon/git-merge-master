@@ -1,42 +1,42 @@
+## Objetivo
 
-## Problema
+Em `/conversations`, quando um lead tiver mais de uma `conversation` (ex.: WhatsApp + Email), exibir uma única linha por lead na lista e uma única thread no detalhe, intercalando todas as mensagens em ordem cronológica e mostrando o canal de cada uma. O schema do banco fica inalterado — a unificação acontece só no frontend.
 
-A reunião confirmada do Nico (Cal.com booking `7grJzsnf…`) foi cancelada pelo nosso próprio backend ~10 min depois da confirmação, sem nenhuma ação do lead.
+## Mudanças
 
-## Causa raiz (já confirmada nos dados)
+### 1. Lista de conversas (`src/pages/Conversations.tsx`)
+- Agrupar `conversations` por `lead_id` no client.
+- Cada card mostra: nome do lead, empresa, email, badges com os canais ativos (ex.: `whatsapp`, `email`) e data da última atividade do grupo.
+- Selecionar o card passa a definir um `selectedLeadId` (em vez de `selectedConvId`) com a lista de `conversation.id` daquele lead.
 
-- A empresa tem uma regra em `intent_action_rules` (`8e562c4a…`, category=`scheduling`, sub_intent=`NULL`) com `actions = [cancel_booking, create_cal_booking, mark_meeting_attended, reschedule_booking, send_reply, suggest_meeting_times]` e `auto_execute=true`.
-- `_shared/route-intent.ts` enfileira **todas** as actions da regra (menos as de reply explícito). Toda mensagem classificada como `scheduling` enfileira um `cancel_booking` com `params={}`.
-- `execute-action.cancel_booking`, sem `booking_uid` nos params, pega "o booking ativo mais recente do lead" — cancelando o que acabou de ser confirmado.
-- O `intent-cron` roda a fila no próximo tick (até ~10 min depois), então o cancel chega depois do `BOOKING_CREATED`.
+### 2. Hook de mensagens unificadas (`src/hooks/useConversations.ts`)
+- Novo hook `useLeadMessages(conversationIds: string[])`:
+  - `select("*", { conversation_id IN (...) })` ordenado por `sent_at asc`.
+  - Anexa `channel` em cada mensagem via lookup local pelas conversations do lead (para renderizar o badge no balão).
+- Mantém `useMessages` para retrocompatibilidade.
 
-## Plano de correção
+### 3. Detalhe da conversa unificada
+- Header: nome do lead + chips dos canais disponíveis.
+- Lista de mensagens intercalada (uma só timeline). Cada balão ganha um badge pequeno (`WhatsApp` / `Email`) ao lado do "SDR/Prospect".
+- `BookingCard` e `SlotHoldsCard` continuam por `lead_id` (já é o caso).
 
-### 1. Whitelist de sub_intent para ações destrutivas
-Em `supabase/functions/_shared/route-intent.ts`:
-- Definir um mapa `SUB_INTENT_GATED` para `cancel_booking`, `reschedule_booking`, `mark_meeting_attended`, listando os sub_intents legítimos (ex.: `cancel_request`, `reschedule_request`, `attended_confirmation`).
-- No loop de enfileiramento, se a action está em `SUB_INTENT_GATED` e o `sub_intent` atual não está no set, pular com `skipped++` (sem enfileirar). Logar `console.log` com `reason="sub_intent_not_allowed"` pra rastrear.
+### 4. Envio outbound (regra de canal)
+- Calcular `replyChannel` = canal da mensagem **inbound** mais recente do lead; fallback: canal da conversa mais antiga.
+- Resolver `conversation_id` para envio = a conversation do lead cujo `channel === replyChannel`.
+- Mostrar acima do input: "Respondendo via **{canal}**" (informativo, sem seletor).
+- `useSendMessage` segue como está — só muda qual `conversation_id` é passado.
 
-### 2. Defesa em profundidade no executor
-Em `supabase/functions/execute-action/index.ts`, dentro de `cancel_booking`:
-- Se `booking_uid` não veio nos params, carregar o `lead_intents_log` via `ctx.intent_log_id` e exigir `sub_intent ∈ {cancel_request, wants_to_cancel, cancel_meeting}`. Caso contrário, lançar erro `cancel_booking: sub_intent não compatível (<valor>) — nenhuma ação tomada` — a fila marca como `failed` e nada é cancelado.
-- Aplicar a mesma checagem em `reschedule_booking` e `mark_meeting_attended`.
+### 5. Realtime
+- O subscribe atual em `messages` já invalida por `conversation_id`. Adicionar invalidação adicional da query agregada `["lead-messages", leadId]` quando o `conversation_id` recebido pertence a alguma conversation do lead aberto.
 
-### 3. Limpar regras omnibus existentes
-Migration de dados (via insert tool) que, para todas as empresas:
-- Em `intent_action_rules` com `category='scheduling'` e `sub_intent IS NULL`, remove `cancel_booking`, `reschedule_booking` e `mark_meeting_attended` do array `actions`. Mantém `send_reply`, `suggest_meeting_times`, `create_cal_booking`.
-- Isso resolve o caso do Nico e qualquer outro tenant que tenha caído na mesma armadilha.
-
-### 4. Limpar fila pendente
-- `UPDATE lead_action_queue SET status='cancelled' WHERE status='pending' AND action_type IN ('cancel_booking','reschedule_booking','mark_meeting_attended') AND triggered_by LIKE 'rule:%'` — evita que ações destrutivas já enfileiradas (pra outros leads) disparem no próximo tick do cron.
-
-## Validação
-
-- Inserir manualmente `lead_intents_log` `category=scheduling, sub_intent=selected_time` para um lead de teste e confirmar via `select * from lead_action_queue` que **não** aparece `cancel_booking`.
-- Inserir um `sub_intent=cancel_request` e confirmar que `cancel_booking` é enfileirado.
-- Conferir que a reunião do Nico **continua cancelada** (não dá pra reverter no Cal.com via API), mas nenhuma nova reunião cai sozinha.
+### 6. Sugestão IA
+- `useAiReply` recebe o histórico unificado e o `channel` = `replyChannel` (para o prompt gerar resposta no tom certo do canal).
 
 ## Fora de escopo
+- Nenhuma alteração de schema, migração ou edge function.
+- Não mexe em cadências, roteamento de intents nem `inbound-webhook`.
+- Conversa única no banco (1 row por lead) fica para outro momento.
 
-- O bug do canal de WhatsApp respondendo por email é tratado separadamente (Fix A do plano anterior).
-- Recriar o booking do Nico no Cal.com — vou apenas anotar uma `lead_activity` informando que foi cancelamento automático indevido, e você ou o Nico reagendam.
+## Validação
+- Lead com só 1 canal: comportamento idêntico ao atual.
+- Lead Nico (WhatsApp + Email): aparece 1 card; abrir mostra mensagens intercaladas com badges de canal; responder envia pelo canal da última mensagem inbound do lead.
