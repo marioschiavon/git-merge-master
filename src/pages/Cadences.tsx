@@ -50,7 +50,8 @@ export default function Cadences() {
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
-    const created = await createMutation.mutateAsync({ name: form.name, description: form.description, type: form.type });
+    const effectiveType = form.agentic ? "multi_channel" : form.type;
+    const created = await createMutation.mutateAsync({ name: form.name, description: form.description, type: effectiveType });
     if (form.agentic && created?.id && companyId) {
       // Mark cadence as agentic + create default policy
       await supabase.from("cadences").update({ mode: "agentic", status: "active" } as any).eq("id", created.id);
@@ -140,7 +141,7 @@ export default function Cadences() {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell>{typeLabels[c.type] || c.type}</TableCell>
+                    <TableCell>{(c as any).mode === "agentic" ? "Inteligente (IA)" : (typeLabels[c.type] || c.type)}</TableCell>
                     <TableCell>
                       <Badge className={statusColors[c.status] || ""} variant="secondary">
                         {statusLabels[c.status] || c.status}

@@ -105,6 +105,9 @@ export function AgenticPolicyForm({ cadenceId }: { cadenceId: string }) {
             ))}
           </SelectContent>
         </Select>
+        <p className="text-xs text-muted-foreground">
+          A IA prioriza este canal quando o lead tem o contato disponível. Caso contrário, usa um canal permitido alternativo (ex: lead sem WhatsApp → e-mail).
+        </p>
       </div>
       <div className="space-y-2">
         <Label>Tom / instruções da IA</Label>

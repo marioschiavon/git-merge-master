@@ -258,7 +258,35 @@ serve(async (req) => {
       });
     }
 
-    // === LOAD CONTEXT FOR LLM ===
+    // === RESOLVE EFFECTIVE PRIMARY CHANNEL BASED ON LEAD CONTACT ===
+    const allowed: string[] = policy.allowed_channels || [];
+    const hasWhatsapp = !!(lead.whatsapp || lead.phone);
+    const hasEmail = !!lead.email;
+    let effectivePrimary: string = policy.primary_channel;
+    let channelNote = "";
+    if (hasWhatsapp && allowed.includes("whatsapp")) {
+      effectivePrimary = "whatsapp";
+      channelNote = "O lead tem WhatsApp disponível — prefira WhatsApp. Só use e-mail como apoio se já tentou WhatsApp nas últimas 2 tentativas sem resposta, ou se o envio por WhatsApp falhou.";
+    } else if (!hasWhatsapp && hasEmail && allowed.includes("email")) {
+      effectivePrimary = "email";
+      channelNote = "O lead NÃO tem WhatsApp cadastrado — use e-mail.";
+    } else if (!hasWhatsapp && !hasEmail) {
+      // No contact at all — stop
+      await persistDecision({
+        action: "stop",
+        rationale: "Lead sem WhatsApp e sem e-mail — sem canal disponível.",
+        stop_reason: "no_contact",
+      });
+      await supabase
+        .from("cadence_enrollments")
+        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
+        .eq("id", enrollment_id);
+      return new Response(JSON.stringify({ action: "stop", reason: "no_contact" }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+
     const [convsRes, prevDecisionsRes, kbRes, highlightsRes, aiInstrRes] = await Promise.all([
       supabase.from("conversations").select("id, channel").eq("lead_id", lead.id),
       supabase
@@ -330,7 +358,7 @@ ${policy.goal}
 - Máx tentativas: ${policy.max_attempts} (essa é a tentativa ${attemptNumber})
 - Prazo: ${policy.max_days} dias (já se passaram ${Math.round(daysSinceEnroll)} dias)
 - Canais permitidos: ${(policy.allowed_channels || []).join(", ")}
-- Canal principal preferido: ${policy.primary_channel}
+- Canal principal preferido: ${effectivePrimary}${channelNote ? `\n- IMPORTANTE: ${channelNote}` : ""}
 - Tom: ${policy.tone_instructions}
 ${policy.continue_criteria ? `- Critérios para continuar: ${policy.continue_criteria}` : ""}
 ${policy.stop_criteria_text ? `- Critérios extras para parar: ${policy.stop_criteria_text}` : ""}
@@ -353,7 +381,7 @@ ${aiInstrRes.data?.content ? `\nINSTRUÇÕES DA EMPRESA:\n${aiInstrRes.data.cont
 Hooks possíveis (campo hook): short_followup | new_info | change_hook | diagnostic | ask_referral | suggest_slot | reengage
 
 === HEURÍSTICA DE CANAL ===
-- Tentativa 1: canal principal (${policy.primary_channel}).
+- Tentativa 1: canal principal (${effectivePrimary}).
 - Se mandou X no canal A e não respondeu, alterne para o outro canal permitido.
 - Email aceita mais palavras; whatsapp deve ser curto (≤60 palavras), sem assinatura formal.
 
@@ -421,7 +449,7 @@ Decida a próxima ação.`;
 
     // Normalize channel against allowed
     if (decision.channel && !(policy.allowed_channels || []).includes(decision.channel)) {
-      decision.channel = policy.primary_channel as any;
+      decision.channel = effectivePrimary as any;
     }
 
     // Compute scheduled_for respecting business hours when sending
