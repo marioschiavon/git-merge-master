@@ -38,6 +38,25 @@ export function useMessages(conversationId: string | null) {
   });
 }
 
+export function useLeadMessages(conversations: Array<{ id: string; channel: string }>) {
+  const ids = conversations.map((c) => c.id).sort().join(",");
+  return useQuery({
+    queryKey: ["lead-messages", ids],
+    queryFn: async () => {
+      if (!conversations.length) return [];
+      const channelMap = new Map(conversations.map((c) => [c.id, c.channel]));
+      const { data, error } = await supabase
+        .from("messages")
+        .select("*")
+        .in("conversation_id", conversations.map((c) => c.id))
+        .order("sent_at", { ascending: true });
+      if (error) throw error;
+      return (data || []).map((m: any) => ({ ...m, channel: channelMap.get(m.conversation_id) }));
+    },
+    enabled: conversations.length > 0,
+  });
+}
+
 export function useCreateConversation() {
   const qc = useQueryClient();
   const { companyId } = useAuth();
