@@ -381,7 +381,7 @@ ${aiInstrRes.data?.content ? `\nINSTRUÇÕES DA EMPRESA:\n${aiInstrRes.data.cont
 Hooks possíveis (campo hook): short_followup | new_info | change_hook | diagnostic | ask_referral | suggest_slot | reengage
 
 === HEURÍSTICA DE CANAL ===
-- Tentativa 1: canal principal (${policy.primary_channel}).
+- Tentativa 1: canal principal (${effectivePrimary}).
 - Se mandou X no canal A e não respondeu, alterne para o outro canal permitido.
 - Email aceita mais palavras; whatsapp deve ser curto (≤60 palavras), sem assinatura formal.
 
