@@ -293,7 +293,6 @@ serve(async (req) => {
           companyId: cadence.company_id,
           lead,
           channel: effectivePrimary as "whatsapp" | "email",
-          tone: policy.tone_instructions,
           goal: policy.goal,
         });
         decision = {
@@ -303,7 +302,7 @@ serve(async (req) => {
           subject: first.subject || undefined,
           message: first.message,
           rationale:
-            "Primeira mensagem gerada pelo motor padrão (knowledge da empresa, highlights, insights do lead, redes sociais e tom da política). IA agêntica assume a partir do 2º toque.",
+            "Primeira mensagem gerada pelo motor padrão (knowledge da empresa, highlights, insights do lead e instruções da empresa). IA agêntica assume a partir do 2º toque.",
         };
       } catch (e) {
         console.error("buildFirstMessage failed, falling back to agent LLM", e);
