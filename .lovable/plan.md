@@ -1,32 +1,39 @@
 ## Problema
 
-Após o cancelamento, o lead enviou "Qual duração da reuniao?" e o SDR não respondeu. Logs mostram:
-
-```
-ERROR worker boot error: Uncaught SyntaxError: The requested module '../_shared/calcom.ts'
-does not provide an export named 'cancelCalcomBooking'
-```
-
-A função `inbound-webhook` está quebrada no boot, ignorando todas as mensagens novas.
+Lead `cecb670b` tinha reunião confirmada para 12/06 16:45 (`ncUQNz18zdi1S4WLECWRyU`). Às 16:19 ele disse "vou mudar de país e não tenho mais interesse". O SDR respondeu certo (pausou contato), mas a reunião **continuou ativa no Cal.com**.
 
 ## Causa
 
-Na última iteração eu criei `supabase/functions/_shared/calcom.ts` com `resolveEventTypeId` / `fetchEventTypeLengthMinutes` usando `code--write`, que sobrescreve o arquivo. O arquivo já existia e exportava também:
+A mensagem foi classificada como `rejection / not_interested` → AI retorna `parsed.action = "pause"` (não `cancel`).
 
-- `CALCOM_BOOKINGS_API_VERSION`, `CALCOM_EVENT_TYPES_API_VERSION`, `CALCOM_SLOTS_API_VERSION`
-- `calcomHeaders`, `calcomFetch`
-- `cancelCalcomBooking`, `cancelCalcomReservation`
-- `corsHeaders`, `jsonResponse`
-- `upsertBookingFromCalcom`
+No branch `pause` (linhas 1560-1583 de `supabase/functions/inbound-webhook/index.ts`), o código:
+- cancela `slot_holds` com `status = 'held'` no Cal.com (reservas) ✅
+- pausa o enrollment ✅
+- **NÃO cancela bookings confirmadas** ❌
 
-Esses símbolos são importados por `inbound-webhook/index.ts` e `calcom-confirm-booking/index.ts` — sem eles, o módulo não compila.
+Resultado: a booking confirmada permanece "scheduled" no Cal.com mesmo o lead tendo desistido.
 
 ## Solução
 
-Restaurar o conteúdo original de `supabase/functions/_shared/calcom.ts` (commit `8187c32`) e mesclar com as duas novas funções que adicionei (`resolveEventTypeId`, `fetchEventTypeLengthMinutes`), reutilizando a constante `CALCOM_EVENT_TYPES_API_VERSION` que já existia. Depois redeploy de `inbound-webhook`, `calcom-confirm-booking` e `calcom-slots`.
+No branch `pause` de `supabase/functions/inbound-webhook/index.ts`, depois de cancelar os `slot_holds` held, adicionar o mesmo bloco usado no branch `cancel` (linhas 1321-1334) que:
+
+1. Busca `bookings` ativas do lead (`status != 'cancelled'`).
+2. Para cada uma, chama `cancelCalcomBooking(uid, "Lead perdeu interesse")`.
+3. Atualiza `bookings.status = 'cancelled'` no banco.
+4. Insere `insertBookingSystemMessage` com `event_type: 'booking_cancelled'` para o histórico da conversa mostrar "❌ Reunião cancelada".
+5. Se algum cancel falhar, registra `lead_activity` tipo `alert` (mesmo padrão do branch cancel).
+
+Também cancelar `slot_holds` com `status = 'confirmed'` (não só `held`), por consistência.
 
 ### Validação
 
-- `inbound-webhook` boot sem `worker boot error`.
-- Reenviar "Qual duração da reuniao?" no preview: SDR responde com a duração (clarifying bypass funciona de novo).
-- Fluxos de cancel/reschedule continuam funcionando (smoke test via UI).
+1. Redeploy `inbound-webhook`.
+2. Smoke test manual via UI: criar booking confirmada → enviar "não tenho mais interesse" como lead → conferir:
+   - Mensagem system "❌ Reunião cancelada" na conversa.
+   - `bookings.status = 'cancelled'` no banco.
+   - `GET /v2/bookings/{uid}` no Cal.com retornando `status: "cancelled"`.
+3. Confirmar que o fluxo de soft-cancel (reschedule) e hard-cancel explícito continuam funcionando.
+
+### Arquivos
+
+- `supabase/functions/inbound-webhook/index.ts` (apenas o branch `pause`, ~20 linhas adicionadas)
