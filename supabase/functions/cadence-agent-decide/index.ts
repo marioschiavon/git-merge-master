@@ -375,6 +375,10 @@ serve(async (req) => {
       .map((k: any) => `## ${k.title}\n${k.content}`)
       .join("\n\n");
 
+    const { getMeetingDurationMinutes, meetingDurationPromptBlock } = await import("../_shared/meeting-duration.ts");
+    const meetingMinutes = await getMeetingDurationMinutes(supabase, cadence.company_id);
+    const durationBlock = meetingDurationPromptBlock(meetingMinutes);
+
     const systemPrompt = `Você é um SDR B2B em português brasileiro, operando uma cadência inteligente.
 
 === OBJETIVO DA CADÊNCIA ===
@@ -389,6 +393,7 @@ ${policy.goal}
 === BASE DE CONHECIMENTO (ÚNICA FONTE DE FATOS) ===
 ${highlightsRes.data?.content ? `DIFERENCIAIS:\n${highlightsRes.data.content}\n\n` : ""}${knowledgeContext || "(vazia)"}
 ${aiInstrRes.data?.content ? `\n=== INSTRUÇÕES E TOM DA EMPRESA (siga rigorosamente) ===\n${aiInstrRes.data.content}` : ""}
+${durationBlock}
 
 === REGRAS ANTI-ALUCINAÇÃO ===
 - Use APENAS fatos da base. Nunca invente features, números, integrações ou clientes.

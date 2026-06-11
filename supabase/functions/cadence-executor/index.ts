@@ -341,7 +341,7 @@ REGRAS GERAIS:
 - ${currentStep.channel === "email" ? `Email: MÁXIMO 80 palavras. Estrutura obrigatória:
   1. HOOK (1 frase): Comece com algo específico do prospect (do insight do website) que chame atenção — ex: "Vi que a [empresa] está focada em [X]..."
   2. CONEXÃO (1-2 frases): Ligue o hook diretamente a 1 benefício concreto do seu produto/serviço
-  3. CTA (1 frase): Pergunta direta para agendar reunião de 15min — ex: "Faz sentido conversarmos essa semana?"
+  3. CTA (1 frase): Pergunta direta para agendar uma conversa rápida de apresentação — ex: "Faz sentido conversarmos essa semana?" (NÃO mencione duração em minutos; só diga a duração real se o lead perguntar)
   - Subject: máximo 6 palavras, curioso, referenciando o negócio do prospect. NUNCA genérico.
   - PROIBIDO: "Meu nome é...", "Somos uma empresa...", "Gostaria de me apresentar...", introduções longas, parágrafos descritivos sobre você
   - Tom: direto, confiante, como se já conhecesse o mercado do prospect` : ""}
