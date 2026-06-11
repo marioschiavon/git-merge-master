@@ -1016,6 +1016,20 @@ Analise a última mensagem e decida a ação.`,
       }
     }
 
+    // Safety-net: if AI asked for "melhor e-mail" but lead already has one cadastrado,
+    // rewrite as a confirmation instead of asking again.
+    if (
+      parsed.action === "reply" &&
+      typeof parsed.reply_message === "string" &&
+      leadData?.email &&
+      /(qual|me\s+pass|me\s+envia|melhor|seu)\s+(o|seu)?\s*e-?mail/i.test(parsed.reply_message)
+    ) {
+      const first = (leadData.name as string | undefined)?.split(" ")[0] || "";
+      console.log(`Rewriting reply — AI asked for email but lead already has ${leadData.email}`);
+      parsed.reply_message = `Combinado${first ? `, ${first}` : ""}! Posso te enviar para ${leadData.email}?`;
+    }
+
+
     // Fallback: if AI says confirm_slot but no held slots exist, reclassify as reply
     if (parsed.action === "confirm_slot" && heldSlots.length < 2) {
       console.log("confirm_slot requested but no held slots found — falling back to check_availability or reply");
