@@ -10,6 +10,7 @@ import { ptBR } from "date-fns/locale";
 import { useLeadDrawerData } from "@/hooks/useCadenceLeadProgress";
 import { useCadenceSteps, useResetEnrollment } from "@/hooks/useCadences";
 import { LeadTimeline } from "./LeadTimeline";
+import { LeadDetailContent } from "@/components/LeadDetailContent";
 import { useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -135,7 +136,7 @@ export function LeadProgressDrawer({
             <TabsTrigger value="timeline">Cadência</TabsTrigger>
             <TabsTrigger value="conversation">Conversa</TabsTrigger>
             <TabsTrigger value="activity">Atividades</TabsTrigger>
-            <TabsTrigger value="data">Dados</TabsTrigger>
+            <TabsTrigger value="profile">Cadastro</TabsTrigger>
           </TabsList>
 
           <ScrollArea className="flex-1">
@@ -211,31 +212,17 @@ export function LeadProgressDrawer({
                 ))}
               </TabsContent>
 
-              <TabsContent value="data" className="mt-0 space-y-2 text-sm">
-                <DataRow label="Nome" value={lead?.name} />
-                <DataRow label="Cargo" value={lead?.title} />
-                <DataRow label="Empresa" value={lead?.company_name} />
-                <DataRow label="Email" value={lead?.email} />
-                <DataRow label="Telefone" value={lead?.phone} />
-                <DataRow label="Website" value={lead?.website} />
-                <DataRow label="Origem" value={lead?.source} />
-                <DataRow label="Status" value={lead?.status} />
-                <DataRow label="Score" value={lead?.score?.toString()} />
-                <DataRow label="Canal preferido" value={lead?.preferred_channel} />
+              <TabsContent value="profile" className="mt-0">
+                {lead ? (
+                  <LeadDetailContent lead={lead} showHeader={false} />
+                ) : (
+                  <p className="text-sm text-muted-foreground">Lead não encontrado.</p>
+                )}
               </TabsContent>
             </div>
           </ScrollArea>
         </Tabs>
       </SheetContent>
     </Sheet>
-  );
-}
-
-function DataRow({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div className="flex justify-between gap-2 border-b py-1.5">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="text-foreground text-right truncate">{value || "—"}</span>
-    </div>
   );
 }
