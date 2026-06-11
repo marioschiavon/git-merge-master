@@ -73,25 +73,57 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const enrolledLeadIds = new Set(enrollments.map((e: any) => e.lead_id));
   const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id));
 
+  const isAgentic = (cadence as any).mode === "agentic";
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="sm:max-w-xl overflow-y-auto">
         <SheetHeader>
-          <SheetTitle>{cadence.name}</SheetTitle>
+          <SheetTitle className="flex items-center gap-2">
+            {cadence.name}
+            {isAgentic && (
+              <Badge variant="secondary" className="text-xs gap-1">
+                <Sparkles className="h-3 w-3" />IA
+              </Badge>
+            )}
+          </SheetTitle>
           {cadence.description && (
             <p className="text-sm text-muted-foreground">{cadence.description}</p>
           )}
         </SheetHeader>
 
-        <Tabs defaultValue="steps" className="mt-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="steps">
-              <ListOrdered className="mr-2 h-4 w-4" />Steps ({steps.length})
-            </TabsTrigger>
+        <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
+          <TabsList className={`grid w-full ${isAgentic ? "grid-cols-3" : "grid-cols-2"}`}>
+            {isAgentic ? (
+              <TabsTrigger value="policy">
+                <Sparkles className="mr-2 h-4 w-4" />Política
+              </TabsTrigger>
+            ) : (
+              <TabsTrigger value="steps">
+                <ListOrdered className="mr-2 h-4 w-4" />Steps ({steps.length})
+              </TabsTrigger>
+            )}
             <TabsTrigger value="leads">
               <Users className="mr-2 h-4 w-4" />Leads ({enrollments.length})
             </TabsTrigger>
+            {isAgentic && (
+              <TabsTrigger value="decisions">
+                <Brain className="mr-2 h-4 w-4" />Decisões
+              </TabsTrigger>
+            )}
           </TabsList>
+
+          {isAgentic && cadenceId && (
+            <TabsContent value="policy" className="mt-4">
+              <AgenticPolicyForm cadenceId={cadenceId} />
+            </TabsContent>
+          )}
+
+          {isAgentic && cadenceId && (
+            <TabsContent value="decisions" className="mt-4">
+              <AgentDecisionsList cadenceId={cadenceId} />
+            </TabsContent>
+          )}
 
           <TabsContent value="steps" className="space-y-4 mt-4">
             {steps.length === 0 && (
