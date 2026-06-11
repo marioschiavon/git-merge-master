@@ -79,7 +79,6 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
 
   const isAgentic = (cadence as any).mode === "agentic";
   const isSimulation = !!(cadence as any).simulation_mode;
-  const toggleSimulation = useToggleSimulation();
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
