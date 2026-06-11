@@ -767,7 +767,29 @@ Analise a última mensagem e decida a ação.`,
       }
     }
 
-    // FIX: Fallback datetime extraction for check_availability when AI didn't provide it
+    // FIX: Acknowledgment guard — quando já existe reunião confirmada e o AI ainda assim
+    // tentou rotear para uma ação de agendamento sem que o lead tenha pedido remarcar/cancelar,
+    // forçamos um reply curto e amigável em vez de cair em fallbacks que oferecem horários.
+    if (
+      confirmedSlotForPrompt &&
+      ["check_availability", "schedule", "suggest_meeting_times"].includes(parsed.action)
+    ) {
+      const reschedKeywords = /\b(remarcar|reagendar|remarca|reagenda|mudar|trocar|cancelar|cancela|nao\s+vou\s+poder|não\s+vou\s+poder|outro\s+hor[aá]rio|nova\s+data|antecipar|adiar)\b/i;
+      const ackPatterns = /\b(obrigad[oa]|valeu|ok|okay|perfeito|combinado|at[eé]\s+l[aá]|show|beleza|legal|tranquilo|fechou|👍|🙏|😊)\b/i;
+      if (!reschedKeywords.test(cleanContent)) {
+        const isAck = ackPatterns.test(cleanContent) || cleanContent.trim().length <= 25;
+        console.log(
+          `Acknowledgment guard: booking already confirmed and no reschedule/cancel intent — overriding action=${parsed.action} → reply (isAck=${isAck})`,
+        );
+        parsed.action = "reply";
+        if (!parsed.reply_message || /📅|hor[aá]rio|dispon|agend/i.test(parsed.reply_message)) {
+          parsed.reply_message = isAck ? "Combinado! Até lá 👋" : "Combinado! Qualquer coisa antes da reunião é só me chamar por aqui.";
+        }
+        parsed.suggested_datetime = null;
+      }
+    }
+
+
     if (parsed.action === "check_availability" && !parsed.suggested_datetime) {
       const extracted = extractDateTimeFromText(content);
       if (extracted) {
