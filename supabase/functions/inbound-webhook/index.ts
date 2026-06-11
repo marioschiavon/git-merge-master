@@ -169,6 +169,45 @@ function extractDateTimeFromText(text: string): string | null {
   return null;
 }
 
+/** Lowercase + remove accents + collapse punctuation/whitespace for robust matching. */
+function normalizePtText(text: string): string {
+  return String(text || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+const CLARIFYING_PATTERNS = {
+  duration: /\b(quanto\s+tempo|quanto\s+(vai\s+)?dura|quanto\s+dura|qual\s+(a\s+)?duracao|duracao\s+da\s+(reuniao|call|conversa|apresentacao)|tempo\s+(de|da)\s+(reuniao|call|conversa)|vai\s+demorar|leva\s+quanto|dura\s+quanto|e\s+rapid|demora\s+muito|reuniao\s+(longa|curta|rapida))\b/,
+  format: /\b(e\s+(online|presencial|por\s+video|por\s+telefone|remota)|formato\s+da\s+reuniao|onde\s+(vai\s+)?ser|por\s+onde\s+vai\s+ser|google\s+meet|zoom|teams)\b/,
+  attendees: /\b(quem\s+(vai\s+)?(participa|estara|vai\s+estar)|quem\s+(e|sao)\s+o(s)?\s+(participante|convidado))\b/,
+  objective: /\b(qual\s+(o\s+)?(objetivo|assunto|pauta|tema)|sobre\s+o\s+que\s+(vai\s+)?ser|o\s+que\s+(vai\s+)?ser\s+tratado|pra\s+que\s+(e|serve))\b/,
+} as const;
+
+type ClarifyingKind = keyof typeof CLARIFYING_PATTERNS;
+
+function detectClarifyingQuestion(text: string): ClarifyingKind | null {
+  const norm = normalizePtText(text);
+  for (const [k, re] of Object.entries(CLARIFYING_PATTERNS)) {
+    if (re.test(norm)) return k as ClarifyingKind;
+  }
+  return null;
+}
+
+function clarifyingReplyFor(kind: ClarifyingKind, meetingMinutes: number | null): string {
+  if (kind === "duration") {
+    return meetingMinutes
+      ? `É uma apresentação rápida, em torno de ${meetingMinutes} minutos.`
+      : "É uma apresentação rápida, bem objetiva.";
+  }
+  if (kind === "format") return "É online, por videochamada. Te envio o link junto com a confirmação.";
+  if (kind === "attendees") return "Sou eu que conduzo a conversa inicial. Se fizer sentido, trazemos mais alguém do time depois.";
+  return "Quero entender melhor seu contexto e te mostrar como podemos ajudar — bem direto ao ponto.";
+}
+
 // stripQuotedEmail imported from _shared/strip-quoted-email.ts
 
 serve(async (req) => {
