@@ -464,6 +464,22 @@ serve(async (req) => {
       }
     }
 
+    // Fetch Cal.com meeting duration (used to answer clarifying questions like "quanto tempo dura?")
+    let meetingMinutes: number | null = null;
+    if (companyId) {
+      try {
+        const { getMeetingDurationMinutes } = await import("../_shared/meeting-duration.ts");
+        meetingMinutes = await getMeetingDurationMinutes(supabase, companyId);
+      } catch (e) {
+        console.error("getMeetingDurationMinutes failed", e);
+      }
+    }
+    const durationLine = meetingMinutes
+      ? `\nDURAÇÃO REAL DA REUNIÃO: ${meetingMinutes} minutos (do Cal.com). Informe APENAS se o lead perguntar.`
+      : `\nDURAÇÃO REAL DA REUNIÃO: desconhecida. Se o lead perguntar, responda "rapidinho, no máximo meia hora".`;
+    const clarifyRule = `\n\nIMPORTANTE — perguntas esclarecedoras:
+Se o lead estiver APENAS fazendo uma pergunta sobre a reunião (quanto tempo dura, qual o formato, é online/presencial, quem participa, qual o objetivo, é gravada, etc.), use action = "reply" e responda DIRETAMENTE a pergunta. NÃO escolha confirm_slot / reject_slots / check_availability nessa situação — mantenha os horários oferecidos intactos.`;
+
     // Format slot context for AI
     let slotContext = "";
     if (heldSlots.length >= 2) {
@@ -472,20 +488,22 @@ serve(async (req) => {
       );
       slotContext = `\n\nATENÇÃO: O prospect recebeu 2 opções de horário para reunião:
 ${formatted.join("\n")}
+${durationLine}
 
 INSTRUÇÕES PARA SLOTS PENDENTES:
 - Se o prospect está confirmando ou escolhendo um desses horários → action = "confirm_slot" e selected_slot = número da opção (1 ou 2)
 - Se o prospect rejeitou ambos os horários (ex: "nenhum funciona", "não consigo nesses dias", "tenho compromisso") → action = "reject_slots"
-- Se o prospect sugeriu um horário alternativo (ex: "pode ser terça às 14h?", "prefiro quinta de manhã") → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)`;
+- Se o prospect sugeriu um horário alternativo (ex: "pode ser terça às 14h?", "prefiro quinta de manhã") → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601 (YYYY-MM-DDTHH:mm:ss)${clarifyRule}`;
     } else if (heldSlots.length === 1) {
       const formatted = formatDateTimeBrt(heldSlots[0].slot_datetime);
       slotContext = `\n\nATENÇÃO: O prospect recebeu 1 opção de horário para reunião:
 1) ${formatted}
+${durationLine}
 
 INSTRUÇÕES PARA SLOT PENDENTE:
 - Se o prospect está confirmando esse horário → action = "confirm_slot" e selected_slot = 1
 - Se o prospect rejeitou o horário → action = "reject_slots"
-- Se o prospect sugeriu um horário alternativo → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601`;
+- Se o prospect sugeriu um horário alternativo → action = "check_availability" e inclua "suggested_datetime" no formato ISO 8601${clarifyRule}`;
     } else if (schedulingInProgress) {
       // FIX: Even without active slots, give context that scheduling is happening
       let offeredSlotsContext = "";
@@ -493,10 +511,11 @@ INSTRUÇÕES PARA SLOT PENDENTE:
         offeredSlotsContext = `\nHorários anteriormente oferecidos (já expiraram): ${lastOfferedSlots.map((s: string) => formatDateTimeBrt(s)).join(", ")}`;
       }
       slotContext = `\n\nATENÇÃO: Há um processo de agendamento em andamento com este prospect (os horários anteriores já expiraram).${offeredSlotsContext}
+${durationLine}
 Se o prospect mencionar qualquer horário, dia ou disponibilidade → action = "check_availability" com suggested_datetime em ISO 8601 (YYYY-MM-DDTHH:mm:ss).
 Se o prospect confirmar um dos horários anteriores → action = "check_availability" com o datetime correspondente.
 Se o prospect rejeitar completamente a ideia de reunião → action = "pause".
-NÃO use action = "schedule" pois já estamos em processo de agendamento.`;
+NÃO use action = "schedule" pois já estamos em processo de agendamento.${clarifyRule}`;
     }
 
     // Get conversation history
