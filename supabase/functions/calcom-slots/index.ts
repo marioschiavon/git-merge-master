@@ -40,27 +40,48 @@ async function resolveEventTypeId(apiKey: string): Promise<number> {
   console.log(`Auto-detected event type: ${eventTypes[0].id} (${eventTypes[0].title || eventTypes[0].slug})`);
   return eventTypes[0].id;
 }
+/** Returns YYYY-MM-DD for an ISO datetime in America/Sao_Paulo. */
+function sptDateKey(iso: string): string {
+  const d = new Date(iso);
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(d);
+  const y = parts.find((p) => p.type === "year")?.value;
+  const m = parts.find((p) => p.type === "month")?.value;
+  const day = parts.find((p) => p.type === "day")?.value;
+  return `${y}-${m}-${day}`;
+}
+
 /**
  * Pick up to 2 slots from Cal.com's date-grouped slot map, on different days,
- * spread by at least `minSpreadHours` hours, excluding any datetimes in `excludeSet`.
+ * spread by at least `minSpreadHours` hours, excluding any datetimes in `excludeSet`
+ * and any whole days in `excludeDateSet` (YYYY-MM-DD in America/Sao_Paulo).
  */
 function pickSpreadSlots(
   slotsData: Record<string, Array<{ start: string }>>,
   excludeSet: Set<number>,
   minSpreadHours: number,
+  excludeDateSet: Set<string> = new Set(),
 ): { date: string; start: string }[] {
   const sortedDates = Object.keys(slotsData).sort();
   const minSpreadMs = minSpreadHours * 3600000;
+
+  const isAllowed = (s: { start: string }, firstTs?: number): boolean => {
+    const ts = new Date(s.start).getTime();
+    if (excludeSet.has(ts)) return false;
+    if ([...excludeSet].some((exc) => Math.abs(ts - exc) < 60000)) return false;
+    if (excludeDateSet.has(sptDateKey(s.start))) return false;
+    if (firstTs !== undefined && ts - firstTs < minSpreadMs) return false;
+    return true;
+  };
 
   // 1st slot: middle of first day with availability
   let first: { date: string; start: string } | null = null;
   let firstIdx = -1;
   for (let i = 0; i < sortedDates.length; i++) {
     const date = sortedDates[i];
-    const daySlots = (slotsData[date] || []).filter((s) => {
-      const ts = new Date(s.start).getTime();
-      return !excludeSet.has(ts) && ![...excludeSet].some((exc) => Math.abs(ts - exc) < 60000);
-    });
+    const daySlots = (slotsData[date] || []).filter((s) => isAllowed(s));
     if (daySlots.length > 0) {
       const mid = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
       first = { date, start: daySlots[mid].start };
@@ -72,15 +93,13 @@ function pickSpreadSlots(
 
   // 2nd slot: first date with availability that is ≥ minSpreadHours after the 1st
   const firstTs = new Date(first.start).getTime();
+  const firstDayKey = sptDateKey(first.start);
   let second: { date: string; start: string } | null = null;
   for (let i = firstIdx + 1; i < sortedDates.length; i++) {
     const date = sortedDates[i];
     const daySlots = (slotsData[date] || []).filter((s) => {
-      const ts = new Date(s.start).getTime();
-      if (excludeSet.has(ts)) return false;
-      if ([...excludeSet].some((exc) => Math.abs(ts - exc) < 60000)) return false;
-      if (ts - firstTs < minSpreadMs) return false;
-      return true;
+      if (sptDateKey(s.start) === firstDayKey) return false;
+      return isAllowed(s, firstTs);
     });
     if (daySlots.length > 0) {
       const mid = Math.min(Math.floor(daySlots.length / 2), daySlots.length - 1);
@@ -91,6 +110,7 @@ function pickSpreadSlots(
 
   return second ? [first, second] : [first];
 }
+
 
 
 serve(async (req) => {
@@ -109,7 +129,7 @@ serve(async (req) => {
     const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY);
 
     const body = await req.json();
-    const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel, check_datetime, exclude_datetimes, start_after, end_before } = body;
+    const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel, check_datetime, exclude_datetimes, exclude_dates, start_after, end_before } = body;
 
     // Parse exclusion list (array of ISO datetime strings to skip)
     const excludeSet = new Set<number>();
@@ -120,6 +140,18 @@ serve(async (req) => {
       }
       console.log(`Excluding ${excludeSet.size} previously offered datetimes`);
     }
+
+    // Parse day-level exclusion (YYYY-MM-DD strings, or ISO datetimes converted to SPT date)
+    const excludeDateSet = new Set<string>();
+    if (Array.isArray(exclude_dates)) {
+      for (const d of exclude_dates) {
+        if (typeof d !== "string") continue;
+        const key = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : sptDateKey(d);
+        if (key) excludeDateSet.add(key);
+      }
+      console.log(`Excluding ${excludeDateSet.size} previously offered dates (day-level)`);
+    }
+
 
     if (!company_id || !lead_id) {
       return new Response(JSON.stringify({ error: "company_id and lead_id are required" }), {
