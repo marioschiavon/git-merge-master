@@ -136,7 +136,7 @@ serve(async (req) => {
 
     const { data: lead } = await supabase
       .from("leads")
-      .select("name, email, phone")
+      .select("name, email, phone, whatsapp")
       .eq("id", lead_id)
       .maybeSingle();
 
