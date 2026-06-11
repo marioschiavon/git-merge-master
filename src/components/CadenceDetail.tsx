@@ -9,9 +9,12 @@ import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
 import { LeadMessagePreview } from "@/components/LeadMessagePreview";
 import { CadenceFirstMessageInline } from "@/components/CadenceFirstMessageInline";
-import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain } from "lucide-react";
+import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain, FlaskConical, Send } from "lucide-react";
 import { AgenticPolicyForm } from "@/components/AgenticPolicyForm";
 import { useAllAgentDecisions } from "@/hooks/useAgenticCadence";
+import { useToggleSimulation, useRunNextStep, useSimulateReply } from "@/hooks/useSimulateCadence";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
