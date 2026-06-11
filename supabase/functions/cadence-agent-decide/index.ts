@@ -358,7 +358,7 @@ ${policy.goal}
 - Máx tentativas: ${policy.max_attempts} (essa é a tentativa ${attemptNumber})
 - Prazo: ${policy.max_days} dias (já se passaram ${Math.round(daysSinceEnroll)} dias)
 - Canais permitidos: ${(policy.allowed_channels || []).join(", ")}
-- Canal principal preferido: ${policy.primary_channel}
+- Canal principal preferido: ${effectivePrimary}${channelNote ? `\n- IMPORTANTE: ${channelNote}` : ""}
 - Tom: ${policy.tone_instructions}
 ${policy.continue_criteria ? `- Critérios para continuar: ${policy.continue_criteria}` : ""}
 ${policy.stop_criteria_text ? `- Critérios extras para parar: ${policy.stop_criteria_text}` : ""}
