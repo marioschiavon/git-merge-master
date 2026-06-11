@@ -130,6 +130,22 @@ serve(async (req) => {
           continue;
         }
 
+        // === AGENTIC MODE: delegate decision to cadence-agent-decide ===
+        if (cadence.mode === "agentic") {
+          try {
+            const { error: agentErr } = await supabase.functions.invoke("cadence-agent-decide", {
+              body: { enrollment_id: enrollment.id },
+            });
+            if (agentErr) console.error(`agent-decide error for ${enrollment.id}:`, agentErr);
+            else processed++;
+          } catch (e) {
+            console.error(`agent-decide exception for ${enrollment.id}:`, e);
+          }
+          continue;
+        }
+
+
+
 
 
 
