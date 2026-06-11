@@ -1,63 +1,84 @@
-# Validação de WhatsApp via Z-API no enriquecimento
+# Corrigir resposta indevida e respeitar pedido de "contato em X horas"
 
-Adicionar uma etapa de validação de número de WhatsApp durante o enriquecimento automático de cada lead, usando a Z-API da própria empresa. Se o número não tiver WhatsApp, os passos de WhatsApp da cadência são automaticamente pulados.
+## Diagnóstico
 
-## 1. Schema (migração)
+Lead **Nico** (`35169ba4...`) mandou às 16:54:04:
+> *"Recomendo que envie o e-mail daqui umas 4h para que seja o momento mais oportuno..."*
 
-**`leads`** — novas colunas:
-- `whatsapp_valid` boolean (nullable — `null` = não verificado, `true` = tem WhatsApp, `false` = não tem)
-- `whatsapp_checked_at` timestamptz
-- `whatsapp_check_error` text (motivo de falha, ex: "phone_invalid_format", "zapi_error")
+O classifier acertou: `channel_switch / send_by_email` com `entities.datetime = "daqui 4h"`. **Mas o SDR respondeu oferecendo horários de reunião** ("Infelizmente esse horário não está disponível. Que tal uma dessas opções? 📅 sexta 12/06 às 16:00...").
 
-**`companies.enrichment_settings`** (jsonb) — novo campo `validate_whatsapp` boolean (default `false`).
+**Causa-raiz** — `inbound-webhook/index.ts:809-814`:
 
-## 2. Edge function: `enrich-lead`
+```ts
+} else if (extractedDt) {
+  console.log("Inbound mentions datetime without keyword — redirecting to check_availability");
+  parsed.action = "check_availability";
+  ...
+}
+```
 
-Adicionar nova etapa "Validar WhatsApp" no pipeline, executada quando `enrichment_settings.validate_whatsapp = true`:
+A heurística "se a mensagem menciona datetime sem palavra-chave de agendamento, redireciona pra check_availability" ignora completamente o `intent.category` real. Qualquer "daqui X horas" / "amanhã" / "semana que vem" vira pedido de agendamento, mesmo quando o lead está claramente pedindo OUTRA coisa (mudar canal, adiar contato, rejeição com prazo, etc.).
 
-1. Lê `phone` ou `whatsapp` do lead.
-2. Normaliza para E.164 sem `+` (ex: `5511999999999`). Se inválido → grava `whatsapp_check_error = 'phone_invalid_format'`, `whatsapp_valid = false`.
-3. Busca credenciais Z-API em `integrations` (provider `zapi`) da empresa: `instance_id` + `token` + `client_token`.
-4. Chama `GET https://api.z-api.io/instances/{instance}/token/{token}/phone-exists/{phone}` com header `Client-Token`.
-5. Grava `whatsapp_valid` (resultado), `whatsapp_checked_at = now()`.
-6. Loga em `lead_activities` (tipo `enrichment`).
+**Segundo problema:** mesmo que o redirect não tivesse acontecido, hoje não há mecanismo para **honrar o pedido** ("entre em contato comigo daqui 4h por email"). A regra `channel_switch / send_by_email` simplesmente respondeu na hora pedindo o email, sem agendar o envio futuro.
 
-## 3. UI — Configurações de Enriquecimento
+## Correções
 
-**`src/components/EnrichmentSettingsCard.tsx`**: adicionar toggle "Validar WhatsApp via Z-API" com descrição curta. Indicar que requer integração Z-API ativa.
+### 1. Bug-fix: não sequestrar para `check_availability` quando intent já foi classificado como não-agendamento
 
-## 4. UI — Lead
+`supabase/functions/inbound-webhook/index.ts` (linhas 793-815):
 
-**`src/components/LeadDetailContent.tsx`**: badge ao lado do telefone:
-- ✅ verde "WhatsApp válido" se `whatsapp_valid = true`
-- ⚠️ cinza "Sem WhatsApp" se `whatsapp_valid = false`
-- Sem badge se `null`
+Antes de aplicar a heurística "menciona datetime → check_availability", consultar o `lead_intents_log` recém-criado e **abortar o redirect** quando `category` for um dos seguintes (datetime ali se refere a próximo contato, não a reunião):
 
-## 5. Cadence executor — pular passos de WhatsApp
+- `channel_switch` (qualquer sub_intent)
+- `rejection` (sub_intent `no_time`, `try_later`, etc.)
+- `info_request` puro sem keyword de agendamento
+- `referral`
 
-**`supabase/functions/cadence-executor/index.ts`**: antes de executar um step de canal `whatsapp`, se `lead.whatsapp_valid === false`:
-- Marca o step como `skipped` com motivo "WhatsApp não disponível"
-- Avança para o próximo step
-- Loga em `execution_logs`
+Manter o redirect apenas quando o intent for `scheduling_request`, `confirmation`, ou similar.
 
-Mesma lógica no `cadence-agent-decide` (SDR autônomo) — não escolher ação de WhatsApp se o lead não tem.
+### 2. Honrar "entre em contato em X horas por canal Y"
 
-## 6. Backfill opcional
+Quando o classifier retorna `channel_switch` (ou `rejection/try_later`) **com `entities.datetime` futuro**, em vez de responder no ato com pergunta + fluxo padrão de cadência:
 
-Não fazer backfill automático. Leads existentes ficam com `whatsapp_valid = null` e só serão validados em uma re-execução de enriquecimento (botão "Re-enriquecer" no lead — já existe).
+a. **Enfileirar ação** em `lead_action_queue`:
+   - `action_type = 'schedule_followup'`
+   - `scheduled_for = entities.datetime`
+   - `params = { channel: 'email'|'whatsapp', source: 'lead_request', original_request: <texto>, requested_at: now() }`
 
-## Validação
+b. **Pausar a cadência** automática para esse lead até `scheduled_for` (`cadence_enrollments.next_execution_at = scheduled_for + 1min` + flag em `paused_reason`).
 
-- Toggle desligado → enriquecimento não chama Z-API (comportamento atual).
-- Toggle ligado + número válido com WhatsApp → `whatsapp_valid = true`, badge verde, cadência envia normal.
-- Toggle ligado + número sem WhatsApp → `whatsapp_valid = false`, badge cinza, cadence-executor pula steps de WhatsApp.
-- Sem credenciais Z-API → erro logado, lead fica `whatsapp_valid = null`.
+c. **Responder na hora com confirmação curta**, gerada pela IA, ex.:
+   > *"Combinado, Nico — te mando o resumo por e-mail daqui ~4h então. Até já 👋"*
+   
+   Sem oferecer horários, sem pedir email novamente (se já tiver).
+
+d. **Logar `lead_activities`** tipo `note`: `⏰ Lead pediu contato em <horário> via <canal>`.
+
+### 3. Processador da fila no `intent-cron` / `execute-action`
+
+`execute-action` já tem `schedule_followup`. Adicionar/ajustar handler para quando o item da fila vence (`scheduled_for <= now()`):
+
+- Se `params.source === 'lead_request'`: gerar mensagem com a IA usando o `build-first-message` (ou reply contextual) pelo `channel` solicitado, enviar via gmail-send / Z-API, e **retomar** a cadência (`cadence_enrollments.status = 'active'`, `next_execution_at` recalculado).
+
+`intent-cron` já roda a cada minuto e processa `lead_action_queue` pendentes — basta garantir que esse novo caminho passa por lá.
+
+### 4. Limpar resposta indevida do Nico (opcional, manual)
+
+Marcar a sequência 16:54:32 → 16:55:50 como "resposta automática equivocada" em `lead_activities` para auditoria. Não apagar mensagens (preserva histórico real do que o lead recebeu).
 
 ## Arquivos tocados
 
-- Migration SQL (colunas em `leads`)
-- `supabase/functions/enrich-lead/index.ts`
-- `supabase/functions/cadence-executor/index.ts`
-- `supabase/functions/cadence-agent-decide/index.ts`
-- `src/components/EnrichmentSettingsCard.tsx`
-- `src/components/LeadDetailContent.tsx`
+- `supabase/functions/inbound-webhook/index.ts` — guard antes do redirect + novo branch `channel_switch + datetime futuro`
+- `supabase/functions/_shared/route-intent.ts` — mapear `channel_switch + datetime` para `schedule_followup` com `scheduled_for` correto
+- `supabase/functions/execute-action/index.ts` — handler `schedule_followup` com `source=lead_request` (gera e envia mensagem)
+- `supabase/functions/intent-cron/index.ts` — confirmar que processa a fila no horário
+
+## Validação
+
+1. **Simular** mensagem "me chame daqui 2h por email" no Nico → esperar:
+   - Sem oferta de horários.
+   - Resposta curta de confirmação.
+   - `lead_action_queue` com 1 row `schedule_followup` em ~2h.
+   - `cadence_enrollments.next_execution_at` empurrado para depois disso.
+2. **Avançar relógio** / aguardar → cron envia o email gerado pela IA.
+3. **Mensagem "amanhã às 14h"** com intent `scheduling_request` → deve continuar caindo em `check_availability` (regressão).

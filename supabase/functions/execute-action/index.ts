@@ -197,6 +197,62 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   },
 
   async schedule_followup(ctx) {
+    // Branch 1: lead explicitly requested a callback at a specific time/channel.
+    // When the queued row's scheduled_for has fired, generate + send a real message
+    // and resume the cadence.
+    if (ctx.params.source === "lead_request") {
+      const requestedChannel = (ctx.params.channel as string | undefined) || (await loadConversationChannel(ctx));
+      const originalRequest = (ctx.params.original_request as string | undefined) || "";
+      const tone = `O lead pediu explicitamente que voltássemos a contatá-lo neste momento via ${requestedChannel}${
+        originalRequest ? ` (pedido original: "${originalRequest.slice(0, 200)}")` : ""
+      }. Escreva uma mensagem curta, natural, retomando a conversa como combinado — sem reapresentar a empresa, sem perguntar se "pode falar", e seguindo o objetivo discutido antes. Não ofereça horários de reunião a menos que ele já tenha demonstrado interesse explícito em agendar.`;
+      const reply = await generateReply(ctx, { tone, category: "info_request" });
+      // Send via the requested channel
+      if (requestedChannel === "email") {
+        const lead = await loadLead(ctx);
+        if (!lead?.email) {
+          await logActivity(ctx, "note", "⚠️ Callback agendado por e-mail, mas lead sem e-mail cadastrado");
+          return { skipped: "no email" };
+        }
+        await ctx.supabase.functions.invoke("gmail-send", {
+          body: {
+            to: lead.email,
+            subject: reply.subject || "Continuando nossa conversa",
+            html: reply.body.replace(/\n/g, "<br/>"),
+            lead_id: ctx.lead_id,
+            company_id: ctx.company_id,
+            conversation_id: ctx.conversation_id,
+          },
+        });
+        if (ctx.conversation_id) {
+          await ctx.supabase.from("messages").insert({
+            conversation_id: ctx.conversation_id,
+            content: reply.body,
+            direction: "outbound",
+            ai_suggested: true,
+            channel: "email",
+            metadata: { source: "execute-action", action: "schedule_followup", subject: reply.subject, lead_requested: true } as any,
+          });
+        }
+        await logActivity(ctx, "email", `📧 Callback enviado conforme solicitado pelo lead`, { channel: "email" });
+      } else {
+        await sendOutbound(ctx, reply.body, reply.subject ?? null, requestedChannel, {
+          action: "schedule_followup",
+          lead_requested: true,
+        });
+        await logActivity(ctx, requestedChannel === "whatsapp" ? "whatsapp" : "note",
+          `📤 Callback enviado conforme solicitado pelo lead (${requestedChannel})`,
+          { channel: requestedChannel });
+      }
+      // Resume cadence
+      await ctx.supabase
+        .from("cadence_enrollments")
+        .update({ status: "active", paused_reason: null, next_execution_at: new Date(Date.now() + 86400_000).toISOString() } as any)
+        .eq("lead_id", ctx.lead_id)
+        .eq("paused_reason", "lead_requested_callback");
+      return { sent: true, channel: requestedChannel };
+    }
+    // Branch 2 (legacy): generic "schedule a reply in N days"
     const days = Number(ctx.params.days) || 2;
     const scheduledFor = new Date(Date.now() + days * 86400000).toISOString();
     await ctx.supabase.from("lead_action_queue").insert({
@@ -212,6 +268,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
     await logActivity(ctx, "note", `⏰ Follow-up agendado para daqui ${days}d`, { scheduled_for: scheduledFor });
     return { scheduled_for: scheduledFor };
   },
+
 
   async send_reply(ctx) {
     let { message, subject } = ctx.params as { message?: string; subject?: string | null };

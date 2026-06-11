@@ -381,6 +381,10 @@ serve(async (req) => {
 
     // Classify intent + route side-effect actions (does not duplicate reply — legacy flow below handles that)
     // Skip when message is a clarifying question (duration/format/etc) without datetime — would be mis-routed as scheduling.
+    let lastIntentCategory: string | null = null;
+    let lastIntentSubIntent: string | null = null;
+    let lastIntentEntities: Record<string, any> | null = null;
+    let lastIntentLogId: string | null = null;
     if (!earlyParsed && companyId && leadData?.id && !(earlyClarifyingKind && !earlyInboundDt)) {
       try {
         // Build brief history for classifier
@@ -403,6 +407,10 @@ serve(async (req) => {
         });
 
         if (!clfErr && clf?.intent_log_id && clf?.category) {
+          lastIntentCategory = clf.category;
+          lastIntentSubIntent = clf.sub_intent || null;
+          lastIntentEntities = clf.entities || null;
+          lastIntentLogId = clf.intent_log_id;
           const route = await routeAndEnqueue(supabase, {
             company_id: companyId,
             lead_id: leadData.id,
@@ -420,6 +428,7 @@ serve(async (req) => {
         console.error("intent pipeline error:", e);
       }
     }
+
 
     // Check for held slots (FIX: filter out expired slots)
     let heldSlots: any[] = [];
@@ -797,7 +806,101 @@ Analise a última mensagem e decida a ação.`,
       const hasScheduleIntent = /\b(agendar|reunião|reuniao|demo|conversar|call|meeting|bate-?papo)\b/i.test(lower);
       const extractedDt = inboundDt;
 
-      if (hasScheduleIntent && extractedDt) {
+      // NON-SCHEDULING intent categories where a mentioned datetime refers to
+      // "when to contact me next" / "try later" — NOT to a meeting request.
+      // Don't hijack into check_availability for these.
+      const NON_SCHEDULING_CATEGORIES = new Set([
+        "channel_switch",
+        "rejection",
+        "routing",
+        "compliance",
+        "info_request",
+      ]);
+      const intentIsNonScheduling =
+        lastIntentCategory != null && NON_SCHEDULING_CATEGORIES.has(lastIntentCategory);
+
+      // Special branch: lead asked to be contacted at a future time / via a specific channel.
+      // Enqueue a scheduled follow-up and respond with a short confirmation — don't offer slots.
+      const entityDt = (lastIntentEntities?.datetime as string | undefined) || extractedDt;
+      const entityDtMs = entityDt ? Date.parse(entityDt) : NaN;
+      const isFutureDt = Number.isFinite(entityDtMs) && entityDtMs > Date.now() + 60_000;
+      if (
+        lastIntentCategory === "channel_switch" &&
+        isFutureDt &&
+        leadData?.id &&
+        companyId
+      ) {
+        const targetChannel =
+          lastIntentSubIntent === "send_by_email"
+            ? "email"
+            : lastIntentSubIntent === "send_by_whatsapp"
+            ? "whatsapp"
+            : lastIntentSubIntent === "send_by_linkedin"
+            ? "linkedin"
+            : (await (async () => {
+                const { data } = await supabase
+                  .from("conversations")
+                  .select("channel")
+                  .eq("id", convId)
+                  .maybeSingle();
+                return (data?.channel as string) || "email";
+              })());
+        const scheduledFor = new Date(entityDtMs).toISOString();
+        try {
+          await supabase.from("lead_action_queue").insert({
+            company_id: companyId,
+            lead_id: leadData.id,
+            conversation_id: convId,
+            intent_log_id: lastIntentLogId,
+            action_type: "schedule_followup" as any,
+            params: {
+              source: "lead_request",
+              channel: targetChannel,
+              original_request: cleanContent.slice(0, 500),
+              requested_at: new Date().toISOString(),
+            },
+            scheduled_for: scheduledFor,
+            triggered_by: "inbound-webhook:lead_requested_callback",
+          });
+          // Pause the cadence so it doesn't fire before the requested time
+          await supabase
+            .from("cadence_enrollments")
+            .update({
+              status: "paused",
+              paused_reason: "lead_requested_callback",
+              next_execution_at: new Date(entityDtMs + 60_000).toISOString(),
+            } as any)
+            .eq("lead_id", leadData.id)
+            .in("status", ["active", "paused"]);
+          await supabase.from("lead_activities").insert({
+            company_id: companyId,
+            lead_id: leadData.id,
+            type: "note",
+            description: `⏰ Lead pediu contato em ${new Date(entityDtMs).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} via ${targetChannel}`,
+            metadata: { source: "inbound-webhook", scheduled_for: scheduledFor, channel: targetChannel },
+          });
+          console.log(
+            `Lead requested callback: scheduled ${targetChannel} follow-up for ${scheduledFor}`,
+          );
+        } catch (e) {
+          console.error("failed to enqueue lead_requested_callback:", e);
+        }
+        const leadFirst = (leadData?.name as string | undefined)?.split(" ")[0] || "";
+        const whenLabel = new Date(entityDtMs).toLocaleString("pt-BR", {
+          timeZone: "America/Sao_Paulo",
+          hour: "2-digit",
+          minute: "2-digit",
+          day: "2-digit",
+          month: "2-digit",
+        });
+        const channelLabel =
+          targetChannel === "email" ? "e-mail" : targetChannel === "whatsapp" ? "WhatsApp" : targetChannel;
+        parsed.action = "reply";
+        parsed.suggested_datetime = null;
+        parsed.selected_slot = null;
+        parsed.reply_message =
+          `Combinado${leadFirst ? `, ${leadFirst}` : ""} — te chamo por ${channelLabel} em ${whenLabel}. Até já 👋`;
+      } else if (hasScheduleIntent && extractedDt) {
         console.log("Inbound has scheduling intent + datetime — redirecting to check_availability");
         parsed.action = "check_availability";
         parsed.suggested_datetime = extractedDt;
@@ -806,13 +909,18 @@ Analise a última mensagem e decida a ação.`,
         console.log("Inbound has scheduling intent without specific time — redirecting to schedule");
         parsed.action = "schedule";
         parsed.reply_message = null;
-      } else if (extractedDt) {
+      } else if (extractedDt && !intentIsNonScheduling) {
         console.log("Inbound mentions datetime without keyword — redirecting to check_availability");
         parsed.action = "check_availability";
         parsed.suggested_datetime = extractedDt;
         parsed.reply_message = null;
+      } else if (extractedDt && intentIsNonScheduling) {
+        console.log(
+          `Skipping datetime→check_availability redirect: intent=${lastIntentCategory}/${lastIntentSubIntent} (datetime refers to next contact, not meeting)`,
+        );
       }
     }
+
 
     // FIX: If AI says "schedule" but scheduling is already in progress, redirect to check_availability
     if (!clarifyingKind && parsed.action === "schedule" && schedulingInProgress) {
