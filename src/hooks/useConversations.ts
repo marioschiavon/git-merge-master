@@ -83,6 +83,7 @@ export function useCreateConversation() {
 
 export function useSendMessage() {
   const qc = useQueryClient();
+  const { companyId } = useAuth();
   return useMutation({
     mutationFn: async (params: { conversation_id: string; content: string; direction: string; ai_suggested?: boolean; metadata?: any }) => {
       // Mensagens outbound passam pela edge function que envia via Twilio/canal antes de salvar
@@ -119,7 +120,11 @@ export function useSendMessage() {
       if (error) throw error;
       return data;
     },
-    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["messages", vars.conversation_id] }),
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["messages", vars.conversation_id] });
+      qc.invalidateQueries({ queryKey: ["lead-messages"] });
+      if (companyId) qc.invalidateQueries({ queryKey: ["conversations", companyId] });
+    },
     onError: (e: any) => toast.error(e.message),
   });
 }
