@@ -65,6 +65,29 @@ async function loadIntent(ctx: ActionContext) {
   return data;
 }
 
+/**
+ * Defense in depth: guard destructive actions so a misconfigured rule cannot
+ * cancel/reschedule meetings just because the prospect mentioned a date.
+ * Only enforced when triggered automatically (no explicit booking_uid param).
+ */
+const DESTRUCTIVE_SUB_INTENTS: Record<string, Set<string>> = {
+  cancel_booking: new Set(["cancel_request", "cancel_meeting", "wants_to_cancel"]),
+  reschedule_booking: new Set(["reschedule_request", "wants_to_reschedule", "change_time"]),
+  mark_meeting_attended: new Set(["attended_confirmation", "post_meeting_followup", "no_show_explanation"]),
+};
+
+async function assertSubIntentAllowed(ctx: ActionContext, action: string) {
+  const allowed = DESTRUCTIVE_SUB_INTENTS[action];
+  if (!allowed) return;
+  const intent = await loadIntent(ctx);
+  const sub = intent?.sub_intent || "";
+  if (!allowed.has(sub)) {
+    throw new Error(
+      `${action}: sub_intent não compatível (${sub || "vazio"}) — nenhuma ação tomada`,
+    );
+  }
+}
+
 /* ─── Generate-reply helper ─────────────────────────────────────── */
 async function generateReply(ctx: ActionContext, opts: { tone?: string; category?: string; sub_intent?: string }) {
   const [lead, history, channel] = await Promise.all([loadLead(ctx), loadHistory(ctx), loadConversationChannel(ctx)]);
