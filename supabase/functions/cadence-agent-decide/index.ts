@@ -2,6 +2,35 @@
 // Decides next action per enrollment: send / wait / stop / handoff_human.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+
+async function findOrCreateConversation(
+  supabase: any,
+  leadId: string,
+  companyId: string,
+  channel: string,
+  enrollmentId: string,
+): Promise<{ id: string } | null> {
+  const { data: byEnroll } = await supabase
+    .from("conversations").select("id")
+    .eq("lead_id", leadId).eq("cadence_enrollment_id", enrollmentId).maybeSingle();
+  if (byEnroll) return byEnroll;
+  const { data: byChannel } = await supabase
+    .from("conversations").select("id, cadence_enrollment_id")
+    .eq("lead_id", leadId).eq("channel", channel)
+    .order("created_at", { ascending: true }).limit(1).maybeSingle();
+  if (byChannel) {
+    if (!byChannel.cadence_enrollment_id) {
+      await supabase.from("conversations").update({ cadence_enrollment_id: enrollmentId }).eq("id", byChannel.id);
+    }
+    return { id: byChannel.id };
+  }
+  const { data: newConv } = await supabase
+    .from("conversations")
+    .insert({ lead_id: leadId, company_id: companyId, channel, cadence_enrollment_id: enrollmentId })
+    .select("id").single();
+  return newConv || null;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
