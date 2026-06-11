@@ -373,6 +373,11 @@ function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
                   {d.channel && <Badge variant="outline" className="text-xs">{d.channel}</Badge>}
                   {d.hook && <Badge variant="outline" className="text-xs">{d.hook}</Badge>}
                   <Badge variant="outline" className="text-xs">tentativa {d.attempt_number}</Badge>
+                  {d.simulated && (
+                    <Badge className="bg-amber-100 text-amber-800 text-xs gap-1">
+                      <FlaskConical className="h-3 w-3" />Simulação
+                    </Badge>
+                  )}
                 </div>
                 <span className="text-[10px] text-muted-foreground whitespace-nowrap">
                   {new Date(d.decided_at).toLocaleString("pt-BR")}
