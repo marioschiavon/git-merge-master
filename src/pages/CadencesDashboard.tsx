@@ -87,6 +87,7 @@ export default function CadencesDashboard() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [intentFilter, setIntentFilter] = useState<string>("all");
+  const [stepFilter, setStepFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [drawerRow, setDrawerRow] = useState<any | null>(null);
   const [showSteps, setShowSteps] = useState(false);
@@ -118,6 +119,7 @@ export default function CadencesDashboard() {
     return (rows || []).filter((r) => {
       if (statusFilter !== "all" && r.enrollment.status !== statusFilter) return false;
       if (intentFilter !== "all" && r.lastIntent?.category !== intentFilter) return false;
+      if (stepFilter !== "all" && String(r.enrollment.current_step) !== stepFilter) return false;
       if (search) {
         const q = search.toLowerCase();
         const hay = [r.lead?.name, r.lead?.email, r.lead?.company_name].filter(Boolean).join(" ").toLowerCase();
@@ -125,7 +127,7 @@ export default function CadencesDashboard() {
       }
       return true;
     });
-  }, [rows, statusFilter, intentFilter, search]);
+  }, [rows, statusFilter, intentFilter, stepFilter, search]);
 
   return (
     <div className="space-y-5">
@@ -226,6 +228,19 @@ export default function CadencesDashboard() {
                 {intentOptions.map((i) => (
                   <SelectItem key={i} value={i}>
                     {i}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={stepFilter} onValueChange={setStepFilter}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos steps</SelectItem>
+                {steps?.map((s) => (
+                  <SelectItem key={s.id} value={String(s.step_order)}>
+                    Step {s.step_order} — {s.channel}
                   </SelectItem>
                 ))}
               </SelectContent>
