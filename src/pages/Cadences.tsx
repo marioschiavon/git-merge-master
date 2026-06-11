@@ -132,11 +132,16 @@ export default function Cadences() {
                 cadences.map((c: any) => (
                   <TableRow key={c.id} className="cursor-pointer" onClick={() => setSelectedCadenceId(c.id)}>
                     <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {c.name}
                         {(c as any).mode === "agentic" && (
                           <Badge variant="secondary" className="text-xs gap-1">
                             <Sparkles className="h-3 w-3" />IA
+                          </Badge>
+                        )}
+                        {(c as any).simulation_mode && (
+                          <Badge className="bg-amber-100 text-amber-800 text-xs gap-1">
+                            <FlaskConical className="h-3 w-3" />Simulação
                           </Badge>
                         )}
                       </div>
