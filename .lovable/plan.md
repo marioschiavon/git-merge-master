@@ -1,39 +1,18 @@
-# Responder perguntas esclarecedoras (duração, formato etc.) sem rejeitar slots
+## Plano
 
-## Problema
-Na conversa do Ju, depois de oferecermos novos horários, ele perguntou de novo "Quanto tempo é de reunião?". O SDR ignorou a pergunta e respondeu "Poderia me dizer o dia e horário exato de sua preferência?" — fallback do `suggest_meeting_times` quando a busca de slots falha.
+1. **Adicionar uma proteção determinística antes dos fallbacks de agendamento**
+   - Em `inbound-webhook`, detectar mensagens do lead que sejam apenas perguntas esclarecedoras sobre a reunião, especialmente duração: “quanto tempo é?”, “quanto dura?”, “vai demorar?”, etc.
+   - Quando detectar isso, forçar `action = "reply"` antes da regra que transforma `reply` com a palavra “reunião” em `schedule`.
 
-Por que: o `slotContext` que vai pro AI quando há slots reservados (ou agendamento em curso) **só permite as ações** `confirm_slot` / `reject_slots` / `check_availability`. Não há saída para "o lead só está fazendo uma pergunta". Resultado: o AI escolhe a ação errada e a resposta sai sem relação com a pergunta.
+2. **Responder com a duração real quando perguntarem**
+   - Usar a duração já buscada do Cal.com (`meetingMinutes`).
+   - Se disponível: responder de forma curta, por exemplo: “É uma reunião rápida, de aproximadamente X minutos.”
+   - Se não disponível: responder sem inventar um tempo específico, mantendo “reunião rápida de apresentação”.
 
-## Solução
+3. **Evitar que a palavra “reunião” dispare agendamento indevido**
+   - Ajustar o guard atual que vê `reunião/demo/call` e redireciona para `schedule`, para ignorar perguntas esclarecedoras sem dia/horário.
+   - Assim, “quanto tempo é de reunião?” não cairá mais em `schedule` → `check_availability` → “qual dia e horário?”.
 
-### 1. `supabase/functions/inbound-webhook/index.ts` (slotContext)
-- Buscar a duração da reunião do Cal.com via `getMeetingDurationMinutes(supabase, companyId)` (helper já existente em `_shared/meeting-duration.ts`).
-- Em todos os três ramos do `slotContext` (≥2 slots, 1 slot, schedulingInProgress) adicionar bloco:
-  ```
-  DURAÇÃO DA REUNIÃO: {N} minutos (informe APENAS se o lead perguntar).
-  
-  IMPORTANTE — perguntas esclarecedoras:
-  Se o lead estiver apenas fazendo uma pergunta sobre a reunião
-  (quanto tempo dura, qual o formato, presencial ou online,
-  quem vai participar, qual o objetivo, é gravada etc.),
-  use action = "reply" e responda DIRETAMENTE a pergunta.
-  NÃO escolha confirm_slot / reject_slots / check_availability
-  nessa situação — mantenha os horários oferecidos intactos.
-  ```
-- A duração vira variável real no prompt; quando não houver default no Cal.com, omitir o "(N min)" e instruir a IA a responder algo como "rapidinho, no máximo meia hora".
-
-### 2. `supabase/functions/classify-intent/index.ts`
-Adicionar sub-intents na categoria `scheduling` para observabilidade/logs (não muda routing):
-- `asks_duration`, `asks_format`, `asks_attendees`, `asks_location`, `asks_objective`
-
-E reforçar no system prompt:
-> "Mensagens como 'quanto tempo dura?', 'quanto tempo de reunião?', 'é online ou presencial?', 'quem participa?' são **clarifying questions**, não `asks_time_options`. Use o sub-intent específico (`asks_duration`, `asks_format`, ...)."
-
-### 3. Sem mudanças
-- Não mexer em `intent_action_rules` (a guard fica no prompt do AI reply).
-- Não mexer em UI nem schema.
-
-## Fora de escopo
-- Roteamento por sub-intent específico no DB.
-- Resposta determinística (hard-coded) sem passar pela IA — preferimos manter o tom natural.
+4. **Manter o restante do fluxo intacto**
+   - Não mexer em UI, banco ou regras gerais de slots.
+   - Preservar confirmação, rejeição e sugestão de novo horário exatamente como estão.
