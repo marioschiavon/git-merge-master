@@ -1,10 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { useConversations, useMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
+import { useConversations, useLeadMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw, CalendarCheck, CalendarClock, CalendarX, AlertTriangle, CheckCheck } from "lucide-react";
@@ -31,13 +31,57 @@ const sentimentColors: Record<string, string> = {
   neutro: "bg-gray-100 text-gray-800",
 };
 
+const channelLabel = (ch?: string) => {
+  if (!ch) return "";
+  if (ch === "whatsapp") return "WhatsApp";
+  if (ch === "email") return "Email";
+  if (ch === "linkedin") return "LinkedIn";
+  return ch;
+};
+
+type LeadGroup = {
+  lead_id: string;
+  lead: any;
+  conversations: any[]; // raw conversation rows
+  lastActivity: string;
+};
+
 export default function Conversations() {
   const { data: conversations = [], isLoading, refetch } = useConversations();
   const { isMasterAdmin, isCompanyAdmin, companyId } = useAuth();
   const queryClient = useQueryClient();
-  const [selectedConvId, setSelectedConvId] = useState<string | null>(null);
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
 
-  // Realtime: atualiza lista de conversas e mensagens da conversa aberta
+  // Agrupa conversas por lead
+  const leadGroups: LeadGroup[] = useMemo(() => {
+    const map = new Map<string, LeadGroup>();
+    for (const c of conversations as any[]) {
+      const lid = c.lead_id;
+      if (!lid) continue;
+      const g = map.get(lid);
+      if (g) {
+        g.conversations.push(c);
+        if (c.created_at > g.lastActivity) g.lastActivity = c.created_at;
+      } else {
+        map.set(lid, {
+          lead_id: lid,
+          lead: c.leads,
+          conversations: [c],
+          lastActivity: c.created_at,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => (a.lastActivity < b.lastActivity ? 1 : -1));
+  }, [conversations]);
+
+  const selectedGroup = leadGroups.find((g) => g.lead_id === selectedLeadId) || null;
+  const selectedConvList = useMemo(
+    () => (selectedGroup ? selectedGroup.conversations.map((c) => ({ id: c.id, channel: c.channel })) : []),
+    [selectedGroup]
+  );
+  const selectedConvIds = useMemo(() => selectedConvList.map((c) => c.id), [selectedConvList]);
+
+  // Realtime
   useEffect(() => {
     if (!companyId) return;
     const channel = supabase
@@ -49,6 +93,8 @@ export default function Conversations() {
           const convId = payload.new?.conversation_id || payload.old?.conversation_id;
           if (convId) {
             queryClient.invalidateQueries({ queryKey: ["messages", convId] });
+            // invalida agregadas que contenham essa conversation
+            queryClient.invalidateQueries({ queryKey: ["lead-messages"] });
           }
           queryClient.invalidateQueries({ queryKey: ["conversations", companyId] });
         }
@@ -66,12 +112,27 @@ export default function Conversations() {
     };
   }, [companyId, queryClient]);
 
-  const { data: messages = [] } = useMessages(selectedConvId);
+  const { data: messages = [] } = useLeadMessages(selectedConvList);
   const sendMessage = useSendMessage();
   const aiReply = useAiReply();
   const [newMessage, setNewMessage] = useState("");
   const [aiSuggestion, setAiSuggestion] = useState<any>(null);
   const [resetting, setResetting] = useState(false);
+
+  // Canal de resposta = canal da última inbound; fallback: conversa mais antiga
+  const replyChannel = useMemo(() => {
+    if (!selectedGroup) return null;
+    const lastInbound = [...messages].reverse().find((m: any) => m.direction === "inbound");
+    if (lastInbound?.channel) return lastInbound.channel;
+    const oldest = [...selectedGroup.conversations].sort((a, b) => (a.created_at < b.created_at ? -1 : 1))[0];
+    return oldest?.channel || null;
+  }, [selectedGroup, messages]);
+
+  const replyConversationId = useMemo(() => {
+    if (!selectedGroup || !replyChannel) return null;
+    const match = selectedGroup.conversations.find((c) => c.channel === replyChannel);
+    return match?.id || selectedGroup.conversations[0]?.id || null;
+  }, [selectedGroup, replyChannel]);
 
   const handleReset = async () => {
     setResetting(true);
@@ -82,7 +143,7 @@ export default function Conversations() {
       });
       if (res.error) throw res.error;
       toast.success("Dados de teste resetados com sucesso!");
-      setSelectedConvId(null);
+      setSelectedLeadId(null);
       refetch();
     } catch (err: any) {
       toast.error("Erro ao resetar: " + (err.message || "erro desconhecido"));
@@ -91,14 +152,12 @@ export default function Conversations() {
     }
   };
 
-  const selectedConv = conversations.find((c: any) => c.id === selectedConvId);
-
   const handleSend = async (direction: string, content?: string) => {
-    if (!selectedConvId) return;
+    if (!replyConversationId) return;
     const text = content || newMessage.trim();
     if (!text) return;
     await sendMessage.mutateAsync({
-      conversation_id: selectedConvId,
+      conversation_id: replyConversationId,
       content: text,
       direction,
     });
@@ -106,12 +165,12 @@ export default function Conversations() {
   };
 
   const handleAiSuggest = async () => {
-    if (!selectedConvId || messages.length === 0) return;
-    const lead = (selectedConv as any)?.leads;
+    if (!selectedGroup || messages.length === 0) return;
+    const lead = selectedGroup.lead;
     const result = await aiReply.mutateAsync({
       conversationHistory: messages.map((m: any) => ({ direction: m.direction, content: m.content })),
       leadInfo: lead ? { name: lead.name, company_name: lead.company_name } : undefined,
-      channel: (selectedConv as any)?.channel,
+      channel: replyChannel || undefined,
     });
     setAiSuggestion(result);
   };
@@ -122,21 +181,30 @@ export default function Conversations() {
     setAiSuggestion(null);
   };
 
-  if (selectedConvId) {
+  if (selectedGroup) {
+    const channels = Array.from(new Set(selectedGroup.conversations.map((c) => c.channel)));
     return (
       <div className="p-6 h-full flex flex-col">
         <div className="flex items-center gap-3 mb-4">
-          <Button variant="ghost" size="icon" onClick={() => { setSelectedConvId(null); setAiSuggestion(null); }}>
+          <Button variant="ghost" size="icon" onClick={() => { setSelectedLeadId(null); setAiSuggestion(null); }}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <div>
-            <h2 className="text-lg font-semibold">{(selectedConv as any)?.leads?.name || "Conversa"}</h2>
-            <p className="text-xs text-muted-foreground">{(selectedConv as any)?.leads?.company_name} · {(selectedConv as any)?.channel}</p>
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold">{selectedGroup.lead?.name || "Conversa"}</h2>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{selectedGroup.lead?.company_name}</span>
+              <span>·</span>
+              <div className="flex gap-1">
+                {channels.map((ch) => (
+                  <Badge key={ch} variant="outline" className="text-[10px] h-4">{channelLabel(ch)}</Badge>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
 
-        <BookingCard leadId={(selectedConv as any)?.leads?.id || (selectedConv as any)?.lead_id} />
-        <SlotHoldsCard leadId={(selectedConv as any)?.leads?.id || (selectedConv as any)?.lead_id} compact />
+        <BookingCard leadId={selectedGroup.lead_id} />
+        <SlotHoldsCard leadId={selectedGroup.lead_id} compact />
 
         <div className="flex-1 overflow-y-auto space-y-3 mb-4 min-h-0">
           {messages.length === 0 ? (
@@ -169,6 +237,9 @@ export default function Conversations() {
                   <div className="flex items-center gap-1 mb-1">
                     {msg.direction === "outbound" ? <User className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
                     <span className="text-xs opacity-70">{msg.direction === "outbound" ? "SDR" : "Prospect"}</span>
+                    {msg.channel && (
+                      <Badge variant="secondary" className="text-[10px] h-4">{channelLabel(msg.channel)}</Badge>
+                    )}
                     {msg.ai_suggested && <Badge variant="secondary" className="text-[10px] h-4"><Sparkles className="h-2 w-2 mr-0.5" />IA</Badge>}
                   </div>
                   <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -199,6 +270,11 @@ export default function Conversations() {
           </Card>
         )}
 
+        {replyChannel && (
+          <p className="text-xs text-muted-foreground mb-1">
+            Respondendo via <span className="font-medium text-foreground">{channelLabel(replyChannel)}</span>
+          </p>
+        )}
         <div className="flex gap-2">
           <Textarea
             placeholder="Digite uma mensagem..."
@@ -208,7 +284,7 @@ export default function Conversations() {
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend("outbound"); } }}
           />
           <div className="flex flex-col gap-2">
-            <Button size="icon" onClick={() => handleSend("outbound")} disabled={!newMessage.trim() || sendMessage.isPending}>
+            <Button size="icon" onClick={() => handleSend("outbound")} disabled={!newMessage.trim() || sendMessage.isPending || !replyConversationId}>
               <Send className="h-4 w-4" />
             </Button>
             <Button size="icon" variant="outline" onClick={handleAiSuggest} disabled={aiReply.isPending || messages.length === 0}>
@@ -253,7 +329,7 @@ export default function Conversations() {
 
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
-      ) : conversations.length === 0 ? (
+      ) : leadGroups.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center">
             <MessageCircle className="mx-auto h-12 w-12 text-muted-foreground mb-3" />
@@ -262,20 +338,25 @@ export default function Conversations() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {conversations.map((conv: any) => (
-            <Card key={conv.id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedConvId(conv.id)}>
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-sm">{conv.leads?.name || "Lead"}</p>
-                  <p className="text-xs text-muted-foreground">{conv.leads?.company_name || ""} · {conv.leads?.email || ""}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-xs">{conv.channel}</Badge>
-                  <span className="text-xs text-muted-foreground">{new Date(conv.created_at).toLocaleDateString("pt-BR")}</span>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {leadGroups.map((g) => {
+            const channels = Array.from(new Set(g.conversations.map((c) => c.channel)));
+            return (
+              <Card key={g.lead_id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedLeadId(g.lead_id)}>
+                <CardContent className="p-4 flex items-center justify-between">
+                  <div>
+                    <p className="font-medium text-sm">{g.lead?.name || "Lead"}</p>
+                    <p className="text-xs text-muted-foreground">{g.lead?.company_name || ""} · {g.lead?.email || ""}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {channels.map((ch) => (
+                      <Badge key={ch} variant="outline" className="text-xs">{channelLabel(ch)}</Badge>
+                    ))}
+                    <span className="text-xs text-muted-foreground">{new Date(g.lastActivity).toLocaleDateString("pt-BR")}</span>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
