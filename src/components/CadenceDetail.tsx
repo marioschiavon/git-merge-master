@@ -408,6 +408,7 @@ function AgenticSimulationControls({
   const runNext = useRunNextStep();
   const simulateReply = useSimulateReply();
   const [reply, setReply] = useState("");
+  const [lastAiReply, setLastAiReply] = useState<{ text: string; intent?: string } | null>(null);
 
   return (
     <div className="space-y-2 border-t border-dashed pt-2 mt-1">
