@@ -91,11 +91,38 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                 <Sparkles className="h-3 w-3" />IA
               </Badge>
             )}
+            {isSimulation && (
+              <Badge className="bg-amber-100 text-amber-800 text-xs gap-1">
+                <FlaskConical className="h-3 w-3" />Simulação
+              </Badge>
+            )}
           </SheetTitle>
           {cadence.description && (
             <p className="text-sm text-muted-foreground">{cadence.description}</p>
           )}
         </SheetHeader>
+
+        {isAgentic && cadenceId && (
+          <div className={`mt-4 rounded-md border p-3 flex items-center justify-between gap-3 ${isSimulation ? "border-amber-300 bg-amber-50" : "border-border bg-muted/30"}`}>
+            <div className="flex-1">
+              <div className="text-sm font-medium flex items-center gap-2">
+                <FlaskConical className="h-4 w-4" />
+                Modo simulação (dry-run)
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {isSimulation
+                  ? "Ligado: a IA gera decisões e mensagens, mas NADA é enviado. Use os botões em cada lead para avançar passos e simular respostas."
+                  : "Desligado: a IA envia mensagens reais nos canais configurados."}
+              </p>
+            </div>
+            <Switch
+              checked={isSimulation}
+              onCheckedChange={(v) => toggleSimulation.mutate({ cadenceId, enabled: v })}
+              disabled={toggleSimulation.isPending}
+            />
+          </div>
+        )}
+
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
           <TabsList className={`grid w-full ${isAgentic ? "grid-cols-3" : "grid-cols-2"}`}>
