@@ -16,7 +16,7 @@ Sub-intents possíveis (escolha UM ou null):
 - interest: greeting, interested, positive_but_unclear, asks_how_it_works
 - info_request: asks_more_info, asks_material, asks_case_study, technical_question, clinical_question, regulatory_question, asks_contract, asks_proposal
 - pricing: asks_price
-- scheduling: wants_meeting, new_booking, asks_time_options, gives_time_preference, selected_time, asks_calendar_link, reschedule_request, cancel_request, cancel_meeting, abandoned_scheduling, no_show_response, timezone_question, event_type_question, confirms_attendance
+- scheduling: wants_meeting, new_booking, asks_time_options, gives_time_preference, selected_time, asks_calendar_link, reschedule_request, cancel_request, cancel_meeting, abandoned_scheduling, no_show_response, timezone_question, event_type_question, confirms_attendance, asks_duration, asks_format, asks_attendees, asks_location, asks_objective
 - rejection: not_interested, already_has_solution, bad_timing, no_time, no_fit, negative_but_polite
 - routing: not_responsible, gatekeeper, wrong_person, wrong_company, referral_with_contact, referral_without_contact, will_forward, refuses_to_share_contact, asks_contact_source
 - channel_switch: send_by_email, call_me
@@ -34,6 +34,13 @@ Para mensagens de scheduling, distinga claramente:
 - no_show_response: pessoa responde após não comparecer
 - timezone_question: dúvida sobre fuso horário
 - event_type_question: pergunta sobre qual tipo de reunião
+- asks_duration: pergunta quanto tempo dura a reunião ("quanto tempo é a reunião?", "quanto dura?", "vai demorar muito?")
+- asks_format: pergunta se é online/presencial/vídeo/telefone
+- asks_attendees: pergunta quem vai participar
+- asks_location: pergunta o local/link da reunião
+- asks_objective: pergunta qual o objetivo da reunião / o que vai ser tratado
+
+IMPORTANTE: perguntas esclarecedoras sobre a reunião (duração, formato, quem participa, local, objetivo) NÃO são `asks_time_options`. Use o sub-intent específico (`asks_duration`, `asks_format`, ...).
 
 Extraia entidades quando relevante: data/hora mencionada (ISO 8601 BRT-3 se possível), e-mail/nome/empresa referidos, motivo de cancelamento, fuso horário.
 

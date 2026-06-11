@@ -1,37 +1,39 @@
-# Excluir DIAS inteiros (não só horários) ao oferecer novos slots em reject_slots
+# Responder perguntas esclarecedoras (duração, formato etc.) sem rejeitar slots
 
-## Problema observado
-Na conversa do Ju, ele rejeitou os horários oferecidos e pediu outras opções de **dia**. O SDR ofereceu novos horários, mas nos **mesmos dias** (12/06 e 15/06). Logs confirmam:
+## Problema
+Na conversa do Ju, depois de oferecermos novos horários, ele perguntou de novo "Quanto tempo é de reunião?". O SDR ignorou a pergunta e respondeu "Poderia me dizer o dia e horário exato de sua preferência?" — fallback do `suggest_meeting_times` quando a busca de slots falha.
 
-```
-Excluding previously offered datetimes: [ "2026-06-12T19:45:00+00:00", "2026-06-15T20:00:00+00:00" ]
-Slot reserved: 2026-06-12T19:00:00 ... 2026-06-15T12:45:00
-```
-
-A exclusão hoje é só por timestamp (`exclude_datetimes`) — diferenças de minutos no mesmo dia passam.
+Por que: o `slotContext` que vai pro AI quando há slots reservados (ou agendamento em curso) **só permite as ações** `confirm_slot` / `reject_slots` / `check_availability`. Não há saída para "o lead só está fazendo uma pergunta". Resultado: o AI escolhe a ação errada e a resposta sai sem relação com a pergunta.
 
 ## Solução
-Adicionar exclusão por **dia inteiro** no fluxo de rejeição de slots.
 
-### `supabase/functions/calcom-slots/index.ts`
-- Aceitar novo parâmetro opcional `exclude_dates: string[]` (YYYY-MM-DD em `America/Sao_Paulo`).
-- Em `pickSpreadSlots`, antes de filtrar slots, descartar qualquer `date` cuja chave (já em YYYY-MM-DD na TZ do Cal.com) esteja no set.
-- Log: `Excluding N previously offered dates`.
-
-### `supabase/functions/inbound-webhook/index.ts` (branch `reject_slots`)
-- Calcular `excludeDates` a partir de `heldSlots` + `lastOfferedSlots`, convertendo cada datetime para `YYYY-MM-DD` em `America/Sao_Paulo`.
-- Passar no body do `calcom-slots`:
+### 1. `supabase/functions/inbound-webhook/index.ts` (slotContext)
+- Buscar a duração da reunião do Cal.com via `getMeetingDurationMinutes(supabase, companyId)` (helper já existente em `_shared/meeting-duration.ts`).
+- Em todos os três ramos do `slotContext` (≥2 slots, 1 slot, schedulingInProgress) adicionar bloco:
   ```
-  exclude_datetimes: [...],
-  exclude_dates: excludeDates,
+  DURAÇÃO DA REUNIÃO: {N} minutos (informe APENAS se o lead perguntar).
+  
+  IMPORTANTE — perguntas esclarecedoras:
+  Se o lead estiver apenas fazendo uma pergunta sobre a reunião
+  (quanto tempo dura, qual o formato, presencial ou online,
+  quem vai participar, qual o objetivo, é gravada etc.),
+  use action = "reply" e responda DIRETAMENTE a pergunta.
+  NÃO escolha confirm_slot / reject_slots / check_availability
+  nessa situação — mantenha os horários oferecidos intactos.
   ```
-- Manter `exclude_datetimes` para retro-compat (outros caminhos).
+- A duração vira variável real no prompt; quando não houver default no Cal.com, omitir o "(N min)" e instruir a IA a responder algo como "rapidinho, no máximo meia hora".
 
-### Considerações
-- Mantém `start_after`/`end_before` se o lead deu hint de range ("semana que vem").
-- Se não houver disponibilidade fora dos dias excluídos, o fallback existente (`CALCOM_BOOKING_LINK`) continua valendo.
-- Sem mudança de schema, sem mudança em UI.
+### 2. `supabase/functions/classify-intent/index.ts`
+Adicionar sub-intents na categoria `scheduling` para observabilidade/logs (não muda routing):
+- `asks_duration`, `asks_format`, `asks_attendees`, `asks_location`, `asks_objective`
+
+E reforçar no system prompt:
+> "Mensagens como 'quanto tempo dura?', 'quanto tempo de reunião?', 'é online ou presencial?', 'quem participa?' são **clarifying questions**, não `asks_time_options`. Use o sub-intent específico (`asks_duration`, `asks_format`, ...)."
+
+### 3. Sem mudanças
+- Não mexer em `intent_action_rules` (a guard fica no prompt do AI reply).
+- Não mexer em UI nem schema.
 
 ## Fora de escopo
-- Reescrever o filtro de exclusão para todos os outros caminhos do `calcom-slots` (só o reject_slots passa `exclude_dates`).
-- Detectar via NLP se o lead pediu "outro dia" vs "outro horário" — no reject_slots assumimos sempre que o lead quer dias diferentes.
+- Roteamento por sub-intent específico no DB.
+- Resposta determinística (hard-coded) sem passar pela IA — preferimos manter o tom natural.
