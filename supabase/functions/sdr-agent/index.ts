@@ -476,6 +476,9 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
       : "",
     "",
     `## Estado de agendamento`,
+    activeBooking
+      ? `⚠️ Reserva ativa: status=${activeBooking.status}, agendada para ${fmtBrt(activeBooking.scheduled_at)}, booking_uid=${activeBooking.calcom_booking_uid}. Se o lead quiser mudar de horário, use \`reschedule_booking\` (NÃO use book_slot).`
+      : "Sem reserva ativa.",
     heldSlots.length
       ? `Slots já oferecidos/segurados: ${heldSlots.map((s) => `${fmtBrt(s.slot_datetime)} (${s.status})`).join(", ")}. NÃO ofereça esses mesmos slots novamente — passe-os em exclude_datetimes se for buscar novos.`
       : "Nenhum slot ativo segurado.",
