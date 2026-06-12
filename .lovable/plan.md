@@ -1,63 +1,41 @@
 ## Problema
 
-No Run do SDR, o lead perguntou sobre as **vantagens para a clínica dele**. O agente tentou `search_knowledge` várias vezes com termos diferentes, não encontrou chunks compatíveis e foi direto para `escalate_to_human`. Isso quebra a conversa por um motivo evitável: a base tem informação útil (highlights, instruções de abordagem, value_proposition, documentos), só não está indexada com aquele vocabulário específico ("vantagens para clínica odontológica X").
+Na tela **Runs do Agente**, o painel "Agente (proposta)" aparece vazio em vários casos legítimos:
 
-A causa raiz é dupla:
+1. **Fallback de finalize.** Quando o modelo responde só em texto (sem chamar a tool `finalize`), o `sdr-agent` salva `{ raw: "...texto...", decision: "silence", rationale: "Modelo não chamou finalize" }`. O texto existe, mas fica em `raw`, e a UI só lê `final_output.message`.
+2. **Decisões sem mensagem por design.** Runs com `decision = silence`, `escalate_to_human`, `schedule_followup` ou `mark_referral` não têm `message`. Hoje a UI mostra "— sem mensagem —" sem explicar o motivo nem o raciocínio.
+3. **Inbound desalinhado.** A "Mensagem do lead (gatilho)" usa o último inbound `<= run.created_at`. Em conversas com vários runs próximos no tempo (caso desta conversa, 5 runs em ~10 min), pode mostrar um inbound diferente do que de fato disparou aquele run.
 
-1. **`search_knowledge` é o ÚNICO acesso à KB** e depende 100% de similaridade vetorial em `knowledge_chunks`. Se o embedding não casar, o agente "acha" que a empresa não tem resposta.
-2. **Highlights, AI instructions e value_proposition já existem no banco** (são usados em `generate-reply`), mas **não são injetados no contexto do `sdr-agent`** — então a IA não sabe que existem.
-3. O prompt orienta a escalar quando "faltar informação crítica", sem exigir esgotar a KB antes (listar títulos, reformular busca, combinar com a proposta de valor da empresa).
+## Solução
 
-## Solução proposta
+Duas mudanças cirúrgicas, sem mexer no resto do pipeline.
 
-Tornar o `sdr-agent` autossuficiente para responder dúvidas como "quais as vantagens pra mim", usando todo o conhecimento que a empresa já cadastrou.
+### 1. `supabase/functions/sdr-agent/index.ts` — reduzir fallback silencioso
 
-### 1. Carregar KB curada direto no contexto (sempre disponível, sem tool call)
-Em `loadContext`, além do que já busca, ler de `company_knowledge`:
-- `highlights` (diferenciais para prospecção)
-- `ai_instructions` (instruções de abordagem)
-- Lista de **títulos** de todos os documentos da KB (até ~30) — para o agente saber o que existe e fazer buscas direcionadas.
+Quando o modelo termina sem chamar `finalize` mas devolveu texto livre:
 
-Incluir no system prompt um bloco:
-```
-## Base de conhecimento da empresa
-Diferenciais (highlights): ...
-Instruções de abordagem: ...
-Documentos disponíveis na KB (use search_knowledge para abrir):
-- "Cases de clínicas odontológicas"
-- "ROI por segmento"
-- ...
-```
+- Em vez de gravar `decision: "silence"` com `raw`, fazer uma chamada extra (1 turno) **forçando** `tool_choice` para `finalize`, passando o texto livre como contexto: "Você terminou sem chamar finalize. Converta sua resposta acima em uma chamada de `finalize` com decision/message/rationale apropriados."
+- Se mesmo após o retry o modelo não chamar `finalize`, gravar `decision: "send_message"` com o `raw` como `message` e `rationale: "fallback: modelo não chamou finalize"`. Assim a proposta nunca se perde silenciosamente.
+- Logar `steps` com o evento `finalize_retry` para visibilidade.
 
-### 2. Nova tool `list_knowledge`
-Retorna todos os títulos + tipo + um snippet curto (primeiros 300 chars) dos itens da `company_knowledge`. Útil quando `search_knowledge` retorna pouco — o agente vê o catálogo e escolhe um item para ler na íntegra.
+### 2. `src/pages/AgentRuns.tsx` — mostrar o que o agente realmente produziu
 
-### 3. Nova tool `read_knowledge_item`
-Recebe um `knowledge_id` (ou título) e devolve o conteúdo completo daquele item. Permite à IA ler um documento inteiro quando a busca semântica falhar.
+No card "Agente (proposta)":
 
-### 4. Endurecer o prompt anti-escalação prematura
-Adicionar regra explícita:
-> Antes de escalar para humano por "falta de informação", você DEVE:
-> 1. Tentar `search_knowledge` com pelo menos 2 reformulações diferentes.
-> 2. Chamar `list_knowledge` para ver o catálogo.
-> 3. Ler com `read_knowledge_item` qualquer documento que tenha título relacionado.
-> 4. Se mesmo assim faltar dado factual específico (número, prazo, integração), responda combinando os **diferenciais** e a **proposta de valor** da empresa de forma consultiva (sem inventar números) e proponha a reunião para detalhar — em vez de escalar.
-> Só escale quando for objeção complexa, reclamação, jurídico ou pedido fora do escopo comercial.
+- Se `final_output.message` está vazio, exibir `final_output.raw` (quando existir) com um aviso amarelo "Texto livre — agente não chamou `finalize`".
+- Para `decision ∈ {silence, escalate_to_human, schedule_followup, mark_referral}`, exibir uma explicação clara em vez de "— sem mensagem —": ex.: "Agente decidiu **escalar para humano** (não envia mensagem). Motivo: \<rationale\>".
+- Sempre mostrar o `decision` badge mesmo quando não há mensagem (hoje o badge sai quando `final_output?.decision` existe — confirmar render incondicional).
+- Manter a `rationale` sempre visível abaixo dos dois painéis.
 
-### 5. Permitir resposta consultiva mesmo com KB parcial
-Instrução adicional: se a pergunta é "quais as vantagens pra mim/meu negócio", a resposta correta é **personalizar a proposta de valor + diferenciais** ao contexto do lead (segmento, empresa, dor mencionada no histórico) e **convidar para a reunião** para aprofundar. Isso NÃO é alucinação — é vendas consultiva legítima sobre informação que a empresa já curou.
+Alinhamento de inbound (correção menor): em vez de "último inbound `<=` created_at", buscar o inbound cujo `sent_at` esteja na janela `[run.created_at - 2min, run.created_at]`. Reduz o risco de mostrar um inbound antigo.
 
-## Detalhes técnicos
+## Resultado esperado
 
-Arquivo único alterado: `supabase/functions/sdr-agent/index.ts`.
+- O run a65e74d1 desta conversa passaria a aparecer com o texto que o modelo já tinha escrito (ou com decisão clara após o retry de finalize).
+- Runs de escalate/silence/followup deixam de parecer "bug" — viram explicação acionável para o time validar o shadow.
+- Próximos runs com fallback ficam raros (retry forçado) e, quando ocorrerem, ficam rastreáveis nos `steps`.
 
-- `loadContext`: adicionar três queries em paralelo
-  - `company_knowledge` onde `type='highlights'`
-  - `company_knowledge` onde `type='ai_instructions'`
-  - `company_knowledge` (demais tipos) — `id, title, type, content` limit 30
-- `buildSystemPrompt`: novo bloco `## Base de conhecimento da empresa` com highlights, ai_instructions, e lista de títulos+ids dos documentos.
-- `TOOLS`: adicionar `list_knowledge` (sem args, retorna catálogo) e `read_knowledge_item` (arg: `knowledge_id` string).
-- `execTool`: implementar os dois novos handlers usando `supabase.from("company_knowledge")`.
-- Regras no system prompt: adicionar a seção "Antes de escalar..." e a regra de resposta consultiva para perguntas tipo "vantagens".
+## Arquivos alterados
 
-Nada disso muda o modo shadow/live nem o resto do pipeline — é só dar mais contexto e ferramentas ao agente. Próximo Run do SDR já deve mostrar a diferença: em vez de escalar, ele lista a KB, lê o doc relevante e propõe resposta + reunião.
+- `supabase/functions/sdr-agent/index.ts` (retry de finalize + fallback para send_message com raw)
+- `src/pages/AgentRuns.tsx` (render do `raw`, explicação por tipo de decisão, ajuste de janela do inbound)
