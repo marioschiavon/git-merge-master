@@ -250,12 +250,47 @@ async function execTool(
     return { ok: true, facts: merged };
   }
 
+  if (name === "list_knowledge") {
+    const { data, error } = await supabase
+      .from("company_knowledge")
+      .select("id, title, type, content")
+      .eq("company_id", ctx.company_id)
+      .limit(50);
+    if (error) return { error: error.message };
+    return {
+      items: (data ?? []).map((d: { id: string; title: string; type: string; content: string }) => ({
+        id: d.id,
+        title: d.title,
+        type: d.type,
+        snippet: (d.content ?? "").slice(0, 300),
+      })),
+    };
+  }
+
+  if (name === "read_knowledge_item") {
+    const id = typeof args.knowledge_id === "string" ? args.knowledge_id : null;
+    const title = typeof args.title === "string" ? args.title : null;
+    if (!id && !title) return { error: "knowledge_id or title required" };
+    let q = supabase
+      .from("company_knowledge")
+      .select("id, title, type, content")
+      .eq("company_id", ctx.company_id)
+      .limit(1);
+    if (id) q = q.eq("id", id);
+    else if (title) q = q.eq("title", title);
+    const { data, error } = await q.maybeSingle();
+    if (error) return { error: error.message };
+    if (!data) return { error: "not found" };
+    return data;
+  }
+
   if (name === "finalize") {
     return { ok: true, decision: args };
   }
 
   return { error: `unknown tool: ${name}` };
 }
+
 
 // ────────────────────────────────────────────────────────────────
 // Context loader
