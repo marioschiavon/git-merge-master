@@ -212,6 +212,16 @@ async function execTool(
   }
 
   if (name === "check_calendar") {
+    const fetchSlots = async (b: Record<string, unknown>): Promise<{ slots: any[]; raw: any; httpError: boolean }> => {
+      const { data, error } = await supabase.functions.invoke("calcom-slots", { body: b });
+      if (error) {
+        // 404 with "Não há slots" payload is reported as FunctionsHttpError; treat as empty
+        return { slots: [], raw: { error: String(error) }, httpError: true };
+      }
+      const slots = (data as any)?.slots ?? [];
+      return { slots: Array.isArray(slots) ? slots : [], raw: data ?? {}, httpError: false };
+    };
+
     try {
       const body: Record<string, unknown> = {
         company_id: ctx.company_id,
@@ -229,15 +239,12 @@ async function execTool(
         body.end_before = end.toISOString();
       }
       const requestedWindow = { start_after: body.start_after ?? null, end_before: body.end_before ?? null };
-      const { data, error } = await supabase.functions.invoke("calcom-slots", { body });
-      if (error) return { error: String(error) };
-      const slots = (data as any)?.slots ?? [];
+      const first = await fetchSlots(body);
 
-      // Fallback: nenhuma vaga na janela pedida -> ampliar +14 dias e buscar próximos
-      if (Array.isArray(slots) && slots.length === 0 && (body.start_after || body.end_before)) {
-        const widenFrom = body.end_before
-          ? new Date(String(body.end_before))
-          : new Date(String(body.start_after));
+      const hasWindow = !!(body.start_after || body.end_before);
+      if (first.slots.length === 0 && hasWindow) {
+        // Janela pedida vazia (ou erro 404 "sem slots") → amplia +14 dias
+        const widenFrom = body.end_before ? new Date(String(body.end_before)) : new Date(String(body.start_after));
         const widenTo = new Date(widenFrom.getTime() + 14 * 86400000);
         const widenBody: Record<string, unknown> = {
           company_id: ctx.company_id,
@@ -248,10 +255,9 @@ async function execTool(
         };
         if (Array.isArray(args.exclude_datetimes)) widenBody.exclude_datetimes = args.exclude_datetimes;
         if (Array.isArray(args.exclude_dates)) widenBody.exclude_dates = args.exclude_dates;
-        const { data: widen } = await supabase.functions.invoke("calcom-slots", { body: widenBody });
-        const nextAvailable = ((widen as any)?.slots ?? []).slice(0, 4);
+        const widen = await fetchSlots(widenBody);
+        const nextAvailable = widen.slots.slice(0, 4);
         return {
-          ...(data ?? {}),
           slots: nextAvailable,
           slots_in_window: [],
           next_available: nextAvailable,
@@ -260,7 +266,8 @@ async function execTool(
         };
       }
 
-      return data ?? { slots: [] };
+      if (first.httpError) return { error: String((first.raw as any)?.error ?? "calcom-slots failed") };
+      return first.raw;
     } catch (e) {
       return { error: String(e) };
     }
