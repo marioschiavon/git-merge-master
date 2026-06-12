@@ -535,8 +535,49 @@ Deno.serve(async (req) => {
       .single();
     runId = run?.id ?? null;
 
+    // Pre-extract date_preference from the latest inbound message and merge into lead_memory.
+    // This guarantees the LLM sees the window even when it would fail to parse it itself.
+    try {
+      const lastInbound = [...ctx.messages].reverse().find((m) => m.direction === "inbound");
+      if (lastInbound?.content) {
+        const hint = extractDateRangeFromText(lastInbound.content);
+        if (hint && (hint.start_after || hint.end_before)) {
+          const existing = ((ctx.memory?.facts as Record<string, unknown> | undefined)?.date_preference ?? null) as
+            | null
+            | { start_after?: string; end_before?: string; raw?: string };
+          const changed =
+            !existing ||
+            existing.start_after !== hint.start_after ||
+            existing.end_before !== hint.end_before;
+          if (changed) {
+            const newPref = {
+              start_after: hint.start_after,
+              end_before: hint.end_before,
+              raw: lastInbound.content.slice(0, 200),
+              source: hint.reason,
+            };
+            const mergedFacts = { ...((ctx.memory?.facts as Record<string, unknown>) ?? {}), date_preference: newPref };
+            await supabase.from("lead_memory").upsert(
+              {
+                lead_id,
+                company_id: ctx.lead.company_id,
+                facts: mergedFacts,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "lead_id" },
+            );
+            ctx.memory = { ...(ctx.memory ?? { summary: null }), facts: mergedFacts } as typeof ctx.memory;
+            console.log("sdr-agent pre-extracted date_preference:", newPref);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("date pre-extraction failed:", e);
+    }
+
     const sys = buildSystemPrompt(ctx);
     const history = buildHistoryAsUserMessage(ctx.messages);
+
 
     const messages: ChatMessage[] = [
       { role: "system", content: sys },
