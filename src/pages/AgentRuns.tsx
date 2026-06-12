@@ -297,12 +297,31 @@ export default function AgentRuns() {
                             <Badge variant="default" className="text-xs">Agente (proposta)</Badge>
                             {decisionBadge(selected.final_output?.decision)}
                           </div>
-                          <div className="bg-primary/5 border border-primary/20 p-3 rounded text-sm min-h-[100px]">
-                            {selected.final_output?.message ?? (
-                              <span className="text-muted-foreground italic">
-                                — sem mensagem (decision: {selected.final_output?.decision ?? "?"}) —
-                              </span>
-                            )}
+                          <div className="bg-primary/5 border border-primary/20 p-3 rounded text-sm min-h-[100px] whitespace-pre-wrap">
+                            {selected.final_output?.message ? (
+                              selected.final_output.message
+                            ) : selected.final_output?.raw ? (
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-1">
+                                  ⚠️ Texto livre (agente não chamou finalize)
+                                </div>
+                                <div>{selected.final_output.raw}</div>
+                              </div>
+                            ) : (() => {
+                              const d = selected.final_output?.decision;
+                              const explain: Record<string, string> = {
+                                silence: "Agente decidiu não responder agora (silêncio intencional).",
+                                escalate_to_human: "Agente decidiu escalar para um humano — nenhuma mensagem enviada.",
+                                schedule_followup: "Agente agendou um follow-up para mais tarde.",
+                                mark_referral: "Agente marcou como indicação/referral.",
+                                book_slot: "Agente agendou um slot diretamente.",
+                              };
+                              return (
+                                <span className="text-muted-foreground italic">
+                                  {explain[d ?? ""] ?? `— sem mensagem (decision: ${d ?? "?"}) —`}
+                                </span>
+                              );
+                            })()}
                           </div>
                           {selected.final_output?.offered_slots && selected.final_output.offered_slots.length > 0 && (
                             <div className="mt-2 text-xs">
