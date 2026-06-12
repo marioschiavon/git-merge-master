@@ -441,20 +441,35 @@ serve(async (req) => {
       }
     }
 
-    // SHADOW MODE: run unified sdr-agent in parallel for comparison. Fire-and-forget.
+    // SHADOW MODE: run unified sdr-agent in parallel for comparison.
     if (!earlyParsed && companyId && leadData?.id) {
       try {
-        supabase.functions.invoke("sdr-agent", {
-          body: {
-            lead_id: leadData.id,
-            conversation_id: convId,
-            trigger: "inbound",
-            mode: "shadow",
-          },
-        }).catch((e) => console.error("sdr-agent shadow invoke error:", e));
+        const shadowPromise = supabase.functions
+          .invoke("sdr-agent", {
+            body: {
+              lead_id: leadData.id,
+              conversation_id: convId,
+              trigger: "inbound",
+              mode: "shadow",
+            },
+          })
+          .then(({ error }) => {
+            if (error) console.error("sdr-agent shadow invoke error:", error);
+          })
+          .catch((e) => console.error("sdr-agent shadow invoke threw:", e));
+
+        // Keep promise alive after handler returns its Response
+        // @ts-ignore - EdgeRuntime is provided by Supabase Edge Runtime
+        if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+          // @ts-ignore
+          EdgeRuntime.waitUntil(shadowPromise);
+        }
       } catch (e) {
         console.error("sdr-agent shadow trigger error:", e);
       }
+    }
+
+
 
 
     // ─── Capture/overwrite lead's own email when they include one in the message ───
