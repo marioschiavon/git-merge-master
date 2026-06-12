@@ -393,7 +393,7 @@ async function loadContext(leadId: string) {
     docs: (kbDocsRes.data ?? []) as Array<{ id: string; title: string; type: string }>,
   };
 
-  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], enrollment, kb };
+  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], activeBookings: activeBookings ?? [], enrollment, kb };
 
 }
 
