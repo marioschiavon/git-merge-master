@@ -369,6 +369,21 @@ serve(async (req) => {
     const selectedSlots = pickSpreadSlots(slotsData, excludeSet, MIN_SPREAD_HOURS, excludeDateSet);
 
     if (selectedSlots.length < 1) {
+      // If there are still active holds for this lead in the requested window, just reuse them
+      // instead of failing — the agent likely already offered these and is asking again.
+      const reusable = existingHolds.filter((h) => {
+        const ts = new Date(h.slot_datetime).getTime();
+        return ts >= startDate.getTime() && ts <= endDate.getTime();
+      });
+      if (reusable.length > 0) {
+        console.log("Reusing", reusable.length, "existing holds (no new slots available in window)");
+        return new Response(JSON.stringify({
+          success: true,
+          slots: reusable,
+          formatted: reusable.map((h) => formatBRTLong(h.slot_datetime)),
+          deduped: true,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({
         error: "Não há slots disponíveis na janela solicitada",
         available_count: 0,
