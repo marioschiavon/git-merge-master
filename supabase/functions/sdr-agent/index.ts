@@ -12,6 +12,8 @@ import {
   type ChatMessage,
   type ToolDef,
 } from "../_shared/ai-gateway.ts";
+import { extractDateRangeFromText } from "../_shared/date-range.ts";
+import { formatBRTLong } from "../_shared/datetime.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
