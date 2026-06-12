@@ -31,8 +31,8 @@ export function useLeadBooking(leadId: string | null | undefined) {
       if (error) throw error;
       const rows = (data || []) as unknown as LeadBooking[];
       if (rows.length === 0) return null;
-      // Prefer most recent non-cancelled, else most recent overall
-      const active = rows.find((r) => r.status !== "cancelled");
+      // Prefer most recent active (confirmed/pending). Otherwise show most recent overall.
+      const active = rows.find((r) => r.status === "confirmed" || r.status === "pending");
       return active || rows[0];
     },
     enabled: !!leadId && !!companyId,
