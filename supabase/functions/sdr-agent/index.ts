@@ -12,6 +12,8 @@ import {
   type ChatMessage,
   type ToolDef,
 } from "../_shared/ai-gateway.ts";
+import { extractDateRangeFromText } from "../_shared/date-range.ts";
+import { formatBRTLong } from "../_shared/datetime.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -423,6 +425,8 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- SEMPRE leia TODO o histórico antes de decidir. Preferências que o lead já manifestou em qualquer turno anterior CONTINUAM VALENDO até ele mudar de ideia explicitamente.",
     "- Se o lead já pediu uma janela de datas (ex: 'daqui a 10 dias', 'semana que vem', 'só depois do dia 25'), TODAS as próximas ofertas de horário DEVEM respeitar essa janela. Passe start_after/end_before para check_calendar — mesmo que a faixa tenha sido mencionada turnos atrás.",
     "- Se o lead REJEITOU os slots oferecidos e pediu mais opções, ofereça NOVOS slots ainda dentro da janela que ele pediu. NÃO volte a sugerir as datas já rejeitadas. Use exclude_datetimes/exclude_dates.",
+    "- Se EXISTE `date_preference` na memória do lead, é **PROIBIDO** usar `schedule_followup` ou responder coisas como 'vou entrar em contato', 'te aviso quando tiver disponibilidade', 'retorno em breve'. Você DEVE chamar `check_calendar` passando `start_after`/`end_before` da janela e finalizar com `offer_slots` (ou `send_message` contendo os horários formatados). Se realmente não houver slots na janela, então sim, escalate_to_human ou schedule_followup explicando o motivo.",
+    "- NUNCA ofereça slots fora da janela `date_preference`. Se `check_calendar` retornar slots fora dela, descarte-os e chame `check_calendar` de novo com a janela correta (start_after maior).",
     "- Use update_lead_facts assim que detectar uma preferência nova (janela de data, canal, objeção, papel, urgência).",
     "- SEMPRE finalize chamando a tool `finalize`.",
     "- Português brasileiro. Mensagens curtas (2-3 parágrafos no máximo). Não use 'olá' nem 'tudo bem?' se já está no meio da conversa.",
@@ -531,8 +535,49 @@ Deno.serve(async (req) => {
       .single();
     runId = run?.id ?? null;
 
+    // Pre-extract date_preference from the latest inbound message and merge into lead_memory.
+    // This guarantees the LLM sees the window even when it would fail to parse it itself.
+    try {
+      const lastInbound = [...ctx.messages].reverse().find((m) => m.direction === "inbound");
+      if (lastInbound?.content) {
+        const hint = extractDateRangeFromText(lastInbound.content);
+        if (hint && (hint.start_after || hint.end_before)) {
+          const existing = ((ctx.memory?.facts as Record<string, unknown> | undefined)?.date_preference ?? null) as
+            | null
+            | { start_after?: string; end_before?: string; raw?: string };
+          const changed =
+            !existing ||
+            existing.start_after !== hint.start_after ||
+            existing.end_before !== hint.end_before;
+          if (changed) {
+            const newPref = {
+              start_after: hint.start_after,
+              end_before: hint.end_before,
+              raw: lastInbound.content.slice(0, 200),
+              source: hint.reason,
+            };
+            const mergedFacts = { ...((ctx.memory?.facts as Record<string, unknown>) ?? {}), date_preference: newPref };
+            await supabase.from("lead_memory").upsert(
+              {
+                lead_id,
+                company_id: ctx.lead.company_id,
+                facts: mergedFacts,
+                updated_at: new Date().toISOString(),
+              },
+              { onConflict: "lead_id" },
+            );
+            ctx.memory = { ...(ctx.memory ?? { summary: null }), facts: mergedFacts } as typeof ctx.memory;
+            console.log("sdr-agent pre-extracted date_preference:", newPref);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("date pre-extraction failed:", e);
+    }
+
     const sys = buildSystemPrompt(ctx);
     const history = buildHistoryAsUserMessage(ctx.messages);
+
 
     const messages: ChatMessage[] = [
       { role: "system", content: sys },
@@ -708,10 +753,64 @@ Deno.serve(async (req) => {
             })
             .eq("id", lead_id);
           liveResult = { action: "handoff", ok: true };
+        } else if (decision === "offer_slots") {
+          // Slots já foram segurados (hold) quando o agente chamou check_calendar.
+          // Aqui apenas enviamos a mensagem ao lead com os horários propostos.
+          const fd = finalDecision as any;
+          let msg = String(fd.message || "").trim();
+          if (!msg && Array.isArray(fd.offered_slots) && fd.offered_slots.length > 0) {
+            const formatted = fd.offered_slots
+              .map((s: string) => `• ${formatBRTLong(s)}`)
+              .join("\n");
+            msg = `Tenho estes horários disponíveis:\n\n${formatted}\n\nQual deles funciona melhor pra você?`;
+          }
+          if (msg) {
+            const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+              body: {
+                company_id: ctx.lead.company_id,
+                lead_id,
+                conversation_id: conversation_id ?? null,
+                action_type: "send_reply",
+                params: { message: msg, channel: fd.channel || undefined },
+              },
+            });
+            liveResult = { action: "offer_slots", ok: !execErr, sent: !execErr, result: exec, error: execErr ? String(execErr) : null };
+          } else {
+            liveResult = { action: "offer_slots", ok: false, error: "no message and no offered_slots" };
+          }
+        } else if (decision === "book_slot") {
+          const fd = finalDecision as any;
+          const slotStart = String(fd.slot_start || "");
+          if (!slotStart) {
+            liveResult = { action: "book_slot", ok: false, error: "missing slot_start" };
+          } else {
+            const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-booking-create", {
+              body: {
+                company_id: ctx.lead.company_id,
+                lead_id,
+                slot_start: slotStart,
+              },
+            });
+            if (bookErr) {
+              liveResult = { action: "book_slot", ok: false, error: String(bookErr) };
+            } else {
+              const confirmMsg = String(fd.message || "").trim() ||
+                `Confirmado para ${formatBRTLong(slotStart)}. Você vai receber o link da reunião por e-mail.`;
+              const { error: execErr } = await supabase.functions.invoke("execute-action", {
+                body: {
+                  company_id: ctx.lead.company_id,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                  action_type: "send_reply",
+                  params: { message: confirmMsg, channel: fd.channel || undefined },
+                },
+              });
+              liveResult = { action: "book_slot", ok: !execErr, sent: !execErr, booking, error: execErr ? String(execErr) : null };
+            }
+          }
         } else if (decision === "silence" || decision === "schedule_followup" || decision === "mark_referral") {
           liveResult = { action: decision, ok: true, note: "no outbound" };
         } else {
-          // offer_slots, book_slot: ainda não implementados em live — registrar para implementação futura.
           liveResult = { action: decision, ok: false, error: "live_action_not_implemented" };
         }
       } catch (e) {

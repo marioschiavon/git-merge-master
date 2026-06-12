@@ -46,6 +46,18 @@ export function extractDateRangeFromText(text: string): DateRangeHint | null {
     };
   }
 
+  // "daqui (a|à)? X semanas" / "em X semanas"
+  const daquiSem = t.match(/\b(?:daqui (?:a |à )?|em )(\d{1,2})\s+semanas?\b/);
+  if (daquiSem) {
+    const n = parseInt(daquiSem[1]);
+    const start = new Date(nb);
+    start.setUTCDate(start.getUTCDate() + n * 7);
+    return {
+      start_after: brtToUtcIso(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(), 0, 0),
+      reason: "daqui_x_semanas",
+    };
+  }
+
   // "daqui (a|à)? X dias" / "em X dias"
   const daqui = t.match(/\b(?:daqui (?:a |à )?|em )(\d{1,2})\s+dias?\b/);
   if (daqui) {

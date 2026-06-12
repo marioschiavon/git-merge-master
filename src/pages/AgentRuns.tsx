@@ -200,8 +200,11 @@ export default function AgentRuns() {
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <Badge variant={statusColor(r.status)}>{r.status}</Badge>
-                        <Badge variant="outline">{r.mode}</Badge>
+                        <Badge variant={r.mode === "live" ? "destructive" : "outline"}>{r.mode}</Badge>
                         <Badge variant="outline">{r.trigger}</Badge>
+                        {r.mode === "live" && (r.final_output as any)?.live?.sent && (
+                          <Badge variant="default" className="bg-green-600 hover:bg-green-600">✓ enviado</Badge>
+                        )}
                       </div>
                       <span className="text-xs text-muted-foreground whitespace-nowrap">
                         {formatDistanceToNow(new Date(r.created_at), { addSuffix: true, locale: ptBR })}
