@@ -368,9 +368,10 @@ async function loadContext(leadId: string) {
 
   const { data: activeBookings } = await supabase
     .from("bookings")
-    .select("id, calcom_booking_uid, status, scheduled_at")
+    .select("id, calcom_booking_uid, status, scheduled_at, updated_at")
     .eq("lead_id", leadId)
-    .in("status", ["confirmed", "pending", "rescheduled"])
+    .in("status", ["confirmed", "pending"])
+    .order("updated_at", { ascending: false })
     .order("scheduled_at", { ascending: false })
     .limit(5);
 
@@ -407,7 +408,7 @@ function fmtBrt(iso: string): string {
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
   const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb } = ctx;
-  const activeBooking = (activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending" || b.status === "rescheduled");
+  const activeBooking = (activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending");
 
   const facts = (memory?.facts ?? {}) as Record<string, unknown>;
   const datePref = (facts.date_preference ?? null) as null | { start_after?: string; end_before?: string; raw?: string };
@@ -895,12 +896,26 @@ Deno.serve(async (req) => {
               .from("bookings")
               .select("calcom_booking_uid")
               .eq("lead_id", lead_id)
-              .in("status", ["confirmed", "pending", "rescheduled"])
+              .in("status", ["confirmed", "pending"])
+              .order("updated_at", { ascending: false })
               .order("scheduled_at", { ascending: false })
               .limit(1)
               .maybeSingle();
             bookingUid = (existing as any)?.calcom_booking_uid ?? null;
           }
+
+          const buildFallbackMessage = () => {
+            const agentMsg = String(fd.message || "").trim();
+            if (agentMsg) {
+              if (decision === "cancel_booking" && !/remarc|reagend|quando.*quiser|me chama/i.test(agentMsg)) {
+                return `${agentMsg}\n\nSe quiser, é só me dizer quando ficar mais tranquilo que a gente reagenda.`;
+              }
+              return agentMsg;
+            }
+            return decision === "reschedule_booking"
+              ? "Deixa eu confirmar essa alteração de horário aqui e já te retorno."
+              : "Sem problemas. Cancelei nosso encontro. Se quiser, é só me dizer quando ficar mais tranquilo que a gente reagenda.";
+          };
 
           const sendFallback = async (reason: string) => {
             try {
@@ -921,10 +936,7 @@ Deno.serve(async (req) => {
                   conversation_id: conversation_id ?? null,
                   action_type: "send_reply",
                   params: {
-                    message:
-                      decision === "reschedule_booking"
-                        ? "Deixa eu confirmar essa alteração de horário aqui e já te retorno."
-                        : "Recebi seu pedido de cancelamento e já te confirmo em instantes.",
+                    message: buildFallbackMessage(),
                     channel: fallbackChannel,
                   },
                 },

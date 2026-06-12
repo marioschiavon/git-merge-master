@@ -10,20 +10,33 @@ serve(async (req) => {
     const { booking_uid, reason } = body;
     if (!booking_uid) return jsonResponse({ error: "booking_uid required" }, 400);
 
-    await calcomFetch(`/v2/bookings/${booking_uid}/cancel`, {
-      method: "POST",
-      body: JSON.stringify({ cancellationReason: reason || "Cliente cancelou" }),
-    });
+    let alreadyCancelled = false;
+    try {
+      await calcomFetch(`/v2/bookings/${booking_uid}/cancel`, {
+        method: "POST",
+        body: JSON.stringify({ cancellationReason: reason || "Cliente cancelou" }),
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (/cancelled already|already.*cancelled|has been cancelled/i.test(msg)) {
+        alreadyCancelled = true;
+        console.log(`calcom-booking-cancel: booking ${booking_uid} already cancelled, syncing DB.`);
+      } else {
+        throw err;
+      }
+    }
 
     const { data: existing } = await supabase
       .from("bookings")
-      .select("id, company_id, lead_id")
+      .select("id, company_id, lead_id, status")
       .eq("calcom_booking_uid", booking_uid)
       .maybeSingle();
 
     if (existing) {
-      await supabase.from("bookings").update({ status: "cancelled", cancel_reason: reason || null }).eq("id", existing.id);
-      if (existing.company_id) {
+      if (existing.status !== "cancelled") {
+        await supabase.from("bookings").update({ status: "cancelled", cancel_reason: reason || null }).eq("id", existing.id);
+      }
+      if (existing.company_id && !alreadyCancelled) {
         await supabase.from("lead_activities").insert({
           company_id: existing.company_id,
           lead_id: existing.lead_id,
@@ -34,7 +47,7 @@ serve(async (req) => {
       }
     }
 
-    return jsonResponse({ success: true });
+    return jsonResponse({ success: true, already_cancelled: alreadyCancelled });
   } catch (e) {
     console.error("calcom-booking-cancel error:", e);
     return jsonResponse({ error: e instanceof Error ? e.message : String(e) }, 500);
