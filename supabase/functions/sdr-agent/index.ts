@@ -366,6 +366,14 @@ async function loadContext(leadId: string) {
     .in("status", ["held", "confirmed"])
     .order("slot_datetime", { ascending: true });
 
+  const { data: activeBookings } = await supabase
+    .from("bookings")
+    .select("id, calcom_booking_uid, status, scheduled_at")
+    .eq("lead_id", leadId)
+    .in("status", ["confirmed", "pending", "rescheduled"])
+    .order("scheduled_at", { ascending: false })
+    .limit(5);
+
   const { data: enrollment } = await supabase
     .from("cadence_enrollments")
     .select("id, status, paused_reason, current_step")
