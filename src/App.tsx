@@ -51,6 +51,7 @@ const App = () => (
               <Route path="/conversations" element={<Conversations />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/knowledge" element={<Knowledge />} />
+              <Route path="/agent-runs" element={<AgentRuns />} />
               <Route element={<RequireMasterAdmin />}>
                 <Route path="/master" element={<MasterDashboard />} />
                 <Route path="/master/companies" element={<Companies />} />
