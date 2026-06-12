@@ -1,39 +1,38 @@
-## Dois bugs
+## Comportamento desejado
 
-### 1. UI mostra "Remarcada 03/07 16:45" mesmo após cancelamento
-A reunião foi cancelada com sucesso no Cal.com e no DB (booking `9FHUQQniu6ZRouvNjMd4ze` agora está `cancelled`), mas o `BookingCard` na tela de conversas mostra a reserva ANTIGA `kAJnGRzLmRNeoBiXqGMVNX` com status `rescheduled` (16:45).
+Quando o lead pede um dia (ex.: "amanhã") e a agenda não tem slots naquele dia (sábado, domingo, fim de expediente, etc.), o agente deve dizer ISSO claramente e já oferecer os próximos horários disponíveis — em vez de blamar "instabilidade no sistema" e deixar o lead esperando.
 
-**Causa:** `useLeadBooking` (`src/hooks/useLeadBooking.ts`) pega "o primeiro não-cancelado":
+## Mudanças
+
+### 1. `supabase/functions/sdr-agent/index.ts` — `check_calendar` com fallback automático
+Quando o resultado de `calcom-slots` vier vazio para a janela pedida, fazer **uma segunda chamada** ampliando a janela para os próximos 14 dias após `end_before` (ou após `start_after` se end não veio). Retornar para o agente:
+
 ```ts
-const active = rows.find((r) => r.status !== "cancelled");
+{
+  slots: [...],                  // mantém shape atual; se vazio na janela, virão os próximos
+  slots_in_window: [],           // explicitamente vazio
+  next_available: [...],         // até 4 próximos slots fora da janela
+  reason: "no_slots_in_window",
+  requested_window: { start_after, end_before },
+}
 ```
-Como `rescheduled` não é cancelado, ele vence sobre o `cancelled` mais recente. Mas `rescheduled` é uma reserva morta — só vale para histórico.
 
-**Fix:** priorizar status na ordem `confirmed > pending > rescheduled > cancelled > resto`, sempre desempatando pelo `updated_at` mais recente. Mais simples: filtrar `rows` por `status in (confirmed, pending)` e pegar o primeiro; se não houver nenhum, mostrar o mais recente independente do status (que vai ser o `cancelled` correto). Resultado: card vai mostrar "Reunião cancelada" risca­da.
+Se mesmo a janela ampliada vier vazia, retornar `{ slots: [], reason: "no_availability", ... }` (aí sim faz sentido escalate ou followup).
 
-### 2. Lead disse "Acho que posso amanhã. Tem horário?" e o agente travou
-O agente respondeu: *"Claro, Juliano! Só um momento enquanto eu verifico os horários disponíveis para amanhã. Já te retorno com as opções."* — decisão `send_message`, sem chamar `check_calendar`, sem `offer_slots`. Não vai voltar sozinho.
+### 2. `supabase/functions/sdr-agent/index.ts` — regra no prompt
+Adicionar em "Regras críticas":
+- "Se `check_calendar` retornar `reason: 'no_slots_in_window'`, é PROIBIDO responder 'sistema instável' ou 'aguarde'. Você DEVE responder reconhecendo que não há horário na janela pedida (ex.: 'amanhã é sábado / não tenho horário no dia X') e usar `offer_slots` com os `next_available` retornados. Mensagem natural, sem culpar sistema."
+- "Se `reason: 'no_availability'`, aí sim diga ao lead que a agenda está cheia pelos próximos dias e pergunte uma janela maior, ou use `escalate_to_human`."
 
-**Causa:** o prompt proíbe esse padrão quando existe `date_preference` na memória, mas o lead ACABOU de declarar a preferência nesta mensagem — ainda não está em `lead_memory`. O agente interpretou como "preciso checar e volto".
-
-**Fix no system prompt do `sdr-agent`:**
-- Regra explícita: se a mensagem do lead contém uma janela temporal (amanhã, hoje, semana que vem, segunda, dia X) e ele pergunta sobre horários, é PROIBIDO usar `send_message` com texto de "vou verificar/já te retorno/só um momento". Ações obrigatórias no MESMO turno: (a) `update_lead_facts` com o `date_preference`, (b) `check_calendar` na janela, (c) finalizar com `offer_slots` (ou `send_message` informando que não há slots e propondo alternativa concreta).
-- Reforçar a regra existente para cobrir o caso "date_preference acabou de chegar nesta mensagem", não apenas "já está na memória".
-
-## O que vou alterar
-
-1. `src/hooks/useLeadBooking.ts` — reescrever a seleção: preferir `confirmed`/`pending` (mais recente por `updated_at`); fallback para o mais recente overall. Manter o resto.
-2. `supabase/functions/sdr-agent/index.ts` — adicionar duas linhas em "Regras críticas":
-   - "PROIBIDO responder 'vou verificar', 'já te retorno', 'só um momento', 'me dá um instante' quando o lead pediu horários. Sempre execute `check_calendar` + `offer_slots` no MESMO turno."
-   - "Se a MENSAGEM ATUAL do lead contém uma janela temporal explícita (hoje, amanhã, semana que vem, segunda, dia X), trate como `date_preference` imediata: `update_lead_facts` + `check_calendar` + `offer_slots` no mesmo turno."
-3. Recolocar o Juliano nos trilhos: chamar `check_calendar` para amanhã (13/06 BRT) e enviar `offer_slots` reais via execute-action.
+### 3. Recolocar Juliano nos trilhos
+Re-invocar o `sdr-agent` para a conversa do Juliano (ou disparar um inbound simulado), agora com o fallback. Ele deve oferecer slots de segunda em diante.
 
 ## Verificação
 
-- Reabrir a conversa do Juliano: `BookingCard` desaparece ou mostra "Cancelada" (risca­da, sem botões Meet/Remarcar/Cancelar).
-- Próximo "tem horário amanhã?" em qualquer lead: `sdr_agent_runs` mostra `decision=offer_slots` com slots reais; nenhuma mensagem outbound contendo "já te retorno".
+- Re-rodar agente para Juliano: mensagem nova explica "amanhã é sábado" (ou simplesmente "não tenho horário amanhã") e oferece 2-3 horários da semana seguinte.
+- `sdr_agent_runs.final_output.decision = offer_slots` com `offered_slots` populado.
 
 ## Fora do escopo
 
-- Não vou tocar em fluxo de cadência, inbound-webhook, ou Cal.com edge functions.
-- Não vou redesenhar o BookingCard além da lógica de seleção.
+- Não vou mexer em `calcom-slots`, regras de horário comercial, ou criar lógica de detecção de fim-de-semana no Cal.com — o fallback de ampliação de janela já cobre o caso de forma genérica (sábado, domingo, feriado, dia cheio, fim de expediente).
+- Não vou tocar no BookingCard nem no fluxo de cancelamento/remarcação (já corrigidos).

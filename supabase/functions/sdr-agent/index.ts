@@ -228,8 +228,38 @@ async function execTool(
         body.start_after = start.toISOString();
         body.end_before = end.toISOString();
       }
+      const requestedWindow = { start_after: body.start_after ?? null, end_before: body.end_before ?? null };
       const { data, error } = await supabase.functions.invoke("calcom-slots", { body });
       if (error) return { error: String(error) };
+      const slots = (data as any)?.slots ?? [];
+
+      // Fallback: nenhuma vaga na janela pedida -> ampliar +14 dias e buscar próximos
+      if (Array.isArray(slots) && slots.length === 0 && (body.start_after || body.end_before)) {
+        const widenFrom = body.end_before
+          ? new Date(String(body.end_before))
+          : new Date(String(body.start_after));
+        const widenTo = new Date(widenFrom.getTime() + 14 * 86400000);
+        const widenBody: Record<string, unknown> = {
+          company_id: ctx.company_id,
+          lead_id: ctx.lead_id,
+          conversation_id: ctx.conversation_id ?? undefined,
+          start_after: widenFrom.toISOString(),
+          end_before: widenTo.toISOString(),
+        };
+        if (Array.isArray(args.exclude_datetimes)) widenBody.exclude_datetimes = args.exclude_datetimes;
+        if (Array.isArray(args.exclude_dates)) widenBody.exclude_dates = args.exclude_dates;
+        const { data: widen } = await supabase.functions.invoke("calcom-slots", { body: widenBody });
+        const nextAvailable = ((widen as any)?.slots ?? []).slice(0, 4);
+        return {
+          ...(data ?? {}),
+          slots: nextAvailable,
+          slots_in_window: [],
+          next_available: nextAvailable,
+          requested_window: requestedWindow,
+          reason: nextAvailable.length > 0 ? "no_slots_in_window" : "no_availability",
+        };
+      }
+
       return data ?? { slots: [] };
     } catch (e) {
       return { error: String(e) };
