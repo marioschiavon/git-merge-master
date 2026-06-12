@@ -147,6 +147,8 @@ const TOOLS: ToolDef[] = [
               "escalate_to_human",
               "silence",
               "book_slot",
+              "reschedule_booking",
+              "cancel_booking",
               "mark_referral",
               "offer_slots",
             ],
@@ -163,7 +165,9 @@ const TOOLS: ToolDef[] = [
             description: "Slots ISO a oferecer (se decision=offer_slots)",
           },
           followup_at: { type: "string", description: "ISO datetime para próximo follow-up (se aplicável)" },
-          slot_start: { type: "string", description: "Horário do slot a reservar (se book_slot)" },
+          slot_start: { type: "string", description: "Horário ISO do slot (book_slot ou reschedule_booking)" },
+          booking_uid: { type: "string", description: "UID Cal.com do booking a remarcar/cancelar (opcional — se omitido, usamos a reserva ativa do lead)" },
+          reason: { type: "string", description: "Motivo (reschedule_booking ou cancel_booking)" },
           referrer_lead_id: { type: "string", description: "Lead que indicou (se mark_referral)" },
           rationale: {
             type: "string",
@@ -362,6 +366,14 @@ async function loadContext(leadId: string) {
     .in("status", ["held", "confirmed"])
     .order("slot_datetime", { ascending: true });
 
+  const { data: activeBookings } = await supabase
+    .from("bookings")
+    .select("id, calcom_booking_uid, status, scheduled_at")
+    .eq("lead_id", leadId)
+    .in("status", ["confirmed", "pending", "rescheduled"])
+    .order("scheduled_at", { ascending: false })
+    .limit(5);
+
   const { data: enrollment } = await supabase
     .from("cadence_enrollments")
     .select("id, status, paused_reason, current_step")
@@ -381,7 +393,7 @@ async function loadContext(leadId: string) {
     docs: (kbDocsRes.data ?? []) as Array<{ id: string; title: string; type: string }>,
   };
 
-  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], enrollment, kb };
+  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], activeBookings: activeBookings ?? [], enrollment, kb };
 
 }
 
@@ -394,7 +406,8 @@ function fmtBrt(iso: string): string {
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
-  const { lead, company, memory, intents, heldSlots, enrollment, kb } = ctx;
+  const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb } = ctx;
+  const activeBooking = (activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending" || b.status === "rescheduled");
 
   const facts = (memory?.facts ?? {}) as Record<string, unknown>;
   const datePref = (facts.date_preference ?? null) as null | { start_after?: string; end_before?: string; raw?: string };
@@ -433,6 +446,12 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- SEMPRE finalize chamando a tool `finalize`.",
     "- Português brasileiro. Mensagens curtas (2-3 parágrafos no máximo). Não use 'olá' nem 'tudo bem?' se já está no meio da conversa.",
     "",
+    "## Reservas existentes (remarcar/cancelar)",
+    "- Se EXISTE uma 'Reserva ativa' abaixo e o lead pede para MUDAR o horário (remarcar, adiar, antecipar, 'pode ser X em vez de Y'), use `decision=reschedule_booking` com `slot_start` = novo horário ISO e `booking_uid` da reserva ativa. NUNCA use `book_slot` quando já existe reserva ativa — isso cria reserva duplicada.",
+    "- Antes de finalizar `reschedule_booking`, valide com `check_calendar` (passando start_after/end_before cobrindo o horário pedido) que o novo slot está disponível. Se não estiver, ofereça alternativas próximas via `offer_slots`.",
+    "- Se o lead pede para CANCELAR/desmarcar definitivamente, use `decision=cancel_booking` com `reason` curta. Inclua `message` se ainda valer convidar a remarcar depois.",
+    "- A confirmação da remarcação/cancelamento deve vir no campo `message` da finalize (vamos enviar pelo mesmo canal da conversa).",
+    "",
     "## Antes de escalar para humano (escalate_to_human) você DEVE esgotar a KB:",
     "1. Tentar `search_knowledge` com PELO MENOS 2 reformulações diferentes (sinônimos, termos do segmento do lead, perguntas relacionadas).",
     "2. Chamar `list_knowledge` para ver TODO o catálogo de documentos da empresa.",
@@ -457,6 +476,9 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
       : "",
     "",
     `## Estado de agendamento`,
+    activeBooking
+      ? `⚠️ Reserva ativa: status=${activeBooking.status}, agendada para ${fmtBrt(activeBooking.scheduled_at)}, booking_uid=${activeBooking.calcom_booking_uid}. Se o lead quiser mudar de horário, use \`reschedule_booking\` (NÃO use book_slot).`
+      : "Sem reserva ativa.",
     heldSlots.length
       ? `Slots já oferecidos/segurados: ${heldSlots.map((s) => `${fmtBrt(s.slot_datetime)} (${s.status})`).join(", ")}. NÃO ofereça esses mesmos slots novamente — passe-os em exclude_datetimes se for buscar novos.`
       : "Nenhum slot ativo segurado.",
@@ -861,6 +883,98 @@ Deno.serve(async (req) => {
                 const sent = !execErr && (exec as any)?.result?.sent === true;
                 liveResult = { action: "book_slot", ok: !execErr, sent, booking, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
               }
+            }
+          }
+        } else if (decision === "reschedule_booking" || decision === "cancel_booking") {
+          const fd = finalDecision as any;
+          const fallbackChannel = fd.channel || "whatsapp";
+          // Resolve booking_uid
+          let bookingUid = typeof fd.booking_uid === "string" ? fd.booking_uid : null;
+          if (!bookingUid) {
+            const { data: existing } = await supabase
+              .from("bookings")
+              .select("calcom_booking_uid")
+              .eq("lead_id", lead_id)
+              .in("status", ["confirmed", "pending", "rescheduled"])
+              .order("scheduled_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            bookingUid = (existing as any)?.calcom_booking_uid ?? null;
+          }
+
+          const sendFallback = async (reason: string) => {
+            try {
+              await supabase
+                .from("leads")
+                .update({
+                  handoff_required: true,
+                  handoff_reason: `${decision} falhou: ${reason}`,
+                  handoff_at: new Date().toISOString(),
+                })
+                .eq("id", lead_id);
+            } catch (_) {}
+            try {
+              await supabase.functions.invoke("execute-action", {
+                body: {
+                  company_id: ctx.lead.company_id,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                  action_type: "send_reply",
+                  params: {
+                    message:
+                      decision === "reschedule_booking"
+                        ? "Deixa eu confirmar essa alteração de horário aqui e já te retorno."
+                        : "Recebi seu pedido de cancelamento e já te confirmo em instantes.",
+                    channel: fallbackChannel,
+                  },
+                },
+              });
+            } catch (_) {}
+          };
+
+          if (!bookingUid) {
+            await sendFallback("nenhuma reserva ativa encontrada");
+            liveResult = { action: decision, ok: false, error: "no active booking" };
+          } else if (decision === "reschedule_booking" && !fd.slot_start) {
+            await sendFallback("slot_start ausente");
+            liveResult = { action: decision, ok: false, error: "missing slot_start" };
+          } else {
+            const params: Record<string, unknown> =
+              decision === "reschedule_booking"
+                ? { booking_uid: bookingUid, start: fd.slot_start, reason: fd.reason || "Cliente solicitou remarcação" }
+                : { booking_uid: bookingUid, reason: fd.reason || "Cliente solicitou cancelamento" };
+
+            const { data: actionRes, error: actionErr } = await supabase.functions.invoke("execute-action", {
+              body: {
+                company_id: ctx.lead.company_id,
+                lead_id,
+                conversation_id: conversation_id ?? null,
+                action_type: decision,
+                params,
+              },
+            });
+            const actionOk = !actionErr && (actionRes as any)?.ok !== false && !(actionRes as any)?.error;
+            if (!actionOk) {
+              const errStr = actionErr ? String(actionErr) : String((actionRes as any)?.error ?? "unknown");
+              await sendFallback(errStr);
+              liveResult = { action: decision, ok: false, error: errStr, result: actionRes };
+            } else {
+              const defaultMsg =
+                decision === "reschedule_booking"
+                  ? `Pronto, ${ctx.lead.name?.split(" ")[0] || ""}! Remarquei para ${formatBRTLong(fd.slot_start)}. Você vai receber o novo convite por e-mail. 🙌`
+                  : `Tudo bem, ${ctx.lead.name?.split(" ")[0] || ""}, cancelei nossa reunião. Se quiser remarcar mais pra frente, é só me chamar.`;
+              const confirmMsg = String(fd.message || "").trim() || defaultMsg;
+              const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+                body: {
+                  company_id: ctx.lead.company_id,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                  action_type: "send_reply",
+                  params: { message: confirmMsg, channel: fd.channel || fallbackChannel },
+                },
+              });
+              const sent = !execErr && (exec as any)?.result?.sent === true;
+              liveResult = { action: decision, ok: !execErr, sent, result: exec, action_result: actionRes, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? null) };
             }
           }
         } else if (decision === "silence" || decision === "schedule_followup" || decision === "mark_referral") {
