@@ -406,7 +406,8 @@ function fmtBrt(iso: string): string {
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
-  const { lead, company, memory, intents, heldSlots, enrollment, kb } = ctx;
+  const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb } = ctx;
+  const activeBooking = (activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending" || b.status === "rescheduled");
 
   const facts = (memory?.facts ?? {}) as Record<string, unknown>;
   const datePref = (facts.date_preference ?? null) as null | { start_after?: string; end_before?: string; raw?: string };
