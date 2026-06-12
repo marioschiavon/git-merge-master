@@ -214,7 +214,7 @@ serve(async (req) => {
     if (!convId && lead_id) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url, pipeline_mode)")
         .eq("lead_id", lead_id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -228,7 +228,7 @@ serve(async (req) => {
     } else if (convId) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url)")
+        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url, pipeline_mode)")
         .eq("id", convId)
         .maybeSingle();
       if (conv) {
@@ -237,6 +237,7 @@ serve(async (req) => {
         leadData = (conv as any).leads;
       }
     }
+
 
     if (!convId) {
       return new Response(JSON.stringify({ error: "Conversa não encontrada" }), {
@@ -386,7 +387,9 @@ serve(async (req) => {
     let lastIntentSubIntent: string | null = null;
     let lastIntentEntities: Record<string, any> | null = null;
     let lastIntentLogId: string | null = null;
-    if (!earlyParsed && companyId && leadData?.id && !(earlyClarifyingKind && !earlyInboundDt)) {
+    const isAgentMode = leadData?.pipeline_mode === "agent";
+
+    if (!earlyParsed && companyId && leadData?.id && !(earlyClarifyingKind && !earlyInboundDt) && !isAgentMode) {
       try {
         // Build brief history for classifier
         const { data: recentMsgs } = await supabase
@@ -441,33 +444,35 @@ serve(async (req) => {
       }
     }
 
-    // SHADOW MODE: run unified sdr-agent in parallel for comparison.
+    // SDR-AGENT: shadow para leads legacy, LIVE para leads em modo agent.
     if (!earlyParsed && companyId && leadData?.id) {
       try {
-        const shadowPromise = supabase.functions
+        const agentMode = isAgentMode ? "live" : "shadow";
+        console.log(`sdr-agent invoke (mode=${agentMode}) lead=${leadData.id}`);
+        const agentPromise = supabase.functions
           .invoke("sdr-agent", {
             body: {
               lead_id: leadData.id,
               conversation_id: convId,
               trigger: "inbound",
-              mode: "shadow",
+              mode: agentMode,
             },
           })
           .then(({ error }) => {
-            if (error) console.error("sdr-agent shadow invoke error:", error);
+            if (error) console.error(`sdr-agent ${agentMode} invoke error:`, error);
           })
-          .catch((e) => console.error("sdr-agent shadow invoke threw:", e));
+          .catch((e) => console.error(`sdr-agent ${agentMode} invoke threw:`, e));
 
-        // Keep promise alive after handler returns its Response
-        // @ts-ignore - EdgeRuntime is provided by Supabase Edge Runtime
+        // @ts-ignore
         if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
           // @ts-ignore
-          EdgeRuntime.waitUntil(shadowPromise);
+          EdgeRuntime.waitUntil(agentPromise);
         }
       } catch (e) {
-        console.error("sdr-agent shadow trigger error:", e);
+        console.error("sdr-agent trigger error:", e);
       }
     }
+
 
 
 
