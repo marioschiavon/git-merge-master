@@ -744,6 +744,9 @@ export type Database = {
           created_at: string
           id: string
           lead_id: string
+          summary: string | null
+          summary_message_count: number
+          summary_updated_at: string | null
         }
         Insert: {
           cadence_enrollment_id?: string | null
@@ -752,6 +755,9 @@ export type Database = {
           created_at?: string
           id?: string
           lead_id: string
+          summary?: string | null
+          summary_message_count?: number
+          summary_updated_at?: string | null
         }
         Update: {
           cadence_enrollment_id?: string | null
@@ -760,6 +766,9 @@ export type Database = {
           created_at?: string
           id?: string
           lead_id?: string
+          summary?: string | null
+          summary_message_count?: number
+          summary_updated_at?: string | null
         }
         Relationships: [
           {
@@ -1063,6 +1072,54 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      knowledge_chunks: {
+        Row: {
+          chunk: string
+          company_id: string
+          created_at: string
+          embedding: string | null
+          id: string
+          knowledge_id: string | null
+          metadata: Json
+          token_count: number | null
+        }
+        Insert: {
+          chunk: string
+          company_id: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          knowledge_id?: string | null
+          metadata?: Json
+          token_count?: number | null
+        }
+        Update: {
+          chunk?: string
+          company_id?: string
+          created_at?: string
+          embedding?: string | null
+          id?: string
+          knowledge_id?: string | null
+          metadata?: Json
+          token_count?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "knowledge_chunks_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "knowledge_chunks_knowledge_id_fkey"
+            columns: ["knowledge_id"]
+            isOneToOne: false
+            referencedRelation: "company_knowledge"
             referencedColumns: ["id"]
           },
         ]
@@ -1379,6 +1436,54 @@ export type Database = {
             columns: ["message_id"]
             isOneToOne: false
             referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_memory: {
+        Row: {
+          company_id: string
+          created_at: string
+          facts: Json
+          id: string
+          last_message_count: number
+          lead_id: string
+          summary: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          facts?: Json
+          id?: string
+          last_message_count?: number
+          lead_id: string
+          summary?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          facts?: Json
+          id?: string
+          last_message_count?: number
+          lead_id?: string
+          summary?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_memory_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_memory_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: true
+            referencedRelation: "leads"
             referencedColumns: ["id"]
           },
         ]
@@ -1752,6 +1857,85 @@ export type Database = {
           },
         ]
       }
+      sdr_agent_runs: {
+        Row: {
+          company_id: string
+          completion_tokens: number | null
+          conversation_id: string | null
+          created_at: string
+          error: string | null
+          final_output: Json | null
+          id: string
+          latency_ms: number | null
+          lead_id: string | null
+          mode: string
+          model: string | null
+          prompt_tokens: number | null
+          status: string
+          steps: Json
+          total_tokens: number | null
+          trigger: string
+        }
+        Insert: {
+          company_id: string
+          completion_tokens?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          final_output?: Json | null
+          id?: string
+          latency_ms?: number | null
+          lead_id?: string | null
+          mode?: string
+          model?: string | null
+          prompt_tokens?: number | null
+          status?: string
+          steps?: Json
+          total_tokens?: number | null
+          trigger: string
+        }
+        Update: {
+          company_id?: string
+          completion_tokens?: number | null
+          conversation_id?: string | null
+          created_at?: string
+          error?: string | null
+          final_output?: Json | null
+          id?: string
+          latency_ms?: number | null
+          lead_id?: string | null
+          mode?: string
+          model?: string | null
+          prompt_tokens?: number | null
+          status?: string
+          steps?: Json
+          total_tokens?: number | null
+          trigger?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sdr_agent_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sdr_agent_runs_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "sdr_agent_runs_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       slot_expiry_followups: {
         Row: {
           attempts: number
@@ -1963,6 +2147,20 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      match_knowledge_chunks: {
+        Args: {
+          p_company_id: string
+          p_match_count?: number
+          p_query_embedding: string
+        }
+        Returns: {
+          chunk: string
+          id: string
+          knowledge_id: string
+          metadata: Json
+          similarity: number
+        }[]
       }
       move_to_dlq: {
         Args: {
