@@ -1,55 +1,34 @@
-## Problema
+Diagnóstico
 
-No modo agente (live), o lead recebe DUAS mensagens em sequência para a mesma resposta, cada uma com 2 horários diferentes (4 no total). Olhando `messages` para a conversa de hoje:
+- O webhook do WhatsApp está chegando e o modo agente está ativo.
+- O agente entendeu corretamente a mensagem do Juliano: decidiu `book_slot` para `03/jul 16:00`.
+- A falha aconteceu na execução do agendamento: o agente chamou a função de criação de booking com o campo errado (`slot_start`), mas a função espera `start` ou, melhor ainda, a confirmação por `slot_hold`.
+- Como o erro ficou só gravado em `sdr_agent_runs`, o lead não recebeu resposta de fallback. Por isso pareceu que o sistema parou.
 
-```
-14:06:54  outbound action=reject_slots  📅 15/jun 09:45 / 17/jun 15:30
-14:06:59  outbound action=send_reply    📅 03/jul 09:45 / 06/jul 09:45
-14:06:26  inbound  "Desculpe, essas não consigo"
-```
+Plano de correção
 
-Causa: `supabase/functions/inbound-webhook/index.ts` dispara DOIS pipelines em paralelo para todo inbound:
+1. Corrigir o agendamento no modo agente
+   - Em `sdr-agent`, quando a decisão for `book_slot`, localizar o `slot_holds` aberto que corresponde ao horário escolhido pelo lead.
+   - Confirmar o agendamento usando o fluxo existente de `calcom-confirm-booking`, passando `selected_slot_hold_id`.
+   - Isso reaproveita a lógica já pronta que confirma o hold, cancela os outros horários, registra atividade, atualiza cadência e mostra mensagem de sistema.
 
-1. **Pipeline legado** (linhas ~270 → 2280): classify → ações `schedule`/`n`/`reject_slots` → chama `calcom-slots` (cria novos holds) → envia outbound via Z-API (linha 2255).
-2. **sdr-agent live** (linha 452): também faz seu próprio `check_calendar` (holds novos) e envia outbound via `execute-action`.
+2. Adicionar fallback para não ficar em silêncio
+   - Se o booking falhar, o agente deve enviar uma mensagem curta ao lead, por WhatsApp, dizendo que vai verificar o horário e já retorna.
+   - Também marcar `handoff_required` no lead para humano revisar, em vez de deixar o erro invisível.
 
-Já existe um gate em `!isAgentMode` para o pipeline de "intent routing" (linha 392), mas o pipeline de scheduling/reply legado roda sempre. Resultado em agent mode: duas respostas, dois conjuntos de slots reservados.
+3. Garantir canal correto na resposta de confirmação
+   - Após booking confirmado, enviar a confirmação pelo canal da conversa atual, preservando WhatsApp quando o inbound veio pela Z-API.
 
-## Mudança
+4. Reparar este caso específico do Juliano
+   - Confirmar o horário que ele escolheu (`03/jul às 16:00`, correspondente ao hold existente), se ainda estiver disponível.
+   - Enviar a confirmação para ele no WhatsApp.
+   - Se o hold já tiver expirado, oferecer uma alternativa clara em vez de não responder.
 
-### `supabase/functions/inbound-webhook/index.ts` — short-circuit quando agent mode
+Verificação
 
-Depois do bloco que dispara o `sdr-agent` (linha 474), adicionar:
-
-```ts
-if (isAgentMode) {
-  console.log(`agent mode: skipping legacy classify/scheduling/outbound for lead=${leadData.id}`);
-  return new Response(JSON.stringify({ ok: true, agent_mode: true }), {
-    status: 200,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-```
-
-Isso pula:
-- Toda a classificação por IA (action=reply/schedule/n/confirm_slot/…)
-- Chamadas legadas a `calcom-slots` (sem duplicar holds)
-- Envio outbound via Z-API do pipeline antigo (sem mensagem duplicada)
-
-O que continua acontecendo antes do early return e segue valendo em agent mode:
-- Lead criado/atualizado
-- Mensagem inbound gravada em `messages`
-- Conversa criada/atribuída
-- Captura de auto-reply do destino
-- Trigger do `sdr-agent` (ele cuida de holds, resposta, handoff, cadência via `execute-action`)
-
-### Fora do escopo
-
-- Limpar holds antigos já reservados em duplicidade.
-- Mudar o pipeline legado para leads que NÃO estão em agent mode (continua igual).
-- UI de cadência/enrollment em agent mode (o agente já controla via `execute-action`).
-
-## Verificação
-
-1. Deploy de `inbound-webhook`.
-2. Mandar mensagem rejeitando slots no lead em agent mode → esperar UMA única outbound, e `slot_holds` com no máximo 2 novos registros (não 4).
+- Conferir que um novo inbound como “Pode ser dia 3 às 16h” resulta em:
+  - um booking criado;
+  - o `slot_hold` selecionado como confirmado;
+  - outros holds cancelados;
+  - uma única mensagem outbound via WhatsApp;
+  - `sdr_agent_runs.final_output.live.ok = true`.
