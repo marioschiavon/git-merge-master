@@ -674,19 +674,71 @@ Deno.serve(async (req) => {
       })
       .eq("id", runId!);
 
-    // SHADOW mode: do nothing. LIVE mode (future): translate finalDecision into actions.
+    // LIVE mode: traduzir finalDecision em ações reais (envio, handoff, etc).
+    let liveResult: Record<string, unknown> | null = null;
+    if (mode === "live" && finalDecision) {
+      try {
+        const decision = String(finalDecision.decision || "");
+        if (decision === "send_message") {
+          const msg = String((finalDecision as any).message || "").trim();
+          if (msg) {
+            const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+              body: {
+                company_id: ctx.lead.company_id,
+                lead_id,
+                conversation_id: conversation_id ?? null,
+                action_type: "send_reply",
+                params: {
+                  message: msg,
+                  channel: (finalDecision as any).channel || undefined,
+                },
+              },
+            });
+            liveResult = { action: "send_reply", ok: !execErr, result: exec, error: execErr ? String(execErr) : null };
+          } else {
+            liveResult = { action: "send_reply", skipped: "empty_message" };
+          }
+        } else if (decision === "escalate_to_human") {
+          await supabase
+            .from("leads")
+            .update({
+              handoff_required: true,
+              handoff_reason: String((finalDecision as any).rationale || "Agente SDR solicitou handoff"),
+              handoff_at: new Date().toISOString(),
+            })
+            .eq("id", lead_id);
+          liveResult = { action: "handoff", ok: true };
+        } else if (decision === "silence" || decision === "schedule_followup" || decision === "mark_referral") {
+          liveResult = { action: decision, ok: true, note: "no outbound" };
+        } else {
+          // offer_slots, book_slot: ainda não implementados em live — registrar para implementação futura.
+          liveResult = { action: decision, ok: false, error: "live_action_not_implemented" };
+        }
+      } catch (e) {
+        liveResult = { ok: false, error: String(e) };
+      }
+      await supabase
+        .from("sdr_agent_runs")
+        .update({
+          final_output: { ...(finalDecision as any), live: liveResult },
+        })
+        .eq("id", runId!);
+    }
+
     return new Response(
       JSON.stringify({
         ok: true,
         run_id: runId,
         mode,
         decision: finalDecision,
+        live: liveResult,
         steps_count: steps.length,
         tokens: totalPromptTokens + totalCompletionTokens,
         latency_ms: Date.now() - started,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
+
   } catch (e) {
     console.error("sdr-agent error", e);
     if (runId) {

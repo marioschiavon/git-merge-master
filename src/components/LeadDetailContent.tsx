@@ -18,11 +18,14 @@ import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { LeadSocialCard } from "@/components/LeadSocialCard";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useApproachSuggestions } from "@/hooks/usePreviewCadenceMessages";
 import { RefreshCw } from "lucide-react";
-import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/hooks/use-toast";
+import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles, Bot } from "lucide-react";
+
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -90,7 +93,9 @@ export interface LeadDetailLead {
   call_requested_at?: string | null;
   whatsapp_valid?: boolean | null;
   whatsapp_checked_at?: string | null;
+  pipeline_mode?: string | null;
 }
+
 
 interface Props {
   lead: LeadDetailLead;
@@ -109,6 +114,30 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
     lead?.id ?? null, lead?.company_id ?? null, !!lead,
   );
   const deleteLead = useDeleteLead();
+  const { toast } = useToast();
+
+  const pipelineMode = (lead as any).pipeline_mode === "agent" ? "agent" : "legacy";
+  const pipelineMutation = useMutation({
+    mutationFn: async (next: "legacy" | "agent") => {
+      const { error } = await supabase.from("leads").update({ pipeline_mode: next } as any).eq("id", lead.id);
+      if (error) throw error;
+      return next;
+    },
+    onSuccess: (next) => {
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead", lead.id] });
+      toast({
+        title: next === "agent" ? "Modo Agente ativado" : "Modo Pipeline atual",
+        description: next === "agent"
+          ? "Próximas respostas inbound serão enviadas pelo Agente SDR."
+          : "Voltou ao pipeline atual. O agente continua rodando em shadow.",
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Erro", description: String(e?.message || e), variant: "destructive" });
+    },
+  });
+
 
   const { data: lastJob } = useQuery({
     queryKey: ["lead_enrichment_job", lead?.id],
@@ -208,6 +237,31 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
           </AlertDialog>
         </div>
       )}
+
+      {/* Pipeline mode toggle */}
+      <div className={`rounded-md border p-3 flex items-center justify-between gap-3 ${pipelineMode === "agent" ? "border-primary/40 bg-primary/5" : "bg-muted/30"}`}>
+        <div className="flex items-start gap-2 min-w-0">
+          <Bot className={`h-4 w-4 mt-0.5 shrink-0 ${pipelineMode === "agent" ? "text-primary" : "text-muted-foreground"}`} />
+          <div className="min-w-0">
+            <div className="text-sm font-medium flex items-center gap-2">
+              Responder com Agente SDR
+              {pipelineMode === "agent" && <Badge variant="default" className="h-5 text-[10px]">LIVE</Badge>}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {pipelineMode === "agent"
+                ? "O agente unificado responde diretamente este lead. Pipeline atual desativado."
+                : "Pipeline atual responde. Agente roda em shadow para comparação."}
+            </p>
+          </div>
+        </div>
+        <Switch
+          checked={pipelineMode === "agent"}
+          disabled={pipelineMutation.isPending}
+          onCheckedChange={(v) => pipelineMutation.mutate(v ? "agent" : "legacy")}
+        />
+      </div>
+
+
 
       {/* Contact info */}
       <div className="space-y-2">

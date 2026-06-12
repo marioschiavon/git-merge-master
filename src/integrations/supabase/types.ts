@@ -1584,6 +1584,7 @@ export type Database = {
           phone: string | null
           pipedrive_data: Json | null
           pipedrive_id: number | null
+          pipeline_mode: string
           preferred_channel: string | null
           referral_context: string | null
           referral_followup_sent_at: string | null
@@ -1626,6 +1627,7 @@ export type Database = {
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
+          pipeline_mode?: string
           preferred_channel?: string | null
           referral_context?: string | null
           referral_followup_sent_at?: string | null
@@ -1668,6 +1670,7 @@ export type Database = {
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
+          pipeline_mode?: string
           preferred_channel?: string | null
           referral_context?: string | null
           referral_followup_sent_at?: string | null
