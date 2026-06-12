@@ -39,9 +39,10 @@ type Msg = {
   direction: string;
   content: string;
   channel: string | null;
-  created_at: string;
+  sent_at: string;
   metadata: Record<string, unknown> | null;
 };
+
 
 type LeadLite = { id: string; name: string | null; company_name: string | null };
 
