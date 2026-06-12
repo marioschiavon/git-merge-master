@@ -107,6 +107,30 @@ const TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "list_knowledge",
+      description:
+        "Lista todos os itens da base de conhecimento da empresa (título, tipo, id e snippet). Use quando search_knowledge não retornar nada útil ou para descobrir o que existe na KB antes de buscar/ler.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_knowledge_item",
+      description:
+        "Lê o conteúdo COMPLETO de um item da KB pelo id (ou pelo título exato). Use depois de list_knowledge quando precisar do conteúdo inteiro de um documento (ex.: cases, ROI, comparativos).",
+      parameters: {
+        type: "object",
+        properties: {
+          knowledge_id: { type: "string", description: "UUID do item em company_knowledge" },
+          title: { type: "string", description: "Título exato do item (alternativa ao id)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "finalize",
       description:
         "Encerra o raciocínio e devolve a decisão final: mensagem a enviar, ação (agendar/encaminhar/escalar) ou silêncio.",
@@ -150,6 +174,7 @@ const TOOLS: ToolDef[] = [
     },
   },
 ];
+
 
 // ────────────────────────────────────────────────────────────────
 // Tool executors
