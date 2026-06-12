@@ -1,44 +1,39 @@
-## Problema
+## Dois bugs
 
-O agente DECIDIU corretamente `cancel_booking` e gerou a mensagem humana:
+### 1. UI mostra "Remarcada 03/07 16:45" mesmo após cancelamento
+A reunião foi cancelada com sucesso no Cal.com e no DB (booking `9FHUQQniu6ZRouvNjMd4ze` agora está `cancelled`), mas o `BookingCard` na tela de conversas mostra a reserva ANTIGA `kAJnGRzLmRNeoBiXqGMVNX` com status `rescheduled` (16:45).
 
-> "Sem problemas, Juliano. Entendo perfeitamente, urgências acontecem. Vou cancelar nosso encontro. Quando a poeira baixar, a gente pode tentar de novo. Melhoras por aí."
+**Causa:** `useLeadBooking` (`src/hooks/useLeadBooking.ts`) pega "o primeiro não-cancelado":
+```ts
+const active = rows.find((r) => r.status !== "cancelled");
+```
+Como `rescheduled` não é cancelado, ele vence sobre o `cancelled` mais recente. Mas `rescheduled` é uma reserva morta — só vale para histórico.
 
-Mas essa mensagem **nunca chegou ao lead**. O que foi enviado foi o fallback robótico "Recebi seu pedido de cancelamento e já te confirmo em instantes." porque o `calcom-booking-cancel` falhou — o `booking_uid` que o agente passou (`kAJnGRzLmRNeoBiXqGMVNX`) já estava cancelado no Cal.com (era a reserva antiga, deixada para trás pelas remarcações). A reserva ativa real é `9FHUQQniu6ZRouvNjMd4ze`.
+**Fix:** priorizar status na ordem `confirmed > pending > rescheduled > cancelled > resto`, sempre desempatando pelo `updated_at` mais recente. Mais simples: filtrar `rows` por `status in (confirmed, pending)` e pegar o primeiro; se não houver nenhum, mostrar o mais recente independente do status (que vai ser o `cancelled` correto). Resultado: card vai mostrar "Reunião cancelada" risca­da.
 
-## Causas
+### 2. Lead disse "Acho que posso amanhã. Tem horário?" e o agente travou
+O agente respondeu: *"Claro, Juliano! Só um momento enquanto eu verifico os horários disponíveis para amanhã. Já te retorno com as opções."* — decisão `send_message`, sem chamar `check_calendar`, sem `offer_slots`. Não vai voltar sozinho.
 
-1. **Booking_uid errado no contexto do agente.** Em `loadContext` (sdr-agent), `activeBookings` inclui status `rescheduled` e ordena por `scheduled_at desc`. Após reschedule ida-e-volta com mesmo horário, a reserva antiga (rescheduled) aparece primeiro e vai parar no prompt como "Reserva ativa".
-2. **Fallback descarta a mensagem humana do agente.** No branch `cancel_booking/reschedule_booking` do `sdr-agent`, quando o action falha o `sendFallback` ignora `fd.message` e manda texto enlatado.
-3. **`calcom-booking-cancel` não tolera "already cancelled".** O Cal.com responde 400 nesse caso, virando erro fatal — deveria ser sincronização silenciosa.
+**Causa:** o prompt proíbe esse padrão quando existe `date_preference` na memória, mas o lead ACABOU de declarar a preferência nesta mensagem — ainda não está em `lead_memory`. O agente interpretou como "preciso checar e volto".
 
-## O que vou fazer
+**Fix no system prompt do `sdr-agent`:**
+- Regra explícita: se a mensagem do lead contém uma janela temporal (amanhã, hoje, semana que vem, segunda, dia X) e ele pergunta sobre horários, é PROIBIDO usar `send_message` com texto de "vou verificar/já te retorno/só um momento". Ações obrigatórias no MESMO turno: (a) `update_lead_facts` com o `date_preference`, (b) `check_calendar` na janela, (c) finalizar com `offer_slots` (ou `send_message` informando que não há slots e propondo alternativa concreta).
+- Reforçar a regra existente para cobrir o caso "date_preference acabou de chegar nesta mensagem", não apenas "já está na memória".
 
-### 1. `supabase/functions/sdr-agent/index.ts` — booking_uid correto
-- `loadContext`: trocar o filtro de `["confirmed","pending","rescheduled"]` para `["confirmed","pending"]` e ordenar por `updated_at desc, scheduled_at desc`.
-- Mesmo filtro no fallback de resolução de `bookingUid` no branch cancel/reschedule (linhas 893-903).
-- Resultado: o prompt do agente passa a apontar para a reserva REAL ativa.
+## O que vou alterar
 
-### 2. `supabase/functions/sdr-agent/index.ts` — preservar mensagem humana no fallback
-- `sendFallback(reason)` passa a aceitar `customMessage` opcional.
-- Quando `fd.message` existir, enviar ele em vez do texto enlatado.
-- Para `cancel_booking`, se o agente não incluiu convite para remarcar depois, complementar com "Se quiser, é só me dizer quando ficar mais tranquilo que a gente reagenda." (concatenado).
-- Manter `handoff_required: true` para o time humano ser alertado em background, mas a conversa com o lead fica natural.
-
-### 3. `supabase/functions/calcom-booking-cancel/index.ts` — tolerar "already cancelled"
-- Capturar o erro do `calcomFetch`, detectar a string `cancelled already` e tratar como sucesso: atualiza booking no DB para `cancelled`, registra `lead_activities` e retorna `{ success: true, already_cancelled: true }`.
-
-### 4. Corrigir o caso Juliano agora (uma vez)
-- Chamar `calcom-booking-cancel` no booking ativo correto `9FHUQQniu6ZRouvNjMd4ze` (motivo: "Lead pediu cancelamento — urgência").
-- Enviar via `execute-action` a mensagem humana que o agente havia gerado, complementada com convite para remarcar.
+1. `src/hooks/useLeadBooking.ts` — reescrever a seleção: preferir `confirmed`/`pending` (mais recente por `updated_at`); fallback para o mais recente overall. Manter o resto.
+2. `supabase/functions/sdr-agent/index.ts` — adicionar duas linhas em "Regras críticas":
+   - "PROIBIDO responder 'vou verificar', 'já te retorno', 'só um momento', 'me dá um instante' quando o lead pediu horários. Sempre execute `check_calendar` + `offer_slots` no MESMO turno."
+   - "Se a MENSAGEM ATUAL do lead contém uma janela temporal explícita (hoje, amanhã, semana que vem, segunda, dia X), trate como `date_preference` imediata: `update_lead_facts` + `check_calendar` + `offer_slots` no mesmo turno."
+3. Recolocar o Juliano nos trilhos: chamar `check_calendar` para amanhã (13/06 BRT) e enviar `offer_slots` reais via execute-action.
 
 ## Verificação
 
-- DB do Juliano: todas as `bookings` ficam `cancelled` ou `rescheduled` (nenhuma `confirmed`).
-- Mensagens da conversa mostram a mensagem empática enviada.
-- Próximo cancelamento em outro lead: `sdr_agent_runs.final_output.live.ok = true`, `calcom-booking-cancel` retorna 200 e a mensagem efetivamente enviada é a que o LLM compôs.
+- Reabrir a conversa do Juliano: `BookingCard` desaparece ou mostra "Cancelada" (risca­da, sem botões Meet/Remarcar/Cancelar).
+- Próximo "tem horário amanhã?" em qualquer lead: `sdr_agent_runs` mostra `decision=offer_slots` com slots reais; nenhuma mensagem outbound contendo "já te retorno".
 
 ## Fora do escopo
 
-- Não vou mexer em `inbound-webhook`, slot_holds, cadência, nem em outras decisions.
-- Não vou redesenhar o prompt — só os filtros de "Reserva ativa".
+- Não vou tocar em fluxo de cadência, inbound-webhook, ou Cal.com edge functions.
+- Não vou redesenhar o BookingCard além da lógica de seleção.
