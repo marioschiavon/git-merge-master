@@ -392,7 +392,8 @@ function fmtBrt(iso: string): string {
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
-  const { lead, company, memory, intents, heldSlots, enrollment } = ctx;
+  const { lead, company, memory, intents, heldSlots, enrollment, kb } = ctx;
+
   const facts = (memory?.facts ?? {}) as Record<string, unknown>;
   const datePref = (facts.date_preference ?? null) as null | { start_after?: string; end_before?: string; raw?: string };
   const preferredChannel = (facts.preferred_channel ?? null) as string | null;
