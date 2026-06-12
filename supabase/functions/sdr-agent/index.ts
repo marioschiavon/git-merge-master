@@ -405,6 +405,13 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     company?.value_proposition ? `Proposta de valor: ${company.value_proposition}` : "",
     company?.tone ? `Tom de voz: ${company.tone}` : "Tom: profissional, próximo, consultivo, sem clichês.",
     "",
+    "## Base de conhecimento da empresa (curada — já carregada, sem precisar de tool)",
+    kb.highlights ? `### Diferenciais (highlights)\n${kb.highlights}` : "### Diferenciais: (não cadastrados)",
+    kb.ai_instructions ? `### Instruções de abordagem\n${kb.ai_instructions}` : "",
+    kb.docs.length
+      ? `### Documentos disponíveis (use list_knowledge / read_knowledge_item para abrir):\n${kb.docs.map((d) => `- [${d.id}] (${d.type}) ${d.title}`).join("\n")}`
+      : "### Documentos: (catálogo vazio)",
+
     "## Missão",
     "- Conduzir o lead a agendar uma conversa.",
     "- Tirar dúvidas com base na KB (use search_knowledge ANTES de afirmar fatos).",
