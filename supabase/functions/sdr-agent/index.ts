@@ -581,7 +581,49 @@ Deno.serve(async (req) => {
 
       const calls = msg.tool_calls ?? [];
       if (calls.length === 0) {
-        finalDecision = { decision: "silence", rationale: "Modelo não chamou finalize", raw: msg.content };
+        // Modelo respondeu em texto livre sem chamar finalize.
+        // Forçar uma chamada extra com tool_choice = finalize para converter o texto em decisão estruturada.
+        const rawText = (msg.content as string) ?? "";
+        steps.push({ step, event: "finalize_retry", raw: rawText });
+        try {
+          const retry = await chatCompletion({
+            model: MODEL,
+            messages: [
+              ...messages,
+              {
+                role: "user",
+                content:
+                  `Você terminou sem chamar a tool \`finalize\`. ` +
+                  `Converta sua última resposta em uma chamada de \`finalize\` agora, ` +
+                  `escolhendo o \`decision\` apropriado (send_message, offer_slots, escalate_to_human, etc.) ` +
+                  `e usando exatamente o texto que você escreveu como \`message\` (se for o caso de enviar mensagem). ` +
+                  `Não adicione comentários — apenas chame a tool.`,
+              },
+            ],
+            tools: TOOLS,
+            tool_choice: { type: "function", function: { name: "finalize" } } as unknown as "auto",
+            temperature: 0.1,
+          });
+          totalPromptTokens += retry.usage?.prompt_tokens ?? 0;
+          totalCompletionTokens += retry.usage?.completion_tokens ?? 0;
+          const rcall = retry.choices[0]?.message?.tool_calls?.[0];
+          if (rcall && rcall.function.name === "finalize") {
+            try {
+              finalDecision = JSON.parse(rcall.function.arguments || "{}");
+            } catch {
+              finalDecision = null;
+            }
+            steps.push({ step, event: "finalize_retry_ok", args: finalDecision });
+          }
+        } catch (e) {
+          steps.push({ step, event: "finalize_retry_failed", error: String(e) });
+        }
+        if (!finalDecision) {
+          // Último fallback: tratar o texto livre como send_message para não perder a resposta do agente.
+          finalDecision = rawText
+            ? { decision: "send_message", message: rawText, channel: "whatsapp", rationale: "fallback: modelo não chamou finalize" }
+            : { decision: "silence", rationale: "Modelo não chamou finalize e não produziu texto" };
+        }
         break;
       }
 
