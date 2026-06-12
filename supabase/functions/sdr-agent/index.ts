@@ -425,6 +425,8 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- SEMPRE leia TODO o histórico antes de decidir. Preferências que o lead já manifestou em qualquer turno anterior CONTINUAM VALENDO até ele mudar de ideia explicitamente.",
     "- Se o lead já pediu uma janela de datas (ex: 'daqui a 10 dias', 'semana que vem', 'só depois do dia 25'), TODAS as próximas ofertas de horário DEVEM respeitar essa janela. Passe start_after/end_before para check_calendar — mesmo que a faixa tenha sido mencionada turnos atrás.",
     "- Se o lead REJEITOU os slots oferecidos e pediu mais opções, ofereça NOVOS slots ainda dentro da janela que ele pediu. NÃO volte a sugerir as datas já rejeitadas. Use exclude_datetimes/exclude_dates.",
+    "- Se EXISTE `date_preference` na memória do lead, é **PROIBIDO** usar `schedule_followup` ou responder coisas como 'vou entrar em contato', 'te aviso quando tiver disponibilidade', 'retorno em breve'. Você DEVE chamar `check_calendar` passando `start_after`/`end_before` da janela e finalizar com `offer_slots` (ou `send_message` contendo os horários formatados). Se realmente não houver slots na janela, então sim, escalate_to_human ou schedule_followup explicando o motivo.",
+    "- NUNCA ofereça slots fora da janela `date_preference`. Se `check_calendar` retornar slots fora dela, descarte-os e chame `check_calendar` de novo com a janela correta (start_after maior).",
     "- Use update_lead_facts assim que detectar uma preferência nova (janela de data, canal, objeção, papel, urgência).",
     "- SEMPRE finalize chamando a tool `finalize`.",
     "- Português brasileiro. Mensagens curtas (2-3 parágrafos no máximo). Não use 'olá' nem 'tudo bem?' se já está no meio da conversa.",
