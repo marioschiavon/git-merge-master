@@ -129,6 +129,37 @@ serve(async (req) => {
       });
     }
 
+    // Load already-active holds for this lead so we never insert/reserve duplicates.
+    const { data: existingHoldsRaw } = await supabase
+      .from("slot_holds")
+      .select("id, slot_datetime, status, expires_at, cal_booking_uid")
+      .eq("lead_id", lead_id)
+      .in("status", ["held", "confirmed"])
+      .gt("expires_at", new Date().toISOString());
+    const existingHolds = existingHoldsRaw ?? [];
+    const existingHoldMs = new Map<number, typeof existingHolds[number]>();
+    for (const h of existingHolds) {
+      const ts = new Date(h.slot_datetime).getTime();
+      if (!isNaN(ts)) existingHoldMs.set(ts, h);
+    }
+    // Existing held datetimes are implicitly "already offered" — exclude them when picking new slots.
+    for (const ts of existingHoldMs.keys()) excludeSet.add(ts);
+
+    // Helper: returns existing hold record if the slot datetime is already held for this lead.
+    const findExistingHold = (iso: string) => {
+      const ts = new Date(iso).getTime();
+      if (isNaN(ts)) return null;
+      // exact match first
+      const exact = existingHoldMs.get(ts);
+      if (exact) return exact;
+      // tolerance match (within 60s)
+      for (const [k, v] of existingHoldMs) {
+        if (Math.abs(k - ts) < 60000) return v;
+      }
+      return null;
+    };
+
+
     // Window selection — enforce a minimum lead time so we never offer "in 30 minutes"
     const MIN_LEAD_HOURS = Number(Deno.env.get("CALCOM_MIN_LEAD_HOURS") || 24);
     const DEFAULT_WINDOW_DAYS = Number(Deno.env.get("CALCOM_WINDOW_DAYS") || 14);
@@ -191,6 +222,19 @@ serve(async (req) => {
       }
 
       if (matchedSlot) {
+        // Dedupe: if a hold already exists for this exact slot, reuse it.
+        const dupHold = findExistingHold(matchedSlot);
+        if (dupHold) {
+          console.log("Reusing existing hold for", matchedSlot);
+          return new Response(JSON.stringify({
+            success: true,
+            available: true,
+            exact_slot: matchedSlot,
+            slots: [dupHold],
+            deduped: true,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
         // Available — reserve just this one slot
         let reservationUid = "";
         try {
@@ -325,6 +369,21 @@ serve(async (req) => {
     const selectedSlots = pickSpreadSlots(slotsData, excludeSet, MIN_SPREAD_HOURS, excludeDateSet);
 
     if (selectedSlots.length < 1) {
+      // If there are still active holds for this lead in the requested window, just reuse them
+      // instead of failing — the agent likely already offered these and is asking again.
+      const reusable = existingHolds.filter((h) => {
+        const ts = new Date(h.slot_datetime).getTime();
+        return ts >= startDate.getTime() && ts <= endDate.getTime();
+      });
+      if (reusable.length > 0) {
+        console.log("Reusing", reusable.length, "existing holds (no new slots available in window)");
+        return new Response(JSON.stringify({
+          success: true,
+          slots: reusable,
+          formatted: reusable.map((h) => formatBRTLong(h.slot_datetime)),
+          deduped: true,
+        }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
       return new Response(JSON.stringify({
         error: "Não há slots disponíveis na janela solicitada",
         available_count: 0,
