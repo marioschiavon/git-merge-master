@@ -271,11 +271,18 @@ async function loadContext(leadId: string) {
   if (convIds.length > 0) {
     const { data: msgs } = await supabase
       .from("messages")
-      .select("direction, content, created_at, metadata, channel")
+      .select("direction, content, sent_at, metadata, channel")
       .in("conversation_id", convIds)
-      .order("created_at", { ascending: false })
+      .order("sent_at", { ascending: false })
       .limit(HISTORY_LIMIT);
-    messages = (msgs ?? []).reverse();
+    messages = (msgs ?? []).map((m: { direction: string; content: string; sent_at: string; metadata: Record<string, unknown> | null; channel: string | null }) => ({
+      direction: m.direction,
+      content: m.content,
+      created_at: m.sent_at,
+      metadata: m.metadata,
+      channel: m.channel,
+    })).reverse();
+
   }
 
   const { data: intents } = await supabase
