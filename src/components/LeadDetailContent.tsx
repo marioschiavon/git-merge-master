@@ -238,6 +238,31 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
         </div>
       )}
 
+      {/* Pipeline mode toggle */}
+      <div className={`rounded-md border p-3 flex items-center justify-between gap-3 ${pipelineMode === "agent" ? "border-primary/40 bg-primary/5" : "bg-muted/30"}`}>
+        <div className="flex items-start gap-2 min-w-0">
+          <Bot className={`h-4 w-4 mt-0.5 shrink-0 ${pipelineMode === "agent" ? "text-primary" : "text-muted-foreground"}`} />
+          <div className="min-w-0">
+            <div className="text-sm font-medium flex items-center gap-2">
+              Responder com Agente SDR
+              {pipelineMode === "agent" && <Badge variant="default" className="h-5 text-[10px]">LIVE</Badge>}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {pipelineMode === "agent"
+                ? "O agente unificado responde diretamente este lead. Pipeline atual desativado."
+                : "Pipeline atual responde. Agente roda em shadow para comparação."}
+            </p>
+          </div>
+        </div>
+        <Switch
+          checked={pipelineMode === "agent"}
+          disabled={pipelineMutation.isPending}
+          onCheckedChange={(v) => pipelineMutation.mutate(v ? "agent" : "legacy")}
+        />
+      </div>
+
+
+
       {/* Contact info */}
       <div className="space-y-2">
         {lead.email && (
