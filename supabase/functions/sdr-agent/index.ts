@@ -741,7 +741,8 @@ Deno.serve(async (req) => {
                 },
               },
             });
-            liveResult = { action: "send_reply", ok: !execErr, result: exec, error: execErr ? String(execErr) : null };
+            const sent = !execErr && (exec as any)?.result?.sent === true;
+            liveResult = { action: "send_reply", ok: !execErr, sent, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
           } else {
             liveResult = { action: "send_reply", skipped: "empty_message" };
           }
