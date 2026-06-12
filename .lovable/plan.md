@@ -1,41 +1,40 @@
-## Problema
+## Objetivo
+Adicionar um toggle por lead para escolher qual pipeline responde: **Atual** (legacy) ou **Agente** (sdr-agent). Quando "Agente" estiver ligado, o sdr-agent envia a resposta de verdade (live) e o pipeline antigo é pulado. Assim dá pra testar lado-a-lado em leads reais sem afetar os outros.
 
-Na tela **Runs do Agente**, o painel "Agente (proposta)" aparece vazio em vários casos legítimos:
+## O que muda
 
-1. **Fallback de finalize.** Quando o modelo responde só em texto (sem chamar a tool `finalize`), o `sdr-agent` salva `{ raw: "...texto...", decision: "silence", rationale: "Modelo não chamou finalize" }`. O texto existe, mas fica em `raw`, e a UI só lê `final_output.message`.
-2. **Decisões sem mensagem por design.** Runs com `decision = silence`, `escalate_to_human`, `schedule_followup` ou `mark_referral` não têm `message`. Hoje a UI mostra "— sem mensagem —" sem explicar o motivo nem o raciocínio.
-3. **Inbound desalinhado.** A "Mensagem do lead (gatilho)" usa o último inbound `<= run.created_at`. Em conversas com vários runs próximos no tempo (caso desta conversa, 5 runs em ~10 min), pode mostrar um inbound diferente do que de fato disparou aquele run.
+### 1. Schema
+- Nova coluna em `leads`: `pipeline_mode text not null default 'legacy'` (valores: `legacy` | `agent`).
+- Índice opcional por `company_id, pipeline_mode` pra debug.
 
-## Solução
+### 2. UI — toggle no lead
+- Em `LeadDetail.tsx` / `LeadDetailContent.tsx`, adicionar um Switch no topo: **"Responder com Agente SDR"** (off = pipeline atual, on = sdr-agent live).
+- Badge visível na lista de leads (`Leads.tsx`) pra identificar quem está em modo agente.
+- Persistir via `update` direto na tabela `leads` (RLS já protege por `company_id`).
 
-Duas mudanças cirúrgicas, sem mexer no resto do pipeline.
+### 3. Webhook inbound — bifurcação
+Em `supabase/functions/inbound-webhook/index.ts` (e nos webhooks de email/whatsapp que chamam o mesmo fluxo):
+- Após carregar `leadData`, ler `leadData.pipeline_mode`.
+- Se `agent`: pular o `routeAndEnqueue` (legacy) e invocar `sdr-agent` com `mode: "live"`.
+- Se `legacy`: comportamento atual + shadow do agente (sem mudança).
 
-### 1. `supabase/functions/sdr-agent/index.ts` — reduzir fallback silencioso
+### 4. sdr-agent — implementar modo live
+Hoje o `sdr-agent` só registra a run; em `mode: "live"` precisa efetivamente enviar. Adicionar ao final do handler, depois do `finalize`:
+- Se `mode === "live"` e `decision === "send_message"`: inserir mensagem outbound em `messages` e chamar `send-outbound-message` (ou inserir em `lead_action_queue` com `action_type: "send_message"`, o mesmo caminho que o pipeline atual usa) — escolher o caminho que já existe no projeto pra reaproveitar canal (WhatsApp/email).
+- Se `decision === "offer_slots"` / `book_slot`: reutilizar `calcom-booking-create` / fluxo de slot já existente.
+- Se `decision === "escalate_to_human"`: setar `handoff_required = true` no lead.
+- Se `silence` / `schedule_followup` / `mark_referral`: só registrar, sem envio.
+- Gravar `sent: true` no `final_output` da run pra auditoria.
 
-Quando o modelo termina sem chamar `finalize` mas devolveu texto livre:
+### 5. Painel Agent Runs
+- Mostrar badge "LIVE" (vermelho) vs "SHADOW" (cinza) já existente no `mode`.
+- Quando `live` e mensagem enviada, mostrar link "Mensagem enviada ✓".
 
-- Em vez de gravar `decision: "silence"` com `raw`, fazer uma chamada extra (1 turno) **forçando** `tool_choice` para `finalize`, passando o texto livre como contexto: "Você terminou sem chamar finalize. Converta sua resposta acima em uma chamada de `finalize` com decision/message/rationale apropriados."
-- Se mesmo após o retry o modelo não chamar `finalize`, gravar `decision: "send_message"` com o `raw` como `message` e `rationale: "fallback: modelo não chamou finalize"`. Assim a proposta nunca se perde silenciosamente.
-- Logar `steps` com o evento `finalize_retry` para visibilidade.
+## Fora de escopo
+- Mudar comportamento default de novos leads (continuam `legacy`).
+- Cutover global (continua opt-in por lead).
+- Modo "promover proposta com 1 clique" no Agent Runs (pode vir depois se quiser).
 
-### 2. `src/pages/AgentRuns.tsx` — mostrar o que o agente realmente produziu
-
-No card "Agente (proposta)":
-
-- Se `final_output.message` está vazio, exibir `final_output.raw` (quando existir) com um aviso amarelo "Texto livre — agente não chamou `finalize`".
-- Para `decision ∈ {silence, escalate_to_human, schedule_followup, mark_referral}`, exibir uma explicação clara em vez de "— sem mensagem —": ex.: "Agente decidiu **escalar para humano** (não envia mensagem). Motivo: \<rationale\>".
-- Sempre mostrar o `decision` badge mesmo quando não há mensagem (hoje o badge sai quando `final_output?.decision` existe — confirmar render incondicional).
-- Manter a `rationale` sempre visível abaixo dos dois painéis.
-
-Alinhamento de inbound (correção menor): em vez de "último inbound `<=` created_at", buscar o inbound cujo `sent_at` esteja na janela `[run.created_at - 2min, run.created_at]`. Reduz o risco de mostrar um inbound antigo.
-
-## Resultado esperado
-
-- O run a65e74d1 desta conversa passaria a aparecer com o texto que o modelo já tinha escrito (ou com decisão clara após o retry de finalize).
-- Runs de escalate/silence/followup deixam de parecer "bug" — viram explicação acionável para o time validar o shadow.
-- Próximos runs com fallback ficam raros (retry forçado) e, quando ocorrerem, ficam rastreáveis nos `steps`.
-
-## Arquivos alterados
-
-- `supabase/functions/sdr-agent/index.ts` (retry de finalize + fallback para send_message com raw)
-- `src/pages/AgentRuns.tsx` (render do `raw`, explicação por tipo de decisão, ajuste de janela do inbound)
+## Riscos
+- O sdr-agent passa a enviar mensagens reais nos leads marcados — comece com 1–2 leads de teste.
+- Se `decision !== send_message` (ex: silence), o lead não recebe nada do pipeline atual também — comportamento esperado, mas vale saber.
