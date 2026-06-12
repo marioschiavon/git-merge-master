@@ -785,32 +785,82 @@ Deno.serve(async (req) => {
         } else if (decision === "book_slot") {
           const fd = finalDecision as any;
           const slotStart = String(fd.slot_start || "");
-          if (!slotStart) {
-            liveResult = { action: "book_slot", ok: false, error: "missing slot_start" };
-          } else {
-            const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-booking-create", {
-              body: {
-                company_id: ctx.lead.company_id,
-                lead_id,
-                slot_start: slotStart,
-              },
-            });
-            if (bookErr) {
-              liveResult = { action: "book_slot", ok: false, error: String(bookErr) };
-            } else {
-              const confirmMsg = String(fd.message || "").trim() ||
-                `Confirmado para ${formatBRTLong(slotStart)}. Você vai receber o link da reunião por e-mail.`;
-              const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+          const fallbackChannel = fd.channel || "whatsapp";
+
+          const sendFallback = async (reason: string) => {
+            try {
+              await supabase
+                .from("leads")
+                .update({
+                  handoff_required: true,
+                  handoff_reason: `book_slot falhou: ${reason}`,
+                  handoff_at: new Date().toISOString(),
+                })
+                .eq("id", lead_id);
+            } catch (_) { /* best effort */ }
+            try {
+              await supabase.functions.invoke("execute-action", {
                 body: {
                   company_id: ctx.lead.company_id,
                   lead_id,
                   conversation_id: conversation_id ?? null,
                   action_type: "send_reply",
-                  params: { message: confirmMsg, channel: fd.channel || undefined },
+                  params: {
+                    message:
+                      "Deixa eu confirmar esse horário aqui pra você e já te retorno em instantes. ",
+                    channel: fallbackChannel,
+                  },
                 },
               });
-              const sent = !execErr && (exec as any)?.result?.sent === true;
-              liveResult = { action: "book_slot", ok: !execErr, sent, booking, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
+            } catch (_) { /* best effort */ }
+          };
+
+          if (!slotStart) {
+            await sendFallback("missing slot_start");
+            liveResult = { action: "book_slot", ok: false, error: "missing slot_start" };
+          } else {
+            // Find the matching held slot (tolerate small time diffs)
+            const target = new Date(slotStart).getTime();
+            const { data: holds } = await supabase
+              .from("slot_holds")
+              .select("id, slot_datetime, status")
+              .eq("lead_id", lead_id)
+              .eq("status", "held")
+              .order("created_at", { ascending: false });
+            const match = (holds || []).find((h: any) =>
+              Math.abs(new Date(h.slot_datetime).getTime() - target) < 60_000,
+            );
+
+            if (!match) {
+              await sendFallback("no matching held slot");
+              liveResult = { action: "book_slot", ok: false, error: "no matching held slot for " + slotStart };
+            } else {
+              const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-confirm-booking", {
+                body: {
+                  lead_id,
+                  selected_slot_hold_id: match.id,
+                  force_placeholder: true,
+                },
+              });
+              if (bookErr || (booking as any)?.error) {
+                const errStr = bookErr ? String(bookErr) : String((booking as any)?.error);
+                await sendFallback(errStr);
+                liveResult = { action: "book_slot", ok: false, error: errStr };
+              } else {
+                const confirmMsg = String(fd.message || "").trim() ||
+                  `Pronto, ${ctx.lead.name?.split(" ")[0] || ""}! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail. 🙌`;
+                const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+                  body: {
+                    company_id: ctx.lead.company_id,
+                    lead_id,
+                    conversation_id: conversation_id ?? null,
+                    action_type: "send_reply",
+                    params: { message: confirmMsg, channel: fd.channel || fallbackChannel },
+                  },
+                });
+                const sent = !execErr && (exec as any)?.result?.sent === true;
+                liveResult = { action: "book_slot", ok: !execErr, sent, booking, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
+              }
             }
           }
         } else if (decision === "silence" || decision === "schedule_followup" || decision === "mark_referral") {
