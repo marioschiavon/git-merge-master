@@ -212,6 +212,16 @@ async function execTool(
   }
 
   if (name === "check_calendar") {
+    const fetchSlots = async (b: Record<string, unknown>): Promise<{ slots: any[]; raw: any; httpError: boolean }> => {
+      const { data, error } = await supabase.functions.invoke("calcom-slots", { body: b });
+      if (error) {
+        // 404 with "Não há slots" payload is reported as FunctionsHttpError; treat as empty
+        return { slots: [], raw: { error: String(error) }, httpError: true };
+      }
+      const slots = (data as any)?.slots ?? [];
+      return { slots: Array.isArray(slots) ? slots : [], raw: data ?? {}, httpError: false };
+    };
+
     try {
       const body: Record<string, unknown> = {
         company_id: ctx.company_id,
@@ -228,9 +238,36 @@ async function execTool(
         body.start_after = start.toISOString();
         body.end_before = end.toISOString();
       }
-      const { data, error } = await supabase.functions.invoke("calcom-slots", { body });
-      if (error) return { error: String(error) };
-      return data ?? { slots: [] };
+      const requestedWindow = { start_after: body.start_after ?? null, end_before: body.end_before ?? null };
+      const first = await fetchSlots(body);
+
+      const hasWindow = !!(body.start_after || body.end_before);
+      if (first.slots.length === 0 && hasWindow) {
+        // Janela pedida vazia (ou erro 404 "sem slots") → amplia +14 dias
+        const widenFrom = body.end_before ? new Date(String(body.end_before)) : new Date(String(body.start_after));
+        const widenTo = new Date(widenFrom.getTime() + 14 * 86400000);
+        const widenBody: Record<string, unknown> = {
+          company_id: ctx.company_id,
+          lead_id: ctx.lead_id,
+          conversation_id: ctx.conversation_id ?? undefined,
+          start_after: widenFrom.toISOString(),
+          end_before: widenTo.toISOString(),
+        };
+        if (Array.isArray(args.exclude_datetimes)) widenBody.exclude_datetimes = args.exclude_datetimes;
+        if (Array.isArray(args.exclude_dates)) widenBody.exclude_dates = args.exclude_dates;
+        const widen = await fetchSlots(widenBody);
+        const nextAvailable = widen.slots.slice(0, 4);
+        return {
+          slots: nextAvailable,
+          slots_in_window: [],
+          next_available: nextAvailable,
+          requested_window: requestedWindow,
+          reason: nextAvailable.length > 0 ? "no_slots_in_window" : "no_availability",
+        };
+      }
+
+      if (first.httpError) return { error: String((first.raw as any)?.error ?? "calcom-slots failed") };
+      return first.raw;
     } catch (e) {
       return { error: String(e) };
     }
@@ -442,6 +479,8 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- Se EXISTE `date_preference` na memória do lead, é **PROIBIDO** usar `schedule_followup` ou responder coisas como 'vou entrar em contato', 'te aviso quando tiver disponibilidade', 'retorno em breve'. Você DEVE chamar `check_calendar` passando `start_after`/`end_before` da janela e finalizar com `offer_slots` (ou `send_message` contendo os horários formatados). Se realmente não houver slots na janela, então sim, escalate_to_human ou schedule_followup explicando o motivo.",
     "- **PROIBIDO ABSOLUTAMENTE** responder com frases de espera tipo 'só um momento', 'já te retorno', 'vou verificar e te aviso', 'me dá um instante', 'aguarde um momento' quando o lead pediu horários. Você NÃO tem um turno futuro garantido — se prometer voltar, vai abandonar o lead. SEMPRE execute `check_calendar` + `offer_slots` no MESMO turno.",
     "- Se a MENSAGEM ATUAL do lead já contém uma janela temporal explícita (hoje, amanhã, depois de amanhã, semana que vem, segunda, terça, dia X, próxima semana, etc.) e ele pergunta sobre horários ou disponibilidade, trate como `date_preference` IMEDIATA (não espere estar na memória): chame `update_lead_facts` registrando a janela, depois `check_calendar` cobrindo essa janela, e finalize com `offer_slots` — tudo no mesmo turno.",
+    "- Se `check_calendar` retornar `reason: 'no_slots_in_window'`, é PROIBIDO responder 'instabilidade no sistema', 'aguarde', ou 'já te retorno'. Reconheça naturalmente que não há horário no dia/janela pedida (ex.: 'amanhã é sábado e não atendo nesse dia', 'não tenho horário no dia X') e finalize com `offer_slots` usando os `next_available` retornados. A mensagem deve ser natural, sem culpar sistema.",
+    "- Se `check_calendar` retornar `reason: 'no_availability'`, explique que a agenda está cheia pelos próximos dias e peça uma janela maior ao lead, ou use `escalate_to_human` se for crítico. Nunca diga 'sistema instável'.",
     "- NUNCA ofereça slots fora da janela `date_preference`. Se `check_calendar` retornar slots fora dela, descarte-os e chame `check_calendar` de novo com a janela correta (start_after maior).",
     "- Chame `check_calendar` no máximo UMA vez por turno. Se já chamou e recebeu slots, use ESSES mesmos slots — não chame de novo na mesma decisão (isso gera reservas duplicadas).",
     "- Se `heldSlots` já contém slots ativos dentro da janela do lead, ofereça ESSES (não chame `check_calendar`).",
