@@ -665,8 +665,10 @@ export type Database = {
           company_id: string
           content: string
           created_at: string
+          embedded_at: string | null
           file_path: string | null
           id: string
+          needs_embedding: boolean
           source_url: string | null
           title: string
           type: string
@@ -676,8 +678,10 @@ export type Database = {
           company_id: string
           content?: string
           created_at?: string
+          embedded_at?: string | null
           file_path?: string | null
           id?: string
+          needs_embedding?: boolean
           source_url?: string | null
           title: string
           type?: string
@@ -687,8 +691,10 @@ export type Database = {
           company_id?: string
           content?: string
           created_at?: string
+          embedded_at?: string | null
           file_path?: string | null
           id?: string
+          needs_embedding?: boolean
           source_url?: string | null
           title?: string
           type?: string
