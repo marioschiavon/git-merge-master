@@ -222,6 +222,19 @@ serve(async (req) => {
       }
 
       if (matchedSlot) {
+        // Dedupe: if a hold already exists for this exact slot, reuse it.
+        const dupHold = findExistingHold(matchedSlot);
+        if (dupHold) {
+          console.log("Reusing existing hold for", matchedSlot);
+          return new Response(JSON.stringify({
+            success: true,
+            available: true,
+            exact_slot: matchedSlot,
+            slots: [dupHold],
+            deduped: true,
+          }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        }
+
         // Available — reserve just this one slot
         let reservationUid = "";
         try {
