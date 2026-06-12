@@ -15,6 +15,7 @@ import Scripts from "@/pages/Scripts";
 import Conversations from "@/pages/Conversations";
 import Reports from "@/pages/Reports";
 import Knowledge from "@/pages/Knowledge";
+import AgentRuns from "@/pages/AgentRuns";
 import MasterDashboard from "@/pages/master/MasterDashboard";
 import Companies from "@/pages/master/Companies";
 import Team from "@/pages/settings/Team";
