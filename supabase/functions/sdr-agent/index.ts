@@ -368,9 +368,10 @@ async function loadContext(leadId: string) {
 
   const { data: activeBookings } = await supabase
     .from("bookings")
-    .select("id, calcom_booking_uid, status, scheduled_at")
+    .select("id, calcom_booking_uid, status, scheduled_at, updated_at")
     .eq("lead_id", leadId)
-    .in("status", ["confirmed", "pending", "rescheduled"])
+    .in("status", ["confirmed", "pending"])
+    .order("updated_at", { ascending: false })
     .order("scheduled_at", { ascending: false })
     .limit(5);
 
