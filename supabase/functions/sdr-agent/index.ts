@@ -107,6 +107,30 @@ const TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "list_knowledge",
+      description:
+        "Lista todos os itens da base de conhecimento da empresa (título, tipo, id e snippet). Use quando search_knowledge não retornar nada útil ou para descobrir o que existe na KB antes de buscar/ler.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "read_knowledge_item",
+      description:
+        "Lê o conteúdo COMPLETO de um item da KB pelo id (ou pelo título exato). Use depois de list_knowledge quando precisar do conteúdo inteiro de um documento (ex.: cases, ROI, comparativos).",
+      parameters: {
+        type: "object",
+        properties: {
+          knowledge_id: { type: "string", description: "UUID do item em company_knowledge" },
+          title: { type: "string", description: "Título exato do item (alternativa ao id)" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "finalize",
       description:
         "Encerra o raciocínio e devolve a decisão final: mensagem a enviar, ação (agendar/encaminhar/escalar) ou silêncio.",
@@ -150,6 +174,7 @@ const TOOLS: ToolDef[] = [
     },
   },
 ];
+
 
 // ────────────────────────────────────────────────────────────────
 // Tool executors
@@ -225,12 +250,47 @@ async function execTool(
     return { ok: true, facts: merged };
   }
 
+  if (name === "list_knowledge") {
+    const { data, error } = await supabase
+      .from("company_knowledge")
+      .select("id, title, type, content")
+      .eq("company_id", ctx.company_id)
+      .limit(50);
+    if (error) return { error: error.message };
+    return {
+      items: (data ?? []).map((d: { id: string; title: string; type: string; content: string }) => ({
+        id: d.id,
+        title: d.title,
+        type: d.type,
+        snippet: (d.content ?? "").slice(0, 300),
+      })),
+    };
+  }
+
+  if (name === "read_knowledge_item") {
+    const id = typeof args.knowledge_id === "string" ? args.knowledge_id : null;
+    const title = typeof args.title === "string" ? args.title : null;
+    if (!id && !title) return { error: "knowledge_id or title required" };
+    let q = supabase
+      .from("company_knowledge")
+      .select("id, title, type, content")
+      .eq("company_id", ctx.company_id)
+      .limit(1);
+    if (id) q = q.eq("id", id);
+    else if (title) q = q.eq("title", title);
+    const { data, error } = await q.maybeSingle();
+    if (error) return { error: error.message };
+    if (!data) return { error: "not found" };
+    return data;
+  }
+
   if (name === "finalize") {
     return { ok: true, decision: args };
   }
 
   return { error: `unknown tool: ${name}` };
 }
+
 
 // ────────────────────────────────────────────────────────────────
 // Context loader
@@ -307,7 +367,20 @@ async function loadContext(leadId: string) {
     .in("status", ["active", "paused"])
     .maybeSingle();
 
-  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], enrollment };
+  // Curated KB: highlights, ai_instructions, and catalog of documents
+  const [highlightsRes, aiInstrRes, kbDocsRes] = await Promise.all([
+    supabase.from("company_knowledge").select("content").eq("company_id", lead.company_id).eq("type", "highlights").maybeSingle(),
+    supabase.from("company_knowledge").select("content").eq("company_id", lead.company_id).eq("type", "ai_instructions").maybeSingle(),
+    supabase.from("company_knowledge").select("id, title, type").eq("company_id", lead.company_id).not("type", "in", "(highlights,ai_instructions)").order("created_at", { ascending: false }).limit(30),
+  ]);
+  const kb = {
+    highlights: highlightsRes.data?.content ?? null,
+    ai_instructions: aiInstrRes.data?.content ?? null,
+    docs: (kbDocsRes.data ?? []) as Array<{ id: string; title: string; type: string }>,
+  };
+
+  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], enrollment, kb };
+
 }
 
 function fmtBrt(iso: string): string {
@@ -319,7 +392,8 @@ function fmtBrt(iso: string): string {
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
-  const { lead, company, memory, intents, heldSlots, enrollment } = ctx;
+  const { lead, company, memory, intents, heldSlots, enrollment, kb } = ctx;
+
   const facts = (memory?.facts ?? {}) as Record<string, unknown>;
   const datePref = (facts.date_preference ?? null) as null | { start_after?: string; end_before?: string; raw?: string };
   const preferredChannel = (facts.preferred_channel ?? null) as string | null;
@@ -331,6 +405,13 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     company?.value_proposition ? `Proposta de valor: ${company.value_proposition}` : "",
     company?.tone ? `Tom de voz: ${company.tone}` : "Tom: profissional, próximo, consultivo, sem clichês.",
     "",
+    "## Base de conhecimento da empresa (curada — já carregada, sem precisar de tool)",
+    kb.highlights ? `### Diferenciais (highlights)\n${kb.highlights}` : "### Diferenciais: (não cadastrados)",
+    kb.ai_instructions ? `### Instruções de abordagem\n${kb.ai_instructions}` : "",
+    kb.docs.length
+      ? `### Documentos disponíveis (use list_knowledge / read_knowledge_item para abrir):\n${kb.docs.map((d) => `- [${d.id}] (${d.type}) ${d.title}`).join("\n")}`
+      : "### Documentos: (catálogo vazio)",
+
     "## Missão",
     "- Conduzir o lead a agendar uma conversa.",
     "- Tirar dúvidas com base na KB (use search_knowledge ANTES de afirmar fatos).",
@@ -338,14 +419,22 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- Reconhecer indicações (referral) e encerros (não tem interesse).",
     "",
     "## Regras críticas",
-    "- NUNCA invente preços, prazos, condições, horários ou políticas — busque na KB ou no calendário.",
+    "- NUNCA invente preços, prazos, condições, horários, integrações ou políticas — busque na KB ou no calendário.",
     "- SEMPRE leia TODO o histórico antes de decidir. Preferências que o lead já manifestou em qualquer turno anterior CONTINUAM VALENDO até ele mudar de ideia explicitamente.",
     "- Se o lead já pediu uma janela de datas (ex: 'daqui a 10 dias', 'semana que vem', 'só depois do dia 25'), TODAS as próximas ofertas de horário DEVEM respeitar essa janela. Passe start_after/end_before para check_calendar — mesmo que a faixa tenha sido mencionada turnos atrás.",
     "- Se o lead REJEITOU os slots oferecidos e pediu mais opções, ofereça NOVOS slots ainda dentro da janela que ele pediu. NÃO volte a sugerir as datas já rejeitadas. Use exclude_datetimes/exclude_dates.",
-    "- Se faltar informação crítica e não dá pra resolver com a KB, escale com escalate_to_human.",
     "- Use update_lead_facts assim que detectar uma preferência nova (janela de data, canal, objeção, papel, urgência).",
     "- SEMPRE finalize chamando a tool `finalize`.",
     "- Português brasileiro. Mensagens curtas (2-3 parágrafos no máximo). Não use 'olá' nem 'tudo bem?' se já está no meio da conversa.",
+    "",
+    "## Antes de escalar para humano (escalate_to_human) você DEVE esgotar a KB:",
+    "1. Tentar `search_knowledge` com PELO MENOS 2 reformulações diferentes (sinônimos, termos do segmento do lead, perguntas relacionadas).",
+    "2. Chamar `list_knowledge` para ver TODO o catálogo de documentos da empresa.",
+    "3. Usar `read_knowledge_item` em qualquer documento cujo título seja relacionado à dúvida.",
+    "4. Se ainda assim faltar um DADO ESPECÍFICO (número, prazo, integração técnica), responda combinando os DIFERENCIAIS (highlights) + PROPOSTA DE VALOR já carregados no contexto, personalizando ao segmento/empresa do lead, e proponha a reunião para detalhar — sem inventar números. Isso é venda consultiva legítima, NÃO é alucinação.",
+    "- Só use escalate_to_human para: reclamação formal, jurídico/compliance, pedido fora do escopo comercial, ou objeção complexa que exija negociação humana. NÃO escale por 'KB não tem essa palavra exata'.",
+    "- Perguntas do tipo 'quais as vantagens pra mim/minha clínica/meu negócio?' são SEMPRE respondíveis: use highlights + value_proposition + contexto do lead e convide para a reunião.",
+
     "",
     `## Lead atual`,
     `Nome: ${lead.name ?? "?"}`,
