@@ -112,14 +112,13 @@ async function generateReply(ctx: ActionContext, opts: { tone?: string; category
 
 async function sendOutbound(ctx: ActionContext, content: string, subject: string | null, channel: string, metadata: Record<string, any> = {}) {
   if (!ctx.conversation_id) return { sent: false, reason: "no conversation_id" };
-  await ctx.supabase.from("messages").insert({
-    conversation_id: ctx.conversation_id,
-    content,
-    direction: "outbound",
-    ai_suggested: true,
-    metadata: { source: "execute-action", subject, ...metadata },
-  });
-  // Try real-channel send when possible
+
+  let deliveryStatus: string = "sent";
+  const deliveryMeta: Record<string, any> = {};
+  let sent = true;
+  let outboundError: string | null = null;
+  let outboundReason: string | null = null;
+
   if (channel === "email") {
     const lead = await loadLead(ctx);
     if (lead?.email) {
@@ -134,12 +133,65 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
             conversation_id: ctx.conversation_id,
           },
         });
-      } catch (e) {
+        deliveryStatus = "sent";
+      } catch (e: any) {
         console.error("gmail-send failed:", e);
+        deliveryStatus = "failed";
+        sent = false;
+        outboundError = e?.message || String(e);
+        deliveryMeta.delivery_error = outboundError;
+      }
+    } else {
+      sent = false;
+      outboundReason = "lead sem e-mail";
+      deliveryStatus = "failed";
+      deliveryMeta.delivery_error = outboundReason;
+    }
+  } else if (channel === "whatsapp") {
+    const lead = await loadLead(ctx);
+    const toNumber = (lead as any)?.whatsapp || (lead as any)?.phone;
+    if (!toNumber) {
+      sent = false;
+      outboundReason = "lead sem whatsapp/phone";
+      deliveryStatus = "failed";
+      deliveryMeta.delivery_error = outboundReason;
+    } else {
+      const cfg = await getZApiConfig(ctx.supabase, ctx.company_id);
+      if (!cfg) {
+        sent = false;
+        outboundReason = "z-api não configurada";
+        deliveryStatus = "failed";
+        deliveryMeta.delivery_error = outboundReason;
+      } else {
+        const r = await sendWhatsAppViaZApi(cfg, toNumber, content);
+        if (r.ok) {
+          deliveryStatus = "delivered";
+          deliveryMeta.zapi_message_id = r.sid;
+          deliveryMeta.zapi_status = r.status;
+        } else {
+          console.error("zapi send failed:", r);
+          sent = false;
+          outboundError = r.error || `HTTP ${r.status}`;
+          deliveryStatus = "failed";
+          deliveryMeta.zapi_status = r.status;
+          deliveryMeta.zapi_error = r.error;
+          deliveryMeta.delivery_error = outboundError;
+        }
       }
     }
+  } else {
+    deliveryStatus = "pending_manual";
   }
-  return { sent: true, channel };
+
+  await ctx.supabase.from("messages").insert({
+    conversation_id: ctx.conversation_id,
+    content,
+    direction: "outbound",
+    ai_suggested: true,
+    metadata: { source: "execute-action", subject, delivery_status: deliveryStatus, ...deliveryMeta, ...metadata },
+  });
+
+  return { sent, channel, delivery_status: deliveryStatus, ...(outboundError ? { error: outboundError } : {}), ...(outboundReason ? { reason: outboundReason } : {}), ...deliveryMeta };
 }
 
 /* ─── Action handlers ─────────────────────────────────────────────── */
