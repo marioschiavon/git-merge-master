@@ -93,11 +93,11 @@ export default function AgentRuns() {
           selected.conversation_id
             ? supabase
                 .from("messages")
-                .select("id, direction, content, channel, created_at, metadata")
+                .select("id, direction, content, channel, sent_at, metadata")
                 .eq("conversation_id", selected.conversation_id)
                 .eq("direction", "inbound")
-                .lte("created_at", selected.created_at)
-                .order("created_at", { ascending: false })
+                .lte("sent_at", selected.created_at)
+                .order("sent_at", { ascending: false })
                 .limit(1)
                 .maybeSingle()
             : Promise.resolve({ data: null }),
@@ -108,14 +108,15 @@ export default function AgentRuns() {
         if (selected.conversation_id) {
           const { data: outs } = await supabase
             .from("messages")
-            .select("id, direction, content, channel, created_at, metadata")
+            .select("id, direction, content, channel, sent_at, metadata")
             .eq("conversation_id", selected.conversation_id)
             .eq("direction", "outbound")
-            .gte("created_at", selected.created_at)
-            .order("created_at", { ascending: true })
+            .gte("sent_at", selected.created_at)
+            .order("sent_at", { ascending: true })
             .limit(1);
           legacyOutbound = (outs?.[0] ?? null) as Msg | null;
         }
+
 
         if (!cancelled) {
           setCompare({
