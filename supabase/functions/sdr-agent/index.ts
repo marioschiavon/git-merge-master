@@ -800,7 +800,7 @@ Deno.serve(async (req) => {
             } else {
               const confirmMsg = String(fd.message || "").trim() ||
                 `Confirmado para ${formatBRTLong(slotStart)}. Você vai receber o link da reunião por e-mail.`;
-              const { error: execErr } = await supabase.functions.invoke("execute-action", {
+              const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
                 body: {
                   company_id: ctx.lead.company_id,
                   lead_id,
@@ -809,7 +809,8 @@ Deno.serve(async (req) => {
                   params: { message: confirmMsg, channel: fd.channel || undefined },
                 },
               });
-              liveResult = { action: "book_slot", ok: !execErr, sent: !execErr, booking, error: execErr ? String(execErr) : null };
+              const sent = !execErr && (exec as any)?.result?.sent === true;
+              liveResult = { action: "book_slot", ok: !execErr, sent, booking, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
             }
           }
         } else if (decision === "silence" || decision === "schedule_followup" || decision === "mark_referral") {
