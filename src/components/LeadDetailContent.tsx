@@ -18,11 +18,14 @@ import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { LeadSocialCard } from "@/components/LeadSocialCard";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useApproachSuggestions } from "@/hooks/usePreviewCadenceMessages";
 import { RefreshCw } from "lucide-react";
-import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import { useToast } from "@/hooks/use-toast";
+import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles, Bot } from "lucide-react";
+
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -90,7 +93,9 @@ export interface LeadDetailLead {
   call_requested_at?: string | null;
   whatsapp_valid?: boolean | null;
   whatsapp_checked_at?: string | null;
+  pipeline_mode?: string | null;
 }
+
 
 interface Props {
   lead: LeadDetailLead;
