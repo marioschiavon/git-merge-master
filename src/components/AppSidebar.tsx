@@ -51,6 +51,7 @@ const companyItems = [
   { title: "Conversas", url: "/conversations", icon: Inbox },
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
   { title: "Reuniões", url: "/bookings", icon: Calendar },
+  { title: "Runs do Agente", url: "/agent-runs", icon: Bot },
 ];
 
 const settingsItems = [
