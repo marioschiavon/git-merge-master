@@ -22,6 +22,7 @@ type Run = {
     decision?: string;
     rationale?: string;
     message?: string;
+    raw?: string;
     channel?: string;
     offered_slots?: string[];
   } | null;
