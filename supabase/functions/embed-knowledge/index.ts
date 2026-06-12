@@ -85,19 +85,10 @@ async function embedDocument(doc: {
     }
   }
 
-  // pgvector wants the array as a string literal "[...]"; supabase-js handles it
-  // if we pass the raw number[]. To be safe, format explicitly.
-  const formatted = rows.map((r) => ({
-    ...r,
-    embedding: `[${(r.embedding as unknown as number[] | string)}]` // already string from createEmbedding? we passed number[]
-      .replace("[[", "[")
-      .replace("]]", "]"),
-  }));
-  // Fix: above is awkward — recompute cleanly:
+  // pgvector requires the vector as a string literal "[v1,v2,...]"
   const insertRows = rows.map((r) => {
-    const e = r.embedding as unknown as number[] | string;
-    const embStr = Array.isArray(e) ? `[${e.join(",")}]` : (e as string);
-    return { ...r, embedding: embStr };
+    const e = r.embedding as unknown as number[];
+    return { ...r, embedding: `[${e.join(",")}]` };
   });
 
   const { error } = await supabase.from("knowledge_chunks").insert(insertRows);
