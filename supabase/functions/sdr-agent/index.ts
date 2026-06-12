@@ -885,6 +885,98 @@ Deno.serve(async (req) => {
               }
             }
           }
+        } else if (decision === "reschedule_booking" || decision === "cancel_booking") {
+          const fd = finalDecision as any;
+          const fallbackChannel = fd.channel || "whatsapp";
+          // Resolve booking_uid
+          let bookingUid = typeof fd.booking_uid === "string" ? fd.booking_uid : null;
+          if (!bookingUid) {
+            const { data: existing } = await supabase
+              .from("bookings")
+              .select("calcom_booking_uid")
+              .eq("lead_id", lead_id)
+              .in("status", ["confirmed", "pending", "rescheduled"])
+              .order("scheduled_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            bookingUid = (existing as any)?.calcom_booking_uid ?? null;
+          }
+
+          const sendFallback = async (reason: string) => {
+            try {
+              await supabase
+                .from("leads")
+                .update({
+                  handoff_required: true,
+                  handoff_reason: `${decision} falhou: ${reason}`,
+                  handoff_at: new Date().toISOString(),
+                })
+                .eq("id", lead_id);
+            } catch (_) {}
+            try {
+              await supabase.functions.invoke("execute-action", {
+                body: {
+                  company_id: ctx.lead.company_id,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                  action_type: "send_reply",
+                  params: {
+                    message:
+                      decision === "reschedule_booking"
+                        ? "Deixa eu confirmar essa alteração de horário aqui e já te retorno."
+                        : "Recebi seu pedido de cancelamento e já te confirmo em instantes.",
+                    channel: fallbackChannel,
+                  },
+                },
+              });
+            } catch (_) {}
+          };
+
+          if (!bookingUid) {
+            await sendFallback("nenhuma reserva ativa encontrada");
+            liveResult = { action: decision, ok: false, error: "no active booking" };
+          } else if (decision === "reschedule_booking" && !fd.slot_start) {
+            await sendFallback("slot_start ausente");
+            liveResult = { action: decision, ok: false, error: "missing slot_start" };
+          } else {
+            const params: Record<string, unknown> =
+              decision === "reschedule_booking"
+                ? { booking_uid: bookingUid, start: fd.slot_start, reason: fd.reason || "Cliente solicitou remarcação" }
+                : { booking_uid: bookingUid, reason: fd.reason || "Cliente solicitou cancelamento" };
+
+            const { data: actionRes, error: actionErr } = await supabase.functions.invoke("execute-action", {
+              body: {
+                company_id: ctx.lead.company_id,
+                lead_id,
+                conversation_id: conversation_id ?? null,
+                action_type: decision,
+                params,
+              },
+            });
+            const actionOk = !actionErr && (actionRes as any)?.ok !== false && !(actionRes as any)?.error;
+            if (!actionOk) {
+              const errStr = actionErr ? String(actionErr) : String((actionRes as any)?.error ?? "unknown");
+              await sendFallback(errStr);
+              liveResult = { action: decision, ok: false, error: errStr, result: actionRes };
+            } else {
+              const defaultMsg =
+                decision === "reschedule_booking"
+                  ? `Pronto, ${ctx.lead.name?.split(" ")[0] || ""}! Remarquei para ${formatBRTLong(fd.slot_start)}. Você vai receber o novo convite por e-mail. 🙌`
+                  : `Tudo bem, ${ctx.lead.name?.split(" ")[0] || ""}, cancelei nossa reunião. Se quiser remarcar mais pra frente, é só me chamar.`;
+              const confirmMsg = String(fd.message || "").trim() || defaultMsg;
+              const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+                body: {
+                  company_id: ctx.lead.company_id,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                  action_type: "send_reply",
+                  params: { message: confirmMsg, channel: fd.channel || fallbackChannel },
+                },
+              });
+              const sent = !execErr && (exec as any)?.result?.sent === true;
+              liveResult = { action: decision, ok: !execErr, sent, result: exec, action_result: actionRes, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? null) };
+            }
+          }
         } else if (decision === "silence" || decision === "schedule_followup" || decision === "mark_referral") {
           liveResult = { action: decision, ok: true, note: "no outbound" };
         } else {
