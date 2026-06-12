@@ -1,71 +1,55 @@
 ## Problema
 
-No modo "Enviar de verdade (live)", a mensagem do agente aparece como `sent: true` no `sdr_agent_runs`, mas o lead nunca recebe no WhatsApp.
+No modo agente (live), o lead recebe DUAS mensagens em sequência para a mesma resposta, cada uma com 2 horários diferentes (4 no total). Olhando `messages` para a conversa de hoje:
 
-Causa: em `supabase/functions/execute-action/index.ts`, a função `sendOutbound()` só faz envio real para `channel === "email"` (via `gmail-send`). Para `channel === "whatsapp"` ela apenas insere a mensagem na tabela `messages` e retorna `sent: true` — nunca chama a Z-API.
-
-A Z-API já está totalmente integrada e funcionando: `supabase/functions/_shared/zapi-whatsapp.ts` (`getZApiConfig` + `sendWhatsAppViaZApi`) é usada com sucesso por `send-outbound-message`, `cadence-executor`, `slot-expiry-followup`, etc. Só falta plugar no `execute-action`, que é o caminho usado pelo agente live (`offer_slots`, `book_slot`, `send_reply`).
-
-## Mudanças
-
-### 1) `supabase/functions/execute-action/index.ts` — envio real via Z-API
-
-Importar no topo:
-```ts
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+```
+14:06:54  outbound action=reject_slots  📅 15/jun 09:45 / 17/jun 15:30
+14:06:59  outbound action=send_reply    📅 03/jul 09:45 / 06/jul 09:45
+14:06:26  inbound  "Desculpe, essas não consigo"
 ```
 
-Em `sendOutbound`, depois de inserir a mensagem em `messages`, adicionar o bloco WhatsApp (espelhando `send-outbound-message`):
+Causa: `supabase/functions/inbound-webhook/index.ts` dispara DOIS pipelines em paralelo para todo inbound:
+
+1. **Pipeline legado** (linhas ~270 → 2280): classify → ações `schedule`/`n`/`reject_slots` → chama `calcom-slots` (cria novos holds) → envia outbound via Z-API (linha 2255).
+2. **sdr-agent live** (linha 452): também faz seu próprio `check_calendar` (holds novos) e envia outbound via `execute-action`.
+
+Já existe um gate em `!isAgentMode` para o pipeline de "intent routing" (linha 392), mas o pipeline de scheduling/reply legado roda sempre. Resultado em agent mode: duas respostas, dois conjuntos de slots reservados.
+
+## Mudança
+
+### `supabase/functions/inbound-webhook/index.ts` — short-circuit quando agent mode
+
+Depois do bloco que dispara o `sdr-agent` (linha 474), adicionar:
 
 ```ts
-if (channel === "whatsapp") {
-  const lead = await loadLead(ctx); // garantir que devolve phone/whatsapp
-  const toNumber = lead?.whatsapp || lead?.phone;
-  if (!toNumber) {
-    return { sent: false, channel, reason: "lead sem whatsapp/phone" };
-  }
-  const cfg = await getZApiConfig(ctx.supabase, ctx.company_id);
-  if (!cfg) {
-    return { sent: false, channel, reason: "z-api não configurada" };
-  }
-  const r = await sendWhatsAppViaZApi(cfg, toNumber, content);
-  if (!r.ok) {
-    console.error("zapi send failed:", r);
-    // Atualizar metadata da mensagem com delivery_status=failed
-    return { sent: false, channel, error: r.error, status: r.status };
-  }
-  // Marcar a mensagem inserida como delivered + sid
-  return { sent: true, channel, zapi_message_id: r.sid };
+if (isAgentMode) {
+  console.log(`agent mode: skipping legacy classify/scheduling/outbound for lead=${leadData.id}`);
+  return new Response(JSON.stringify({ ok: true, agent_mode: true }), {
+    status: 200,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 ```
 
-Também ajustar o `insert` em `messages` para gravar `metadata.delivery_status` (`delivered` / `failed` + erro), igual ao `send-outbound-message`, para a UI mostrar status correto.
+Isso pula:
+- Toda a classificação por IA (action=reply/schedule/n/confirm_slot/…)
+- Chamadas legadas a `calcom-slots` (sem duplicar holds)
+- Envio outbound via Z-API do pipeline antigo (sem mensagem duplicada)
 
-Verificar/ajustar `loadLead` para incluir `whatsapp` e `phone` no `select`.
+O que continua acontecendo antes do early return e segue valendo em agent mode:
+- Lead criado/atualizado
+- Mensagem inbound gravada em `messages`
+- Conversa criada/atribuída
+- Captura de auto-reply do destino
+- Trigger do `sdr-agent` (ele cuida de holds, resposta, handoff, cadência via `execute-action`)
 
-### 2) `supabase/functions/sdr-agent/index.ts` — refletir falha real
+### Fora do escopo
 
-Hoje o agente marca `live.sent: true` sempre que `execute-action` retornou `ok: true`. Trocar para usar `result?.result?.sent === true` e propagar `error`/`reason`:
+- Limpar holds antigos já reservados em duplicidade.
+- Mudar o pipeline legado para leads que NÃO estão em agent mode (continua igual).
+- UI de cadência/enrollment em agent mode (o agente já controla via `execute-action`).
 
-```ts
-const sent = result?.result?.sent === true;
-live: {
-  action,
-  ok: true,
-  sent,
-  result,
-  error: result?.result?.error ?? result?.result?.reason ?? null,
-}
-```
+## Verificação
 
-Assim o badge "✓ enviado" em `AgentRuns.tsx` só aparece quando saiu de verdade, e exibimos motivo (`z-api não configurada`, `lead sem whatsapp`, erro Z-API) quando falha.
-
-### 3) Deploy
-
-Redeploy de `execute-action` e `sdr-agent`.
-
-## Fora do escopo
-
-- Reenviar mensagens passadas que ficaram marcadas como enviadas mas não saíram.
-- LinkedIn/email continuam como estão.
-- UI de configuração da Z-API (já existe e está funcionando).
+1. Deploy de `inbound-webhook`.
+2. Mandar mensagem rejeitando slots no lead em agent mode → esperar UMA única outbound, e `slot_holds` com no máximo 2 novos registros (não 4).

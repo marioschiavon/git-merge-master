@@ -473,6 +473,17 @@ serve(async (req) => {
       }
     }
 
+    // Em agent mode, o sdr-agent é o único dono da resposta.
+    // Pula todo o pipeline legado (classify → scheduling → outbound) para
+    // não enviar duas mensagens nem duplicar slot_holds.
+    if (isAgentMode && leadData?.id) {
+      console.log(`agent mode: skipping legacy classify/scheduling/outbound for lead=${leadData.id}`);
+      return new Response(JSON.stringify({ ok: true, agent_mode: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
 
 
