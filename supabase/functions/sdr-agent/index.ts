@@ -777,7 +777,8 @@ Deno.serve(async (req) => {
                 params: { message: msg, channel: fd.channel || undefined },
               },
             });
-            liveResult = { action: "offer_slots", ok: !execErr, sent: !execErr, result: exec, error: execErr ? String(execErr) : null };
+            const sent = !execErr && (exec as any)?.result?.sent === true;
+            liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
           } else {
             liveResult = { action: "offer_slots", ok: false, error: "no message and no offered_slots" };
           }
