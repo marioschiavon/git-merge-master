@@ -97,6 +97,7 @@ export default function AgentRuns() {
                 .select("id, direction, content, channel, sent_at, metadata")
                 .eq("conversation_id", selected.conversation_id)
                 .eq("direction", "inbound")
+                .gte("sent_at", new Date(new Date(selected.created_at).getTime() - 2 * 60 * 1000).toISOString())
                 .lte("sent_at", selected.created_at)
                 .order("sent_at", { ascending: false })
                 .limit(1)
