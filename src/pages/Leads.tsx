@@ -189,12 +189,18 @@ export default function Leads() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <span>{lead.name}</span>
+                        {lead.pipeline_mode === "agent" && (
+                          <Badge variant="default" className="text-[10px] px-1.5 py-0" title="Respostas inbound vão pelo Agente SDR (live)">
+                            🤖 Agente
+                          </Badge>
+                        )}
                         {lead.enrichment_status && enrichmentLabels[lead.enrichment_status] && (
                           <Badge variant="secondary" className={`${enrichmentLabels[lead.enrichment_status].cls} text-[10px] px-1.5 py-0`}>
                             {enrichmentLabels[lead.enrichment_status].label}
                           </Badge>
                         )}
                       </div>
+
                     </TableCell>
                     <TableCell>{lead.email || "—"}</TableCell>
                     <TableCell>{lead.company_name || "—"}</TableCell>
