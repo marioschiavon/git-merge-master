@@ -367,7 +367,20 @@ async function loadContext(leadId: string) {
     .in("status", ["active", "paused"])
     .maybeSingle();
 
-  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], enrollment };
+  // Curated KB: highlights, ai_instructions, and catalog of documents
+  const [highlightsRes, aiInstrRes, kbDocsRes] = await Promise.all([
+    supabase.from("company_knowledge").select("content").eq("company_id", lead.company_id).eq("type", "highlights").maybeSingle(),
+    supabase.from("company_knowledge").select("content").eq("company_id", lead.company_id).eq("type", "ai_instructions").maybeSingle(),
+    supabase.from("company_knowledge").select("id, title, type").eq("company_id", lead.company_id).not("type", "in", "(highlights,ai_instructions)").order("created_at", { ascending: false }).limit(30),
+  ]);
+  const kb = {
+    highlights: highlightsRes.data?.content ?? null,
+    ai_instructions: aiInstrRes.data?.content ?? null,
+    docs: (kbDocsRes.data ?? []) as Array<{ id: string; title: string; type: string }>,
+  };
+
+  return { lead, company, memory, messages, intents: intents ?? [], heldSlots: heldSlots ?? [], enrollment, kb };
+
 }
 
 function fmtBrt(iso: string): string {
