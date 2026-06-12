@@ -145,11 +145,11 @@ Deno.serve(async (req) => {
     if (lead_id) ids = [lead_id];
     else if (lead_ids?.length) ids = lead_ids;
     else if (stale_only) {
-      // pick leads with recent messages whose memory is stale
+      // pick leads with conversations whose memory is stale
       const { data } = await supabase
         .from("conversations")
-        .select("lead_id, summary_message_count, updated_at")
-        .order("updated_at", { ascending: false })
+        .select("lead_id, created_at")
+        .order("created_at", { ascending: false })
         .limit(50);
       ids = Array.from(new Set((data ?? []).map((c) => c.lead_id).filter(Boolean)));
     } else {
