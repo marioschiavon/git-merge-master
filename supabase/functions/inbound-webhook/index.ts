@@ -441,6 +441,21 @@ serve(async (req) => {
       }
     }
 
+    // SHADOW MODE: run unified sdr-agent in parallel for comparison. Fire-and-forget.
+    if (!earlyParsed && companyId && leadData?.id) {
+      try {
+        supabase.functions.invoke("sdr-agent", {
+          body: {
+            lead_id: leadData.id,
+            conversation_id: convId,
+            trigger: "inbound",
+            mode: "shadow",
+          },
+        }).catch((e) => console.error("sdr-agent shadow invoke error:", e));
+      } catch (e) {
+        console.error("sdr-agent shadow trigger error:", e);
+      }
+
 
     // ─── Capture/overwrite lead's own email when they include one in the message ───
     // Runs after intent classification so we know whether the email is a referral.
