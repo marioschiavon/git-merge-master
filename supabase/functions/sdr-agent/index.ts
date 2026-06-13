@@ -1015,7 +1015,7 @@ Deno.serve(async (req) => {
           } else {
             const params: Record<string, unknown> =
               decision === "reschedule_booking"
-                ? { booking_uid: bookingUid, start: fd.slot_start, reason: fd.reason || "Cliente solicitou remarcação" }
+                ? { booking_uid: bookingUid, start: normalizeSlotStartIsoBrt(String(fd.slot_start)), reason: fd.reason || "Cliente solicitou remarcação" }
                 : { booking_uid: bookingUid, reason: fd.reason || "Cliente solicitou cancelamento" };
 
             const { data: actionRes, error: actionErr } = await supabase.functions.invoke("execute-action", {
