@@ -1,87 +1,64 @@
-# Bug: SDR manda "acknowledge_cancellation" depois de já ter respondido ao cancelamento
+## Problema
 
-## O que aconteceu na conversa do Juliano
+Na conversa: agente ofereceu `1/jul 09:00` e `3/jul 09:45`. Lead respondeu **"Dia 1"**. O agente:
+1. Bloqueou o `book_slot` porque "Dia 1" não bate com `CONFIRMATION_REGEX`.
+2. No downgrade, listou **slots antigos (15/jun)** vindos de `slot_holds` ainda com `status='held'` de turnos anteriores, em vez dos slots de julho recém-oferecidos.
+
+## Correções no `supabase/functions/sdr-agent/index.ts`
+
+### 1. Aceitar seleção por referência (não só por palavras de confirmação)
+
+Hoje o guard exige `CONFIRMATION_REGEX.test(inbound) === true`. Vamos trocar por:
 
 ```
-13:58:17  Lead     "Não quero mais fazer reunião e conhecer o produto"
-13:58:48  SDR      "Entendido, Juliano. A reunião está cancelada..."   ← cancel_booking + reply
-13:58:49  SYSTEM   "❌ Reunião cancelada"                                ← webhook BOOKING_CANCELLED
-13:59:40  Lead     "Quero marcar novamente"
-14:00:11  SDR      "Oi Juliano, vi que você cancelou nossa conversa..." ← acknowledge_cancellation  ❌
-14:00:28  SDR      "Claro, Juliano. Acontece! Encontrei duas opções..." ← resposta correta ao 13:59
+hasConfirmation = CONFIRMATION_REGEX.test(inbound) || matchesSlotReference(inbound, candidates)
 ```
 
-A mensagem das 14:00:11 (`action: acknowledge_cancellation`, `booking_uid: ranM5UgTVZKY84GYEXtsqp`) é redundante: quem cancelou foi o próprio SDR via `cancel_booking`, atendendo o lead. O Cal.com webhook ainda assim disparou `BOOKING_CANCELLED` e o `calcom-webhook` enfileirou `acknowledge_cancellation` porque não conseguiu detectar que o cancelamento veio do organizer.
+Nova função `matchesSlotReference(text, candidateIsos)`:
 
-## Causa
+- Para cada ISO candidato, derivar variantes em pt-BR no fuso `America/Sao_Paulo`:
+  - dia do mês: `"1"`, `"01"`, `"dia 1"`, `"dia 01"`, `"1/7"`, `"01/07"`, `"1 de julho"`, `"1º"`, `"primeiro"`
+  - hora: `"09:00"`, `"9h"`, `"9:00"`, `"as 9"`, `"às 9"`, `"9 da manha"`
+  - ordinal pela ordem oferecida: `"primeira"`, `"segunda"`, `"a 1"`, `"opção 1"`, `"opcao 2"`
+- Casa se o texto normalizado (lowercase, sem acento) contiver pelo menos uma variante de dia OU de hora correspondente a UM ÚNICO candidato (sem ambiguidade entre as opções oferecidas).
+- Retornar `{ matched: true, isoSelected }` para reaproveitar como `slot_start` quando o LLM não preencheu corretamente.
 
-Em `supabase/functions/calcom-webhook/index.ts` (linhas 144–156), a detecção é feita só por e-mail:
+Quando `matchesSlotReference` resolver para um ISO específico, **forçar** `slot_start = isoSelected` antes de prosseguir com o booking (evita o LLM errar a data).
 
-```ts
-const cancelledByOrganizer = !!cancelledByEmail && cancelledByEmail === organizerEmailLower;
-const cancelledByLead = !cancelledByOrganizer;
-```
+### 2. Downgrade usar SÓ a oferta vigente
 
-Quando o cancelamento é via API com a `CALCOM_API_KEY` (caso do `cancel_booking`), o Cal.com normalmente devolve `cancelledByEmail` vazio — então cai em `cancelledByLead=true` e o acknowledge é enfileirado.
+Trocar a fonte de `candidates` no bloco de downgrade:
 
-## Mudanças
+- Preferir `facts.offered_slots_pending.slots` quando existir e for recente (`offered_at` < 30 min).
+- Só cair em `heldSlots` se não houver `offered_slots_pending`.
+- Nunca misturar os dois.
 
-### 1. Marcar a origem do cancelamento no banco antes de chamar Cal.com
+E a mensagem de downgrade deve ser específica quando houver match parcial:
 
-Migration: adicionar coluna `cancellation_source TEXT` em `public.bookings` (valores esperados: `sdr`, `human`, `lead`, `system`, `expired`; nullable).
+- Se `matchesSlotReference` casou com um único slot mas faltou confirmação textual → "Só confirmando: você quer fechar **quarta-feira, 1 de julho às 09:00**? Posso agendar?"
+- Se nenhum match → manter lista das 2 opções da oferta vigente.
 
-Em `supabase/functions/execute-action/index.ts`, no handler de `cancel_booking`:
+### 3. Limpar `offered_slots_pending` após booking confirmado
 
-- Antes de invocar `calcom-booking-cancel`, fazer `UPDATE bookings SET cancellation_source='sdr', cancellation_requested_at=now() WHERE calcom_booking_uid=? AND status IN ('confirmed','pending')`.
-- Se a cadeia de execução tiver `triggered_by` humano (ex.: UI), passar `cancellation_source='human'` em vez de `sdr`. Como hoje o cancel sempre vem do agente, default `sdr` cobre 100% do caso atual.
+No ramo de sucesso (`calcom-confirm-booking` ok), apagar `facts.offered_slots_pending` para não poluir o próximo turno.
 
-Mesmo tratamento em `calcom-booking-cancel` para cancelamentos chamados diretamente pela UI/Bookings page (passar `source` no body, default `sdr`).
+### 4. Liberar holds obsoletos ao oferecer novos slots
 
-### 2. calcom-webhook: respeitar a marca
+No ramo `offer_slots` (linha 884), antes de gravar `offered_slots_pending`, marcar `slot_holds` antigos do mesmo lead que NÃO estejam nos novos `offered` como `status='released'`. Isso evita que `heldSlots` em turnos futuros contenha lixo.
 
-Em `calcom-webhook/index.ts`, no case `BOOKING_CANCELLED`, antes do enqueue:
+### 5. Reforço no system prompt
 
-```ts
-const { data: bk } = await supabase
-  .from("bookings")
-  .select("cancellation_source, cancellation_requested_at")
-  .eq("calcom_booking_uid", bookingUid)
-  .maybeSingle();
-const recentlyMarked = bk?.cancellation_requested_at
-  && Date.now() - new Date(bk.cancellation_requested_at).getTime() < 5 * 60_000;
-if (recentlyMarked && bk.cancellation_source !== 'lead') {
-  console.log("calcom-webhook: cancellation initiated internally, skipping acknowledge.");
-  break;
-}
-```
+Adicionar regra explícita: quando o lead responder com referência curta a um slot já oferecido ("dia 1", "o primeiro", "9h", "esse"), **interpretar como confirmação** e emitir `book_slot` com o ISO correto da oferta vigente — não re-perguntar.
 
-Manter também a checagem por e-mail atual (defesa em profundidade).
+## Arquivos a alterar
 
-### 3. Safety net adicional no executor
-
-Em `execute-action`, no handler de `acknowledge_cancellation`, antes de enviar:
-
-- Se houver mensagem outbound do SDR nos últimos 10 min nesta conversa cujo `metadata->>action` seja `cancel_booking` ou `send_reply` em resposta direta ao cancelamento (heurística: outbound do SDR enviada nos últimos 10 min E booking foi cancelado nesse intervalo), marcar a ação como `skipped` e retornar `{ sent: false, reason: "already_acknowledged" }`.
-- Isso protege contra qualquer outra origem futura que enfileire acknowledge incorretamente.
-
-### 4. Re-classificar o cancelamento já gravado (cleanup pontual)
-
-Sem ação SQL retroativa — só sigam frente. O lead 61a9b13e já recebeu a duplicação; o fix evita repetição.
-
-## Arquivos
-
-- `supabase/migrations/<novo>.sql` — `ALTER TABLE bookings ADD COLUMN cancellation_source TEXT, ADD COLUMN cancellation_requested_at TIMESTAMPTZ`.
-- `supabase/functions/execute-action/index.ts` — handler `cancel_booking` grava a marca; handler `acknowledge_cancellation` ganha safety net.
-- `supabase/functions/calcom-booking-cancel/index.ts` — propaga `source` para a marca (opcional).
-- `supabase/functions/calcom-webhook/index.ts` — lê a marca antes de enfileirar acknowledge.
+- `supabase/functions/sdr-agent/index.ts` (regex + helper + guard + downgrade + cleanup + prompt)
 
 ## Fora de escopo
 
-- Não muda UI, debounce, sdr-agent, lógica de slot/oferta.
-- Não muda comportamento de cancelamento pelo link público do Cal.com (lead clicando no link continua disparando `acknowledge_cancellation`, que é o comportamento desejado).
+- Mudanças no `execute-action`, `calcom-*`, debounce ou UI.
+- Política de quantos slots oferecer (já tratado antes).
 
-## Verificação
+## Validação
 
-- Simular cancel via SDR (`execute-action cancel_booking`) e conferir que o webhook subsequente NÃO enfileira `acknowledge_cancellation` (log mostra "skipping").
-- Simular cancel pelo link público do Cal.com (sem marcar a coluna) e conferir que o acknowledge continua sendo enviado.
-- Verificar `lead_action_queue` para o lead de teste — só deve existir um `acknowledge_cancellation` por cancelamento iniciado pelo lead.
+Após deploy, simular via `curl_edge_functions` o cenário: lead diz "Dia 1" depois de oferta `1/jul 09:00` + `3/jul 09:45` → esperar `liveResult.action="book_slot"` com `ok:true` e booking criado para 1/jul 09:00.
