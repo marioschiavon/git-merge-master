@@ -1,64 +1,69 @@
-## Problema
+## Diagnóstico
 
-Na conversa: agente ofereceu `1/jul 09:00` e `3/jul 09:45`. Lead respondeu **"Dia 1"**. O agente:
-1. Bloqueou o `book_slot` porque "Dia 1" não bate com `CONFIRMATION_REGEX`.
-2. No downgrade, listou **slots antigos (15/jun)** vindos de `slot_holds` ainda com `status='held'` de turnos anteriores, em vez dos slots de julho recém-oferecidos.
+Na conversa `217275fa…`:
 
-## Correções no `supabase/functions/sdr-agent/index.ts`
+- 14:20 e 14:21 o SDR mandou **3 horários** (`15/jun 09:00`, `09:45`, `17:00`) — viola a regra "máximo 2 por turno".
+- `slot_holds` desse turno tem só **2 holds reais** e nenhum é 15/jun — são `01/jul 09:00` e `03/jul 09:45`. Ou seja, a mensagem texto do LLM **alucinou** datas que não foram reservadas (por isso "não tem slot reservado para a 3ª sugestão").
+- Lead respondeu **"Terceira"**. `matchesSlotReference` não tem padrões ordinais ("primeira/segunda/terceira"), então não casou → SDR reofereceu a mesma lista de 3.
 
-### 1. Aceitar seleção por referência (não só por palavras de confirmação)
+## Correções em `supabase/functions/sdr-agent/index.ts`
 
-Hoje o guard exige `CONFIRMATION_REGEX.test(inbound) === true`. Vamos trocar por:
+### 1. Hard-cap de 2 slots no ramo `offer_slots`
 
+Antes de persistir `offered_slots_pending` e enviar mensagem:
+
+```ts
+let offered = (Array.isArray(fd.offered_slots) ? fd.offered_slots : [])
+  .filter((s) => typeof s === "string" && s.length > 0);
+if (offered.length > 2) offered = offered.slice(0, 2);
 ```
-hasConfirmation = CONFIRMATION_REGEX.test(inbound) || matchesSlotReference(inbound, candidates)
+
+### 2. Validar `offered` contra holds reais
+
+Buscar `slot_holds` ativos (`status='held'`, `expires_at > now()`) do lead e **descartar** qualquer ISO em `offered` que não tenha hold correspondente (tolerância de 60s). Isso elimina datas alucinadas pelo LLM.
+
+Se sobrar 0 ISOs validados → liveResult `ok:false` com motivo `no_valid_holds` (não envia mensagem ao lead).
+
+### 3. Reescrever a mensagem quando divergir dos ISOs validados
+
+Após validar `offered`, contar bullets/datas no `msg`. Se o número de linhas com `•`/`📅` no texto for maior que `offered.length`, ou se o texto mencionar dia/hora que não está em nenhum dos ISOs validados (usando `_slotPatterns`), **substituir** `msg` por uma versão formatada a partir de `offered` (mantendo um preâmbulo curto se houver). Isso garante que o que o lead vê = o que está reservado.
+
+### 4. Aceitar ordinais em `matchesSlotReference`
+
+Adicionar resolução posicional ANTES do scoring por dia/hora:
+
+```ts
+const ORDINAL_MAP: Record<string, number> = {
+  "primeira": 0, "primeiro": 0, "1a": 0, "1o": 0, "1º": 0, "1ª": 0, "opcao 1": 0, "opção 1": 0,
+  "segunda": 1, "segundo": 1, "2a": 1, "2o": 1, "2º": 1, "2ª": 1, "opcao 2": 1, "opção 2": 1,
+  "terceira": 2, "terceiro": 2, "3a": 2, "3o": 2, "3º": 2, "3ª": 2, "opcao 3": 2, "opção 3": 2,
+  "ultima": -1, "último": -1, "ultimo": -1,
+};
 ```
 
-Nova função `matchesSlotReference(text, candidateIsos)`:
+Para cada chave normalizada presente no texto (com word-boundaries para não pegar "segunda-feira" como ordinal — exigir que NÃO seja seguido de "-feira"/"feira"), retornar o ISO em `candidateIsos[idx]`. Se múltiplos ordinais conflitarem → `ambiguous:true`.
 
-- Para cada ISO candidato, derivar variantes em pt-BR no fuso `America/Sao_Paulo`:
-  - dia do mês: `"1"`, `"01"`, `"dia 1"`, `"dia 01"`, `"1/7"`, `"01/07"`, `"1 de julho"`, `"1º"`, `"primeiro"`
-  - hora: `"09:00"`, `"9h"`, `"9:00"`, `"as 9"`, `"às 9"`, `"9 da manha"`
-  - ordinal pela ordem oferecida: `"primeira"`, `"segunda"`, `"a 1"`, `"opção 1"`, `"opcao 2"`
-- Casa se o texto normalizado (lowercase, sem acento) contiver pelo menos uma variante de dia OU de hora correspondente a UM ÚNICO candidato (sem ambiguidade entre as opções oferecidas).
-- Retornar `{ matched: true, isoSelected }` para reaproveitar como `slot_start` quando o LLM não preencheu corretamente.
-
-Quando `matchesSlotReference` resolver para um ISO específico, **forçar** `slot_start = isoSelected` antes de prosseguir com o booking (evita o LLM errar a data).
-
-### 2. Downgrade usar SÓ a oferta vigente
-
-Trocar a fonte de `candidates` no bloco de downgrade:
-
-- Preferir `facts.offered_slots_pending.slots` quando existir e for recente (`offered_at` < 30 min).
-- Só cair em `heldSlots` se não houver `offered_slots_pending`.
-- Nunca misturar os dois.
-
-E a mensagem de downgrade deve ser específica quando houver match parcial:
-
-- Se `matchesSlotReference` casou com um único slot mas faltou confirmação textual → "Só confirmando: você quer fechar **quarta-feira, 1 de julho às 09:00**? Posso agendar?"
-- Se nenhum match → manter lista das 2 opções da oferta vigente.
-
-### 3. Limpar `offered_slots_pending` após booking confirmado
-
-No ramo de sucesso (`calcom-confirm-booking` ok), apagar `facts.offered_slots_pending` para não poluir o próximo turno.
-
-### 4. Liberar holds obsoletos ao oferecer novos slots
-
-No ramo `offer_slots` (linha 884), antes de gravar `offered_slots_pending`, marcar `slot_holds` antigos do mesmo lead que NÃO estejam nos novos `offered` como `status='released'`. Isso evita que `heldSlots` em turnos futuros contenha lixo.
+Cuidado especial: a palavra **"segunda"** é dia da semana em pt-BR. Só tratar como ordinal se NÃO vier seguida de "feira" (com ou sem hífen) e se NÃO houver outra menção de dia da semana.
 
 ### 5. Reforço no system prompt
 
-Adicionar regra explícita: quando o lead responder com referência curta a um slot já oferecido ("dia 1", "o primeiro", "9h", "esse"), **interpretar como confirmação** e emitir `book_slot` com o ISO correto da oferta vigente — não re-perguntar.
+Adicionar regra explícita: "Quando você ofereceu N horários, o lead pode responder com ordinais ('primeira', 'segunda opção', 'terceira', 'a 1ª', 'a última') — isso É confirmação. Emita `book_slot`/`reschedule_booking` com o ISO da posição correspondente da sua oferta anterior. Nunca reofereça a mesma lista nesse caso."
+
+Reafirmar: "Você JAMAIS pode listar no texto da mensagem horários que não estão em `offered_slots`. O texto e o array devem coincidir 1:1."
 
 ## Arquivos a alterar
 
-- `supabase/functions/sdr-agent/index.ts` (regex + helper + guard + downgrade + cleanup + prompt)
+- `supabase/functions/sdr-agent/index.ts` (helper `matchesSlotReference`, ramo `offer_slots`, system prompt)
 
 ## Fora de escopo
 
-- Mudanças no `execute-action`, `calcom-*`, debounce ou UI.
-- Política de quantos slots oferecer (já tratado antes).
+- Mudanças em `calcom-slots`, `execute-action`, UI ou debounce.
+- Mexer na lógica de quantos slots o `check_calendar` pré-reserva (já é 2).
 
 ## Validação
 
-Após deploy, simular via `curl_edge_functions` o cenário: lead diz "Dia 1" depois de oferta `1/jul 09:00` + `3/jul 09:45` → esperar `liveResult.action="book_slot"` com `ok:true` e booking criado para 1/jul 09:00.
+Após deploy, simular via `curl_edge_functions`:
+
+1. Lead recebe oferta de 2 slots (`A`, `B`) e responde **"segunda opção"** → esperar `liveResult.action="book_slot"` com `slot_start=B` e booking criado.
+2. Lead recebe oferta de 3 slots (forçada via prompt) → confirmar que o agente só envia 2 no texto e só 2 ficam em `offered_slots_pending`.
+3. Lead responde **"terceira"** quando só há 2 opções → resposta deve pedir clarificação (não fazer book_slot e não reofertar lista inteira).
