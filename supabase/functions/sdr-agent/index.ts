@@ -1150,6 +1150,17 @@ Deno.serve(async (req) => {
                 await sendFallback(errStr);
                 liveResult = { action: "book_slot", ok: false, error: errStr };
               } else {
+                // Limpar offered_slots_pending para não vazar pra próximos turnos.
+                try {
+                  const facts = { ...((ctx.memory?.facts ?? {}) as Record<string, unknown>) };
+                  if (facts.offered_slots_pending) {
+                    delete facts.offered_slots_pending;
+                    await supabase.from("lead_memory").upsert(
+                      { lead_id, facts },
+                      { onConflict: "lead_id" },
+                    );
+                  }
+                } catch (_) { /* best effort */ }
                 const confirmMsg = String(fd.message || "").trim() ||
                   `Pronto, ${ctx.lead.name?.split(" ")[0] || ""}! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail. 🙌`;
                 const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
