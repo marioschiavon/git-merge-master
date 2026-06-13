@@ -1,45 +1,51 @@
+## Diagnóstico
 
-## Situação atual
+Achei a causa. O webhook reconheceu corretamente que **foi o lead** que cancelou (o Cal.com mandou `payload.cancelledBy: "eu@julianocarneiro.com.br"`, e a comparação com o e-mail do lead bateu). O problema está no INSERT em `lead_action_queue`:
 
-Quando o lead clica no link do email do Cal.com:
+O código do `calcom-webhook/index.ts` enfileira assim:
 
-- **Reagendou** → `BOOKING_RESCHEDULED` chega no `calcom-webhook` → enfileira `send_booking_confirmation` com `rescheduled: true`. Isso gera uma mensagem extra desnecessária — o lead acabou de ver a nova confirmação na tela do Cal.com.
-- **Cancelou** → `BOOKING_CANCELLED` chega no webhook → enfileira `offer_reschedule_instead`. O handler atual gera texto do tipo "ofereça remarcar **antes de cancelar definitivamente**", o que não faz sentido pós-cancelamento. Além disso, o webhook dispara igual quando quem cancela é o próprio SDR pelo app (via `calcom-booking-cancel`), gerando mensagem duplicada.
+```ts
+await supabase.from("lead_action_queue").insert({
+  company_id, lead_id, action_type, payload, status, scheduled_for, source: "calcom_webhook",
+});
+```
+
+Mas a tabela `lead_action_queue` **não tem** as colunas `payload` nem `source`. As colunas reais são:
+
+```
+id, company_id, lead_id, conversation_id, intent_log_id, action_type,
+params, scheduled_for, status, triggered_by, attempts, executed_at,
+result, error, created_at, updated_at
+```
+
+Como o resultado do `.insert()` não é checado (`await` sem ler `error`), o erro do PostgREST é silenciosamente descartado, `calcom_webhook_log.processed=true` fica `true` sem `error`, e nenhuma linha é criada na fila → o `execute-action` nunca roda o `acknowledge_cancellation`.
+
+A mesma confusão de nomes existe na checagem de idempotência (`payload->>booking_uid`) — também não acharia nada porque a coluna correta é `params`.
+
+E o `execute-action` já lê tudo de `ctx.params` (linha 642: `const { booking_uid } = ctx.params;`), então é mesmo só o webhook que está usando os nomes errados.
 
 ## O que mudar
 
-### 1. Remover follow-up de remarcação (`supabase/functions/calcom-webhook/index.ts`)
+### `supabase/functions/calcom-webhook/index.ts`
 
-No `switch` de `BOOKING_RESCHEDULED`, **parar de enfileirar** `send_booking_confirmation`. Manter a mensagem de sistema na conversa ("🔄 Reunião remarcada para X") e o `lead_activity`, mas nenhum outbound para o lead. O `BookingCard` da UI continua refletindo a nova data normalmente.
+1. **Helper `enqueue`** — trocar:
+   - `payload` → `params`
+   - `source: "calcom_webhook"` → `triggered_by: "calcom_webhook"`
+   - Adicionar checagem de `error` retornado pelo `.insert()` e logar/anexar em `calcom_webhook_log.error` se falhar (para não voltarmos a engolir esse tipo de bug).
 
-### 2. Distinguir quem cancelou (`supabase/functions/calcom-webhook/index.ts`)
+2. **Idempotency guard** do `BOOKING_CANCELLED` — trocar `payload->>booking_uid` por `params->>booking_uid` na query.
 
-Antes de enfileirar a ação no `BOOKING_CANCELLED`, identificar a origem:
-- Ler campos que o Cal.com manda no payload: `payload.cancelledBy`, `payload.cancellation?.cancelledByEmail`, ou comparar com o e-mail do organizador/lead.
-- Se cancelado pelo **lead** → enfileirar nova ação `acknowledge_cancellation` (item 3).
-- Se cancelado pelo **organizador/SDR/app** → não enfileirar nada. Manter só a mensagem de sistema e a `lead_activity` (já existem hoje).
-
-### 3. Novo handler `acknowledge_cancellation` (`supabase/functions/execute-action/index.ts`)
-
-Substituir o `offer_reschedule_instead` no fluxo do webhook por um handler dedicado:
-
-- `generateReply` com tom: "reconheça que o lead cancelou a reunião de [data], valide sem pressão ('imagino que algo tenha surgido / sem problemas') e pergunte se ele gostaria de remarcar — sem propor horários ainda, só abrir a porta."
-- Canal = canal preferido do lead (`loadConversationChannel`).
-- Registrar `lead_activity` tipo `meeting`: "🔄 Lead cancelou via Cal.com — follow-up de retomada enviado".
-- Manter o handler `offer_reschedule_instead` antigo intocado (ele é usado em outro fluxo, quando o lead **pede** para cancelar via chat — pré-cancelamento).
-
-### 4. Idempotência
-
-Na inserção em `lead_action_queue` (webhook), checar se já existe row recente com `action_type = 'acknowledge_cancellation'` e `payload->>booking_uid` igual, com status `pending` ou `done` nas últimas 24h. Se sim, não enfileirar de novo. Evita follow-up duplicado se o Cal.com reenviar o webhook.
+3. Confirmar (sem mexer) que todas as outras chamadas ao `enqueue` (`send_booking_confirmation`, `update_lead_score`, `recover_no_show`, `send_meeting_recap`, `request_feedback`) passam a inserir de verdade — hoje **nenhuma** delas funciona pelo mesmo motivo.
 
 ## Fora do escopo
 
-- Não vou mexer em remarcação — nenhuma mensagem nova é disparada quando o lead remarca.
-- Não vou criar nova tabela nem mexer em `slot_holds` / `bookings`.
-- O `BookingCard`, o cron de fila e a UI continuam iguais.
+- Não vou mexer no `execute-action` (já lê `params` corretamente).
+- Não vou mexer no plano anterior de tom da mensagem, source detection nem `BOOKING_RESCHEDULED` — tudo isso já está certo, só não rodava porque a fila não recebia a linha.
+- Não vou criar coluna nova nem migração.
 
 ## Verificação
 
-1. Cancelar uma reserva de teste pelo link do email do Cal.com → webhook chega, `lead_action_queue` recebe `acknowledge_cancellation`, mensagem sai no canal preferido com tom de retomada ("vi que você cancelou… quer remarcar?").
-2. Cancelar a mesma reserva pela UI do app → nenhuma mensagem nova ao lead, só a system message na conversa.
-3. Remarcar pelo link do email → nenhuma mensagem nova ao lead; system message e `BookingCard` refletem a nova data.
+1. Cancelar uma reserva de teste pelo link do email do Cal.com.
+2. Conferir em `lead_action_queue` que aparece uma linha `action_type='acknowledge_cancellation'` com `triggered_by='calcom_webhook'` e `params->>booking_uid` preenchido.
+3. Conferir que o `execute-action` processa essa linha e o lead recebe a mensagem de retomada no canal preferido.
+4. Repetir o teste no mesmo booking dentro de 24h → guard de idempotência deve impedir uma segunda enfileiragem.
