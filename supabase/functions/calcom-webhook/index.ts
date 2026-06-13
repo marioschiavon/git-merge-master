@@ -114,11 +114,17 @@ serve(async (req) => {
 
     // Enqueue follow-up actions
     if (company_id && lead_id) {
-      const enqueue = async (action_type: string, payload: any = {}, delayMinutes = 0) => {
+      const enqueue = async (action_type: string, params: any = {}, delayMinutes = 0) => {
         const scheduled_for = new Date(Date.now() + delayMinutes * 60_000).toISOString();
-        await supabase.from("lead_action_queue").insert({
-          company_id, lead_id, action_type, payload, status: "pending", scheduled_for, source: "calcom_webhook",
+        const { error: enqErr } = await supabase.from("lead_action_queue").insert({
+          company_id, lead_id, action_type, params, status: "pending", scheduled_for, triggered_by: "calcom_webhook",
         });
+        if (enqErr) {
+          console.error(`calcom-webhook: failed to enqueue ${action_type}:`, enqErr.message);
+          await supabase.from("calcom_webhook_log").update({
+            error: `enqueue ${action_type} failed: ${enqErr.message}`,
+          }).eq("id", logRow!.id);
+        }
       };
 
       // Detect who initiated this webhook event (lead vs. organizer/SDR/app)
@@ -158,7 +164,7 @@ serve(async (req) => {
             .eq("lead_id", lead_id)
             .eq("action_type", "acknowledge_cancellation")
             .gte("created_at", since)
-            .filter("payload->>booking_uid", "eq", bookingUid || "")
+            .filter("params->>booking_uid", "eq", bookingUid || "")
             .in("status", ["pending", "done"])
             .limit(1)
             .maybeSingle();
