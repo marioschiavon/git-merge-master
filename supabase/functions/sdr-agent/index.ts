@@ -536,9 +536,44 @@ function _slotPatterns(iso: string): { day: string[]; hour: string[] } {
   return { day: dayP, hour: hourP };
 }
 
+// Ordinais posicionais: "primeira opção" → índice 0, "última" → último.
+// CUIDADO: "segunda" também é dia da semana — só conta como ordinal se NÃO
+// vier acompanhada de "feira" (com ou sem hífen).
+const ORDINAL_PATTERNS: Array<{ re: RegExp; idx: number }> = [
+  { re: /\b(primeira|primeiro|1[aº°o]?|opcao 1|a 1)\b/, idx: 0 },
+  { re: /\b(segunda|segundo|2[aº°o]?|opcao 2|a 2)\b/, idx: 1 },
+  { re: /\b(terceira|terceiro|3[aº°o]?|opcao 3|a 3)\b/, idx: 2 },
+  { re: /\b(quarta|quarto|4[aº°o]?|opcao 4|a 4)\b/, idx: 3 },
+  { re: /\b(ultima|ultimo)\b/, idx: -1 },
+];
+
+function _resolveOrdinal(text: string, n: number): { idx: number | null; ambiguous: boolean } {
+  // Remove dias da semana para não disparar falso-positivo em "segunda-feira" etc.
+  const cleaned = text
+    .replace(/\b(segunda|terca|quarta|quinta|sexta)[\s-]+feira\b/g, " ")
+    .replace(/\b(segunda|terca|quarta|quinta|sexta)-feira\b/g, " ");
+  const hits: number[] = [];
+  for (const { re, idx } of ORDINAL_PATTERNS) {
+    if (re.test(cleaned)) {
+      const realIdx = idx === -1 ? n - 1 : idx;
+      if (realIdx >= 0 && realIdx < n && !hits.includes(realIdx)) hits.push(realIdx);
+    }
+  }
+  if (hits.length === 0) return { idx: null, ambiguous: false };
+  if (hits.length === 1) return { idx: hits[0], ambiguous: false };
+  return { idx: null, ambiguous: true };
+}
+
 function matchesSlotReference(text: string, candidateIsos: string[]): { iso: string | null; ambiguous: boolean } {
   const t = ` ${_normalizeText(text)} `;
   if (!t.trim() || candidateIsos.length === 0) return { iso: null, ambiguous: false };
+
+  // 1) Tenta resolução por ordinal posicional ("primeira", "terceira", "última").
+  const ord = _resolveOrdinal(t, candidateIsos.length);
+  if (ord.idx !== null) return { iso: candidateIsos[ord.idx], ambiguous: false };
+  if (ord.ambiguous) return { iso: null, ambiguous: true };
+
+  // 2) Resolução por dia/hora.
   const scored = candidateIsos.map((iso) => {
     const { day, hour } = _slotPatterns(iso);
     const dayMatch = day.some((p) => t.includes(_normalizeText(p)));
