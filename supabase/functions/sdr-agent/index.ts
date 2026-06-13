@@ -468,13 +468,49 @@ function fmtBrt(iso: string): string {
 // Combina expressões comuns em PT-BR ("confirmo", "fechado", "pode ser", "esse mesmo",
 // "tá bom", "ok pra mim", "esse horário", "esse aí" etc).
 const CONFIRMATION_REGEX =
-  /\b(confirmo|confirmado|fechado|fechou|pode (ser|marcar|agendar)|esse (mesmo|aí|ai|horário|horario)|esse hor[aá]rio|tá (bom|ótimo|otimo)|ta (bom|otimo)|t[áa] (ok|certo)|ok\s+(pra mim|pra n[oó]s|pra gente|por mim)|perfeito|beleza|combinado|bora|quero (esse|essa|o de|a de|marcar|agendar)|vou (com|de)|fica (esse|essa|o de|a de))\b/i;
+  /\b(confirmo|confirmado|confirma|confirmar|fechado|fechou|pode (ser|marcar|agendar|fechar|reservar|sim)|podemos sim|sim pode|esse (mesmo|aí|ai|horário|horario)|esse hor[aá]rio|isso( mesmo)?|é isso( mesmo)?|tá (bom|ótimo|otimo)|ta (bom|otimo)|t[áa] (ok|certo)|ok\s+(pra mim|pra n[oó]s|pra gente|por mim)|perfeito|beleza|combinado|bora|partiu|manda ver|topo|com certeza|claro|quero (esse|essa|o de|a de|marcar|agendar)|vou (com|de)|fica (esse|essa|o de|a de))\b/i;
+
+// Palavras-chave de assentimento curto. Usadas só quando a mensagem é muito curta.
+const SHORT_ACK_REGEX = /(\bsim\b|\bok\b|\bokay\b|\bblz\b|\bvaleu\b|\bisso\b|\bclaro\b|\bcerto\b|\bbora\b|\btopo\b|\bpartiu\b|\bpode\b|👍|✅|🤝|🙌)/i;
+
+function isLikelyConfirmation(text: string): boolean {
+  const raw = (text || "").trim();
+  if (!raw) return false;
+  if (CONFIRMATION_REGEX.test(raw)) return true;
+  const normalized = _normalizeText(raw);
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  // Mensagem curta (até 4 palavras) + palavra de assentimento = confirmação.
+  if (wordCount <= 4 && SHORT_ACK_REGEX.test(raw)) return true;
+  return false;
+}
 
 function lastInboundContent(messages: Array<{ direction: string; content: string }>): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].direction === "inbound") return String(messages[i].content || "");
   }
   return "";
+}
+
+function lastOutboundContent(messages: Array<{ direction: string; content: string }>): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].direction === "outbound") return String(messages[i].content || "");
+  }
+  return "";
+}
+
+/**
+ * Detecta oferta verbal de um único slot na última mensagem outbound.
+ * Se o agente perguntou confirmação sobre UM horário específico (em texto livre,
+ * sem chamar `offer_slots`), retorna o ISO correspondente entre os holds ativos.
+ */
+function implicitOfferFromOutbound(outboundText: string, candidateIsos: string[]): string | null {
+  if (!outboundText || candidateIsos.length === 0) return null;
+  const matched: string[] = [];
+  for (const iso of candidateIsos) {
+    const ref = matchesSlotReference(outboundText, [iso]);
+    if (ref.iso) matched.push(iso);
+  }
+  return matched.length === 1 ? matched[0] : null;
 }
 
 // ──────────────────────────────────────────────────────────────────────
