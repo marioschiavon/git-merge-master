@@ -983,6 +983,26 @@ Deno.serve(async (req) => {
                   { lead_id, facts },
                   { onConflict: "lead_id" },
                 );
+                // Liberar holds antigos do lead que NÃO estejam nos novos `offered`,
+                // para não poluir o contexto em turnos seguintes.
+                try {
+                  const { data: oldHolds } = await supabase
+                    .from("slot_holds")
+                    .select("id, slot_datetime")
+                    .eq("lead_id", lead_id)
+                    .eq("status", "held");
+                  const keep = new Set(offered.map((s) => new Date(s).getTime()));
+                  const stale = (oldHolds || []).filter(
+                    (h: any) => !Array.from(keep).some(
+                      (t) => Math.abs(new Date(h.slot_datetime).getTime() - (t as number)) < 5 * 60_000,
+                    ),
+                  );
+                  if (stale.length > 0) {
+                    await supabase.from("slot_holds")
+                      .update({ status: "released" })
+                      .in("id", stale.map((h: any) => h.id));
+                  }
+                } catch (_) { /* best effort */ }
               } catch (_) { /* best effort */ }
             }
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
