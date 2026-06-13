@@ -114,10 +114,21 @@ serve(async (req) => {
 
     // Enqueue follow-up actions
     if (company_id && lead_id) {
+      // Resolve conversation_id once, so o executor consiga enviar a mensagem.
+      const { data: convRow } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("lead_id", lead_id)
+        .eq("company_id", company_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const conversation_id = convRow?.id || null;
+
       const enqueue = async (action_type: string, params: any = {}, delayMinutes = 0) => {
         const scheduled_for = new Date(Date.now() + delayMinutes * 60_000).toISOString();
         const { error: enqErr } = await supabase.from("lead_action_queue").insert({
-          company_id, lead_id, action_type, params, status: "pending", scheduled_for, triggered_by: "calcom_webhook",
+          company_id, lead_id, conversation_id, action_type, params, status: "pending", scheduled_for, triggered_by: "calcom_webhook",
         });
         if (enqErr) {
           console.error(`calcom-webhook: failed to enqueue ${action_type}:`, enqErr.message);

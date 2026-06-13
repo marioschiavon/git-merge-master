@@ -656,9 +656,12 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       category: "scheduling", sub_intent: "cancellation_followup",
     });
     const channel = await loadConversationChannel(ctx);
-    await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "acknowledge_cancellation", booking_uid });
-    await logActivity(ctx, "meeting", `🔄 Lead cancelou via Cal.com — follow-up de retomada enviado`, { booking_uid });
-    return { sent: true };
+    const out = await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "acknowledge_cancellation", booking_uid });
+    if (!out?.sent) {
+      throw new Error(`acknowledge_cancellation: envio falhou (${out?.reason || out?.error || "sem motivo"})`);
+    }
+    await logActivity(ctx, "meeting", `🔄 Lead cancelou via Cal.com — follow-up de retomada enviado`, { booking_uid, channel });
+    return { sent: true, channel, delivery_status: out.delivery_status };
   },
 
 
@@ -798,11 +801,43 @@ serve(async (req) => {
       });
     }
 
+    // Fallback: se a ação foi enfileirada sem conversation_id, tente recuperar
+    // a conversa mais recente do lead. Sem isso, sendOutbound não envia nada.
+    let resolvedConversationId: string | null = actionRow.conversation_id || null;
+    if (!resolvedConversationId) {
+      const { data: conv } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("lead_id", actionRow.lead_id)
+        .eq("company_id", actionRow.company_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (conv?.id) {
+        resolvedConversationId = conv.id as string;
+      } else {
+        // Cria conversa nova usando o canal preferido do lead (whatsapp por padrão)
+        const { data: lead } = await supabase
+          .from("leads")
+          .select("preferred_channel, whatsapp, phone, email")
+          .eq("id", actionRow.lead_id)
+          .maybeSingle();
+        const channel = (lead as any)?.preferred_channel
+          || ((lead as any)?.whatsapp || (lead as any)?.phone ? "whatsapp" : "email");
+        const { data: created } = await supabase
+          .from("conversations")
+          .insert({ lead_id: actionRow.lead_id, company_id: actionRow.company_id, channel })
+          .select("id")
+          .single();
+        resolvedConversationId = created?.id || null;
+      }
+    }
+
     const ctx: ActionContext = {
       supabase,
       company_id: actionRow.company_id,
       lead_id: actionRow.lead_id,
-      conversation_id: actionRow.conversation_id,
+      conversation_id: resolvedConversationId,
       intent_log_id: actionRow.intent_log_id,
       params: actionRow.params || {},
     };
