@@ -468,13 +468,88 @@ function fmtBrt(iso: string): string {
 // Combina expressões comuns em PT-BR ("confirmo", "fechado", "pode ser", "esse mesmo",
 // "tá bom", "ok pra mim", "esse horário", "esse aí" etc).
 const CONFIRMATION_REGEX =
-  /\b(confirmo|confirmado|fechado|fechou|pode (ser|marcar|agendar)|esse (mesmo|aí|ai|horário|horario)|esse hor[aá]rio|tá (bom|ótimo|otimo)|ta (bom|otimo)|t[áa] (ok|certo)|ok\s+(pra mim|pra n[oó]s|pra gente|por mim)|perfeito|beleza|combinado|bora)\b/i;
+  /\b(confirmo|confirmado|fechado|fechou|pode (ser|marcar|agendar)|esse (mesmo|aí|ai|horário|horario)|esse hor[aá]rio|tá (bom|ótimo|otimo)|ta (bom|otimo)|t[áa] (ok|certo)|ok\s+(pra mim|pra n[oó]s|pra gente|por mim)|perfeito|beleza|combinado|bora|quero (esse|essa|o de|a de|marcar|agendar)|vou (com|de)|fica (esse|essa|o de|a de))\b/i;
 
 function lastInboundContent(messages: Array<{ direction: string; content: string }>): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].direction === "inbound") return String(messages[i].content || "");
   }
   return "";
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Reconhecimento de seleção de slot por referência curta (pt-BR).
+// Ex.: "Dia 1", "1/7", "1 de julho", "9h", "09:00", "o primeiro".
+// ──────────────────────────────────────────────────────────────────────
+const MONTH_NAMES_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MONTH_FULL_PT = [
+  "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+function _normalizeText(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function _brtParts(iso: string): { day: number; month: number; hour: number; minute: number } | null {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      day: "numeric", month: "numeric", hour: "numeric", minute: "numeric", hour12: false,
+    });
+    const parts = fmt.formatToParts(d);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0);
+    return { day: get("day"), month: get("month"), hour: get("hour"), minute: get("minute") };
+  } catch {
+    return null;
+  }
+}
+
+function _slotPatterns(iso: string): { day: string[]; hour: string[] } {
+  const p = _brtParts(iso);
+  if (!p) return { day: [], hour: [] };
+  const { day, month, hour, minute } = p;
+  const d = String(day), dd = String(day).padStart(2, "0");
+  const m = String(month), mm = String(month).padStart(2, "0");
+  const monShort = MONTH_NAMES_PT[month - 1];
+  const monFull = MONTH_FULL_PT[month - 1];
+  const h = String(hour), hh = String(hour).padStart(2, "0");
+  const min = String(minute).padStart(2, "0");
+  const dayP = [
+    `dia ${d}`, `dia ${dd}`,
+    `${d}/${m}`, `${dd}/${mm}`, `${d}/${mm}`, `${dd}/${m}`,
+    `${d} de ${monShort}`, `${d} de ${monFull}`,
+    `${dd} de ${monShort}`, `${dd} de ${monFull}`,
+    ...(day === 1 ? ["primeiro", "1o", "1 de "] : []),
+  ];
+  const hourP: string[] = [
+    `${hh}:${min}`,
+    `${h}:${min}`,
+  ];
+  if (minute === 0) {
+    hourP.push(`${h}h`, `as ${h}h`, `as ${h} `, `${h} horas`);
+  } else {
+    hourP.push(`${h}h${min}`, `${h}:${min}`);
+  }
+  return { day: dayP, hour: hourP };
+}
+
+function matchesSlotReference(text: string, candidateIsos: string[]): { iso: string | null; ambiguous: boolean } {
+  const t = ` ${_normalizeText(text)} `;
+  if (!t.trim() || candidateIsos.length === 0) return { iso: null, ambiguous: false };
+  const scored = candidateIsos.map((iso) => {
+    const { day, hour } = _slotPatterns(iso);
+    const dayMatch = day.some((p) => t.includes(_normalizeText(p)));
+    const hourMatch = hour.some((p) => t.includes(_normalizeText(p)));
+    return { iso, score: (dayMatch ? 1 : 0) + (hourMatch ? 1 : 0) };
+  });
+  const positives = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
+  if (positives.length === 0) return { iso: null, ambiguous: false };
+  if (positives.length === 1) return { iso: positives[0].iso, ambiguous: false };
+  if (positives[0].score > positives[1].score) return { iso: positives[0].iso, ambiguous: false };
+  return { iso: null, ambiguous: true };
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
