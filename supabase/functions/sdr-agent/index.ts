@@ -1053,6 +1053,7 @@ Deno.serve(async (req) => {
               }
             }
           }
+          } // close confirmGate.ok else
         } else if (decision === "reschedule_booking" || decision === "cancel_booking") {
           const fd = finalDecision as any;
           const fallbackChannel = fd.channel || "whatsapp";
