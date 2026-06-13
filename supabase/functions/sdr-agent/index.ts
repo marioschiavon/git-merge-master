@@ -904,8 +904,8 @@ Deno.serve(async (req) => {
             await sendFallback("missing slot_start");
             liveResult = { action: "book_slot", ok: false, error: "missing slot_start" };
           } else {
-            // Find the matching held slot (tolerate small time diffs)
-            const target = new Date(slotStart).getTime();
+            // Find the matching held slot (tolerate small time diffs, BRT-aware)
+            const target = parseSlotStartAsBrt(slotStart);
             const { data: holds } = await supabase
               .from("slot_holds")
               .select("id, slot_datetime, status")
@@ -913,7 +913,7 @@ Deno.serve(async (req) => {
               .eq("status", "held")
               .order("created_at", { ascending: false });
             const match = (holds || []).find((h: any) =>
-              Math.abs(new Date(h.slot_datetime).getTime() - target) < 60_000,
+              Math.abs(new Date(h.slot_datetime).getTime() - target) < 5 * 60_000,
             );
 
             if (!match) {
