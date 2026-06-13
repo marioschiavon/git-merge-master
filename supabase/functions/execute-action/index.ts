@@ -705,19 +705,6 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       tone: `O lead acabou de cancelar nossa reunião${whenLabel ? ` de ${whenLabel}` : ""} pelo link do Cal.com. Reconheça com empatia ("vi aqui que você cancelou", "imagino que algo tenha surgido", sem cobrança), e pergunte se ele gostaria de remarcar — sem propor horários ainda, apenas abrindo a porta para retomar a conversa. Tom natural e curto.`,
       category: "scheduling", sub_intent: "cancellation_followup",
     });
-      const { data: booking } = await ctx.supabase
-        .from("bookings")
-        .select("scheduled_at")
-        .eq("calcom_booking_uid", booking_uid)
-        .maybeSingle();
-      if (booking?.scheduled_at) {
-        whenLabel = new Date(booking.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
-      }
-    }
-    const reply = await generateReply(ctx, {
-      tone: `O lead acabou de cancelar nossa reunião${whenLabel ? ` de ${whenLabel}` : ""} pelo link do Cal.com. Reconheça com empatia ("vi aqui que você cancelou", "imagino que algo tenha surgido", sem cobrança), e pergunte se ele gostaria de remarcar — sem propor horários ainda, apenas abrindo a porta para retomar a conversa. Tom natural e curto.`,
-      category: "scheduling", sub_intent: "cancellation_followup",
-    });
     const channel = await loadConversationChannel(ctx);
     const out = await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "acknowledge_cancellation", booking_uid });
     if (!out?.sent) {
