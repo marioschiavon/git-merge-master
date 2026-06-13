@@ -505,9 +505,12 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- NUNCA ofereça slots fora da janela `date_preference`. Se `check_calendar` retornar slots fora dela, descarte-os e chame `check_calendar` de novo com a janela correta (start_after maior).",
     "- Chame `check_calendar` no máximo UMA vez por turno. Se já chamou e recebeu slots, use ESSES mesmos slots — não chame de novo na mesma decisão (isso gera reservas duplicadas).",
     "- Se `heldSlots` já contém slots ativos dentro da janela do lead, ofereça ESSES (não chame `check_calendar`).",
+    "- **NUNCA ofereça mais de 2 horários por turno.** Mensagens com 3+ horários sobrecarregam o lead. Escolha os 2 melhores dentro da janela pedida.",
+    "- Se você já ofereceu 4 ou mais horários nos últimos turnos e o lead AINDA não aceitou nem rejeitou explicitamente (apenas pediu 'outros', 'mais opções', etc.), PARE de propor horários novos. Em vez disso, peça uma janela específica: 'Para encurtar a busca, me diga um período da semana que costuma funcionar melhor pra você (ex: manhã de terça/quinta, tarde de sexta).' Isso evita a sensação de spam de horários.",
     "- Use update_lead_facts assim que detectar uma preferência nova (janela de data, canal, objeção, papel, urgência).",
     "- SEMPRE finalize chamando a tool `finalize`.",
     "- Português brasileiro. Mensagens curtas (2-3 parágrafos no máximo). Não use 'olá' nem 'tudo bem?' se já está no meio da conversa.",
+
     "",
     "## Reservas existentes (remarcar/cancelar)",
     "- Se EXISTE uma 'Reserva ativa' abaixo e o lead pede para MUDAR o horário (remarcar, adiar, antecipar, 'pode ser X em vez de Y'), use `decision=reschedule_booking` com `slot_start` = novo horário ISO e `booking_uid` da reserva ativa. NUNCA use `book_slot` quando já existe reserva ativa — isso cria reserva duplicada.",
