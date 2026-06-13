@@ -164,7 +164,7 @@ serve(async (req) => {
             .eq("lead_id", lead_id)
             .eq("action_type", "acknowledge_cancellation")
             .gte("created_at", since)
-            .filter("payload->>booking_uid", "eq", bookingUid || "")
+            .filter("params->>booking_uid", "eq", bookingUid || "")
             .in("status", ["pending", "done"])
             .limit(1)
             .maybeSingle();
