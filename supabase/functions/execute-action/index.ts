@@ -598,7 +598,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   },
 
   async cancel_booking(ctx) {
-    const { booking_uid, reason } = ctx.params;
+    const { booking_uid, reason, source } = ctx.params;
     if (!booking_uid) await assertSubIntentAllowed(ctx, "cancel_booking");
     let uid = booking_uid as string | undefined;
     if (!uid) {
@@ -609,6 +609,19 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       uid = existing?.calcom_booking_uid;
     }
     if (!uid) throw new Error("cancel_booking: nenhuma reserva ativa encontrada");
+    // Marcar origem ANTES de invocar Cal.com para que o webhook BOOKING_CANCELLED
+    // consiga identificar que o cancelamento foi iniciado internamente (SDR/humano)
+    // e não dispare um acknowledge_cancellation redundante.
+    const stampedSource = typeof source === "string" && source.length > 0 ? source : "sdr";
+    try {
+      await ctx.supabase
+        .from("bookings")
+        .update({
+          cancellation_source: stampedSource,
+          cancellation_requested_at: new Date().toISOString(),
+        })
+        .eq("calcom_booking_uid", uid);
+    } catch (_) { /* best effort */ }
     const { data, error } = await ctx.supabase.functions.invoke("calcom-booking-cancel", {
       body: { booking_uid: uid, reason },
     });
@@ -641,16 +654,53 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   async acknowledge_cancellation(ctx) {
     const { booking_uid } = ctx.params;
     let whenLabel = "";
+    // Safety net: se o cancelamento foi iniciado por nós (SDR/humano/sistema)
+    // ou se o SDR já enviou alguma resposta outbound nos últimos 10 min, não
+    // mandar o acknowledge — o lead já foi atendido conversacionalmente.
     if (booking_uid) {
-      const { data: booking } = await ctx.supabase
+      const { data: bk } = await ctx.supabase
         .from("bookings")
-        .select("scheduled_at")
+        .select("cancellation_source, cancellation_requested_at, scheduled_at")
         .eq("calcom_booking_uid", booking_uid)
         .maybeSingle();
-      if (booking?.scheduled_at) {
-        whenLabel = new Date(booking.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+      if (bk?.cancellation_source && bk.cancellation_source !== "lead") {
+        await logActivity(ctx, "note", `↩️ acknowledge_cancellation ignorado (cancelamento iniciado por ${bk.cancellation_source})`, { booking_uid });
+        return { skipped: true, reason: `cancellation_source=${bk.cancellation_source}` };
+      }
+      if (bk?.scheduled_at) {
+        whenLabel = new Date(bk.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
       }
     }
+    // Defesa em profundidade: se SDR já mandou outbound recente nesta conversa
+    // (dentro de 10 min antes do disparo do acknowledge), assumir que já cobriu.
+    try {
+      const { data: conv } = await ctx.supabase
+        .from("conversations")
+        .select("id")
+        .eq("lead_id", ctx.lead_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (conv?.id) {
+        const since = new Date(Date.now() - 10 * 60_000).toISOString();
+        const { data: recent } = await ctx.supabase
+          .from("messages")
+          .select("id, sent_at, metadata")
+          .eq("conversation_id", conv.id)
+          .eq("direction", "outbound")
+          .gte("sent_at", since)
+          .order("sent_at", { ascending: false })
+          .limit(5);
+        const coveredByRecent = (recent || []).some((m: any) => {
+          const act = m?.metadata?.action;
+          return act === "cancel_booking" || act === "send_reply";
+        });
+        if (coveredByRecent) {
+          await logActivity(ctx, "note", `↩️ acknowledge_cancellation ignorado (SDR já respondeu nos últimos 10 min)`, { booking_uid });
+          return { skipped: true, reason: "already_acknowledged_in_chat" };
+        }
+      }
+    } catch (_) { /* best effort */ }
     const reply = await generateReply(ctx, {
       tone: `O lead acabou de cancelar nossa reunião${whenLabel ? ` de ${whenLabel}` : ""} pelo link do Cal.com. Reconheça com empatia ("vi aqui que você cancelou", "imagino que algo tenha surgido", sem cobrança), e pergunte se ele gostaria de remarcar — sem propor horários ainda, apenas abrindo a porta para retomar a conversa. Tom natural e curto.`,
       category: "scheduling", sub_intent: "cancellation_followup",

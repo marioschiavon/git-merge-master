@@ -22,6 +22,8 @@ export type Database = {
           calcom_event_type_id: number | null
           calcom_reschedule_uid: string | null
           cancel_reason: string | null
+          cancellation_requested_at: string | null
+          cancellation_source: string | null
           company_id: string
           conversation_id: string | null
           created_at: string
@@ -48,6 +50,8 @@ export type Database = {
           calcom_event_type_id?: number | null
           calcom_reschedule_uid?: string | null
           cancel_reason?: string | null
+          cancellation_requested_at?: string | null
+          cancellation_source?: string | null
           company_id: string
           conversation_id?: string | null
           created_at?: string
@@ -74,6 +78,8 @@ export type Database = {
           calcom_event_type_id?: number | null
           calcom_reschedule_uid?: string | null
           cancel_reason?: string | null
+          cancellation_requested_at?: string | null
+          cancellation_source?: string | null
           company_id?: string
           conversation_id?: string | null
           created_at?: string
