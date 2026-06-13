@@ -464,6 +464,19 @@ function fmtBrt(iso: string): string {
   }
 }
 
+// Regex de confirmação explícita do lead para um horário já oferecido.
+// Combina expressões comuns em PT-BR ("confirmo", "fechado", "pode ser", "esse mesmo",
+// "tá bom", "ok pra mim", "esse horário", "esse aí" etc).
+const CONFIRMATION_REGEX =
+  /\b(confirmo|confirmado|fechado|fechou|pode (ser|marcar|agendar)|esse (mesmo|aí|ai|horário|horario)|esse hor[aá]rio|tá (bom|ótimo|otimo)|ta (bom|otimo)|t[áa] (ok|certo)|ok\s+(pra mim|pra n[oó]s|pra gente|por mim)|perfeito|beleza|combinado|bora)\b/i;
+
+function lastInboundContent(messages: Array<{ direction: string; content: string }>): string {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].direction === "inbound") return String(messages[i].content || "");
+  }
+  return "";
+}
+
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
   const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb } = ctx;
   const activeBooking = (activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending");
