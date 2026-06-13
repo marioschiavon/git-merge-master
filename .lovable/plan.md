@@ -1,51 +1,54 @@
 ## Diagnóstico
 
-Achei a causa. O webhook reconheceu corretamente que **foi o lead** que cancelou (o Cal.com mandou `payload.cancelledBy: "eu@julianocarneiro.com.br"`, e a comparação com o e-mail do lead bateu). O problema está no INSERT em `lead_action_queue`:
+O lead escolheu "Segunda" referente ao horário oferecido **segunda-feira, 15/06 às 17:45 (BRT)**. O agente SDR decidiu corretamente `book_slot` com `slot_start = "2026-06-15T17:45:00"`, mas o agendamento **falhou** com erro `"no matching held slot for 2026-06-15T17:45:00"`, caindo no fallback que envia a mensagem "Deixa eu confirmar esse horário aqui pra você e já te retorno em instantes."
 
-O código do `calcom-webhook/index.ts` enfileira assim:
+### Causa raiz
+
+Em `supabase/functions/sdr-agent/index.ts` (linha ~887), o matching do hold é feito assim:
 
 ```ts
-await supabase.from("lead_action_queue").insert({
-  company_id, lead_id, action_type, payload, status, scheduled_for, source: "calcom_webhook",
-});
+const target = new Date(slotStart).getTime();
+// compara com hold.slot_datetime tolerando 60s
 ```
 
-Mas a tabela `lead_action_queue` **não tem** as colunas `payload` nem `source`. As colunas reais são:
+- O agente devolve a hora **em BRT, sem timezone** (ex.: `"2026-06-15T17:45:00"`), porque a mensagem ao lead exibe BRT.
+- `new Date("2026-06-15T17:45:00")` em runtime Deno (UTC) interpreta como **17:45 UTC = 14:45 BRT**.
+- O hold salvo no banco é `2026-06-15T20:45:00+00:00` (=17:45 BRT).
+- Diferença de 3h → nenhum match → fallback é disparado.
 
+Confirmado no `sdr_agent_runs.final_output`:
 ```
-id, company_id, lead_id, conversation_id, intent_log_id, action_type,
-params, scheduled_for, status, triggered_by, attempts, executed_at,
-result, error, created_at, updated_at
+{"live":{"ok":false,"error":"no matching held slot for 2026-06-15T17:45:00","action":"book_slot"}, ...}
 ```
 
-Como o resultado do `.insert()` não é checado (`await` sem ler `error`), o erro do PostgREST é silenciosamente descartado, `calcom_webhook_log.processed=true` fica `true` sem `error`, e nenhuma linha é criada na fila → o `execute-action` nunca roda o `acknowledge_cancellation`.
+A reserva no Cal.com **não foi feita** e o lead recebeu uma mensagem confusa pedindo para esperar, quando na verdade o horário estava disponível.
 
-A mesma confusão de nomes existe na checagem de idempotência (`payload->>booking_uid`) — também não acharia nada porque a coluna correta é `params`.
+## Correção
 
-E o `execute-action` já lê tudo de `ctx.params` (linha 642: `const { booking_uid } = ctx.params;`), então é mesmo só o webhook que está usando os nomes errados.
+Normalizar `slot_start` no handler `book_slot` (e também em `reschedule_booking`, que usa o mesmo padrão de datetime sem TZ vindo do agente) para tratar datetime **sem offset como horário BRT (America/Sao_Paulo, UTC-3)** antes de calcular `target`.
 
-## O que mudar
+### Mudanças
 
-### `supabase/functions/calcom-webhook/index.ts`
+**Arquivo: `supabase/functions/sdr-agent/index.ts`**
 
-1. **Helper `enqueue`** — trocar:
-   - `payload` → `params`
-   - `source: "calcom_webhook"` → `triggered_by: "calcom_webhook"`
-   - Adicionar checagem de `error` retornado pelo `.insert()` e logar/anexar em `calcom_webhook_log.error` se falhar (para não voltarmos a engolir esse tipo de bug).
+1. Criar helper local `parseSlotStartAsBrt(s: string): number` que:
+   - Se a string contém `Z` ou `+HH:MM`/`-HH:MM` no fim → usa `Date.parse` direto.
+   - Caso contrário → assume BRT (UTC-3) e soma 3h em ms ao parse UTC ingênuo.
 
-2. **Idempotency guard** do `BOOKING_CANCELLED` — trocar `payload->>booking_uid` por `params->>booking_uid` na query.
+2. Em `book_slot` (linha ~887): substituir `new Date(slotStart).getTime()` por `parseSlotStartAsBrt(slotStart)`.
 
-3. Confirmar (sem mexer) que todas as outras chamadas ao `enqueue` (`send_booking_confirmation`, `update_lead_score`, `recover_no_show`, `send_meeting_recap`, `request_feedback`) passam a inserir de verdade — hoje **nenhuma** delas funciona pelo mesmo motivo.
+3. Em `reschedule_booking` (mesmo arquivo): aplicar o mesmo helper onde o `slot_start` do agente é convertido para passar à API Cal.com, garantindo que o ISO enviado leve `-03:00`.
 
-## Fora do escopo
+4. (Defensivo) Aumentar a tolerância de match de 60s para 5min, alinhando com o comportamento de `check_availability` em `inbound-webhook` (que já tolera 5min).
 
-- Não vou mexer no `execute-action` (já lê `params` corretamente).
-- Não vou mexer no plano anterior de tom da mensagem, source detection nem `BOOKING_RESCHEDULED` — tudo isso já está certo, só não rodava porque a fila não recebia a linha.
-- Não vou criar coluna nova nem migração.
+### Fora de escopo
+
+- Não vamos mudar o formato que o LLM devolve — manter prompt como está, a correção fica no consumidor.
+- Não mexer em `inbound-webhook`, `calcom-confirm-booking`, `calcom-slots`, nem na tabela `slot_holds`.
+- Não mexer no fluxo de cancelamento via link do Cal (assunto das mensagens anteriores).
 
 ## Verificação
 
-1. Cancelar uma reserva de teste pelo link do email do Cal.com.
-2. Conferir em `lead_action_queue` que aparece uma linha `action_type='acknowledge_cancellation'` com `triggered_by='calcom_webhook'` e `params->>booking_uid` preenchido.
-3. Conferir que o `execute-action` processa essa linha e o lead recebe a mensagem de retomada no canal preferido.
-4. Repetir o teste no mesmo booking dentro de 24h → guard de idempotência deve impedir uma segunda enfileiragem.
+1. Repetir o cenário: oferecer 2 slots, lead responde escolhendo um deles → confirmar que `sdr_agent_runs.final_output.live.action = "book_slot"` com `ok: true` e `booking` preenchido.
+2. Conferir mensagem enviada: "Combinado, …, Agendei para …" em vez do fallback.
+3. Verificar tabela `bookings` recebeu novo registro `confirmed`.
