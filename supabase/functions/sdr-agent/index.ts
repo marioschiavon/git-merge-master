@@ -277,7 +277,7 @@ async function execTool(
         if (Array.isArray(args.exclude_datetimes)) widenBody.exclude_datetimes = args.exclude_datetimes;
         if (Array.isArray(args.exclude_dates)) widenBody.exclude_dates = args.exclude_dates;
         const widen = await fetchSlots(widenBody);
-        const nextAvailable = widen.slots.slice(0, 4);
+        const nextAvailable = widen.slots.slice(0, 2);
         return {
           slots: nextAvailable,
           slots_in_window: [],
@@ -505,9 +505,12 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- NUNCA ofereça slots fora da janela `date_preference`. Se `check_calendar` retornar slots fora dela, descarte-os e chame `check_calendar` de novo com a janela correta (start_after maior).",
     "- Chame `check_calendar` no máximo UMA vez por turno. Se já chamou e recebeu slots, use ESSES mesmos slots — não chame de novo na mesma decisão (isso gera reservas duplicadas).",
     "- Se `heldSlots` já contém slots ativos dentro da janela do lead, ofereça ESSES (não chame `check_calendar`).",
+    "- **NUNCA ofereça mais de 2 horários por turno.** Mensagens com 3+ horários sobrecarregam o lead. Escolha os 2 melhores dentro da janela pedida.",
+    "- Se você já ofereceu 4 ou mais horários nos últimos turnos e o lead AINDA não aceitou nem rejeitou explicitamente (apenas pediu 'outros', 'mais opções', etc.), PARE de propor horários novos. Em vez disso, peça uma janela específica: 'Para encurtar a busca, me diga um período da semana que costuma funcionar melhor pra você (ex: manhã de terça/quinta, tarde de sexta).' Isso evita a sensação de spam de horários.",
     "- Use update_lead_facts assim que detectar uma preferência nova (janela de data, canal, objeção, papel, urgência).",
     "- SEMPRE finalize chamando a tool `finalize`.",
     "- Português brasileiro. Mensagens curtas (2-3 parágrafos no máximo). Não use 'olá' nem 'tudo bem?' se já está no meio da conversa.",
+
     "",
     "## Reservas existentes (remarcar/cancelar)",
     "- Se EXISTE uma 'Reserva ativa' abaixo e o lead pede para MUDAR o horário (remarcar, adiar, antecipar, 'pode ser X em vez de Y'), use `decision=reschedule_booking` com `slot_start` = novo horário ISO e `booking_uid` da reserva ativa. NUNCA use `book_slot` quando já existe reserva ativa — isso cria reserva duplicada.",
@@ -606,6 +609,28 @@ Deno.serve(async (req) => {
   try {
     const ctx = await loadContext(lead_id);
 
+    // Lock por lead em modo live: se já existe um sdr_agent_runs status='running'
+    // para este lead nos últimos 90s, pula esta execução (evita 2 respostas paralelas
+    // se algo escapar do debounce ou se o cron disparar duas vezes em sequência).
+    if (mode === "live") {
+      const since = new Date(Date.now() - 90_000).toISOString();
+      const { data: ongoing } = await supabase
+        .from("sdr_agent_runs")
+        .select("id, created_at")
+        .eq("lead_id", lead_id)
+        .eq("status", "running")
+        .gte("created_at", since)
+        .limit(1);
+
+      if (ongoing && ongoing.length > 0) {
+        console.log(`sdr-agent: skip (already running) lead=${lead_id}`);
+        return new Response(JSON.stringify({ ok: true, skipped: "already_running" }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // Create run record
     const { data: run } = await supabase
       .from("sdr_agent_runs")
@@ -621,6 +646,7 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
     runId = run?.id ?? null;
+
 
     // Pre-extract date_preference from the latest inbound message and merge into lead_memory.
     // This guarantees the LLM sees the window even when it would fail to parse it itself.

@@ -1757,6 +1757,48 @@ export type Database = {
           },
         ]
       }
+      pending_inbound_runs: {
+        Row: {
+          attempts: number
+          claimed_at: string | null
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          last_error: string | null
+          last_inbound_at: string
+          lead_id: string
+          scheduled_at: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          claimed_at?: string | null
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          last_error?: string | null
+          last_inbound_at?: string
+          lead_id: string
+          scheduled_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          claimed_at?: string | null
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          last_error?: string | null
+          last_inbound_at?: string
+          lead_id?: string
+          scheduled_at?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null

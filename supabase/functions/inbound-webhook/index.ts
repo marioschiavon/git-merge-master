@@ -444,34 +444,68 @@ serve(async (req) => {
       }
     }
 
-    // SDR-AGENT: shadow para leads legacy, LIVE para leads em modo agent.
+    // SDR-AGENT:
+    // - Modo agent (live): enfileira no debounce (`pending_inbound_runs`) e deixa
+    //   o cron `sdr-debounce-tick` disparar UMA execução agrupada após ~12s sem
+    //   novas mensagens. Isso evita 3 respostas paralelas quando o lead manda
+    //   várias mensagens em sequência.
+    // - Modo shadow (legacy): mantém invocação direta (não envia mensagens reais).
     if (!earlyParsed && companyId && leadData?.id) {
       try {
-        const agentMode = isAgentMode ? "live" : "shadow";
-        console.log(`sdr-agent invoke (mode=${agentMode}) lead=${leadData.id}`);
-        const agentPromise = supabase.functions
-          .invoke("sdr-agent", {
-            body: {
-              lead_id: leadData.id,
-              conversation_id: convId,
-              trigger: "inbound",
-              mode: agentMode,
-            },
-          })
-          .then(({ error }) => {
-            if (error) console.error(`sdr-agent ${agentMode} invoke error:`, error);
-          })
-          .catch((e) => console.error(`sdr-agent ${agentMode} invoke threw:`, e));
+        if (isAgentMode) {
+          const DEBOUNCE_MS = 12_000;
+          const now = new Date();
+          const scheduledAt = new Date(now.getTime() + DEBOUNCE_MS).toISOString();
+          const lastInboundAt = now.toISOString();
 
-        // @ts-ignore
-        if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) {
+          // Upsert: cada mensagem nova estende a janela (trailing-edge debounce).
+          // O cron só dispara quando scheduled_at <= now() e status='pending'.
+          const { error: pendErr } = await supabase
+            .from("pending_inbound_runs")
+            .upsert(
+              {
+                lead_id: leadData.id,
+                company_id: companyId,
+                conversation_id: convId ?? null,
+                scheduled_at: scheduledAt,
+                last_inbound_at: lastInboundAt,
+                status: "pending",
+                claimed_at: null,
+                last_error: null,
+              },
+              { onConflict: "lead_id" },
+            );
+          if (pendErr) {
+            console.error("pending_inbound_runs upsert error:", pendErr);
+            // Fallback: invoca direto se o debounce falhar, pra não perder a resposta.
+            const agentPromise = supabase.functions
+              .invoke("sdr-agent", {
+                body: { lead_id: leadData.id, conversation_id: convId, trigger: "inbound", mode: "live" },
+              })
+              .then(({ error }) => { if (error) console.error("sdr-agent fallback invoke error:", error); })
+              .catch((e) => console.error("sdr-agent fallback invoke threw:", e));
+            // @ts-ignore
+            if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(agentPromise);
+          } else {
+            console.log(`sdr-agent debounced (lead=${leadData.id} fires_at=${scheduledAt})`);
+          }
+        } else {
+          // shadow mode — invocação direta (sem efeito colateral no lead)
+          console.log(`sdr-agent invoke (mode=shadow) lead=${leadData.id}`);
+          const agentPromise = supabase.functions
+            .invoke("sdr-agent", {
+              body: { lead_id: leadData.id, conversation_id: convId, trigger: "inbound", mode: "shadow" },
+            })
+            .then(({ error }) => { if (error) console.error("sdr-agent shadow invoke error:", error); })
+            .catch((e) => console.error("sdr-agent shadow invoke threw:", e));
           // @ts-ignore
-          EdgeRuntime.waitUntil(agentPromise);
+          if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(agentPromise);
         }
       } catch (e) {
         console.error("sdr-agent trigger error:", e);
       }
     }
+
 
     // Em agent mode, o sdr-agent é o único dono da resposta.
     // Pula todo o pipeline legado (classify → scheduling → outbound) para
