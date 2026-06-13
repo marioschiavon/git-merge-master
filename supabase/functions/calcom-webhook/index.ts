@@ -136,10 +136,13 @@ serve(async (req) => {
         bookingPayload.cancelledBy ||
         ""
       ).toString().toLowerCase();
-      const cancelledByLead =
+      const cancelledByOrganizer =
         !!cancelledByEmail &&
-        (cancelledByEmail === leadEmailLower ||
-          (!!organizerEmailLower && cancelledByEmail !== organizerEmailLower));
+        !!organizerEmailLower &&
+        cancelledByEmail === organizerEmailLower;
+      // Presumir lead quando o cancelamento não foi feito pelo organizador.
+      // Cobre o caso comum do link público do Cal.com (cancelledByEmail vazio).
+      const cancelledByLead = !cancelledByOrganizer;
 
       switch (eventType) {
         case "BOOKING_CREATED":
@@ -152,7 +155,7 @@ serve(async (req) => {
           break;
         case "BOOKING_CANCELLED": {
           if (!cancelledByLead) {
-            console.log(`calcom-webhook: cancellation not initiated by lead (cancelledBy=${cancelledByEmail || "unknown"}), skipping follow-up.`);
+            console.log(`calcom-webhook: cancellation initiated by organizer (${cancelledByEmail}), skipping follow-up.`);
             break;
           }
           // Idempotency: skip if we already enqueued acknowledge_cancellation for this booking in the last 24h.
