@@ -155,7 +155,7 @@ serve(async (req) => {
           break;
         case "BOOKING_CANCELLED": {
           if (!cancelledByLead) {
-            console.log(`calcom-webhook: cancellation not initiated by lead (cancelledBy=${cancelledByEmail || "unknown"}), skipping follow-up.`);
+            console.log(`calcom-webhook: cancellation initiated by organizer (${cancelledByEmail}), skipping follow-up.`);
             break;
           }
           // Idempotency: skip if we already enqueued acknowledge_cancellation for this booking in the last 24h.
