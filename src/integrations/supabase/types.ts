@@ -2222,6 +2222,7 @@ export type Database = {
         | "send_meeting_recap"
         | "request_feedback"
         | "mark_meeting_attended"
+        | "acknowledge_cancellation"
       activity_type:
         | "email"
         | "call"
@@ -2429,6 +2430,7 @@ export const Constants = {
         "send_meeting_recap",
         "request_feedback",
         "mark_meeting_attended",
+        "acknowledge_cancellation",
       ],
       activity_type: [
         "email",
