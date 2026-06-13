@@ -886,13 +886,30 @@ Deno.serve(async (req) => {
           // Aqui apenas enviamos a mensagem ao lead com os horários propostos.
           const fd = finalDecision as any;
           let msg = String(fd.message || "").trim();
-          if (!msg && Array.isArray(fd.offered_slots) && fd.offered_slots.length > 0) {
-            const formatted = fd.offered_slots
+          const offered: string[] = Array.isArray(fd.offered_slots)
+            ? fd.offered_slots.filter((s: unknown) => typeof s === "string" && s.length > 0)
+            : [];
+          if (!msg && offered.length > 0) {
+            const formatted = offered
               .map((s: string) => `• ${formatBRTLong(s)}`)
               .join("\n");
             msg = `Tenho estes horários disponíveis:\n\n${formatted}\n\nQual deles funciona melhor pra você?`;
           }
           if (msg) {
+            // Persistir os slots oferecidos para validar a confirmação no turno seguinte.
+            if (offered.length > 0) {
+              try {
+                const facts = { ...((ctx.memory?.facts ?? {}) as Record<string, unknown>) };
+                facts.offered_slots_pending = {
+                  slots: offered,
+                  offered_at: new Date().toISOString(),
+                };
+                await supabase.from("lead_memory").upsert(
+                  { lead_id, facts },
+                  { onConflict: "lead_id" },
+                );
+              } catch (_) { /* best effort */ }
+            }
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
