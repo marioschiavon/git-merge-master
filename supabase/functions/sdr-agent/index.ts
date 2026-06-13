@@ -629,6 +629,7 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- Chame `check_calendar` no máximo UMA vez por turno. Se já chamou e recebeu slots, use ESSES mesmos slots — não chame de novo na mesma decisão (isso gera reservas duplicadas).",
     "- Se `heldSlots` já contém slots ativos dentro da janela do lead, ofereça ESSES (não chame `check_calendar`).",
     "- **NUNCA ofereça mais de 2 horários por turno.** Mensagens com 3+ horários sobrecarregam o lead. Escolha os 2 melhores dentro da janela pedida.",
+    "- **O texto da sua mensagem e o array `offered_slots` DEVEM coincidir 1:1.** É proibido listar no texto datas/horas que não estejam em `offered_slots` (isso seria alucinação — esses horários não estão reservados e o lead não conseguirá agendá-los).",
     "- Se você já ofereceu 4 ou mais horários nos últimos turnos e o lead AINDA não aceitou nem rejeitou explicitamente (apenas pediu 'outros', 'mais opções', etc.), PARE de propor horários novos. Em vez disso, peça uma janela específica: 'Para encurtar a busca, me diga um período da semana que costuma funcionar melhor pra você (ex: manhã de terça/quinta, tarde de sexta).' Isso evita a sensação de spam de horários.",
     "- Use update_lead_facts assim que detectar uma preferência nova (janela de data, canal, objeção, papel, urgência).",
     "- SEMPRE finalize chamando a tool `finalize`.",
