@@ -606,6 +606,27 @@ Deno.serve(async (req) => {
   try {
     const ctx = await loadContext(lead_id);
 
+    // Lock por lead em modo live: se já existe um sdr_agent_runs status='running'
+    // para este lead nos últimos 90s, pula esta execução (evita 2 respostas paralelas
+    // se algo escapar do debounce ou se o cron disparar duas vezes em sequência).
+    if (mode === "live") {
+      const since = new Date(Date.now() - 90_000).toISOString();
+      const { data: ongoing } = await supabase
+        .from("sdr_agent_runs")
+        .select("id, started_at")
+        .eq("lead_id", lead_id)
+        .eq("status", "running")
+        .gte("started_at", since)
+        .limit(1);
+      if (ongoing && ongoing.length > 0) {
+        console.log(`sdr-agent: skip (already running) lead=${lead_id}`);
+        return new Response(JSON.stringify({ ok: true, skipped: "already_running" }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // Create run record
     const { data: run } = await supabase
       .from("sdr_agent_runs")
@@ -621,6 +642,7 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
     runId = run?.id ?? null;
+
 
     // Pre-extract date_preference from the latest inbound message and merge into lead_memory.
     // This guarantees the LLM sees the window even when it would fail to parse it itself.
