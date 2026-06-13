@@ -468,13 +468,88 @@ function fmtBrt(iso: string): string {
 // Combina expressões comuns em PT-BR ("confirmo", "fechado", "pode ser", "esse mesmo",
 // "tá bom", "ok pra mim", "esse horário", "esse aí" etc).
 const CONFIRMATION_REGEX =
-  /\b(confirmo|confirmado|fechado|fechou|pode (ser|marcar|agendar)|esse (mesmo|aí|ai|horário|horario)|esse hor[aá]rio|tá (bom|ótimo|otimo)|ta (bom|otimo)|t[áa] (ok|certo)|ok\s+(pra mim|pra n[oó]s|pra gente|por mim)|perfeito|beleza|combinado|bora)\b/i;
+  /\b(confirmo|confirmado|fechado|fechou|pode (ser|marcar|agendar)|esse (mesmo|aí|ai|horário|horario)|esse hor[aá]rio|tá (bom|ótimo|otimo)|ta (bom|otimo)|t[áa] (ok|certo)|ok\s+(pra mim|pra n[oó]s|pra gente|por mim)|perfeito|beleza|combinado|bora|quero (esse|essa|o de|a de|marcar|agendar)|vou (com|de)|fica (esse|essa|o de|a de))\b/i;
 
 function lastInboundContent(messages: Array<{ direction: string; content: string }>): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].direction === "inbound") return String(messages[i].content || "");
   }
   return "";
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Reconhecimento de seleção de slot por referência curta (pt-BR).
+// Ex.: "Dia 1", "1/7", "1 de julho", "9h", "09:00", "o primeiro".
+// ──────────────────────────────────────────────────────────────────────
+const MONTH_NAMES_PT = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
+const MONTH_FULL_PT = [
+  "janeiro", "fevereiro", "marco", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+function _normalizeText(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function _brtParts(iso: string): { day: number; month: number; hour: number; minute: number } | null {
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return null;
+    const fmt = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Sao_Paulo",
+      day: "numeric", month: "numeric", hour: "numeric", minute: "numeric", hour12: false,
+    });
+    const parts = fmt.formatToParts(d);
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0);
+    return { day: get("day"), month: get("month"), hour: get("hour"), minute: get("minute") };
+  } catch {
+    return null;
+  }
+}
+
+function _slotPatterns(iso: string): { day: string[]; hour: string[] } {
+  const p = _brtParts(iso);
+  if (!p) return { day: [], hour: [] };
+  const { day, month, hour, minute } = p;
+  const d = String(day), dd = String(day).padStart(2, "0");
+  const m = String(month), mm = String(month).padStart(2, "0");
+  const monShort = MONTH_NAMES_PT[month - 1];
+  const monFull = MONTH_FULL_PT[month - 1];
+  const h = String(hour), hh = String(hour).padStart(2, "0");
+  const min = String(minute).padStart(2, "0");
+  const dayP = [
+    `dia ${d}`, `dia ${dd}`,
+    `${d}/${m}`, `${dd}/${mm}`, `${d}/${mm}`, `${dd}/${m}`,
+    `${d} de ${monShort}`, `${d} de ${monFull}`,
+    `${dd} de ${monShort}`, `${dd} de ${monFull}`,
+    ...(day === 1 ? ["primeiro", "1o", "1 de "] : []),
+  ];
+  const hourP: string[] = [
+    `${hh}:${min}`,
+    `${h}:${min}`,
+  ];
+  if (minute === 0) {
+    hourP.push(`${h}h`, `as ${h}h`, `as ${h} `, `${h} horas`);
+  } else {
+    hourP.push(`${h}h${min}`, `${h}:${min}`);
+  }
+  return { day: dayP, hour: hourP };
+}
+
+function matchesSlotReference(text: string, candidateIsos: string[]): { iso: string | null; ambiguous: boolean } {
+  const t = ` ${_normalizeText(text)} `;
+  if (!t.trim() || candidateIsos.length === 0) return { iso: null, ambiguous: false };
+  const scored = candidateIsos.map((iso) => {
+    const { day, hour } = _slotPatterns(iso);
+    const dayMatch = day.some((p) => t.includes(_normalizeText(p)));
+    const hourMatch = hour.some((p) => t.includes(_normalizeText(p)));
+    return { iso, score: (dayMatch ? 1 : 0) + (hourMatch ? 1 : 0) };
+  });
+  const positives = scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score);
+  if (positives.length === 0) return { iso: null, ambiguous: false };
+  if (positives.length === 1) return { iso: positives[0].iso, ambiguous: false };
+  if (positives[0].score > positives[1].score) return { iso: positives[0].iso, ambiguous: false };
+  return { iso: null, ambiguous: true };
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
@@ -529,6 +604,7 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- **NUNCA finalize com `book_slot` ou `reschedule_booking` num turno onde o lead ainda NÃO escolheu explicitamente um horário que você já tinha oferecido antes.** Pedir desculpas, expressar empatia, dizer que teve uma emergência ou pedir para 'remarcar' NÃO é confirmação de um novo horário — é só pedido de remarcação.",
     "- **Fluxo correto de PRIMEIRO agendamento (2 turnos):** (1) `check_calendar` + `offer_slots` com no máximo 2 horários, (2) AGUARDAR resposta do lead. Só use `book_slot` no turno SEGUINTE, quando a mensagem do lead apontar claramente UM dos horários oferecidos (ex: 'pode ser quarta 15h', 'esse mesmo', 'confirmo o primeiro', 'tá bom o de quinta').",
     "- **Fluxo correto de REMARCAÇÃO (2 turnos):** quando existe 'Reserva ativa' e o lead pede para mudar/adiar/antecipar, (1) reconheça com empatia + `offer_slots` com 2 novos horários dentro da janela dele, (2) AGUARDAR resposta. Só use `reschedule_booking` no turno SEGUINTE, quando o lead escolher explicitamente um dos horários oferecidos. NUNCA escolha um horário sozinho e já remarque.",
+    "- **Interpretação de escolha curta do lead:** quando você já ofereceu horários no turno anterior, respostas curtas como 'dia 1', 'o primeiro', '1/7', '9h', '09:00', 'esse', 'esse mesmo' SÃO confirmação válida — emita `book_slot` (ou `reschedule_booking`) com o `slot_start` ISO EXATO do horário que o lead apontou (copie do oferecido, não invente outra data). Se a referência for ambígua entre dois horários oferecidos, aí sim peça pra ele esclarecer.",
     "- Se o lead pede para CANCELAR/desmarcar definitivamente (sem pedir novo horário), use `decision=cancel_booking` com `reason` curta. Inclua `message` se ainda valer convidar a remarcar depois.",
     "- A confirmação da remarcação/cancelamento (depois de feita) deve vir no campo `message` da finalize.",
     "",
@@ -908,6 +984,26 @@ Deno.serve(async (req) => {
                   { lead_id, facts },
                   { onConflict: "lead_id" },
                 );
+                // Liberar holds antigos do lead que NÃO estejam nos novos `offered`,
+                // para não poluir o contexto em turnos seguintes.
+                try {
+                  const { data: oldHolds } = await supabase
+                    .from("slot_holds")
+                    .select("id, slot_datetime")
+                    .eq("lead_id", lead_id)
+                    .eq("status", "held");
+                  const keep = new Set(offered.map((s) => new Date(s).getTime()));
+                  const stale = (oldHolds || []).filter(
+                    (h: any) => !Array.from(keep).some(
+                      (t) => Math.abs(new Date(h.slot_datetime).getTime() - (t as number)) < 5 * 60_000,
+                    ),
+                  );
+                  if (stale.length > 0) {
+                    await supabase.from("slot_holds")
+                      .update({ status: "released" })
+                      .in("id", stale.map((h: any) => h.id));
+                  }
+                } catch (_) { /* best effort */ }
               } catch (_) { /* best effort */ }
             }
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
@@ -926,36 +1022,54 @@ Deno.serve(async (req) => {
           }
         } else if (decision === "book_slot") {
           const fd = finalDecision as any;
-          const slotStart = String(fd.slot_start || "");
+          let slotStart = String(fd.slot_start || "");
           const fallbackChannel = fd.channel || "whatsapp";
 
           // ── Guarda de confirmação explícita ────────────────────────────
-          // book_slot só roda se: (a) slot_start bate com um slot já oferecido
-          // (held ou offered_slots_pending) e (b) a última mensagem do lead
-          // contém confirmação explícita.
+          // book_slot só roda se: (a) há um slot oferecido recente e (b) o lead
+          // confirmou explicitamente OU referenciou inequivocamente um dos slots.
           const confirmGate = await (async () => {
             const factsNow = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
-            const pending = (factsNow.offered_slots_pending as { slots?: string[] } | undefined)?.slots ?? [];
+            const pendingMeta = factsNow.offered_slots_pending as { slots?: string[]; offered_at?: string } | undefined;
+            const pendingFresh =
+              pendingMeta?.offered_at
+                ? Date.now() - new Date(pendingMeta.offered_at).getTime() < 30 * 60_000
+                : false;
+            const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
             const heldIsos = (ctx.heldSlots || []).map((h: any) => h.slot_datetime as string);
-            const candidates = Array.from(new Set([...pending, ...heldIsos]));
+            // Prefere SOMENTE a oferta vigente; só usa heldSlots se não houver oferta recente.
+            const candidates = pending.length > 0 ? pending : heldIsos;
             const inbound = lastInboundContent(ctx.messages);
-            const hasConfirmation = CONFIRMATION_REGEX.test(inbound);
+            const explicit = CONFIRMATION_REGEX.test(inbound);
+            const ref = matchesSlotReference(inbound, candidates);
+            // Se o LLM não preencheu slot_start mas a referência do lead casa com
+            // um único slot, usar esse ISO.
+            if (!slotStart && ref.iso) slotStart = ref.iso;
             const target = slotStart ? parseSlotStartAsBrt(slotStart) : NaN;
             const matchesOffered = candidates.some(
               (iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000,
             );
-            return { ok: !!slotStart && matchesOffered && hasConfirmation, candidates, hasConfirmation, matchesOffered };
+            const hasConfirmation = explicit || !!ref.iso;
+            return { ok: !!slotStart && matchesOffered && hasConfirmation, candidates, hasConfirmation, matchesOffered, refIso: ref.iso, ambiguous: ref.ambiguous };
           })();
 
           if (!confirmGate.ok) {
             // Downgrade: pedir confirmação em vez de agendar sozinho.
-            const cands = confirmGate.candidates.slice(0, 2);
-            const formatted = cands.length
-              ? cands.map((s) => `• ${formatBRTLong(s)}`).join("\n")
-              : null;
-            const askMsg = formatted
-              ? `Antes de confirmar, qual destes horários funciona melhor pra você?\n\n${formatted}`
-              : "Antes de confirmar, qual horário funciona melhor pra você?";
+            let askMsg: string;
+            if (confirmGate.refIso && !confirmGate.ambiguous) {
+              // Lead referenciou um slot mas faltou confirmar — pedir um "sim" claro.
+              askMsg = `Só confirmando: posso fechar para ${formatBRTLong(confirmGate.refIso)}?`;
+            } else if (confirmGate.ambiguous) {
+              const cands = confirmGate.candidates.slice(0, 3);
+              const formatted = cands.map((s) => `• ${formatBRTLong(s)}`).join("\n");
+              askMsg = `Entre essas opções, qual prefere?\n\n${formatted}`;
+            } else if (confirmGate.candidates.length > 0) {
+              const cands = confirmGate.candidates.slice(0, 3);
+              const formatted = cands.map((s) => `• ${formatBRTLong(s)}`).join("\n");
+              askMsg = `Antes de confirmar, qual destes horários funciona melhor pra você?\n\n${formatted}`;
+            } else {
+              askMsg = "Antes de confirmar, qual horário funciona melhor pra você?";
+            }
             await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
@@ -1037,6 +1151,17 @@ Deno.serve(async (req) => {
                 await sendFallback(errStr);
                 liveResult = { action: "book_slot", ok: false, error: errStr };
               } else {
+                // Limpar offered_slots_pending para não vazar pra próximos turnos.
+                try {
+                  const facts = { ...((ctx.memory?.facts ?? {}) as Record<string, unknown>) };
+                  if (facts.offered_slots_pending) {
+                    delete facts.offered_slots_pending;
+                    await supabase.from("lead_memory").upsert(
+                      { lead_id, facts },
+                      { onConflict: "lead_id" },
+                    );
+                  }
+                } catch (_) { /* best effort */ }
                 const confirmMsg = String(fd.message || "").trim() ||
                   `Pronto, ${ctx.lead.name?.split(" ")[0] || ""}! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail. 🙌`;
                 const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
@@ -1063,23 +1188,35 @@ Deno.serve(async (req) => {
           // (held ou offered_slots_pending) e (b) o lead confirmou explicitamente.
           // cancel_booking não exige slot, mas exige sinal claro de cancelamento.
           if (decision === "reschedule_booking") {
-            const slotStart = String(fd.slot_start || "");
+            let slotStart = String(fd.slot_start || "");
             const factsNow = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
-            const pending = (factsNow.offered_slots_pending as { slots?: string[] } | undefined)?.slots ?? [];
+            const pendingMeta = factsNow.offered_slots_pending as { slots?: string[]; offered_at?: string } | undefined;
+            const pendingFresh = pendingMeta?.offered_at
+              ? Date.now() - new Date(pendingMeta.offered_at).getTime() < 30 * 60_000
+              : false;
+            const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
             const heldIsos = (ctx.heldSlots || []).map((h: any) => h.slot_datetime as string);
-            const candidates = Array.from(new Set([...pending, ...heldIsos]));
+            const candidates = pending.length > 0 ? pending : heldIsos;
             const inbound = lastInboundContent(ctx.messages);
-            const hasConfirmation = CONFIRMATION_REGEX.test(inbound);
+            const explicit = CONFIRMATION_REGEX.test(inbound);
+            const ref = matchesSlotReference(inbound, candidates);
+            if (!slotStart && ref.iso) slotStart = ref.iso;
+            const hasConfirmation = explicit || !!ref.iso;
             const target = slotStart ? parseSlotStartAsBrt(slotStart) : NaN;
             const matchesOffered = candidates.some(
               (iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000,
             );
             if (!slotStart || !matchesOffered || !hasConfirmation) {
-              const cands = candidates.slice(0, 2);
-              const formatted = cands.length ? cands.map((s) => `• ${formatBRTLong(s)}`).join("\n") : null;
-              const askMsg = formatted
-                ? `Antes de remarcar, qual destes horários funciona melhor pra você?\n\n${formatted}`
-                : "Sem problema! Me diga uma janela que funciona pra você (ex: terça de manhã, quinta à tarde) que eu já busco opções.";
+              let askMsg: string;
+              if (ref.iso && !ref.ambiguous) {
+                askMsg = `Só confirmando: posso remarcar para ${formatBRTLong(ref.iso)}?`;
+              } else if (candidates.length > 0) {
+                const cands = candidates.slice(0, 3);
+                const formatted = cands.map((s) => `• ${formatBRTLong(s)}`).join("\n");
+                askMsg = `Antes de remarcar, qual destes horários funciona melhor pra você?\n\n${formatted}`;
+              } else {
+                askMsg = "Sem problema! Me diga uma janela que funciona pra você (ex: terça de manhã, quinta à tarde) que eu já busco opções.";
+              }
               await supabase.functions.invoke("execute-action", {
                 body: {
                   company_id: ctx.lead.company_id,
@@ -1099,6 +1236,8 @@ Deno.serve(async (req) => {
                   ? "slot_start does not match any offered/held slot"
                   : "no explicit confirmation in last inbound message",
               };
+              // Override the LLM's slot_start for downstream code (if any) too.
+              (fd as any).slot_start = slotStart;
               // Skip the actual reschedule call.
               await supabase
                 .from("sdr_agent_runs")
