@@ -1057,6 +1057,61 @@ Deno.serve(async (req) => {
         } else if (decision === "reschedule_booking" || decision === "cancel_booking") {
           const fd = finalDecision as any;
           const fallbackChannel = fd.channel || "whatsapp";
+
+          // ── Guarda de confirmação para reschedule_booking ──────────────
+          // Só permite remarcar se: (a) o slot_start bate com algo já oferecido
+          // (held ou offered_slots_pending) e (b) o lead confirmou explicitamente.
+          // cancel_booking não exige slot, mas exige sinal claro de cancelamento.
+          if (decision === "reschedule_booking") {
+            const slotStart = String(fd.slot_start || "");
+            const factsNow = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
+            const pending = (factsNow.offered_slots_pending as { slots?: string[] } | undefined)?.slots ?? [];
+            const heldIsos = (ctx.heldSlots || []).map((h: any) => h.slot_datetime as string);
+            const candidates = Array.from(new Set([...pending, ...heldIsos]));
+            const inbound = lastInboundContent(ctx.messages);
+            const hasConfirmation = CONFIRMATION_REGEX.test(inbound);
+            const target = slotStart ? parseSlotStartAsBrt(slotStart) : NaN;
+            const matchesOffered = candidates.some(
+              (iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000,
+            );
+            if (!slotStart || !matchesOffered || !hasConfirmation) {
+              const cands = candidates.slice(0, 2);
+              const formatted = cands.length ? cands.map((s) => `• ${formatBRTLong(s)}`).join("\n") : null;
+              const askMsg = formatted
+                ? `Antes de remarcar, qual destes horários funciona melhor pra você?\n\n${formatted}`
+                : "Sem problema! Me diga uma janela que funciona pra você (ex: terça de manhã, quinta à tarde) que eu já busco opções.";
+              await supabase.functions.invoke("execute-action", {
+                body: {
+                  company_id: ctx.lead.company_id,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                  action_type: "send_reply",
+                  params: { message: askMsg, channel: fd.channel || fallbackChannel },
+                },
+              });
+              liveResult = {
+                action: "reschedule_booking",
+                ok: false,
+                downgraded_to: "ask_confirmation",
+                reason: !slotStart
+                  ? "missing slot_start"
+                  : !matchesOffered
+                  ? "slot_start does not match any offered/held slot"
+                  : "no explicit confirmation in last inbound message",
+              };
+              // Skip the actual reschedule call.
+              await supabase
+                .from("sdr_agent_runs")
+                .update({ final_output: { ...(finalDecision as any), live: liveResult } })
+                .eq("id", runId!);
+              return new Response(
+                JSON.stringify({ ok: true, run_id: runId, mode, decision, live: liveResult }),
+                { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+              );
+            }
+          }
+
+
           // Resolve booking_uid
           let bookingUid = typeof fd.booking_uid === "string" ? fd.booking_uid : null;
           if (!bookingUid) {
