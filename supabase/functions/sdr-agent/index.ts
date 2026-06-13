@@ -536,9 +536,44 @@ function _slotPatterns(iso: string): { day: string[]; hour: string[] } {
   return { day: dayP, hour: hourP };
 }
 
+// Ordinais posicionais: "primeira opção" → índice 0, "última" → último.
+// CUIDADO: "segunda" também é dia da semana — só conta como ordinal se NÃO
+// vier acompanhada de "feira" (com ou sem hífen).
+const ORDINAL_PATTERNS: Array<{ re: RegExp; idx: number }> = [
+  { re: /\b(primeira|primeiro|1[aº°o]?|opcao 1|a 1)\b/, idx: 0 },
+  { re: /\b(segunda|segundo|2[aº°o]?|opcao 2|a 2)\b/, idx: 1 },
+  { re: /\b(terceira|terceiro|3[aº°o]?|opcao 3|a 3)\b/, idx: 2 },
+  { re: /\b(quarta|quarto|4[aº°o]?|opcao 4|a 4)\b/, idx: 3 },
+  { re: /\b(ultima|ultimo)\b/, idx: -1 },
+];
+
+function _resolveOrdinal(text: string, n: number): { idx: number | null; ambiguous: boolean } {
+  // Remove dias da semana para não disparar falso-positivo em "segunda-feira" etc.
+  const cleaned = text
+    .replace(/\b(segunda|terca|quarta|quinta|sexta)[\s-]+feira\b/g, " ")
+    .replace(/\b(segunda|terca|quarta|quinta|sexta)-feira\b/g, " ");
+  const hits: number[] = [];
+  for (const { re, idx } of ORDINAL_PATTERNS) {
+    if (re.test(cleaned)) {
+      const realIdx = idx === -1 ? n - 1 : idx;
+      if (realIdx >= 0 && realIdx < n && !hits.includes(realIdx)) hits.push(realIdx);
+    }
+  }
+  if (hits.length === 0) return { idx: null, ambiguous: false };
+  if (hits.length === 1) return { idx: hits[0], ambiguous: false };
+  return { idx: null, ambiguous: true };
+}
+
 function matchesSlotReference(text: string, candidateIsos: string[]): { iso: string | null; ambiguous: boolean } {
   const t = ` ${_normalizeText(text)} `;
   if (!t.trim() || candidateIsos.length === 0) return { iso: null, ambiguous: false };
+
+  // 1) Tenta resolução por ordinal posicional ("primeira", "terceira", "última").
+  const ord = _resolveOrdinal(t, candidateIsos.length);
+  if (ord.idx !== null) return { iso: candidateIsos[ord.idx], ambiguous: false };
+  if (ord.ambiguous) return { iso: null, ambiguous: true };
+
+  // 2) Resolução por dia/hora.
   const scored = candidateIsos.map((iso) => {
     const { day, hour } = _slotPatterns(iso);
     const dayMatch = day.some((p) => t.includes(_normalizeText(p)));
@@ -594,6 +629,7 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- Chame `check_calendar` no máximo UMA vez por turno. Se já chamou e recebeu slots, use ESSES mesmos slots — não chame de novo na mesma decisão (isso gera reservas duplicadas).",
     "- Se `heldSlots` já contém slots ativos dentro da janela do lead, ofereça ESSES (não chame `check_calendar`).",
     "- **NUNCA ofereça mais de 2 horários por turno.** Mensagens com 3+ horários sobrecarregam o lead. Escolha os 2 melhores dentro da janela pedida.",
+    "- **O texto da sua mensagem e o array `offered_slots` DEVEM coincidir 1:1.** É proibido listar no texto datas/horas que não estejam em `offered_slots` (isso seria alucinação — esses horários não estão reservados e o lead não conseguirá agendá-los).",
     "- Se você já ofereceu 4 ou mais horários nos últimos turnos e o lead AINDA não aceitou nem rejeitou explicitamente (apenas pediu 'outros', 'mais opções', etc.), PARE de propor horários novos. Em vez disso, peça uma janela específica: 'Para encurtar a busca, me diga um período da semana que costuma funcionar melhor pra você (ex: manhã de terça/quinta, tarde de sexta).' Isso evita a sensação de spam de horários.",
     "- Use update_lead_facts assim que detectar uma preferência nova (janela de data, canal, objeção, papel, urgência).",
     "- SEMPRE finalize chamando a tool `finalize`.",
@@ -604,7 +640,7 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- **NUNCA finalize com `book_slot` ou `reschedule_booking` num turno onde o lead ainda NÃO escolheu explicitamente um horário que você já tinha oferecido antes.** Pedir desculpas, expressar empatia, dizer que teve uma emergência ou pedir para 'remarcar' NÃO é confirmação de um novo horário — é só pedido de remarcação.",
     "- **Fluxo correto de PRIMEIRO agendamento (2 turnos):** (1) `check_calendar` + `offer_slots` com no máximo 2 horários, (2) AGUARDAR resposta do lead. Só use `book_slot` no turno SEGUINTE, quando a mensagem do lead apontar claramente UM dos horários oferecidos (ex: 'pode ser quarta 15h', 'esse mesmo', 'confirmo o primeiro', 'tá bom o de quinta').",
     "- **Fluxo correto de REMARCAÇÃO (2 turnos):** quando existe 'Reserva ativa' e o lead pede para mudar/adiar/antecipar, (1) reconheça com empatia + `offer_slots` com 2 novos horários dentro da janela dele, (2) AGUARDAR resposta. Só use `reschedule_booking` no turno SEGUINTE, quando o lead escolher explicitamente um dos horários oferecidos. NUNCA escolha um horário sozinho e já remarque.",
-    "- **Interpretação de escolha curta do lead:** quando você já ofereceu horários no turno anterior, respostas curtas como 'dia 1', 'o primeiro', '1/7', '9h', '09:00', 'esse', 'esse mesmo' SÃO confirmação válida — emita `book_slot` (ou `reschedule_booking`) com o `slot_start` ISO EXATO do horário que o lead apontou (copie do oferecido, não invente outra data). Se a referência for ambígua entre dois horários oferecidos, aí sim peça pra ele esclarecer.",
+    "- **Interpretação de escolha curta do lead:** quando você já ofereceu horários no turno anterior, respostas curtas como 'dia 1', 'o primeiro', '1/7', '9h', '09:00', 'esse', 'esse mesmo', 'a primeira', 'segunda opção', 'a terceira', 'a última', '1ª', '2ª' SÃO confirmação válida — emita `book_slot` (ou `reschedule_booking`) com o `slot_start` ISO EXATO do horário que o lead apontou (copie do oferecido, não invente outra data). Ordinais como 'primeira/segunda/terceira/última' apontam a POSIÇÃO da lista que você acabou de oferecer. NUNCA reofereça a mesma lista nesses casos. Se a referência for ambígua, aí sim peça pra esclarecer.",
     "- Se o lead pede para CANCELAR/desmarcar definitivamente (sem pedir novo horário), use `decision=cancel_booking` com `reason` curta. Inclua `message` se ainda valer convidar a remarcar depois.",
     "- A confirmação da remarcação/cancelamento (depois de feita) deve vir no campo `message` da finalize.",
     "",
@@ -962,50 +998,93 @@ Deno.serve(async (req) => {
           // Aqui apenas enviamos a mensagem ao lead com os horários propostos.
           const fd = finalDecision as any;
           let msg = String(fd.message || "").trim();
-          const offered: string[] = Array.isArray(fd.offered_slots)
-            ? fd.offered_slots.filter((s: unknown) => typeof s === "string" && s.length > 0)
+          let offered: string[] = Array.isArray(fd.offered_slots)
+            ? fd.offered_slots.filter((s: unknown) => typeof s === "string" && (s as string).length > 0)
             : [];
-          if (!msg && offered.length > 0) {
-            const formatted = offered
-              .map((s: string) => `• ${formatBRTLong(s)}`)
-              .join("\n");
-            msg = `Tenho estes horários disponíveis:\n\n${formatted}\n\nQual deles funciona melhor pra você?`;
+
+          // (1) Hard-cap: nunca mais de 2 horários por turno.
+          if (offered.length > 2) {
+            console.log(`offer_slots: LLM enviou ${offered.length} slots; cortando para 2`);
+            offered = offered.slice(0, 2);
           }
-          if (msg) {
-            // Persistir os slots oferecidos para validar a confirmação no turno seguinte.
-            if (offered.length > 0) {
-              try {
-                const facts = { ...((ctx.memory?.facts ?? {}) as Record<string, unknown>) };
-                facts.offered_slots_pending = {
-                  slots: offered,
-                  offered_at: new Date().toISOString(),
-                };
-                await supabase.from("lead_memory").upsert(
-                  { lead_id, facts },
-                  { onConflict: "lead_id" },
-                );
-                // Liberar holds antigos do lead que NÃO estejam nos novos `offered`,
-                // para não poluir o contexto em turnos seguintes.
-                try {
-                  const { data: oldHolds } = await supabase
-                    .from("slot_holds")
-                    .select("id, slot_datetime")
-                    .eq("lead_id", lead_id)
-                    .eq("status", "held");
-                  const keep = new Set(offered.map((s) => new Date(s).getTime()));
-                  const stale = (oldHolds || []).filter(
-                    (h: any) => !Array.from(keep).some(
-                      (t) => Math.abs(new Date(h.slot_datetime).getTime() - (t as number)) < 5 * 60_000,
-                    ),
-                  );
-                  if (stale.length > 0) {
-                    await supabase.from("slot_holds")
-                      .update({ status: "released" })
-                      .in("id", stale.map((h: any) => h.id));
-                  }
-                } catch (_) { /* best effort */ }
-              } catch (_) { /* best effort */ }
+
+          // (2) Validar contra holds reais ativos do lead (tolerância 60s) para
+          //     descartar ISOs alucinados que nunca foram reservados.
+          if (offered.length > 0) {
+            const { data: liveHolds } = await supabase
+              .from("slot_holds")
+              .select("slot_datetime")
+              .eq("lead_id", lead_id)
+              .eq("status", "held")
+              .gt("expires_at", new Date().toISOString());
+            const holdMs = (liveHolds || [])
+              .map((h: any) => new Date(h.slot_datetime).getTime())
+              .filter((t: number) => !isNaN(t));
+            const validated = offered.filter((iso) => {
+              const ts = new Date(iso).getTime();
+              if (isNaN(ts)) return false;
+              return holdMs.some((t: number) => Math.abs(t - ts) < 60_000);
+            });
+            if (validated.length !== offered.length) {
+              console.log(`offer_slots: descartando ${offered.length - validated.length} slot(s) sem hold ativo`);
             }
+            offered = validated;
+          }
+
+          if (offered.length === 0) {
+            liveResult = { action: "offer_slots", ok: false, error: "no_valid_holds" };
+          } else {
+            // (3) Detectar divergência entre msg do LLM e ISOs validados.
+            const bulletCount = (msg.match(/(^|\n)\s*(•|📅|[-*])\s+/g) || []).length;
+            let needRewrite = !msg || bulletCount > offered.length;
+            if (!needRewrite && bulletCount > 0) {
+              const tNorm = ` ${_normalizeText(msg)} `;
+              const allMatched = offered.every((iso) => {
+                const { day, hour } = _slotPatterns(iso);
+                const dayHit = day.some((p) => tNorm.includes(_normalizeText(p)));
+                const hourHit = hour.some((p) => tNorm.includes(_normalizeText(p)));
+                return dayHit && hourHit;
+              });
+              if (!allMatched) needRewrite = true;
+            }
+            if (needRewrite) {
+              const formatted = offered.map((s: string) => `📅 ${formatBRTLong(s)}`).join("\n");
+              msg = `Tenho estas opções disponíveis:\n\n${formatted}\n\nQual funciona melhor pra você?`;
+              console.log("offer_slots: reescrevendo mensagem para coincidir com ISOs validados");
+            }
+
+            // Persistir slots oferecidos para validar a confirmação no turno seguinte.
+            try {
+              const facts = { ...((ctx.memory?.facts ?? {}) as Record<string, unknown>) };
+              facts.offered_slots_pending = {
+                slots: offered,
+                offered_at: new Date().toISOString(),
+              };
+              await supabase.from("lead_memory").upsert(
+                { lead_id, facts },
+                { onConflict: "lead_id" },
+              );
+              // Liberar holds antigos do lead que NÃO estejam nos novos `offered`.
+              try {
+                const { data: oldHolds } = await supabase
+                  .from("slot_holds")
+                  .select("id, slot_datetime")
+                  .eq("lead_id", lead_id)
+                  .eq("status", "held");
+                const keep = new Set(offered.map((s) => new Date(s).getTime()));
+                const stale = (oldHolds || []).filter(
+                  (h: any) => !Array.from(keep).some(
+                    (t) => Math.abs(new Date(h.slot_datetime).getTime() - (t as number)) < 5 * 60_000,
+                  ),
+                );
+                if (stale.length > 0) {
+                  await supabase.from("slot_holds")
+                    .update({ status: "released" })
+                    .in("id", stale.map((h: any) => h.id));
+                }
+              } catch (_) { /* best effort */ }
+            } catch (_) { /* best effort */ }
+
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
@@ -1017,8 +1096,6 @@ Deno.serve(async (req) => {
             });
             const sent = !execErr && (exec as any)?.result?.sent === true;
             liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
-          } else {
-            liveResult = { action: "offer_slots", ok: false, error: "no message and no offered_slots" };
           }
         } else if (decision === "book_slot") {
           const fd = finalDecision as any;
