@@ -1,38 +1,45 @@
-## Comportamento desejado
 
-Quando o lead pede um dia (ex.: "amanhã") e a agenda não tem slots naquele dia (sábado, domingo, fim de expediente, etc.), o agente deve dizer ISSO claramente e já oferecer os próximos horários disponíveis — em vez de blamar "instabilidade no sistema" e deixar o lead esperando.
+## Situação atual
 
-## Mudanças
+Quando o lead clica no link do email do Cal.com:
 
-### 1. `supabase/functions/sdr-agent/index.ts` — `check_calendar` com fallback automático
-Quando o resultado de `calcom-slots` vier vazio para a janela pedida, fazer **uma segunda chamada** ampliando a janela para os próximos 14 dias após `end_before` (ou após `start_after` se end não veio). Retornar para o agente:
+- **Reagendou** → `BOOKING_RESCHEDULED` chega no `calcom-webhook` → enfileira `send_booking_confirmation` com `rescheduled: true`. Isso gera uma mensagem extra desnecessária — o lead acabou de ver a nova confirmação na tela do Cal.com.
+- **Cancelou** → `BOOKING_CANCELLED` chega no webhook → enfileira `offer_reschedule_instead`. O handler atual gera texto do tipo "ofereça remarcar **antes de cancelar definitivamente**", o que não faz sentido pós-cancelamento. Além disso, o webhook dispara igual quando quem cancela é o próprio SDR pelo app (via `calcom-booking-cancel`), gerando mensagem duplicada.
 
-```ts
-{
-  slots: [...],                  // mantém shape atual; se vazio na janela, virão os próximos
-  slots_in_window: [],           // explicitamente vazio
-  next_available: [...],         // até 4 próximos slots fora da janela
-  reason: "no_slots_in_window",
-  requested_window: { start_after, end_before },
-}
-```
+## O que mudar
 
-Se mesmo a janela ampliada vier vazia, retornar `{ slots: [], reason: "no_availability", ... }` (aí sim faz sentido escalate ou followup).
+### 1. Remover follow-up de remarcação (`supabase/functions/calcom-webhook/index.ts`)
 
-### 2. `supabase/functions/sdr-agent/index.ts` — regra no prompt
-Adicionar em "Regras críticas":
-- "Se `check_calendar` retornar `reason: 'no_slots_in_window'`, é PROIBIDO responder 'sistema instável' ou 'aguarde'. Você DEVE responder reconhecendo que não há horário na janela pedida (ex.: 'amanhã é sábado / não tenho horário no dia X') e usar `offer_slots` com os `next_available` retornados. Mensagem natural, sem culpar sistema."
-- "Se `reason: 'no_availability'`, aí sim diga ao lead que a agenda está cheia pelos próximos dias e pergunte uma janela maior, ou use `escalate_to_human`."
+No `switch` de `BOOKING_RESCHEDULED`, **parar de enfileirar** `send_booking_confirmation`. Manter a mensagem de sistema na conversa ("🔄 Reunião remarcada para X") e o `lead_activity`, mas nenhum outbound para o lead. O `BookingCard` da UI continua refletindo a nova data normalmente.
 
-### 3. Recolocar Juliano nos trilhos
-Re-invocar o `sdr-agent` para a conversa do Juliano (ou disparar um inbound simulado), agora com o fallback. Ele deve oferecer slots de segunda em diante.
+### 2. Distinguir quem cancelou (`supabase/functions/calcom-webhook/index.ts`)
 
-## Verificação
+Antes de enfileirar a ação no `BOOKING_CANCELLED`, identificar a origem:
+- Ler campos que o Cal.com manda no payload: `payload.cancelledBy`, `payload.cancellation?.cancelledByEmail`, ou comparar com o e-mail do organizador/lead.
+- Se cancelado pelo **lead** → enfileirar nova ação `acknowledge_cancellation` (item 3).
+- Se cancelado pelo **organizador/SDR/app** → não enfileirar nada. Manter só a mensagem de sistema e a `lead_activity` (já existem hoje).
 
-- Re-rodar agente para Juliano: mensagem nova explica "amanhã é sábado" (ou simplesmente "não tenho horário amanhã") e oferece 2-3 horários da semana seguinte.
-- `sdr_agent_runs.final_output.decision = offer_slots` com `offered_slots` populado.
+### 3. Novo handler `acknowledge_cancellation` (`supabase/functions/execute-action/index.ts`)
+
+Substituir o `offer_reschedule_instead` no fluxo do webhook por um handler dedicado:
+
+- `generateReply` com tom: "reconheça que o lead cancelou a reunião de [data], valide sem pressão ('imagino que algo tenha surgido / sem problemas') e pergunte se ele gostaria de remarcar — sem propor horários ainda, só abrir a porta."
+- Canal = canal preferido do lead (`loadConversationChannel`).
+- Registrar `lead_activity` tipo `meeting`: "🔄 Lead cancelou via Cal.com — follow-up de retomada enviado".
+- Manter o handler `offer_reschedule_instead` antigo intocado (ele é usado em outro fluxo, quando o lead **pede** para cancelar via chat — pré-cancelamento).
+
+### 4. Idempotência
+
+Na inserção em `lead_action_queue` (webhook), checar se já existe row recente com `action_type = 'acknowledge_cancellation'` e `payload->>booking_uid` igual, com status `pending` ou `done` nas últimas 24h. Se sim, não enfileirar de novo. Evita follow-up duplicado se o Cal.com reenviar o webhook.
 
 ## Fora do escopo
 
-- Não vou mexer em `calcom-slots`, regras de horário comercial, ou criar lógica de detecção de fim-de-semana no Cal.com — o fallback de ampliação de janela já cobre o caso de forma genérica (sábado, domingo, feriado, dia cheio, fim de expediente).
-- Não vou tocar no BookingCard nem no fluxo de cancelamento/remarcação (já corrigidos).
+- Não vou mexer em remarcação — nenhuma mensagem nova é disparada quando o lead remarca.
+- Não vou criar nova tabela nem mexer em `slot_holds` / `bookings`.
+- O `BookingCard`, o cron de fila e a UI continuam iguais.
+
+## Verificação
+
+1. Cancelar uma reserva de teste pelo link do email do Cal.com → webhook chega, `lead_action_queue` recebe `acknowledge_cancellation`, mensagem sai no canal preferido com tom de retomada ("vi que você cancelou… quer remarcar?").
+2. Cancelar a mesma reserva pela UI do app → nenhuma mensagem nova ao lead, só a system message na conversa.
+3. Remarcar pelo link do email → nenhuma mensagem nova ao lead; system message e `BookingCard` refletem a nova data.
