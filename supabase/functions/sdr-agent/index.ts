@@ -15,6 +15,27 @@ import {
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 
+// Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
+// Returns epoch ms.
+function parseSlotStartAsBrt(s: string): number {
+  if (!s) return NaN;
+  const trimmed = s.trim();
+  // Has explicit TZ: ends with Z or +HH:MM / -HH:MM (after the time part)
+  const hasTz = /Z$/i.test(trimmed) || /[+-]\d{2}:?\d{2}$/.test(trimmed);
+  if (hasTz) return Date.parse(trimmed);
+  // Naive datetime → treat as BRT (UTC-3): append offset and parse
+  return Date.parse(trimmed + "-03:00");
+}
+
+// Normalize a naive (no-TZ) slot_start to an ISO with -03:00 offset for downstream APIs (Cal.com).
+function normalizeSlotStartIsoBrt(s: string): string {
+  if (!s) return s;
+  const trimmed = s.trim();
+  const hasTz = /Z$/i.test(trimmed) || /[+-]\d{2}:?\d{2}$/.test(trimmed);
+  if (hasTz) return trimmed;
+  return trimmed + "-03:00";
+}
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -883,8 +904,8 @@ Deno.serve(async (req) => {
             await sendFallback("missing slot_start");
             liveResult = { action: "book_slot", ok: false, error: "missing slot_start" };
           } else {
-            // Find the matching held slot (tolerate small time diffs)
-            const target = new Date(slotStart).getTime();
+            // Find the matching held slot (tolerate small time diffs, BRT-aware)
+            const target = parseSlotStartAsBrt(slotStart);
             const { data: holds } = await supabase
               .from("slot_holds")
               .select("id, slot_datetime, status")
@@ -892,7 +913,7 @@ Deno.serve(async (req) => {
               .eq("status", "held")
               .order("created_at", { ascending: false });
             const match = (holds || []).find((h: any) =>
-              Math.abs(new Date(h.slot_datetime).getTime() - target) < 60_000,
+              Math.abs(new Date(h.slot_datetime).getTime() - target) < 5 * 60_000,
             );
 
             if (!match) {
@@ -994,7 +1015,7 @@ Deno.serve(async (req) => {
           } else {
             const params: Record<string, unknown> =
               decision === "reschedule_booking"
-                ? { booking_uid: bookingUid, start: fd.slot_start, reason: fd.reason || "Cliente solicitou remarcação" }
+                ? { booking_uid: bookingUid, start: normalizeSlotStartIsoBrt(String(fd.slot_start)), reason: fd.reason || "Cliente solicitou remarcação" }
                 : { booking_uid: bookingUid, reason: fd.reason || "Cliente solicitou cancelamento" };
 
             const { data: actionRes, error: actionErr } = await supabase.functions.invoke("execute-action", {
