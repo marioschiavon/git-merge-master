@@ -1096,7 +1096,7 @@ Deno.serve(async (req) => {
             const sent = !execErr && (exec as any)?.result?.sent === true;
             liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
           }
-                } else if (decision === "book_slot") {
+        } else if (decision === "book_slot") {
           const fd = finalDecision as any;
           let slotStart = String(fd.slot_start || "");
           const fallbackChannel = fd.channel || "whatsapp";
