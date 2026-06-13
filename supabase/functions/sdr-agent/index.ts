@@ -277,7 +277,7 @@ async function execTool(
         if (Array.isArray(args.exclude_datetimes)) widenBody.exclude_datetimes = args.exclude_datetimes;
         if (Array.isArray(args.exclude_dates)) widenBody.exclude_dates = args.exclude_dates;
         const widen = await fetchSlots(widenBody);
-        const nextAvailable = widen.slots.slice(0, 4);
+        const nextAvailable = widen.slots.slice(0, 2);
         return {
           slots: nextAvailable,
           slots_in_window: [],
