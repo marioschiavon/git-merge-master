@@ -120,17 +120,55 @@ serve(async (req) => {
           company_id, lead_id, action_type, payload, status: "pending", scheduled_for, source: "calcom_webhook",
         });
       };
+
+      // Detect who initiated this webhook event (lead vs. organizer/SDR/app)
+      const leadEmailLower = (bookingPayload.attendees?.[0]?.email || "").toLowerCase();
+      const organizerEmailLower = (bookingPayload.organizer?.email || bookingPayload.user?.email || "").toLowerCase();
+      const cancelledByEmail = (
+        bookingPayload.cancellation?.cancelledByEmail ||
+        bookingPayload.cancelledBy?.email ||
+        bookingPayload.cancelledBy ||
+        ""
+      ).toString().toLowerCase();
+      const cancelledByLead =
+        !!cancelledByEmail &&
+        (cancelledByEmail === leadEmailLower ||
+          (!!organizerEmailLower && cancelledByEmail !== organizerEmailLower));
+
       switch (eventType) {
         case "BOOKING_CREATED":
           await enqueue("send_booking_confirmation", { booking_uid: bookingUid });
           await enqueue("update_lead_score", { delta: 30, reason: "meeting_booked" });
           break;
         case "BOOKING_RESCHEDULED":
-          await enqueue("send_booking_confirmation", { booking_uid: bookingUid, rescheduled: true });
+          // Intentionally no outbound: lead already saw confirmation on Cal.com.
+          // System message + lead_activity above are enough.
           break;
-        case "BOOKING_CANCELLED":
-          await enqueue("offer_reschedule_instead", { booking_uid: bookingUid });
+        case "BOOKING_CANCELLED": {
+          if (!cancelledByLead) {
+            console.log(`calcom-webhook: cancellation not initiated by lead (cancelledBy=${cancelledByEmail || "unknown"}), skipping follow-up.`);
+            break;
+          }
+          // Idempotency: skip if we already enqueued acknowledge_cancellation for this booking in the last 24h.
+          const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+          const { data: existing } = await supabase
+            .from("lead_action_queue")
+            .select("id")
+            .eq("company_id", company_id)
+            .eq("lead_id", lead_id)
+            .eq("action_type", "acknowledge_cancellation")
+            .gte("created_at", since)
+            .filter("payload->>booking_uid", "eq", bookingUid || "")
+            .in("status", ["pending", "done"])
+            .limit(1)
+            .maybeSingle();
+          if (existing) {
+            console.log(`calcom-webhook: acknowledge_cancellation already enqueued for booking ${bookingUid}, skipping.`);
+            break;
+          }
+          await enqueue("acknowledge_cancellation", { booking_uid: bookingUid });
           break;
+        }
         case "BOOKING_NO_SHOW_UPDATED":
           await enqueue("recover_no_show", { booking_uid: bookingUid }, 60);
           break;
@@ -140,6 +178,7 @@ serve(async (req) => {
           break;
       }
     }
+
 
     await supabase.from("calcom_webhook_log").update({ processed: true, processed_at: new Date().toISOString() }).eq("id", logRow!.id);
     return jsonResponse({ success: true });

@@ -638,6 +638,30 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
     return { sent: true };
   },
 
+  async acknowledge_cancellation(ctx) {
+    const { booking_uid } = ctx.params;
+    let whenLabel = "";
+    if (booking_uid) {
+      const { data: booking } = await ctx.supabase
+        .from("bookings")
+        .select("scheduled_at")
+        .eq("calcom_booking_uid", booking_uid)
+        .maybeSingle();
+      if (booking?.scheduled_at) {
+        whenLabel = new Date(booking.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+      }
+    }
+    const reply = await generateReply(ctx, {
+      tone: `O lead acabou de cancelar nossa reunião${whenLabel ? ` de ${whenLabel}` : ""} pelo link do Cal.com. Reconheça com empatia ("vi aqui que você cancelou", "imagino que algo tenha surgido", sem cobrança), e pergunte se ele gostaria de remarcar — sem propor horários ainda, apenas abrindo a porta para retomar a conversa. Tom natural e curto.`,
+      category: "scheduling", sub_intent: "cancellation_followup",
+    });
+    const channel = await loadConversationChannel(ctx);
+    await sendOutbound(ctx, reply.body, reply.subject ?? null, channel, { action: "acknowledge_cancellation", booking_uid });
+    await logActivity(ctx, "meeting", `🔄 Lead cancelou via Cal.com — follow-up de retomada enviado`, { booking_uid });
+    return { sent: true };
+  },
+
+
   async send_booking_confirmation(ctx) {
     const { booking_uid, rescheduled } = ctx.params;
     const { data: booking } = await ctx.supabase.from("bookings").select("*").eq("calcom_booking_uid", booking_uid).maybeSingle();
