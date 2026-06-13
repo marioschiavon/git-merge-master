@@ -997,50 +997,93 @@ Deno.serve(async (req) => {
           // Aqui apenas enviamos a mensagem ao lead com os horários propostos.
           const fd = finalDecision as any;
           let msg = String(fd.message || "").trim();
-          const offered: string[] = Array.isArray(fd.offered_slots)
-            ? fd.offered_slots.filter((s: unknown) => typeof s === "string" && s.length > 0)
+          let offered: string[] = Array.isArray(fd.offered_slots)
+            ? fd.offered_slots.filter((s: unknown) => typeof s === "string" && (s as string).length > 0)
             : [];
-          if (!msg && offered.length > 0) {
-            const formatted = offered
-              .map((s: string) => `• ${formatBRTLong(s)}`)
-              .join("\n");
-            msg = `Tenho estes horários disponíveis:\n\n${formatted}\n\nQual deles funciona melhor pra você?`;
+
+          // (1) Hard-cap: nunca mais de 2 horários por turno.
+          if (offered.length > 2) {
+            console.log(`offer_slots: LLM enviou ${offered.length} slots; cortando para 2`);
+            offered = offered.slice(0, 2);
           }
-          if (msg) {
-            // Persistir os slots oferecidos para validar a confirmação no turno seguinte.
-            if (offered.length > 0) {
-              try {
-                const facts = { ...((ctx.memory?.facts ?? {}) as Record<string, unknown>) };
-                facts.offered_slots_pending = {
-                  slots: offered,
-                  offered_at: new Date().toISOString(),
-                };
-                await supabase.from("lead_memory").upsert(
-                  { lead_id, facts },
-                  { onConflict: "lead_id" },
-                );
-                // Liberar holds antigos do lead que NÃO estejam nos novos `offered`,
-                // para não poluir o contexto em turnos seguintes.
-                try {
-                  const { data: oldHolds } = await supabase
-                    .from("slot_holds")
-                    .select("id, slot_datetime")
-                    .eq("lead_id", lead_id)
-                    .eq("status", "held");
-                  const keep = new Set(offered.map((s) => new Date(s).getTime()));
-                  const stale = (oldHolds || []).filter(
-                    (h: any) => !Array.from(keep).some(
-                      (t) => Math.abs(new Date(h.slot_datetime).getTime() - (t as number)) < 5 * 60_000,
-                    ),
-                  );
-                  if (stale.length > 0) {
-                    await supabase.from("slot_holds")
-                      .update({ status: "released" })
-                      .in("id", stale.map((h: any) => h.id));
-                  }
-                } catch (_) { /* best effort */ }
-              } catch (_) { /* best effort */ }
+
+          // (2) Validar contra holds reais ativos do lead (tolerância 60s) para
+          //     descartar ISOs alucinados que nunca foram reservados.
+          if (offered.length > 0) {
+            const { data: liveHolds } = await supabase
+              .from("slot_holds")
+              .select("slot_datetime")
+              .eq("lead_id", lead_id)
+              .eq("status", "held")
+              .gt("expires_at", new Date().toISOString());
+            const holdMs = (liveHolds || [])
+              .map((h: any) => new Date(h.slot_datetime).getTime())
+              .filter((t: number) => !isNaN(t));
+            const validated = offered.filter((iso) => {
+              const ts = new Date(iso).getTime();
+              if (isNaN(ts)) return false;
+              return holdMs.some((t: number) => Math.abs(t - ts) < 60_000);
+            });
+            if (validated.length !== offered.length) {
+              console.log(`offer_slots: descartando ${offered.length - validated.length} slot(s) sem hold ativo`);
             }
+            offered = validated;
+          }
+
+          if (offered.length === 0) {
+            liveResult = { action: "offer_slots", ok: false, error: "no_valid_holds" };
+          } else {
+            // (3) Detectar divergência entre msg do LLM e ISOs validados.
+            const bulletCount = (msg.match(/(^|\n)\s*(•|📅|[-*])\s+/g) || []).length;
+            let needRewrite = !msg || bulletCount > offered.length;
+            if (!needRewrite && bulletCount > 0) {
+              const tNorm = ` ${_normalizeText(msg)} `;
+              const allMatched = offered.every((iso) => {
+                const { day, hour } = _slotPatterns(iso);
+                const dayHit = day.some((p) => tNorm.includes(_normalizeText(p)));
+                const hourHit = hour.some((p) => tNorm.includes(_normalizeText(p)));
+                return dayHit && hourHit;
+              });
+              if (!allMatched) needRewrite = true;
+            }
+            if (needRewrite) {
+              const formatted = offered.map((s: string) => `📅 ${formatBRTLong(s)}`).join("\n");
+              msg = `Tenho estas opções disponíveis:\n\n${formatted}\n\nQual funciona melhor pra você?`;
+              console.log("offer_slots: reescrevendo mensagem para coincidir com ISOs validados");
+            }
+
+            // Persistir slots oferecidos para validar a confirmação no turno seguinte.
+            try {
+              const facts = { ...((ctx.memory?.facts ?? {}) as Record<string, unknown>) };
+              facts.offered_slots_pending = {
+                slots: offered,
+                offered_at: new Date().toISOString(),
+              };
+              await supabase.from("lead_memory").upsert(
+                { lead_id, facts },
+                { onConflict: "lead_id" },
+              );
+              // Liberar holds antigos do lead que NÃO estejam nos novos `offered`.
+              try {
+                const { data: oldHolds } = await supabase
+                  .from("slot_holds")
+                  .select("id, slot_datetime")
+                  .eq("lead_id", lead_id)
+                  .eq("status", "held");
+                const keep = new Set(offered.map((s) => new Date(s).getTime()));
+                const stale = (oldHolds || []).filter(
+                  (h: any) => !Array.from(keep).some(
+                    (t) => Math.abs(new Date(h.slot_datetime).getTime() - (t as number)) < 5 * 60_000,
+                  ),
+                );
+                if (stale.length > 0) {
+                  await supabase.from("slot_holds")
+                    .update({ status: "released" })
+                    .in("id", stale.map((h: any) => h.id));
+                }
+              } catch (_) { /* best effort */ }
+            } catch (_) { /* best effort */ }
+
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
@@ -1052,10 +1095,8 @@ Deno.serve(async (req) => {
             });
             const sent = !execErr && (exec as any)?.result?.sent === true;
             liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? (exec as any)?.result?.reason ?? null) };
-          } else {
-            liveResult = { action: "offer_slots", ok: false, error: "no message and no offered_slots" };
           }
-        } else if (decision === "book_slot") {
+                } else if (decision === "book_slot") {
           const fd = finalDecision as any;
           let slotStart = String(fd.slot_start || "");
           const fallbackChannel = fd.channel || "whatsapp";
