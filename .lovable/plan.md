@@ -1,73 +1,54 @@
-## Diagnóstico
+# Bug: SDR agenda sozinho sem esperar confirmação
 
-Olhando a conversa do Juliano (lead `61a9b13e…`):
+## Causa raiz
 
-- **13:32:10 / 13:32:16 / 13:32:24** — 3 mensagens inbound em 14 segundos ("Sim. Eu não podia…", "Você tem algum outro?", "Para próxima semana?").
-- **13:32:59 / 13:33:01 / 13:33:18** — 3 respostas do SDR, cada uma com 2 horários diferentes → o lead recebeu **6 horários** em ~20s.
+No `sdr-agent/index.ts` o LLM pode finalizar com `decision=book_slot` ou `decision=reschedule_booking` na **mesma jogada em que oferece o horário**. Hoje o prompt:
 
-### Causa raiz
+- Linha 516 manda: "se o lead pede para MUDAR o horário, use `reschedule_booking` com `slot_start` = novo horário ISO" — ou seja, o próprio agente escolhe e já confirma.
+- Não existe regra que separe "oferecer" de "confirmar". Como o lead disse "tive uma emergência" + algo do tipo "pode ser outro dia", o modelo interpretou como autorização para remarcar e chamou `reschedule_booking` direto, gerando booking + link do Meet.
 
-1. **`inbound-webhook`** dispara `sdr-agent` em fire-and-forget a CADA mensagem recebida (linha 452–470). Não há janela de espera nem coalescência. Três inbounds em paralelo = três execuções concorrentes do agente.
-2. **`sdr-agent`** não tem lock por lead. Cada execução chama `check_calendar` independentemente, e `calcom-slots` exclui apenas slots já reservados em `slot_holds` — não slots oferecidos segundos antes. Resultado: cada turno propõe 2 horários novos que não conflitam com os anteriores ainda não persistidos.
-3. Não há limite acumulado de "quantos horários já ofereci nesta conversa sem o lead escolher".
+O mesmo vale para `book_slot` quando ainda não há reserva: nada impede o agente de pular `offer_slots` e ir direto a `book_slot`.
 
-## Plano
+## Regra desejada
 
-### 1. Debounce de mensagens inbound (coalescência)
+`book_slot` e `reschedule_booking` só podem ser chamados quando o **lead confirmou explicitamente** um horário específico que **já foi oferecido** num turno anterior (presente em `heldSlots` ou em `offered_slots` recentes). Caso contrário, o agente sempre passa por `offer_slots` e aguarda resposta.
 
-Objetivo: aguardar ~10–12s após cada inbound antes de responder; se chegar nova mensagem dentro da janela, reinicia o timer e o agente processa todas juntas.
+## Mudanças
 
-Implementação (sem depender de processo persistente):
+### 1. `supabase/functions/sdr-agent/index.ts` — guardas no executor
 
-- Nova tabela `pending_inbound_runs`:
-  ```
-  lead_id uuid PK, conversation_id uuid, company_id uuid,
-  scheduled_at timestamptz, last_inbound_at timestamptz,
-  status text ('pending'|'running'|'done'), attempts int
-  ```
-- Em `inbound-webhook`, depois de gravar a mensagem inbound, em vez de invocar `sdr-agent` direto:
-  - `upsert` em `pending_inbound_runs` com `scheduled_at = now() + 12s` e `last_inbound_at = now()` (sempre estende — debounce de "trailing edge").
-  - **Não** invoca `sdr-agent` agora.
-- Novo cron `sdr-debounce-tick` (a cada 10s, via `pg_cron`/scheduled function) que:
-  - Seleciona registros `status='pending'` com `scheduled_at <= now()`.
-  - Faz `UPDATE … SET status='running' WHERE status='pending'` com `RETURNING` (lock atômico).
-  - Invoca `sdr-agent` uma única vez por lead com `trigger='inbound_batch'`.
-  - Marca `done` ao fim (ou re-`pending` em erro com backoff).
-- Alternativa mais simples (sem cron): após o `upsert`, em background (`EdgeRuntime.waitUntil`) faz `await sleep(12_000)` e então, se `last_inbound_at` na tabela == o que vimos, dispara o agente. Funciona mas depende de a edge function não ser encerrada — uso recomendado: combinar com cron como fallback.
+Antes de executar `book_slot` / `reschedule_booking`, validar:
 
-### 2. Lock por lead no `sdr-agent`
+- `fd.slot_start` precisa bater (±5 min) com algum slot em `heldSlots` (status `held`) **ou** com algum item de `lead_memory.offered_slots_pending`.
+- A última mensagem inbound do lead precisa conter uma confirmação explícita: ou bate intent `book_slot`/`confirm` da última classificação em `lead_intents_log`, ou regex de confirmação (`/\b(confirmo|fechado|pode (ser|marcar)|esse mesmo|esse horário|tá bom|ok)\b/i`) referindo-se ao horário oferecido.
+- Se falhar qualquer checagem: **não chamar `calcom-confirm-booking` nem `calcom-booking-reschedule`**. Em vez disso, converter para `offer_slots` (reaproveitando os 2 horários candidatos) e enviar uma mensagem pedindo confirmação ("Posso confirmar para X ou Y?").
+- Logar no `sdr_agent_runs.metadata` o motivo do downgrade para visibilidade.
 
-- No início de `sdr-agent` adquirir `pg_try_advisory_xact_lock(hashtext('sdr:'||lead_id))` (ou row-lock em `sdr_agent_runs`).
-- Se já houver execução em andamento, retorna `skipped: true` em vez de rodar em paralelo. Evita corrida mesmo se algo escapar do debounce.
+### 2. Prompt do sistema (mesmo arquivo, bloco de regras ~ linhas 495–520)
 
-### 3. Limitar e reaproveitar horários oferecidos
+Reescrever as regras de agendamento:
 
-- Em `lead_memory` (ou novo campo), manter `offered_slots_pending`: lista de slot ISO oferecidos nos últimos N minutos e ainda não escolhidos/recusados.
-- No `sdr-agent`, antes de oferecer novos:
-  - Se `offered_slots_pending` já tem ≥ 3 horários e nenhum foi rejeitado explicitamente, **não** chamar `check_calendar` de novo. Em vez disso, repetir/relembrar os 2 melhores já oferecidos ("Os horários que te passei foram X e Y — algum deles funciona?") ou pedir uma janela ("Me diga um período da semana que prefere").
-  - Se o lead rejeitou (sub_intent `rejects_slot` / "não posso nesses"), **limpar** a lista e oferecer no máximo 2 novos.
-- Reduzir `nextAvailable.slice(0, 4)` para `slice(0, 2)` na fallback de janela vazia (sdr-agent linha 280) — já que a mensagem final só usa 2.
-- Adicionar regra explícita no prompt do agente: "Nunca ofereça mais de 2 horários por turno. Se já ofereceu 4 nos últimos 10 min sem resposta de aceite/recusa, pare de oferecer novos e peça a janela preferida."
+- "NUNCA finalize com `book_slot` ou `reschedule_booking` num turno onde o lead ainda não escolheu um horário específico que você já tinha oferecido. Pedir desculpas, expressar empatia ou propor remarcação NÃO é confirmação."
+- "Fluxo correto para remarcação: (a) reconheça o pedido, (b) finalize com `offer_slots` propondo no máximo 2 novos horários, (c) só use `reschedule_booking` no turno SEGUINTE, quando o lead responder escolhendo um dos horários."
+- "Fluxo correto para primeiro agendamento: (a) `check_calendar` → (b) `offer_slots` com 2 horários → (c) aguardar resposta → (d) `book_slot` apenas quando o lead apontar um dos horários oferecidos (texto explícito tipo 'pode ser quarta 15h', 'esse mesmo', 'confirmo')."
+- Remover a frase atual "use `decision=reschedule_booking` com `slot_start` = novo horário ISO" e substituir pela versão em dois turnos.
 
-### 4. Passar contexto agregado para o agente
+### 3. Memória — registrar slots oferecidos para o turno seguinte
 
-Quando o debounce dispara o agente após coalescer N mensagens, o prompt deve receber o histórico já com as 3 últimas inbound juntas (já acontece via fetch de mensagens — basta garantir que o agente leia as mensagens posteriores ao último outbound como um único bloco no system/user message: "O lead enviou em sequência: …").
+No bloco que processa `offer_slots` (já existe), persistir os ISO oferecidos em `lead_memory.offered_slots_pending` com timestamp. O guarda em (1) usa essa lista para validar o `slot_start` recebido no turno seguinte. Limpar a lista quando: o lead aceitar (após booking), rejeitar explicitamente, ou após 24 h.
 
-## Detalhes técnicos
+### 4. Caso lead pede para cancelar definitivamente
 
-**Arquivos a alterar**
-- `supabase/migrations/<new>.sql` — criar `pending_inbound_runs` + GRANTs + RLS (service_role) + índice em `(status, scheduled_at)`.
-- `supabase/functions/inbound-webhook/index.ts` (linhas 447–474) — substituir invoke direto por upsert no debounce + waitUntil opcional.
-- `supabase/functions/sdr-debounce-tick/index.ts` (novo) — cron a cada 10s.
-- `supabase/config.toml` — agendar cron.
-- `supabase/functions/sdr-agent/index.ts` — adicionar lock advisory, reduzir `slice(0,4)` → `slice(0,2)`, ler/escrever `offered_slots_pending`, novas regras no system prompt.
-- `supabase/functions/calcom-slots/index.ts` — aceitar `exclude_datetimes` vindo dos pending recentes (já aceita; só garantir uso).
+Mantém comportamento atual de `cancel_booking` (não precisa de slot a confirmar), apenas exige que a mensagem do lead contenha pedido claro de cancelamento (intent `cancel` ou regex). Sem regressão neste fluxo.
 
-**Fora de escopo**
-- Mudar tom/conteúdo do SDR além das regras de quantidade de horários.
-- Refator do pipeline legacy não-agent.
-- Realtime/UI de "digitando…" para o lead.
+## Fora de escopo
 
-## Pergunta de calibração
+- Não muda Cal.com, webhook, debounce nem oferta de horários.
+- Não altera UI.
+- Não mexe em `book_slot` chamado por confirmação manual humana.
 
-Janela de debounce sugerida: **12 segundos** (tempo típico de quem digita em 2–3 mensagens). Posso usar esse valor, ou prefere 8s/20s? E o teto de horários oferecidos por turno: confirmo **2**?
+## Verificação
+
+- Reprocessar manualmente a conversa do lead `61a9b13e-93d9-404e-9ad9-a7a91b1c5bac` (via `curl_edge_functions` no `sdr-agent`) simulando "tive uma emergência" e conferir que o resultado é `offer_slots`, não `reschedule_booking`.
+- Reprocessar uma resposta tipo "pode ser quarta 15h" depois de slots oferecidos e conferir que aí sim ele chama `calcom-confirm-booking`.
+- Checar `sdr_agent_runs.metadata` em busca do log de downgrade.
