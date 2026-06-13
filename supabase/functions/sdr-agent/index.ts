@@ -1021,36 +1021,54 @@ Deno.serve(async (req) => {
           }
         } else if (decision === "book_slot") {
           const fd = finalDecision as any;
-          const slotStart = String(fd.slot_start || "");
+          let slotStart = String(fd.slot_start || "");
           const fallbackChannel = fd.channel || "whatsapp";
 
           // ── Guarda de confirmação explícita ────────────────────────────
-          // book_slot só roda se: (a) slot_start bate com um slot já oferecido
-          // (held ou offered_slots_pending) e (b) a última mensagem do lead
-          // contém confirmação explícita.
+          // book_slot só roda se: (a) há um slot oferecido recente e (b) o lead
+          // confirmou explicitamente OU referenciou inequivocamente um dos slots.
           const confirmGate = await (async () => {
             const factsNow = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
-            const pending = (factsNow.offered_slots_pending as { slots?: string[] } | undefined)?.slots ?? [];
+            const pendingMeta = factsNow.offered_slots_pending as { slots?: string[]; offered_at?: string } | undefined;
+            const pendingFresh =
+              pendingMeta?.offered_at
+                ? Date.now() - new Date(pendingMeta.offered_at).getTime() < 30 * 60_000
+                : false;
+            const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
             const heldIsos = (ctx.heldSlots || []).map((h: any) => h.slot_datetime as string);
-            const candidates = Array.from(new Set([...pending, ...heldIsos]));
+            // Prefere SOMENTE a oferta vigente; só usa heldSlots se não houver oferta recente.
+            const candidates = pending.length > 0 ? pending : heldIsos;
             const inbound = lastInboundContent(ctx.messages);
-            const hasConfirmation = CONFIRMATION_REGEX.test(inbound);
+            const explicit = CONFIRMATION_REGEX.test(inbound);
+            const ref = matchesSlotReference(inbound, candidates);
+            // Se o LLM não preencheu slot_start mas a referência do lead casa com
+            // um único slot, usar esse ISO.
+            if (!slotStart && ref.iso) slotStart = ref.iso;
             const target = slotStart ? parseSlotStartAsBrt(slotStart) : NaN;
             const matchesOffered = candidates.some(
               (iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000,
             );
-            return { ok: !!slotStart && matchesOffered && hasConfirmation, candidates, hasConfirmation, matchesOffered };
+            const hasConfirmation = explicit || !!ref.iso;
+            return { ok: !!slotStart && matchesOffered && hasConfirmation, candidates, hasConfirmation, matchesOffered, refIso: ref.iso, ambiguous: ref.ambiguous };
           })();
 
           if (!confirmGate.ok) {
             // Downgrade: pedir confirmação em vez de agendar sozinho.
-            const cands = confirmGate.candidates.slice(0, 2);
-            const formatted = cands.length
-              ? cands.map((s) => `• ${formatBRTLong(s)}`).join("\n")
-              : null;
-            const askMsg = formatted
-              ? `Antes de confirmar, qual destes horários funciona melhor pra você?\n\n${formatted}`
-              : "Antes de confirmar, qual horário funciona melhor pra você?";
+            let askMsg: string;
+            if (confirmGate.refIso && !confirmGate.ambiguous) {
+              // Lead referenciou um slot mas faltou confirmar — pedir um "sim" claro.
+              askMsg = `Só confirmando: posso fechar para ${formatBRTLong(confirmGate.refIso)}?`;
+            } else if (confirmGate.ambiguous) {
+              const cands = confirmGate.candidates.slice(0, 3);
+              const formatted = cands.map((s) => `• ${formatBRTLong(s)}`).join("\n");
+              askMsg = `Entre essas opções, qual prefere?\n\n${formatted}`;
+            } else if (confirmGate.candidates.length > 0) {
+              const cands = confirmGate.candidates.slice(0, 3);
+              const formatted = cands.map((s) => `• ${formatBRTLong(s)}`).join("\n");
+              askMsg = `Antes de confirmar, qual destes horários funciona melhor pra você?\n\n${formatted}`;
+            } else {
+              askMsg = "Antes de confirmar, qual horário funciona melhor pra você?";
+            }
             await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
