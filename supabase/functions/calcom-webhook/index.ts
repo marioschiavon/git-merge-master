@@ -169,6 +169,21 @@ serve(async (req) => {
             console.log(`calcom-webhook: cancellation initiated by organizer (${cancelledByEmail}), skipping follow-up.`);
             break;
           }
+          // Marca interna: se cancel_booking (SDR/humano/sistema) carimbou a origem
+          // nos últimos 5 minutos, este webhook é eco do nosso próprio cancelamento.
+          if (bookingUid) {
+            const { data: bk } = await supabase
+              .from("bookings")
+              .select("cancellation_source, cancellation_requested_at")
+              .eq("calcom_booking_uid", bookingUid)
+              .maybeSingle();
+            const stampedAt = bk?.cancellation_requested_at ? new Date(bk.cancellation_requested_at).getTime() : 0;
+            const recentlyStamped = stampedAt > 0 && Date.now() - stampedAt < 5 * 60_000;
+            if (recentlyStamped && bk?.cancellation_source && bk.cancellation_source !== "lead") {
+              console.log(`calcom-webhook: cancellation initiated internally (${bk.cancellation_source}), skipping acknowledge.`);
+              break;
+            }
+          }
           // Idempotency: skip if we already enqueued acknowledge_cancellation for this booking in the last 24h.
           const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
           const { data: existing } = await supabase
