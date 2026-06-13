@@ -1150,20 +1150,31 @@ Deno.serve(async (req) => {
                 : false;
             const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
             const heldIsos = (ctx.heldSlots || []).map((h: any) => h.slot_datetime as string);
-            // Prefere SOMENTE a oferta vigente; só usa heldSlots se não houver oferta recente.
-            const candidates = pending.length > 0 ? pending : heldIsos;
+            // Se não há oferta vigente via tool, tenta detectar oferta verbal
+            // de um único slot na última mensagem outbound do agente.
+            let candidates: string[];
+            if (pending.length > 0) {
+              candidates = pending;
+            } else {
+              const lastOut = lastOutboundContent(ctx.messages);
+              const implicit = implicitOfferFromOutbound(lastOut, heldIsos);
+              candidates = implicit ? [implicit] : heldIsos;
+            }
             const inbound = lastInboundContent(ctx.messages);
-            const explicit = CONFIRMATION_REGEX.test(inbound);
+            const explicit = isLikelyConfirmation(inbound);
             const ref = matchesSlotReference(inbound, candidates);
             // Se o LLM não preencheu slot_start mas a referência do lead casa com
-            // um único slot, usar esse ISO.
+            // um único slot, usar esse ISO. Se há só 1 candidato e o lead confirmou,
+            // assumir esse candidato como alvo.
             if (!slotStart && ref.iso) slotStart = ref.iso;
+            if (!slotStart && explicit && candidates.length === 1) slotStart = candidates[0];
             const target = slotStart ? parseSlotStartAsBrt(slotStart) : NaN;
             const matchesOffered = candidates.some(
               (iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000,
             );
             const hasConfirmation = explicit || !!ref.iso;
-            return { ok: !!slotStart && matchesOffered && hasConfirmation, candidates, hasConfirmation, matchesOffered, refIso: ref.iso, ambiguous: ref.ambiguous };
+            const refIso = ref.iso || (candidates.length === 1 ? candidates[0] : null);
+            return { ok: !!slotStart && matchesOffered && hasConfirmation, candidates, hasConfirmation, matchesOffered, refIso, ambiguous: ref.ambiguous };
           })();
 
           if (!confirmGate.ok) {
