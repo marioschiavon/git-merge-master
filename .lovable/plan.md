@@ -1,54 +1,60 @@
 ## Diagnóstico
 
-O lead escolheu "Segunda" referente ao horário oferecido **segunda-feira, 15/06 às 17:45 (BRT)**. O agente SDR decidiu corretamente `book_slot` com `slot_start = "2026-06-15T17:45:00"`, mas o agendamento **falhou** com erro `"no matching held slot for 2026-06-15T17:45:00"`, caindo no fallback que envia a mensagem "Deixa eu confirmar esse horário aqui pra você e já te retorno em instantes."
+Log do `calcom-webhook` durante o cancelamento:
 
-### Causa raiz
+```
+calcom-webhook: cancellation not initiated by lead (cancelledBy=unknown), skipping follow-up.
+```
 
-Em `supabase/functions/sdr-agent/index.ts` (linha ~887), o matching do hold é feito assim:
+A regra atual em `supabase/functions/calcom-webhook/index.ts` (linhas 133-142) só considera "cancelamento pelo lead" quando o payload do Cal.com traz um `cancelledByEmail` **preenchido**:
 
 ```ts
-const target = new Date(slotStart).getTime();
-// compara com hold.slot_datetime tolerando 60s
+const cancelledByLead =
+  !!cancelledByEmail &&
+  (cancelledByEmail === leadEmailLower ||
+    (!!organizerEmailLower && cancelledByEmail !== organizerEmailLower));
 ```
 
-- O agente devolve a hora **em BRT, sem timezone** (ex.: `"2026-06-15T17:45:00"`), porque a mensagem ao lead exibe BRT.
-- `new Date("2026-06-15T17:45:00")` em runtime Deno (UTC) interpreta como **17:45 UTC = 14:45 BRT**.
-- O hold salvo no banco é `2026-06-15T20:45:00+00:00` (=17:45 BRT).
-- Diferença de 3h → nenhum match → fallback é disparado.
+Quando o lead cancela pelo **link público do e-mail** (sem estar logado em uma conta Cal.com), o Cal envia o webhook com `cancelledByEmail = ""` / `cancelledBy = null`. Resultado: `cancelledByLead = false` → `acknowledge_cancellation` não é enfileirado e o SDR não envia mensagem de retomada.
 
-Confirmado no `sdr_agent_runs.final_output`:
-```
-{"live":{"ok":false,"error":"no matching held slot for 2026-06-15T17:45:00","action":"book_slot"}, ...}
-```
-
-A reserva no Cal.com **não foi feita** e o lead recebeu uma mensagem confusa pedindo para esperar, quando na verdade o horário estava disponível.
+Confirmação no booking original: o objeto `booking` retornado já mostrava `"cancelledByEmail": ""` mesmo após criação — Cal.com simplesmente não popula esse campo para cancelamentos anônimos via link.
 
 ## Correção
 
-Normalizar `slot_start` no handler `book_slot` (e também em `reschedule_booking`, que usa o mesmo padrão de datetime sem TZ vindo do agente) para tratar datetime **sem offset como horário BRT (America/Sao_Paulo, UTC-3)** antes de calcular `target`.
+Inverter a lógica para um modelo "presumir lead salvo se for claramente o organizador":
+
+- Se `cancelledByEmail` está **vazio/unknown** → tratar como **cancelamento do lead** (caso típico do link público).
+- Se `cancelledByEmail` é igual ao **organizador** (SDR/host) → pular o follow-up (SDR já sabe).
+- Se `cancelledByEmail` é igual ao **lead** → seguir com follow-up (caso já tratado hoje).
+- Qualquer outro e-mail → assumir terceiro/lead também (manter follow-up).
 
 ### Mudanças
 
-**Arquivo: `supabase/functions/sdr-agent/index.ts`**
+**Arquivo: `supabase/functions/calcom-webhook/index.ts`**
 
-1. Criar helper local `parseSlotStartAsBrt(s: string): number` que:
-   - Se a string contém `Z` ou `+HH:MM`/`-HH:MM` no fim → usa `Date.parse` direto.
-   - Caso contrário → assume BRT (UTC-3) e soma 3h em ms ao parse UTC ingênuo.
-
-2. Em `book_slot` (linha ~887): substituir `new Date(slotStart).getTime()` por `parseSlotStartAsBrt(slotStart)`.
-
-3. Em `reschedule_booking` (mesmo arquivo): aplicar o mesmo helper onde o `slot_start` do agente é convertido para passar à API Cal.com, garantindo que o ISO enviado leve `-03:00`.
-
-4. (Defensivo) Aumentar a tolerância de match de 60s para 5min, alinhando com o comportamento de `check_availability` em `inbound-webhook` (que já tolera 5min).
+1. Substituir o cálculo de `cancelledByLead` por:
+   ```ts
+   const cancelledByOrganizer =
+     !!cancelledByEmail &&
+     !!organizerEmailLower &&
+     cancelledByEmail === organizerEmailLower;
+   const cancelledByLead = !cancelledByOrganizer; // inclui empty/unknown e qualquer não-organizador
+   ```
+2. Ajustar a mensagem de log para refletir a nova semântica:
+   - quando pula: `"cancellation initiated by organizer (${cancelledByEmail}), skipping follow-up."`
+   - quando segue: continuar sem log (ou debug com `cancelledByEmail || "unknown"`).
+3. A trava de idempotência existente (24h por `booking_uid`) continua protegendo de mensagens duplicadas, então não há risco de enviar follow-up duas vezes se o Cal reentregar o webhook.
 
 ### Fora de escopo
 
-- Não vamos mudar o formato que o LLM devolve — manter prompt como está, a correção fica no consumidor.
-- Não mexer em `inbound-webhook`, `calcom-confirm-booking`, `calcom-slots`, nem na tabela `slot_holds`.
-- Não mexer no fluxo de cancelamento via link do Cal (assunto das mensagens anteriores).
+- Sem mudança no `execute-action` (mensagem `acknowledge_cancellation` já existe e está correta).
+- Sem mudança no `sdr-agent`.
+- Sem alteração em `BOOKING_RESCHEDULED` (lead remarcando pelo link continua sem nova mensagem, conforme decisão anterior).
 
 ## Verificação
 
-1. Repetir o cenário: oferecer 2 slots, lead responde escolhendo um deles → confirmar que `sdr_agent_runs.final_output.live.action = "book_slot"` com `ok: true` e `booking` preenchido.
-2. Conferir mensagem enviada: "Combinado, …, Agendei para …" em vez do fallback.
-3. Verificar tabela `bookings` recebeu novo registro `confirmed`.
+1. Cancelar uma reunião teste pelo link do Cal.com (sem login no Cal).
+2. Conferir no log: `calcom-webhook` **não** deve registrar "skipping follow-up".
+3. Conferir `lead_action_queue`: novo registro `action_type='acknowledge_cancellation'`, `triggered_by='calcom_webhook'`, `params->>booking_uid` preenchido.
+4. Conferir conversa: SDR envia mensagem de retomada perguntando se quer reagendar.
+5. Repetir o cancelamento (Cal reentrega o webhook) → idempotência impede segundo envio.
