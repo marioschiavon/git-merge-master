@@ -1187,23 +1187,35 @@ Deno.serve(async (req) => {
           // (held ou offered_slots_pending) e (b) o lead confirmou explicitamente.
           // cancel_booking não exige slot, mas exige sinal claro de cancelamento.
           if (decision === "reschedule_booking") {
-            const slotStart = String(fd.slot_start || "");
+            let slotStart = String(fd.slot_start || "");
             const factsNow = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
-            const pending = (factsNow.offered_slots_pending as { slots?: string[] } | undefined)?.slots ?? [];
+            const pendingMeta = factsNow.offered_slots_pending as { slots?: string[]; offered_at?: string } | undefined;
+            const pendingFresh = pendingMeta?.offered_at
+              ? Date.now() - new Date(pendingMeta.offered_at).getTime() < 30 * 60_000
+              : false;
+            const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
             const heldIsos = (ctx.heldSlots || []).map((h: any) => h.slot_datetime as string);
-            const candidates = Array.from(new Set([...pending, ...heldIsos]));
+            const candidates = pending.length > 0 ? pending : heldIsos;
             const inbound = lastInboundContent(ctx.messages);
-            const hasConfirmation = CONFIRMATION_REGEX.test(inbound);
+            const explicit = CONFIRMATION_REGEX.test(inbound);
+            const ref = matchesSlotReference(inbound, candidates);
+            if (!slotStart && ref.iso) slotStart = ref.iso;
+            const hasConfirmation = explicit || !!ref.iso;
             const target = slotStart ? parseSlotStartAsBrt(slotStart) : NaN;
             const matchesOffered = candidates.some(
               (iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000,
             );
             if (!slotStart || !matchesOffered || !hasConfirmation) {
-              const cands = candidates.slice(0, 2);
-              const formatted = cands.length ? cands.map((s) => `• ${formatBRTLong(s)}`).join("\n") : null;
-              const askMsg = formatted
-                ? `Antes de remarcar, qual destes horários funciona melhor pra você?\n\n${formatted}`
-                : "Sem problema! Me diga uma janela que funciona pra você (ex: terça de manhã, quinta à tarde) que eu já busco opções.";
+              let askMsg: string;
+              if (ref.iso && !ref.ambiguous) {
+                askMsg = `Só confirmando: posso remarcar para ${formatBRTLong(ref.iso)}?`;
+              } else if (candidates.length > 0) {
+                const cands = candidates.slice(0, 3);
+                const formatted = cands.map((s) => `• ${formatBRTLong(s)}`).join("\n");
+                askMsg = `Antes de remarcar, qual destes horários funciona melhor pra você?\n\n${formatted}`;
+              } else {
+                askMsg = "Sem problema! Me diga uma janela que funciona pra você (ex: terça de manhã, quinta à tarde) que eu já busco opções.";
+              }
               await supabase.functions.invoke("execute-action", {
                 body: {
                   company_id: ctx.lead.company_id,
@@ -1223,6 +1235,8 @@ Deno.serve(async (req) => {
                   ? "slot_start does not match any offered/held slot"
                   : "no explicit confirmation in last inbound message",
               };
+              // Override the LLM's slot_start for downstream code (if any) too.
+              (fd as any).slot_start = slotStart;
               // Skip the actual reschedule call.
               await supabase
                 .from("sdr_agent_runs")
