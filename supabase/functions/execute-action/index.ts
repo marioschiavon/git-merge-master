@@ -598,7 +598,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   },
 
   async cancel_booking(ctx) {
-    const { booking_uid, reason } = ctx.params;
+    const { booking_uid, reason, source } = ctx.params;
     if (!booking_uid) await assertSubIntentAllowed(ctx, "cancel_booking");
     let uid = booking_uid as string | undefined;
     if (!uid) {
@@ -609,6 +609,19 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       uid = existing?.calcom_booking_uid;
     }
     if (!uid) throw new Error("cancel_booking: nenhuma reserva ativa encontrada");
+    // Marcar origem ANTES de invocar Cal.com para que o webhook BOOKING_CANCELLED
+    // consiga identificar que o cancelamento foi iniciado internamente (SDR/humano)
+    // e não dispare um acknowledge_cancellation redundante.
+    const stampedSource = typeof source === "string" && source.length > 0 ? source : "sdr";
+    try {
+      await ctx.supabase
+        .from("bookings")
+        .update({
+          cancellation_source: stampedSource,
+          cancellation_requested_at: new Date().toISOString(),
+        })
+        .eq("calcom_booking_uid", uid);
+    } catch (_) { /* best effort */ }
     const { data, error } = await ctx.supabase.functions.invoke("calcom-booking-cancel", {
       body: { booking_uid: uid, reason },
     });
