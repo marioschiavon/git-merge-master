@@ -613,11 +613,12 @@ Deno.serve(async (req) => {
       const since = new Date(Date.now() - 90_000).toISOString();
       const { data: ongoing } = await supabase
         .from("sdr_agent_runs")
-        .select("id, started_at")
+        .select("id, created_at")
         .eq("lead_id", lead_id)
         .eq("status", "running")
-        .gte("started_at", since)
+        .gte("created_at", since)
         .limit(1);
+
       if (ongoing && ongoing.length > 0) {
         console.log(`sdr-agent: skip (already running) lead=${lead_id}`);
         return new Response(JSON.stringify({ ok: true, skipped: "already_running" }), {
