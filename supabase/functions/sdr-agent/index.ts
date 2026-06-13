@@ -15,6 +15,27 @@ import {
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 
+// Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
+// Returns epoch ms.
+function parseSlotStartAsBrt(s: string): number {
+  if (!s) return NaN;
+  const trimmed = s.trim();
+  // Has explicit TZ: ends with Z or +HH:MM / -HH:MM (after the time part)
+  const hasTz = /Z$/i.test(trimmed) || /[+-]\d{2}:?\d{2}$/.test(trimmed);
+  if (hasTz) return Date.parse(trimmed);
+  // Naive datetime → treat as BRT (UTC-3): append offset and parse
+  return Date.parse(trimmed + "-03:00");
+}
+
+// Normalize a naive (no-TZ) slot_start to an ISO with -03:00 offset for downstream APIs (Cal.com).
+function normalizeSlotStartIsoBrt(s: string): string {
+  if (!s) return s;
+  const trimmed = s.trim();
+  const hasTz = /Z$/i.test(trimmed) || /[+-]\d{2}:?\d{2}$/.test(trimmed);
+  if (hasTz) return trimmed;
+  return trimmed + "-03:00";
+}
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
