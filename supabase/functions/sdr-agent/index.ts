@@ -1320,11 +1320,19 @@ Deno.serve(async (req) => {
               : false;
             const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
             const heldIsos = (ctx.heldSlots || []).map((h: any) => h.slot_datetime as string);
-            const candidates = pending.length > 0 ? pending : heldIsos;
+            let candidates: string[];
+            if (pending.length > 0) {
+              candidates = pending;
+            } else {
+              const lastOut = lastOutboundContent(ctx.messages);
+              const implicit = implicitOfferFromOutbound(lastOut, heldIsos);
+              candidates = implicit ? [implicit] : heldIsos;
+            }
             const inbound = lastInboundContent(ctx.messages);
-            const explicit = CONFIRMATION_REGEX.test(inbound);
+            const explicit = isLikelyConfirmation(inbound);
             const ref = matchesSlotReference(inbound, candidates);
             if (!slotStart && ref.iso) slotStart = ref.iso;
+            if (!slotStart && explicit && candidates.length === 1) slotStart = candidates[0];
             const hasConfirmation = explicit || !!ref.iso;
             const target = slotStart ? parseSlotStartAsBrt(slotStart) : NaN;
             const matchesOffered = candidates.some(
@@ -1332,8 +1340,9 @@ Deno.serve(async (req) => {
             );
             if (!slotStart || !matchesOffered || !hasConfirmation) {
               let askMsg: string;
-              if (ref.iso && !ref.ambiguous) {
-                askMsg = `Só confirmando: posso remarcar para ${formatBRTLong(ref.iso)}?`;
+              const refIso = ref.iso || (candidates.length === 1 ? candidates[0] : null);
+              if (refIso && !ref.ambiguous) {
+                askMsg = `Só confirmando: posso remarcar para ${formatBRTLong(refIso)}?`;
               } else if (candidates.length > 0) {
                 const cands = candidates.slice(0, 3);
                 const formatted = cands.map((s) => `• ${formatBRTLong(s)}`).join("\n");
