@@ -119,3 +119,37 @@ Deno.test("confirm_slot — single pendente, no active → forced book", () => {
   assertEquals(d.forced_tool, "book_slot");
   assertEquals((d.forced_args as any).slot_start, "2026-06-18T17:45:00-03:00");
 });
+
+Deno.test("confirm_slot + selected + active booking diff hour → forced reschedule (not book)", () => {
+  const d = decidePolicy({
+    intent: "confirm_slot",
+    confidence: 0.9,
+    entities: { ...baseEntities, selected_slot_iso: "2026-06-22T17:45:00-03:00" },
+    state: {
+      ...baseState,
+      has_active_booking: true,
+      active_booking_at: "2026-06-22T17:00:00-03:00",
+      active_booking_uid: "uid-x",
+      offered_slots: ["2026-06-22T17:45:00-03:00"],
+    },
+  });
+  assertEquals(d.forced_tool, "reschedule_booking");
+  assertEquals(d.allowed_tools.includes("book_slot"), false);
+  assertEquals((d.forced_args as any).slot_start, "2026-06-22T17:45:00-03:00");
+});
+
+Deno.test("create_booking + selected + active booking diff hour → forced reschedule (not book)", () => {
+  const d = decidePolicy({
+    intent: "create_booking",
+    confidence: 0.85,
+    entities: { ...baseEntities, selected_slot_iso: "2026-06-22T17:45:00-03:00" },
+    state: {
+      ...baseState,
+      has_active_booking: true,
+      active_booking_at: "2026-06-22T17:00:00-03:00",
+      active_booking_uid: "uid-y",
+    },
+  });
+  assertEquals(d.forced_tool, "reschedule_booking");
+  assertEquals(d.stage, "rescheduling_confirming_now");
+});
