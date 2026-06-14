@@ -114,6 +114,23 @@ serve(async (req) => {
       conv = newConv;
     }
 
+    // Dedup por provider_message_id (Z-API messageId). Se já existir, ignora.
+    if (messageId) {
+      const { data: dup } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("provider", "zapi")
+        .eq("provider_message_id", String(messageId))
+        .maybeSingle();
+      if (dup) {
+        console.log("zapi-webhook: duplicate messageId, skipping:", messageId);
+        return new Response(JSON.stringify({ ok: true, deduped: true }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
     // Insere a mensagem recebida
     await supabase.from("messages").insert({
       conversation_id: conv!.id,
@@ -122,6 +139,8 @@ serve(async (req) => {
       channel: "whatsapp",
       ai_suggested: false,
       metadata: { zapi_message_id: messageId, from: fromPhone, instance_id: instanceId },
+      provider: "zapi",
+      provider_message_id: messageId ? String(messageId) : null,
     });
 
     // Encaminha para o pipeline (intenção, IA) pulando o insert duplicado
@@ -138,6 +157,8 @@ serve(async (req) => {
         content: text,
         channel: "whatsapp",
         skip_insert: true,
+        provider: "zapi",
+        provider_message_id: messageId ? String(messageId) : null,
       }),
     }).catch((e) => console.error("inbound-webhook forward error:", e));
 
