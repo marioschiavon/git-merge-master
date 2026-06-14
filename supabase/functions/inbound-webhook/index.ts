@@ -250,18 +250,22 @@ serve(async (req) => {
     const cleanContent = stripQuotedEmail(content);
     console.log("Original content length:", content.length, "Clean content length:", cleanContent.length, "skip_insert:", !!skip_insert);
 
-    // IDEMPOTÊNCIA: evita reprocessar a MESMA mensagem do mesmo lead duas vezes.
-    // Causa observada: zapi-webhook (ou retry) + outro caller dispararam inbound-webhook
-    // duas vezes para "Dia 16", e a segunda execução cancelou o booking recém-confirmado.
+    // IDEMPOTÊNCIA: evita reprocessar a MESMA mensagem do mesmo lead duas vezes
+    // dentro de uma janela curta (2 minutos). Mensagens iguais separadas por mais tempo
+    // (ex: lead respondendo "Dia 22" agora depois de já ter dito "Dia 22" há 15min)
+    // devem ser processadas normalmente.
+    const DEDUP_WINDOW_MS = 2 * 60_000; // 2 minutos
     if (leadData?.id) {
       try {
-        // Hash leve do conteúdo + bucket de 5min, para mensagens sem provider_message_id.
         const enc = new TextEncoder().encode(`${leadData.id}|${convChannel || channel || ""}|${cleanContent.trim().toLowerCase()}`);
         const hashBuf = await crypto.subtle.digest("SHA-1", enc);
         const contentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
 
         const pid = provider_message_id ? String(provider_message_id) : null;
         const prov = provider ? String(provider) : (convChannel || channel || null);
+        // Bucket temporal: divide o tempo em janelas de DEDUP_WINDOW_MS. Mensagens iguais
+        // dentro do mesmo bucket colidem no índice único; em buckets diferentes passam.
+        const contentBucket = Math.floor(Date.now() / DEDUP_WINDOW_MS);
 
         // 1) Checa duplicata por provider_message_id (janela de 10 min)
         if (pid) {
@@ -282,13 +286,13 @@ serve(async (req) => {
           }
         }
 
-        // 2) Checa duplicata por hash de conteúdo (mesmo lead, mesmo texto, últimos 2 min)
+        // 2) Checa duplicata por hash de conteúdo dentro da janela curta
         const { data: dupHash } = await supabase
           .from("processed_inbound_messages")
           .select("id, processed_at")
           .eq("lead_id", leadData.id)
           .eq("content_hash", contentHash)
-          .gte("processed_at", new Date(Date.now() - 2 * 60_000).toISOString())
+          .gte("processed_at", new Date(Date.now() - DEDUP_WINDOW_MS).toISOString())
           .maybeSingle();
         if (dupHash) {
           console.log(`INBOUND_DEDUP_SKIP content_hash=${contentHash.slice(0, 8)} lead=${leadData.id}`);
@@ -298,7 +302,8 @@ serve(async (req) => {
           });
         }
 
-        // Grava marcador ANTES do processamento — o UNIQUE INDEX cobre a corrida.
+        // Grava marcador ANTES do processamento — o UNIQUE INDEX (lead_id, content_hash, content_bucket)
+        // cobre a corrida dentro da mesma janela.
         const { error: insErr } = await supabase
           .from("processed_inbound_messages")
           .insert({
@@ -306,9 +311,10 @@ serve(async (req) => {
             provider: prov,
             provider_message_id: pid,
             content_hash: contentHash,
+            content_bucket: contentBucket,
           });
         if (insErr && (insErr as any).code === "23505") {
-          console.log(`INBOUND_DEDUP_SKIP race lead=${leadData.id}`);
+          console.log(`INBOUND_DEDUP_SKIP race lead=${leadData.id} bucket=${contentBucket}`);
           return new Response(JSON.stringify({ ok: true, deduped: true, reason: "race" }), {
             status: 200,
             headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -318,6 +324,7 @@ serve(async (req) => {
         console.error("inbound-webhook dedup guard failed (continuing):", e);
       }
     }
+
 
     // EARLY: detectar perguntas esclarecedoras (duração/formato/etc) — usado para impedir
     // que o classificador de intent roteie como scheduling e também como blindagem final.
