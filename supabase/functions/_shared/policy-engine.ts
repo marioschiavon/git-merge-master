@@ -36,6 +36,8 @@ export type Stage =
   | "closed_lost"
   | "general";
 
+export type PostAction = "mark_referrer" | "release_slot_holds";
+
 export interface PolicyDecision {
   stage: Stage;
   allowed_tools: Tool[];
@@ -44,6 +46,10 @@ export interface PolicyDecision {
    *  the user-facing message (typically reusing `message_suggestion`). */
   forced_tool: Tool | null;
   forced_args: Record<string, unknown> | null;
+  /** Deterministic side-effects the orchestrator should run AFTER forced_tool
+   *  (and before the LLM writes the message). Examples: mark current lead as
+   *  referrer, release dangling slot holds when the conversation closes. */
+  post_actions?: PostAction[];
   /** Short directive injected at the top of the system prompt for this turn. */
   response_directive: string;
   reason: string;
