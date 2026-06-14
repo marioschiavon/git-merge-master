@@ -67,6 +67,12 @@ export interface PolicyInputs {
     ambiguous_slot: boolean;
     date_preference: { start_after?: string; end_before?: string; raw?: string } | null;
     prefers_period: "morning" | "afternoon" | "evening" | null;
+    referral_contact?: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      permission_to_mention?: boolean;
+    } | null;
   };
   state: {
     has_active_booking: boolean;
