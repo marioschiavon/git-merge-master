@@ -27,14 +27,17 @@ Transformar o `sdr-agent` em um agente com estado real e loop completo de ferram
 - Montar `messages[]` com `role: user`/`assistant`/`tool` por turno. Para cada chamada de ferramenta de turnos anteriores, reproduzir o par (`assistant` com `tool_calls`, `tool` com `tool_call_id` + resultado) lendo de `sdr_agent_runs.steps`.
 - Persistir em `sdr_agent_runs.steps`: `tool_call_id`, `name`, `arguments`, `result`, `latency_ms`.
 
-### 2.2 Ferramentas de calendário viram tools reais
-- `book_slot`, `reschedule_booking`, `cancel_booking` ganham `execute` dentro do loop do agente:
-  1. Modelo emite `tool_call`.
-  2. Backend valida args (guards da Fase 4).
-  3. Chama `calcom-*` com `idempotency_key`.
-  4. Retorna `tool` message com `{ ok, booking_uid, start, end, error? }`.
-  5. Modelo só pode chamar `finalize` depois de tool result `ok`.
-- Remover branches `book_slot`/`reschedule_booking`/`cancel_booking` de `execute-action` (a função vira só `send_message`, `pause`, `dnd`).
+### 2.2 Ferramentas de calendário viram tools reais ✅ (Fase 2B — implementada)
+- `book_slot`, `reschedule_booking`, `cancel_booking` agora têm `execute` dentro do loop (`execBookingTool` em `sdr-agent/index.ts`):
+  1. Modelo emite `tool_call` com `slot_start`.
+  2. Backend roda guarda de confirmação (slot oferecido + confirmação explícita do lead na última inbound). Se falhar, retorna `{ ok:false, downgrade:'ask_confirmation', suggested_message }`.
+  3. Reivindica `calendar_actions` com `idempotency_key` (Fase 1). Replay em caso de `existing`.
+  4. Chama `calcom-confirm-booking` / `calcom-booking-reschedule` / `calcom-booking-cancel`.
+  5. Retorna `tool` message com `{ ok, booking_uid, scheduled_at, message_suggestion }`.
+  6. Modelo finaliza com `finalize({ decision:'send_message', message: message_suggestion })`.
+- Removidas as branches `book_slot`/`reschedule_booking`/`cancel_booking` do live-mode do `sdr-agent` (não há mais ações pós-finalize de calendário).
+- `finalize.decision` enum reduzido: removidos `book_slot`, `reschedule_booking`, `cancel_booking`.
+- `execute-action` mantém os handlers `reschedule_booking`/`cancel_booking` por compatibilidade com `intent_action_rules` e outros disparos automáticos não-SDR.
 
 ### 2.3 Q&A, base de conhecimento e referral no mesmo loop
 - **`search_knowledge`** (já existe): mantém RAG via `match_knowledge_chunks` (pgvector). Schema `strict: true` com `{ query: string, top_k?: int }`. Entra em `allowed_actions` para intents `product_question`, `objection`, `pricing`, `how_it_works`. Após retorno, `finalize_allowed = true` (responder com base nos chunks).
