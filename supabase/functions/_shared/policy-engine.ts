@@ -72,6 +72,7 @@ export interface PolicyInputs {
       email?: string;
       phone?: string;
       permission_to_mention?: boolean;
+      redirect_signal?: boolean;
     } | null;
   };
   state: {
