@@ -51,7 +51,7 @@ const supabase = createClient(
 );
 
 const MODEL = "google/gemini-2.5-pro";
-const MAX_STEPS = 14;
+const MAX_STEPS = 8;
 const HISTORY_LIMIT = 120; // ~3-5 turnos completos por conversa longa
 
 // ────────────────────────────────────────────────────────────────
@@ -1214,6 +1214,11 @@ Deno.serve(async (req) => {
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     let finalDecision: Record<string, unknown> | null = null;
+    // Watchdog: contagem de falhas por tool com `downgrade`. Se a mesma tool
+    // falhar 2× e tiver `suggested_message`, finaliza automaticamente para evitar
+    // loop infinito (que mata a function por timeout sem gravar status).
+    const toolFailureCount = new Map<string, number>();
+    let lastDowngradeSuggestion: { tool: string; message: string } | null = null;
 
     // Fase 7: snapshot inicial do turno (estado estruturado + preview do prompt).
     const truncate = (s: unknown, n = 600) => {
@@ -1382,13 +1387,48 @@ Deno.serve(async (req) => {
         if (call.function.name === "finalize") {
           finalDecision = parsedArgs;
           finalized = true;
+        } else {
+          // Watchdog: detectar tool failures repetidas com downgrade.
+          const r = result as any;
+          if (r && r.ok === false && typeof r.suggested_message === "string" && r.suggested_message) {
+            const key = call.function.name;
+            const next = (toolFailureCount.get(key) ?? 0) + 1;
+            toolFailureCount.set(key, next);
+            lastDowngradeSuggestion = { tool: key, message: r.suggested_message };
+            if (next >= 2) {
+              steps.push({
+                step,
+                event: "watchdog_force_finalize",
+                tool: key,
+                failures: next,
+                reason: "repeated_tool_failure_with_downgrade",
+              });
+              finalDecision = {
+                decision: "send_message",
+                channel: undefined,
+                message: r.suggested_message,
+                rationale: `Watchdog: ${key} falhou ${next}× com downgrade=${r.downgrade}. Usando suggested_message.`,
+              };
+              finalized = true;
+              break;
+            }
+          }
         }
       }
       if (finalized) break;
     }
 
     if (!finalDecision) {
-      finalDecision = { decision: "silence", rationale: "MAX_STEPS atingido sem finalize" };
+      // Fallback final: usar última suggested_message conhecida em vez de silêncio.
+      if (lastDowngradeSuggestion) {
+        finalDecision = {
+          decision: "send_message",
+          message: lastDowngradeSuggestion.message,
+          rationale: `MAX_STEPS atingido; usando suggested_message de ${lastDowngradeSuggestion.tool}.`,
+        };
+      } else {
+        finalDecision = { decision: "silence", rationale: "MAX_STEPS atingido sem finalize" };
+      }
     }
 
     // Fase 7: snapshot final (state_delta + mensagem efetiva).
