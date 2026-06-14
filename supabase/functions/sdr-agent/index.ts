@@ -1135,7 +1135,29 @@ Deno.serve(async (req) => {
     let totalCompletionTokens = 0;
     let finalDecision: Record<string, unknown> | null = null;
 
+    // Fase 7: snapshot inicial do turno (estado estruturado + preview do prompt).
+    const truncate = (s: unknown, n = 600) => {
+      const str = typeof s === "string" ? s : JSON.stringify(s);
+      return str.length > n ? str.slice(0, n) + `…[+${str.length - n}]` : str;
+    };
+    const messagesPreview = messages.map((m) => ({
+      role: m.role,
+      content_preview: truncate(m.content ?? ""),
+      tool_call_id: (m as any).tool_call_id,
+      tool_calls: (m as any).tool_calls?.map((c: any) => ({ name: c.function?.name, id: c.id })),
+    }));
+    steps.push({
+      event: "turn_context",
+      structured_state: state,
+      allowed_actions: state.allowed_actions,
+      finalize_allowed: state.finalize_allowed,
+      pending_action: state.pending_action,
+      messages_sent: messagesPreview,
+      facts_in: factsNow,
+    });
+
     for (let step = 0; step < MAX_STEPS; step++) {
+      const t0 = Date.now();
       const res = await chatCompletion({
         model: MODEL,
         messages,
@@ -1143,6 +1165,7 @@ Deno.serve(async (req) => {
         tool_choice: "auto",
         temperature: 0.3,
       });
+      const modelLatency = Date.now() - t0;
 
       const choice = res.choices[0];
       const msg = choice.message;
@@ -1151,9 +1174,16 @@ Deno.serve(async (req) => {
 
       steps.push({
         step,
+        event: "model_response",
         finish_reason: choice.finish_reason,
-        text: msg.content,
-        tool_calls: msg.tool_calls ?? null,
+        latency_ms: modelLatency,
+        usage: res.usage ?? null,
+        text: truncate(msg.content ?? ""),
+        tool_calls: msg.tool_calls?.map((c: any) => ({
+          id: c.id,
+          name: c.function?.name,
+          args_preview: truncate(c.function?.arguments ?? "", 400),
+        })) ?? null,
       });
 
       // Append assistant message
@@ -1165,9 +1195,6 @@ Deno.serve(async (req) => {
 
       const calls = msg.tool_calls ?? [];
       if (calls.length === 0) {
-        // Modelo respondeu em texto livre sem chamar tool.
-        // Fase 3: re-prompt guiado pelo estado — força a tool requerida
-        // (não sempre finalize).
         const rawText = (msg.content as string) ?? "";
         const requiredToolByPending: Record<string, string> = {
           answer_with_kb: "search_knowledge",
@@ -1180,8 +1207,9 @@ Deno.serve(async (req) => {
         const forcedTool = state.finalize_allowed
           ? "finalize"
           : (state.pending_action && requiredToolByPending[state.pending_action]) || "finalize";
-        steps.push({ step, event: "tool_retry", raw: rawText, forced: forcedTool, stage: state.conversation_stage });
+        steps.push({ step, event: "tool_retry", raw: truncate(rawText), forced: forcedTool, stage: state.conversation_stage });
         try {
+          const tRetry0 = Date.now();
           const retry = await chatCompletion({
             model: MODEL,
             messages: [
@@ -1200,6 +1228,7 @@ Deno.serve(async (req) => {
             tool_choice: { type: "function", function: { name: forcedTool } } as unknown as "auto",
             temperature: 0.1,
           });
+          const retryLatency = Date.now() - tRetry0;
           totalPromptTokens += retry.usage?.prompt_tokens ?? 0;
           totalCompletionTokens += retry.usage?.completion_tokens ?? 0;
           const rcall = retry.choices[0]?.message?.tool_calls?.[0];
@@ -1208,16 +1237,22 @@ Deno.serve(async (req) => {
             try { rargs = JSON.parse(rcall.function.arguments || "{}"); } catch { rargs = {}; }
             if (forcedTool === "finalize") {
               finalDecision = rargs;
-              steps.push({ step, event: "tool_retry_finalize_ok", args: rargs });
+              steps.push({ step, event: "tool_retry_finalize_ok", latency_ms: retryLatency, args: rargs });
             } else {
-              // Executa a tool forçada e continua o loop no próximo step.
               messages.push({ role: "assistant", content: "", tool_calls: rcall ? [rcall] : undefined });
+              const tt0 = Date.now();
               const tresult = await execTool(forcedTool, rargs, {
                 lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null,
               });
-              steps.push({ step, event: "tool_retry_ok", tool: forcedTool, args: rargs, result: tresult });
+              steps.push({
+                step, event: "tool_call",
+                tool: forcedTool, args: rargs, result: tresult,
+                latency_ms: Date.now() - tt0,
+                idempotency_key: (tresult as any)?.idempotency_key ?? null,
+                forced: true,
+              });
               messages.push({ role: "tool", tool_call_id: rcall.id, name: forcedTool, content: JSON.stringify(tresult) });
-              continue; // próximo step do loop
+              continue;
             }
           }
         } catch (e) {
@@ -1239,12 +1274,20 @@ Deno.serve(async (req) => {
         } catch {
           parsedArgs = {};
         }
+        const tc0 = Date.now();
         const result = await execTool(call.function.name, parsedArgs, {
           lead_id,
           company_id: ctx.lead.company_id,
           conversation_id: conversation_id ?? null,
         });
-        steps.push({ step, tool: call.function.name, args: parsedArgs, result });
+        steps.push({
+          step, event: "tool_call",
+          tool: call.function.name,
+          args: parsedArgs,
+          result,
+          latency_ms: Date.now() - tc0,
+          idempotency_key: (result as any)?.idempotency_key ?? null,
+        });
 
         messages.push({
           role: "tool",
@@ -1264,6 +1307,28 @@ Deno.serve(async (req) => {
     if (!finalDecision) {
       finalDecision = { decision: "silence", rationale: "MAX_STEPS atingido sem finalize" };
     }
+
+    // Fase 7: snapshot final (state_delta + mensagem efetiva).
+    try {
+      const { data: memAfter } = await supabase
+        .from("lead_memory").select("facts").eq("lead_id", lead_id).maybeSingle();
+      const factsAfter = (memAfter?.facts ?? {}) as Record<string, unknown>;
+      const stateDelta: Record<string, { before: unknown; after: unknown }> = {};
+      const keys = new Set([...Object.keys(factsNow ?? {}), ...Object.keys(factsAfter ?? {})]);
+      for (const k of keys) {
+        const a = (factsNow as any)?.[k];
+        const b = (factsAfter as any)?.[k];
+        if (JSON.stringify(a) !== JSON.stringify(b)) stateDelta[k] = { before: a, after: b };
+      }
+      steps.push({
+        event: "turn_finalized",
+        decision: (finalDecision as any)?.decision,
+        final_message: truncate((finalDecision as any)?.message ?? "", 1000),
+        state_delta: stateDelta,
+      });
+    } catch (_) { /* best-effort */ }
+
+
 
     await supabase
       .from("sdr_agent_runs")
