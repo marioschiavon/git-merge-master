@@ -51,7 +51,7 @@ const supabase = createClient(
 );
 
 const MODEL = "google/gemini-2.5-pro";
-const MAX_STEPS = 14;
+const MAX_STEPS = 8;
 const HISTORY_LIMIT = 120; // ~3-5 turnos completos por conversa longa
 
 // ────────────────────────────────────────────────────────────────
