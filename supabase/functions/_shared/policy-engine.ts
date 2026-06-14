@@ -18,6 +18,8 @@ export type Tool =
   | "book_slot"
   | "reschedule_booking"
   | "cancel_booking"
+  | "create_new_contact"
+  | "mark_referrer"
   | "finalize";
 
 export type Stage =
@@ -36,6 +38,8 @@ export type Stage =
   | "closed_lost"
   | "general";
 
+export type PostAction = "mark_referrer" | "release_slot_holds";
+
 export interface PolicyDecision {
   stage: Stage;
   allowed_tools: Tool[];
@@ -44,6 +48,10 @@ export interface PolicyDecision {
    *  the user-facing message (typically reusing `message_suggestion`). */
   forced_tool: Tool | null;
   forced_args: Record<string, unknown> | null;
+  /** Deterministic side-effects the orchestrator should run AFTER forced_tool
+   *  (and before the LLM writes the message). Examples: mark current lead as
+   *  referrer, release dangling slot holds when the conversation closes. */
+  post_actions?: PostAction[];
   /** Short directive injected at the top of the system prompt for this turn. */
   response_directive: string;
   reason: string;
@@ -59,6 +67,12 @@ export interface PolicyInputs {
     ambiguous_slot: boolean;
     date_preference: { start_after?: string; end_before?: string; raw?: string } | null;
     prefers_period: "morning" | "afternoon" | "evening" | null;
+    referral_contact?: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      permission_to_mention?: boolean;
+    } | null;
   };
   state: {
     has_active_booking: boolean;
@@ -261,15 +275,47 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
         reason: intent,
       };
 
-    case "referral":
+    case "referral": {
+      const rc = input.entities.referral_contact ?? null;
+      const hasContact = !!(rc && (rc.email || rc.phone));
+      if (hasContact) {
+        // O lead já passou contato (e tipicamente permissão). Criamos o novo
+        // lead AGORA via create_new_contact e marcamos o atual como indicante.
+        // O LLM só escreve a mensagem curta de agradecimento — NÃO oferece agenda.
+        const args: Record<string, unknown> = {
+          name: rc!.name ?? rc!.email ?? rc!.phone,
+        };
+        if (rc!.email) args.email = rc!.email;
+        if (rc!.phone) args.phone = rc!.phone;
+        return {
+          stage: "referral_provided",
+          allowed_tools: ["create_new_contact", "mark_referrer", "update_lead_facts", "finalize"],
+          forced_tool: "create_new_contact",
+          forced_args: args,
+          post_actions: ["mark_referrer", "release_slot_holds"],
+          response_directive:
+            `O lead indicou outra pessoa e já passou contato (${rc!.email ?? rc!.phone}). ` +
+            `create_new_contact JÁ foi executada. Escreva apenas um agradecimento curto e cordial, ` +
+            `dizendo que vai procurar o(a) indicado(a). NÃO ofereça reunião nem horários para este lead atual ` +
+            `— a conversa com ele encerra aqui.`,
+          reason: "referral_with_contact",
+        };
+      }
+      // Sem contato ainda: pedir contato + permissão. Ainda assim soltar holds:
+      // o lead não está mais agendando para si.
       return {
         stage: "referral_provided",
         allowed_tools: ["update_lead_facts", "finalize"],
         forced_tool: null,
         forced_args: null,
-        response_directive: `Agradeça a indicação e pergunte se pode entrar em contato com o indicado mencionando o lead.`,
-        reason: "referral",
+        post_actions: ["release_slot_holds"],
+        response_directive:
+          `Agradeça a indicação. Pergunte o nome e o melhor contato (email ou telefone) do indicado ` +
+          `e se você pode mencionar que foi este lead quem indicou. NÃO ofereça horários nem mantenha ` +
+          `o foco em agendar para o lead atual.`,
+        reason: "referral_awaiting_contact",
       };
+    }
 
     case "not_interested":
       return {
@@ -277,6 +323,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
         allowed_tools: ["update_lead_facts", "finalize"],
         forced_tool: null,
         forced_args: null,
+        post_actions: ["release_slot_holds"],
         response_directive: `Reconheça com cordialidade, NÃO insista. Deixe porta aberta para o futuro em uma frase curta.`,
         reason: "not_interested",
       };

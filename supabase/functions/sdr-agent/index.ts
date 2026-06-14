@@ -264,8 +264,47 @@ const TOOLS: ToolDef[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "create_new_contact",
+      description:
+        "Cria um novo lead a partir de uma indicação recebida na conversa atual. " +
+        "Use SOMENTE quando o lead atual indicou outra pessoa e forneceu pelo menos email OU telefone. " +
+        "O novo lead entra automaticamente no pipeline de enriquecimento/cadência.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", description: "Nome do indicado (se conhecido)." },
+          email: { type: "string" },
+          phone: { type: "string" },
+          role: { type: "string", description: "Cargo do indicado, se mencionado." },
+          context: { type: "string", description: "Contexto curto: por que o lead atual indicou esta pessoa." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mark_referrer",
+      description:
+        "Marca o lead da conversa atual como INDICANTE (referral_stage='is_referrer'). " +
+        "Use logo após create_new_contact. Inclui permission_to_mention se o lead autorizou citar o nome dele.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          permission_to_mention: { type: "boolean", default: true },
+        },
+      },
+    },
+  },
 ];
 
+
+  
 
 // ────────────────────────────────────────────────────────────────
 // Tool executors
@@ -432,9 +471,28 @@ async function execTool(
     return await execBookingTool(name, args, ctx);
   }
 
+  if (name === "create_new_contact" || name === "mark_referrer") {
+    if (ctx.mode === "shadow") {
+      return { ok: true, simulated: true, shadow: true, tool: name, args };
+    }
+    const action_type = name === "create_new_contact" ? "create_new_contact" : "mark_current_contact_as_referrer";
+    const { data, error } = await supabase.functions.invoke("execute-action", {
+      body: {
+        company_id: ctx.company_id,
+        lead_id: ctx.lead_id,
+        conversation_id: ctx.conversation_id ?? null,
+        action_type,
+        params: args,
+      },
+    });
+    if (error) return { ok: false, error: String(error) };
+    return { ok: true, ...((data as any)?.result ?? data ?? {}) };
+  }
+
   if (name === "finalize") {
     return { ok: true, decision: args };
   }
+
 
   return { error: `unknown tool: ${name}` };
 }
@@ -1362,6 +1420,33 @@ Deno.serve(async (req) => {
         result,
         latency_ms: Date.now() - ft0,
       });
+
+      // ── Post-actions: deterministic side-effects after the forced tool ──
+      const postActions = (policy as any).post_actions as string[] | undefined;
+      if (postActions && postActions.length > 0 && mode !== "shadow") {
+        for (const pa of postActions) {
+          try {
+            if (pa === "mark_referrer") {
+              const permission = (entities as any)?.referral_contact?.permission_to_mention ?? true;
+              const paRes = await execTool("mark_referrer", { permission_to_mention: permission }, {
+                lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
+              });
+              steps.push({ event: "post_action", action: pa, result: paRes });
+            } else if (pa === "release_slot_holds") {
+              const { data: rel, error: relErr } = await supabase
+                .from("slot_holds")
+                .update({ status: "released" })
+                .eq("lead_id", lead_id)
+                .eq("status", "held")
+                .select("id");
+              steps.push({ event: "post_action", action: pa, released: rel?.length ?? 0, error: relErr ? String(relErr) : null });
+            }
+          } catch (e) {
+            steps.push({ event: "post_action", action: pa, error: String(e) });
+          }
+        }
+      }
+
 
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.
       const r = result as any;

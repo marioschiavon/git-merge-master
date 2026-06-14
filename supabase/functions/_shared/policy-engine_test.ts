@@ -153,3 +153,42 @@ Deno.test("create_booking + selected + active booking diff hour → forced resch
   assertEquals(d.forced_tool, "reschedule_booking");
   assertEquals(d.stage, "rescheduling_confirming_now");
 });
+
+Deno.test("referral com contato → forced create_new_contact + post_actions", () => {
+  const d = decidePolicy({
+    intent: "referral",
+    confidence: 0.9,
+    entities: {
+      ...baseEntities,
+      referral_contact: { email: "carlos@example.com", permission_to_mention: true },
+    },
+    state: baseState,
+  });
+  assertEquals(d.forced_tool, "create_new_contact");
+  assertEquals((d.forced_args as any).email, "carlos@example.com");
+  assertEquals(d.post_actions?.includes("mark_referrer"), true);
+  assertEquals(d.post_actions?.includes("release_slot_holds"), true);
+});
+
+Deno.test("referral sem contato → pede contato + release_slot_holds", () => {
+  const d = decidePolicy({
+    intent: "referral",
+    confidence: 0.9,
+    entities: baseEntities,
+    state: baseState,
+  });
+  assertEquals(d.forced_tool, null);
+  assertEquals(d.stage, "referral_provided");
+  assertEquals(d.post_actions?.includes("release_slot_holds"), true);
+});
+
+Deno.test("not_interested → release_slot_holds", () => {
+  const d = decidePolicy({
+    intent: "not_interested",
+    confidence: 0.95,
+    entities: baseEntities,
+    state: baseState,
+  });
+  assertEquals(d.post_actions?.includes("release_slot_holds"), true);
+});
+

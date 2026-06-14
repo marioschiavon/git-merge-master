@@ -41,3 +41,38 @@ Deno.test("sem oferta, 'dia 22' bate no active booking", () => {
   });
   assertEquals(r.selected_slot_iso, "2026-06-22T17:00:00-03:00");
 });
+
+Deno.test("referral_contact: extrai email + permissão", () => {
+  const r = extractEntities({
+    lastInbound: "Familiarochacarneiro@gmail.com\nPode dizer que eu indiquei",
+    offeredSlots: [],
+    heldSlots: [],
+    activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.email, "familiarochacarneiro@gmail.com");
+  assertEquals(r.referral_contact?.permission_to_mention, true);
+});
+
+Deno.test("referral_contact: extrai telefone BR", () => {
+  const r = extractEntities({
+    lastInbound: "Fala com a Maria, telefone (11) 99999-1234",
+    offeredSlots: [],
+    heldSlots: [],
+    activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.phone, "11999991234");
+});
+
+Deno.test("referral_contact: nulo quando não há sinal", () => {
+  const r = extractEntities({
+    lastInbound: "ok, obrigado",
+    offeredSlots: [],
+    heldSlots: [],
+    activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact, null);
+});
+
