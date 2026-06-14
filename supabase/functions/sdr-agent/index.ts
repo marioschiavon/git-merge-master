@@ -620,6 +620,8 @@ async function execBookingTool(
   }
 
   // ── RESCHEDULE ────────────────────────────────────────────────
+  // Idempotency is owned entirely by the calcom-booking-reschedule edge
+  // function — claiming it here too caused a double-claim and 425 (in_flight).
   const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || guard.activeBookingUid;
   if (!bookingUid) return { ok: false, error: "no active booking to reschedule" };
   const reason = typeof args.reason === "string" ? args.reason : "Cliente solicitou remarcação";
@@ -628,17 +630,6 @@ async function execBookingTool(
     conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
     action_type: "reschedule", requested_start: startIso, provider_booking_uid: bookingUid,
   });
-  const claim = await claimCalendarAction(supabase, {
-    idempotency_key, conversation_id: ctx.conversation_id, lead_id: ctx.lead_id, company_id: ctx.company_id,
-    action_type: "reschedule", requested_start: startIso, provider_booking_uid: bookingUid,
-    request_payload: { booking_uid: bookingUid, start: startIso, reason },
-  });
-  if (claim.kind === "existing") {
-    return {
-      ok: true, replayed: true, booking_uid: bookingUid, scheduled_at: startIso,
-      message_suggestion: `Remarcação já confirmada para ${formatBRTLong(startIso)}.`,
-    };
-  }
 
   // Use raw fetch so we can read the structured error body that the edge
   // function returns on non-2xx (supabase.functions.invoke throws and drops it).
@@ -657,19 +648,11 @@ async function execBookingTool(
 
   if (!reschedResp.ok || resched?.success === false || resched?.error) {
     const errStr = String(resched?.error ?? `HTTP ${reschedResp.status}`);
-    await markCalendarActionFailed(supabase, claim.row.id, errStr, {
-      calcom_status: resched?.calcom_status ?? null,
-      calcom_body: resched?.calcom_body ?? null,
-      http_status: reschedResp.status,
-    });
 
     // ── Auto-downgrade: booking no longer exists → fall through to book_slot.
     if (resched?.error_code === "booking_not_found") {
       console.log("[sdr-agent] reschedule→book_slot downgrade (booking_not_found):", bookingUid);
-      // The pre-flight in calcom-booking-reschedule already marked the local
-      // booking as cancelled, so the next book_slot guard sees no active booking.
       const bookResult = await execBookingTool("book_slot", { slot_start: slotStart }, ctx);
-      // Annotate so the agent loop knows this came from a recovery path.
       return { ...(bookResult as object), downgraded_from: "reschedule_booking" };
     }
 
@@ -688,13 +671,20 @@ async function execBookingTool(
       suggested_message: suggested,
     };
   }
+
+  if (resched?.idempotent_replay) {
+    return {
+      ok: true, replayed: true, booking_uid: resched.booking_uid ?? bookingUid, scheduled_at: startIso,
+      message_suggestion: `Remarcação já confirmada para ${formatBRTLong(startIso)}.`,
+    };
+  }
+
   const newUid =
     resched?.booking?.uid ??
     resched?.booking?.calcom_booking_uid ??
     resched?.booking_uid ??
     resched?.calcom_booking_uid ??
     bookingUid;
-  await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: newUid, response_payload: resched ?? {} });
   return {
     ok: true, booking_uid: newUid, scheduled_at: startIso,
     message_suggestion: `Pronto! Remarquei para ${formatBRTLong(startIso)}. Você vai receber o novo convite por e-mail. 🙌`,
