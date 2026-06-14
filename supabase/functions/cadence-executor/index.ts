@@ -63,8 +63,8 @@ serve(async (req) => {
       .from("cadence_enrollments")
       .select(`
         *,
-        leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status),
-        cadences(id, name, type, company_id, status, mode)
+        leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status, source, referral_source_lead_id, referral_role, referral_context),
+        cadences(id, name, type, company_id, status, mode, kind)
       `)
       .eq("status", "active")
       .eq("meeting_scheduled", false)
