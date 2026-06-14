@@ -60,6 +60,11 @@ const QNA_INTENTS = new Set([
 const REFERRAL_INTENTS = new Set(["provides_referral", "refers_someone"]);
 const CLOSED_INTENTS = new Set(["not_interested", "unsubscribe"]);
 
+// Sinais textuais de pedido de troca/reagendamento (mesmo sem intent classificada).
+// Usados quando há booking ativo para forçar transição para reschedule_request.
+const RESCHEDULE_TEXT_REGEX =
+  /(outro|outros)\s+(hor[áa]rio|hor[áa]rios|dia|dias|op[çc][ãa]o|op[çc][õo]es)|n[ãa]o\s+(consigo|posso|d[áa]|vou|consegui)|n[ãa]o\s+vai\s+d[ar]|muda(r|n[çc]a)?|troca(r)?|remarc|reagend|antecip|adia(r)?|mais\s+(cedo|tarde)|antes\s+das?|depois\s+das?/i;
+
 export interface StateInputs {
   hasInbound: boolean;
   lastInbound: string;
