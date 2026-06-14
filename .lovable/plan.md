@@ -1,36 +1,56 @@
-Causa raiz do refinamento
-- Em `sdr-agent/index.ts` linha 1196, o `activeBookingRow` filtra apenas `status='confirmed' | 'pending'`, deixando de fora `'rescheduled'`.
-- O booking do lead estava como `rescheduled` (estado atual após remarcação Cal.com), então o pipeline rodou com `has_active_booking=false`.
-- Com isso, o intent `create_booking` + slot escolhido caiu em `create_with_explicit_slot` → forçou `book_slot` → Cal.com recusou com `active_booking_conflict` → o agente teve que improvisar o pedido de remarcação.
+# Indicação (referral) ponta-a-ponta + bloqueio de follow-up de slots após encerramento
 
-Refinamento proposto
+## Contexto
 
-1. Tratar `rescheduled` como booking ativo
-   - Incluir `'rescheduled'` no filtro de `activeBookingRow`. Um booking remarcado continua marcado na agenda; só `'cancelled' | 'no_show' | 'completed'` deixam de ser ativos.
-   - Passar `active_booking_at` correto para classifier, extractor e policy.
+Na conversa de `eu@julianocarneiro.com.br` (`a6ba77a3-…`) o lead disse "Voce pode entrar em contato com o Carlos", mandou `Familiarochacarneiro@gmail.com` e autorizou ("Pode dizer que eu indiquei"). O agente respondeu cordialmente, mas:
 
-2. Auto-downgrade quando `book_slot` retornar conflito
-   - No loop de execução de tools, se a chamada forçada de `book_slot` falhar com erro do tipo `active_booking_conflict` (ou status 409 indicando booking existente), recomputar a política tratando como `reschedule_booking` com o mesmo `slot_start` e reexecutar.
-   - Espelha a recuperação já existente para `booking_not_found → book_slot`, garantindo que o agente nunca fica preso por divergência entre `bookings` local e Cal.com.
+1. Nenhum novo lead foi criado no banco; nenhuma `lead_action_queue` de outreach foi enfileirada. O Carlos nunca foi contatado.
+2. ~1h40 depois, slots ainda em `held` da conversa cancelada expiraram, `expire-slot-holds` disparou `slot-expiry-followup` e o lead recebeu uma mensagem oferecendo dois novos horários, mesmo já tendo se desligado por indicação.
 
-3. Desempate no `entity-extractor` quando há slots oferecidos
-   - Quando o lead aponta uma data que casa tanto com um `offered_slot` quanto com `activeBookingAt`, priorizar o `offered_slot`. Isso reflete a intenção: "Dia 22" depois de oferecer 22/06 17:45 = escolheu a oferta nova, não o horário antigo.
-   - Manter o caminho atual (booking ativo igual ao escolhido → no-op) quando NÃO há ofertas pendentes.
+## Causa-raiz
 
-4. Diretriz mais clara no `policy-engine`
-   - No branch já existente "selected_slot + booking ativo diferente → reschedule_booking", reforçar a `response_directive` para mencionar o booking anterior e o novo horário, evitando que o LLM duplique perguntas como "quer remarcar?".
+- `_shared/policy-engine.ts` (case `referral`) só devolve diretriz textual. Não força tool nem produz ação. As tools `create_new_contact` e `mark_current_contact_as_referrer` existem em `execute-action/index.ts` mas o `sdr-agent` não as expõe nem as enfileira.
+- `expire-slot-holds/index.ts` despacha follow-up para QUALQUER hold expirado, sem consultar `leads.referral_stage` / `status` / `intent`. Após referral ou `not_interested`, holds remanescentes ainda geram mensagem.
 
-5. Testes em `policy-engine_test.ts`
-   - Caso A: `intent=confirm_slot`, `selected=22/06 17:45`, `has_active_booking=true (22/06 17:00)` → `forced_tool=reschedule_booking`.
-   - Caso B: `intent=create_booking`, `selected=22/06 17:45`, `has_active_booking=true (22/06 17:00)` → mesmo resultado (reschedule, não book).
-   - Caso C: extractor com `offered=[22/06 17:45]` + `activeBookingAt=22/06 17:00` e texto "dia 22" → `selected_slot_iso=22/06 17:45` (prioriza oferta).
+## Mudanças
 
-6. Validação manual
-   - Reexecutar o SDR para o lead `a6ba77a3-...` simulando a próxima resposta.
-   - Esperado: sem novo `book_slot` para esse turno; se houver intent de remarcar, `reschedule_booking` é forçado com o slot certo; mensagem ao lead reflete a remarcação sem perguntar de novo.
+### 1. `supabase/functions/_shared/policy-engine.ts`
+- Estender `PolicyInputs.entities` com `referral_contact: { name?: string; email?: string; phone?: string; permission_to_mention?: boolean } | null`.
+- No `case "referral"`:
+  - Se `referral_contact` tem ao menos `email` ou `phone` → `forced_tool: "create_new_contact"`, `forced_args` com os campos extraídos, stage `referral_provided`, e `response_directive` instruindo o LLM a (a) confirmar curto e (b) NÃO oferecer agenda. Também sinalizar (via campo extra na decisão, ex.: `post_actions: ["mark_referrer", "release_slot_holds"]`) que o sdr-agent deve, após o tool, marcar o lead atual como indicante e liberar holds.
+  - Sem contato ainda → manter directive atual (pedir contato + permissão), mas adicionar `release_slot_holds` em `post_actions` (já não é mais um lead "agendando").
 
-Sem alterações de schema do banco. Mudanças concentradas em:
-- `supabase/functions/sdr-agent/index.ts` (filtro de bookings ativos + recuperação `book_slot → reschedule`)
-- `supabase/functions/_shared/entity-extractor.ts` (desempate offered vs active)
-- `supabase/functions/_shared/policy-engine.ts` (diretriz mais clara, sem mudança estrutural)
-- `supabase/functions/_shared/policy-engine_test.ts` (cobertura nova)
+### 2. `supabase/functions/_shared/entity-extractor.ts`
+- Adicionar extrator determinístico de e-mail/telefone na inbound: regex de e-mail e telefone BR (`/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i`, `/\(?\d{2}\)?\s?9?\d{4}-?\d{4}/`).
+- Detectar autorização explícita ("pode dizer que eu indiquei", "pode mencionar meu nome", "use meu nome") → `permission_to_mention: true`.
+- Popular `referral_contact` quando algum desses sinais existir; nome opcional (capturar via padrão "fale com X" / "procurar o X").
+- Cobertura em `_shared/entity-extractor_test.ts`.
+
+### 3. `supabase/functions/sdr-agent/index.ts`
+- Adicionar tools `create_new_contact` e `mark_referrer` à lista `tools[]` e ao `execTool`, delegando para `execute-action` (`create_new_contact`, `mark_current_contact_as_referrer`).
+- Suportar `forced_tool="create_new_contact"`: execução determinística (igual ao bloco de `book_slot`).
+- Implementar `post_actions` da política: depois do tool forçado e antes de finalizar, executar `mark_current_contact_as_referrer` e `release_slot_holds` (UPDATE em `slot_holds` para `status='released'` em todos os holds `held` do lead).
+- Após `create_new_contact`, enfileirar outreach para o novo lead: inserir em `lead_action_queue` (`action_type='send_first_outreach'`, `params={ source: 'referral', referrer_lead_id }`) OU, se a empresa tem cadência ativa default, criar `cadence_enrollments` no novo lead (verificar padrão usado em outros pontos antes de decidir — preferir o caminho já existente).
+- Garantir que `intent="referral"` reflita no banco: `leads.status='qualified'` permanece (já feito por `mark_current_contact_as_referrer`); registrar `lead_activities` "🔁 Indicação processada → novo lead {id}".
+
+### 4. `supabase/functions/expire-slot-holds/index.ts`
+- Antes do `invoke("slot-expiry-followup")`, carregar `leads.referral_stage, status` do lead. Pular o follow-up (apenas marcar holds como `expired`) quando:
+  - `referral_stage IN ('is_referrer','pending_outreach','aguardando_encaminhamento_interno')`, ou
+  - `status IN ('disqualified','not_interested','won','lost')`, ou
+  - Não existe `cadence_enrollments` ativo (`status='active'`) para o lead.
+- Logar o motivo em `lead_activities` (type `system`).
+
+### 5. `supabase/functions/slot-expiry-followup/index.ts`
+- Reaplicar o mesmo guarda no início (defesa em profundidade contra invocações diretas / `intent-cron`). Retornar `{ skipped: true, reason }` sem enviar mensagem.
+
+### 6. Testes
+- `_shared/policy-engine_test.ts`: cobrir `referral` com e sem `referral_contact`.
+- `_shared/entity-extractor_test.ts`: e-mail, telefone, permissão, combinação.
+- Smoke test invocando `slot-expiry-followup` para um lead `is_referrer` → deve retornar `skipped`.
+
+## Fora do escopo
+- Não vou criar fluxo de aprovação humana antes de contatar o indicado (assumido que `create_new_contact` + outreach automático segue o padrão do produto).
+- Não vou alterar o template da primeira mensagem ao indicado — uso a cadência/template existentes.
+
+## Risco
+Médio. Mexe em referral (caminho relativamente novo) e em cron de expiração (em produção). Mitigação: guards conservadores (pulam follow-up só com sinais claros de encerramento), e testes Deno cobrindo os novos branches.
