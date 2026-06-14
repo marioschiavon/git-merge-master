@@ -1551,7 +1551,8 @@ Deno.serve(async (req) => {
     }
 
     if (!finalDecision) {
-      // Fallback final: usar última suggested_message conhecida em vez de silêncio.
+      // Fallback final: nunca terminar em silêncio se houve tentativa de tool.
+      // Usa última suggested_message conhecida ou pede para o lead reenviar.
       if (lastDowngradeSuggestion) {
         finalDecision = {
           decision: "send_message",
@@ -1559,7 +1560,21 @@ Deno.serve(async (req) => {
           rationale: `MAX_STEPS atingido; usando suggested_message de ${lastDowngradeSuggestion.tool}.`,
         };
       } else {
-        finalDecision = { decision: "silence", rationale: "MAX_STEPS atingido sem finalize" };
+        // Procura por qualquer tool_call que tenha falhado no histórico de steps.
+        const hadFailedTool = steps.some((s) =>
+          (s.event === "tool_call" || s.event === "forced_tool_call") &&
+          (s as any).result && (s as any).result.ok === false,
+        );
+        if (hadFailedTool) {
+          finalDecision = {
+            decision: "send_message",
+            message:
+              "Tive uma instabilidade aqui pra confirmar nosso horário agora. Pode me mandar de novo o dia e a hora que funciona pra você? Vou garantir a reserva.",
+            rationale: "MAX_STEPS atingido sem finalize; tools falharam — evitando silêncio.",
+          };
+        } else {
+          finalDecision = { decision: "silence", rationale: "MAX_STEPS atingido sem finalize" };
+        }
       }
     }
 
