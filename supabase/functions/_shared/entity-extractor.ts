@@ -31,15 +31,22 @@ export function extractEntities(args: {
   }
 
   // Candidates priority: offered (current turn) > held (persisted) > active booking time.
-  const candidates: string[] = Array.from(new Set([
+  // Quando o lead aponta uma data que casa tanto com um slot OFERECIDO quanto
+  // com o booking ATIVO, priorizamos o oferecido — a intenção dele é escolher
+  // a nova oferta, não repetir o horário antigo. Por isso resolvemos primeiro
+  // contra offered+held; só caímos para active_booking se nada bater.
+  const primary: string[] = Array.from(new Set([
     ...args.offeredSlots,
     ...args.heldSlots,
-    ...(args.activeBookingAt ? [args.activeBookingAt] : []),
   ].filter(Boolean)));
 
-  const ref = candidates.length > 0
-    ? args.matchesSlotRef(text, candidates)
+  let ref = primary.length > 0
+    ? args.matchesSlotRef(text, primary)
     : { iso: null, ambiguous: false };
+
+  if (!ref.iso && !ref.ambiguous && args.activeBookingAt) {
+    ref = args.matchesSlotRef(text, [args.activeBookingAt]);
+  }
 
   // Date preference inference (only from CURRENT inbound).
   const range = extractDateRangeFromText(text);
