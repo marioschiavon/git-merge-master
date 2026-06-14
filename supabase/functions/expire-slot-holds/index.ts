@@ -74,6 +74,43 @@ serve(async (req) => {
           continue;
         }
 
+        // ── Guard: skip follow-up when the conversation has effectively ended.
+        // Indicadores: lead virou indicante / em outreach interno; lead descartado;
+        // ou não há mais enrollment ativo para impulsionar a conversa.
+        const { data: leadRow } = await supabase
+          .from("leads")
+          .select("status, referral_stage")
+          .eq("id", leadId)
+          .maybeSingle();
+        const refStage = (leadRow as any)?.referral_stage ?? null;
+        const leadStatus = (leadRow as any)?.status ?? null;
+        const closedStages = ["is_referrer", "pending_outreach", "aguardando_encaminhamento_interno"];
+        const closedStatuses = ["disqualified", "not_interested", "won", "lost"];
+        let skipReason: string | null = null;
+        if (refStage && closedStages.includes(refStage)) skipReason = `referral_stage=${refStage}`;
+        else if (leadStatus && closedStatuses.includes(leadStatus)) skipReason = `status=${leadStatus}`;
+        else {
+          const { data: activeEnr } = await supabase
+            .from("cadence_enrollments")
+            .select("id")
+            .eq("lead_id", leadId)
+            .eq("status", "active")
+            .limit(1);
+          if (!activeEnr || activeEnr.length === 0) skipReason = "no_active_enrollment";
+        }
+
+        if (skipReason) {
+          await supabase.from("lead_activities").insert({
+            company_id: companyId,
+            lead_id: leadId,
+            type: "system" as any,
+            description: `⏭️ Follow-up de slot expirado ignorado (${skipReason})`,
+            metadata: { expire_slot_holds_skipped: true, reason: skipReason, expired_datetimes: expiredDatetimes },
+          });
+          processed++;
+          continue;
+        }
+
         // Delegate to follow-up function (stage = suggested_new on first run)
         await supabase.functions.invoke("slot-expiry-followup", {
           body: {
@@ -84,6 +121,7 @@ serve(async (req) => {
             expired_slot_datetimes: expiredDatetimes,
           },
         });
+
 
         processed++;
       } catch (err) {
