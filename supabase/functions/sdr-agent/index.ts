@@ -1314,11 +1314,31 @@ Deno.serve(async (req) => {
     // write the user-facing confirmation.
     if (policy.forced_tool && policy.forced_args) {
       const ft0 = Date.now();
-      const forcedToolName = policy.forced_tool;
-      const forcedArgs = policy.forced_args;
-      const result = await execTool(forcedToolName, forcedArgs, {
+      let forcedToolName = policy.forced_tool;
+      let forcedArgs = policy.forced_args;
+      let result = await execTool(forcedToolName, forcedArgs, {
         lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
       });
+
+      // ── Auto-downgrade: book_slot rejeitado por booking ativo → reschedule_booking.
+      // Espelha o downgrade reverso (reschedule→book em booking_not_found) e cobre
+      // o caso em que o estado local não reflete o booking real no Cal.com.
+      const r0 = result as any;
+      if (
+        forcedToolName === "book_slot" &&
+        r0 && r0.ok === false &&
+        (r0.error_code === "active_booking_conflict" || r0.downgrade === "use_reschedule")
+      ) {
+        console.log("[sdr-agent] book_slot→reschedule_booking downgrade (active_booking_conflict)");
+        const reschedArgs = { slot_start: (forcedArgs as any).slot_start };
+        const reschedResult = await execTool("reschedule_booking", reschedArgs, {
+          lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
+        });
+        forcedToolName = "reschedule_booking";
+        forcedArgs = reschedArgs;
+        result = { ...(reschedResult as object), downgraded_from: "book_slot" };
+      }
+
       const synthCallId = `forced_${forcedToolName}_${Date.now()}`;
       messages.push({
         role: "assistant",
