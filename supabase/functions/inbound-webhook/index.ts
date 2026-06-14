@@ -1491,22 +1491,49 @@ Analise a última mensagem e decida a ação.`,
       // Reschedule: cancel existing booking + held slots, then offer new ones
       console.log(`Reschedule requested for lead ${leadData?.id}`);
 
-      // GUARD: se existe um booking recém-confirmado (< 90s) para este lead,
-      // NÃO cancelar nada — provavelmente é uma execução duplicada/concorrente
-      // do mesmo inbound. Responder confirmando e abortar o reschedule.
-      try {
-        const { data: recentBooking } = await supabase
-          .from("bookings")
-          .select("id, calcom_booking_uid, scheduled_at, status, created_at")
-          .eq("lead_id", leadData.id)
-          .neq("status", "cancelled")
-          .gte("created_at", new Date(Date.now() - 90_000).toISOString())
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (recentBooking) {
-          const formatted = formatDateTimeBrt(recentBooking.scheduled_at);
-          console.log(`RESCHEDULE_SKIPPED_RECENT_BOOKING lead=${leadData.id} booking=${recentBooking.calcom_booking_uid} created_at=${recentBooking.created_at}`);
+      // GUARD C: exigir intenção explícita de remarcar/cancelar no texto do lead.
+      // Sem isso, qualquer mensagem ambígua + booking ativo vira reschedule e cancela tudo.
+      const reschedRe = /\b(remarcar|remarca[cç][aã]o|reagendar|reagenda|mudar.*hor[aá]rio|trocar.*hor[aá]rio|outro\s+(dia|hor[aá]rio)|desmarcar|desmarca|cancelar|cancela|n[aã]o\s+(posso|consigo|vou)|n[aã]o\s+vai\s+dar)\b/i;
+      const hasExplicitIntent = reschedRe.test(cleanContent || "");
+      if (!hasExplicitIntent) {
+        console.log(`RESCHEDULE_DOWNGRADED_NO_EXPLICIT_INTENT lead=${leadData?.id} text="${(cleanContent || "").slice(0, 80)}"`);
+        parsed.action = "reply";
+        parsed.reply_message = parsed.reply_message
+          || "Só pra confirmar: você quer trocar o horário da reunião já marcada, ou está confirmando o horário atual?";
+      }
+
+      // GUARD B: se existe booking/calendar_action recente (< 120s) para este lead,
+      // NÃO cancelar — provavelmente é execução duplicada/concorrente do mesmo inbound
+      // (ex: sdr-agent shadow acabou de bookar e a row em `bookings` ainda não foi persistida
+      // pelo webhook do Cal.com, mas a `calendar_action` já está com status=ok).
+      if (parsed.action === "reschedule") try {
+        const sinceIso = new Date(Date.now() - 120_000).toISOString();
+        const [{ data: recentBooking }, { data: recentAction }] = await Promise.all([
+          supabase
+            .from("bookings")
+            .select("id, calcom_booking_uid, scheduled_at, status, created_at")
+            .eq("lead_id", leadData.id)
+            .neq("status", "cancelled")
+            .gte("created_at", sinceIso)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supabase
+            .from("calendar_actions")
+            .select("id, action_type, status, provider_booking_uid, requested_start, created_at")
+            .eq("lead_id", leadData.id)
+            .in("action_type", ["book", "reschedule"])
+            .eq("status", "ok")
+            .gte("created_at", sinceIso)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        const recentSlot = recentBooking?.scheduled_at || recentAction?.requested_start || null;
+        const recentUid = recentBooking?.calcom_booking_uid || recentAction?.provider_booking_uid || null;
+        if (recentBooking || recentAction) {
+          const formatted = recentSlot ? formatDateTimeBrt(recentSlot) : "o horário confirmado";
+          console.log(`RESCHEDULE_SKIPPED_RECENT_BOOKING lead=${leadData.id} booking=${recentUid} source=${recentBooking ? "bookings" : "calendar_actions"}`);
           parsed.reply_message = parsed.reply_message
             || `Sua reunião está confirmada para ${formatted}. Quer trocar para outro horário?`;
           // Pula todo o processamento do branch reschedule.
@@ -1516,6 +1543,7 @@ Analise a última mensagem e decida a ação.`,
         console.error("recent-booking guard failed (continuing reschedule):", e);
       }
     }
+
 
     if (parsed.action === "reschedule") {
 
