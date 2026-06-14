@@ -14,6 +14,7 @@ import {
 } from "../_shared/ai-gateway.ts";
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
+import { buildNativeHistory } from "../_shared/history-builder.ts";
 
 // Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
 // Returns epoch ms.
