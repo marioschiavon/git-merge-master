@@ -463,33 +463,73 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   },
 
   async create_new_contact(ctx) {
-    const { name, email, phone, role, context, company_name } = ctx.params;
-    if (!name && !email) {
-      await logActivity(ctx, "note", `⚠️ Tentou criar novo contato por indicação, mas faltaram nome e e-mail — ação ignorada.`, { params: ctx.params });
-      return { skipped: "missing name and email" };
+    const { name, email, phone, role, context, company_name, website, address, linkedin_company_url } = ctx.params;
+    if (!name && !email && !phone) {
+      await logActivity(ctx, "note", `⚠️ Tentou criar novo contato por indicação, mas faltaram nome, e-mail e telefone — ação ignorada.`, { params: ctx.params });
+      return { skipped: "missing name, email and phone" };
     }
-    const lead = await loadLead(ctx);
+    const referrer = await loadLead(ctx);
+
+    // Nome inteligente: jamais coloca o e-mail bruto no campo nome.
+    const deriveNameFromEmail = (e?: string | null) => {
+      if (!e) return null;
+      const local = String(e).split("@")[0] || "";
+      const cleaned = local.replace(/[._\-+0-9]+/g, " ").trim();
+      if (!cleaned) return null;
+      return cleaned
+        .split(/\s+/)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+        .join(" ");
+    };
+    const formatPhone = (p?: string | null) => {
+      if (!p) return null;
+      const digits = String(p).replace(/\D/g, "");
+      return digits.length >= 10 ? `Contato ${digits.slice(-4)}` : null;
+    };
+    const finalName =
+      (typeof name === "string" && name.trim() && !name.includes("@") ? name.trim() : null) ||
+      deriveNameFromEmail(email) ||
+      formatPhone(phone) ||
+      "Indicação sem nome";
+
+    const payload: Record<string, any> = {
+      company_id: ctx.company_id,
+      name: finalName,
+      email: email || null,
+      phone: phone || null,
+      title: role || null,
+      // Empresa/website/address/linkedin: usa o que veio no params; senão herda do indicante.
+      company_name: company_name || referrer?.company_name || null,
+      website: website || referrer?.website || null,
+      address: address || referrer?.address || null,
+      linkedin_company_url: linkedin_company_url || referrer?.linkedin_company_url || null,
+      source: "referral",
+      status: "new" as any,
+      pipeline_mode: referrer?.pipeline_mode || "agent",
+      referral_source_lead_id: ctx.lead_id,
+      referral_role: role || null,
+      referral_context: context || null,
+      referral_stage: "pending_outreach",
+    };
+
     const { data: newLead, error } = await ctx.supabase
       .from("leads")
-      .insert({
-        company_id: ctx.company_id,
-        name: name || email,
-        email: email || null,
-        phone: phone || null,
-        title: role || null,
-        company_name: company_name || lead?.company_name || null,
-        source: "referral",
-        status: "new" as any,
-        referral_source_lead_id: ctx.lead_id,
-        referral_role: role || null,
-        referral_context: context || null,
-        referral_stage: "pending_outreach",
-      } as any)
+      .insert(payload as any)
       .select()
       .single();
     if (error) throw error;
-    await logActivity(ctx, "note", `🆕 Novo contato criado por indicação: ${name || email}`, { new_lead_id: newLead.id });
-    return { new_lead_id: newLead.id };
+    await logActivity(
+      ctx,
+      "note",
+      `🆕 Novo contato criado por indicação${referrer?.name ? ` (via ${referrer.name})` : ""}: ${finalName}${email ? ` <${email}>` : ""}`,
+      {
+        new_lead_id: newLead.id,
+        inherited_company_name: !company_name && !!referrer?.company_name,
+        inherited_website: !website && !!referrer?.website,
+        inherited_address: !address && !!referrer?.address,
+      },
+    );
+    return { new_lead_id: newLead.id, name: finalName };
   },
 
   async mark_current_contact_as_referrer(ctx) {

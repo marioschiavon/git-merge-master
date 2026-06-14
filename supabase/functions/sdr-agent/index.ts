@@ -276,10 +276,12 @@ const TOOLS: ToolDef[] = [
         type: "object",
         additionalProperties: false,
         properties: {
-          name: { type: "string", description: "Nome do indicado (se conhecido)." },
+          name: { type: "string", description: "Nome do indicado (se conhecido). NÃO use email como nome." },
           email: { type: "string" },
           phone: { type: "string" },
           role: { type: "string", description: "Cargo do indicado, se mencionado." },
+          company_name: { type: "string", description: "Empresa do indicado, se diferente da empresa do lead atual." },
+          website: { type: "string", description: "Site da empresa do indicado, se mencionado." },
           context: { type: "string", description: "Contexto curto: por que o lead atual indicou esta pessoa." },
         },
       },
