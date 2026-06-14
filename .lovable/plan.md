@@ -106,7 +106,7 @@ Falha de qualquer guard → tool result `{ ok: false, error_code, hint }` para o
 
 ---
 
-## Fase 5 — Cal.com síncrono + webhook como reconciliação
+## Fase 5 — Cal.com síncrono + webhook como reconciliação ✅
 
 - Confirmação ao prospect usa a resposta síncrona de `calcom-booking-create` (já no loop).
 - `calcom-webhook` deixa de disparar nova mensagem ao lead; só localiza `calendar_actions` pelo `booking_uid` e reconcilia status + grava em `bookings`. Eventos órfãos (sem `calendar_actions`) viram criação direta em `bookings` com `source='webhook'`.
