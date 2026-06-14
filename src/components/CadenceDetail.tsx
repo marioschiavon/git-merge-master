@@ -98,6 +98,11 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                 <FlaskConical className="h-3 w-3" />Simulação
               </Badge>
             )}
+            {isReferral && (
+              <Badge className="bg-purple-100 text-purple-800 text-xs">
+                Indicações
+              </Badge>
+            )}
           </SheetTitle>
           {cadence.description && (
             <p className="text-sm text-muted-foreground">{cadence.description}</p>
