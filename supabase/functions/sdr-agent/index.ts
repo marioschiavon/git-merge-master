@@ -455,12 +455,38 @@ async function execBookingTool(
   }
 
   const facts = (memRow?.facts ?? {}) as Record<string, unknown>;
-  const heldIsos = (holdsRaw ?? []).map((h: any) => h.slot_datetime as string);
+
+  // ── Phase 4: centralized pre-flight guards ──────────────────────
+  const guard = await assertCanBook(supabase, name, args, {
+    facts,
+    holds: (holdsRaw ?? []) as any,
+    bookings: (bookingsRaw ?? []) as any,
+    lastInbound,
+    lastOutbound,
+    isLikelyConfirmation,
+    matchesSlotReference,
+    implicitOfferFromOutbound,
+    parseSlotStartAsBrt,
+    formatBRTLong,
+    lead_id: ctx.lead_id,
+    company_id: ctx.company_id,
+    conversation_id: ctx.conversation_id ?? null,
+  });
+  if (!guard.ok) {
+    return {
+      ok: false,
+      error_code: guard.error_code,
+      downgrade: guard.downgrade,
+      reason: guard.hint,
+      candidates: guard.candidates,
+      suggested_message: guard.suggested_message,
+      next_action: guard.next_action ?? "Chame finalize com decision=send_message e message=suggested_message.",
+    };
+  }
 
   // ── CANCEL ────────────────────────────────────────────────────
   if (name === "cancel_booking") {
-    const activeBooking = (bookingsRaw ?? []).find((b: any) => b.status === "confirmed" || b.status === "pending");
-    const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || activeBooking?.calcom_booking_uid;
+    const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || guard.activeBookingUid;
     if (!bookingUid) return { ok: false, error: "no active booking" };
     const reason = typeof args.reason === "string" ? args.reason : "Cliente solicitou cancelamento";
     const idempotency_key = await buildIdempotencyKey({
@@ -496,51 +522,7 @@ async function execBookingTool(
     };
   }
 
-  // ── BOOK / RESCHEDULE: guarda de confirmação ──────────────────
-  const slotStartRaw = typeof args.slot_start === "string" ? args.slot_start : "";
-  if (!slotStartRaw) return { ok: false, error: "slot_start required" };
-  const slotStart = slotStartRaw;
-
-  const pendingMeta = facts.offered_slots_pending as { slots?: string[]; offered_at?: string } | undefined;
-  const pendingFresh = pendingMeta?.offered_at
-    ? Date.now() - new Date(pendingMeta.offered_at).getTime() < 30 * 60_000
-    : false;
-  const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
-  let candidates: string[];
-  if (pending.length > 0) {
-    candidates = pending;
-  } else {
-    const implicit = implicitOfferFromOutbound(lastOutbound, heldIsos);
-    candidates = implicit ? [implicit] : heldIsos;
-  }
-  const explicit = isLikelyConfirmation(lastInbound);
-  const ref = matchesSlotReference(lastInbound, candidates);
-  const target = parseSlotStartAsBrt(slotStart);
-  const matchesOffered = candidates.some((iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000);
-  const hasConfirmation = explicit || !!ref.iso;
-
-  if (!matchesOffered || !hasConfirmation) {
-    let suggested_message: string;
-    const refIso = ref.iso || (candidates.length === 1 ? candidates[0] : null);
-    if (refIso && !ref.ambiguous) {
-      suggested_message = name === "reschedule_booking"
-        ? `Só confirmando: posso remarcar para ${formatBRTLong(refIso)}?`
-        : `Só confirmando: posso fechar para ${formatBRTLong(refIso)}?`;
-    } else if (candidates.length > 0) {
-      const formatted = candidates.slice(0, 3).map((s) => `• ${formatBRTLong(s)}`).join("\n");
-      suggested_message = `Antes de ${name === "reschedule_booking" ? "remarcar" : "confirmar"}, qual destes horários funciona melhor pra você?\n\n${formatted}`;
-    } else {
-      suggested_message = "Antes de confirmar, qual horário funciona melhor pra você?";
-    }
-    return {
-      ok: false,
-      downgrade: "ask_confirmation",
-      reason: !matchesOffered ? "slot_start does not match any offered/held slot" : "no explicit confirmation in last inbound message",
-      candidates,
-      suggested_message,
-      next_action: "Chame finalize com decision=send_message e message=suggested_message.",
-    };
-  }
+  const slotStart = guard.slotIso;
 
   // ── BOOK ──────────────────────────────────────────────────────
   if (name === "book_slot") {
@@ -562,15 +544,13 @@ async function execBookingTool(
         message_suggestion: `Reserva já confirmada para ${formatBRTLong(slotStart)}.`,
       };
     }
-    const match = (holdsRaw ?? []).find((h: any) =>
-      h.status === "held" && Math.abs(new Date(h.slot_datetime).getTime() - target) < 5 * 60_000,
-    );
-    if (!match) {
+    const matchedHold = guard.matchedHold;
+    if (!matchedHold) {
       await markCalendarActionFailed(supabase, claim.row.id, "no matching held slot");
       return { ok: false, error: "no matching held slot for " + slotStart };
     }
     const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-confirm-booking", {
-      body: { lead_id: ctx.lead_id, selected_slot_hold_id: match.id, force_placeholder: true },
+      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: true },
     });
     if (bookErr || (booking as any)?.error) {
       const errStr = bookErr ? String(bookErr) : String((booking as any)?.error);
@@ -597,8 +577,7 @@ async function execBookingTool(
   }
 
   // ── RESCHEDULE ────────────────────────────────────────────────
-  const activeBooking = (bookingsRaw ?? []).find((b: any) => b.status === "confirmed" || b.status === "pending" || b.status === "rescheduled");
-  const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || activeBooking?.calcom_booking_uid;
+  const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || guard.activeBookingUid;
   if (!bookingUid) return { ok: false, error: "no active booking to reschedule" };
   const reason = typeof args.reason === "string" ? args.reason : "Cliente solicitou remarcação";
   const startIso = normalizeSlotStartIsoBrt(slotStart);
