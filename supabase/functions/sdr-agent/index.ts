@@ -852,18 +852,23 @@ Deno.serve(async (req) => {
     }
 
     const sys = buildSystemPrompt(ctx);
-    const history = buildHistoryAsUserMessage(ctx.messages);
+    const nativeHistory = buildNativeHistory(ctx.messages);
 
-
+    // Histórico nativo: cada turno passado vira `role: assistant` (SDR) ou
+    // `role: user` (lead) em vez de ser concatenado num único bloco de texto.
+    // Isso evita que o modelo "esqueça" o que ele mesmo já disse e relista
+    // horários que já ofereceu verbalmente.
     const messages: ChatMessage[] = [
       { role: "system", content: sys },
+      ...nativeHistory,
       {
         role: "user",
         content:
-          `=== HISTÓRICO COMPLETO DA CONVERSA (mais recente por último) ===\n${history}\n\n` +
-          `=== TAREFA ===\nDecida o próximo passo do SDR. ` +
-          `Leia TODO o histórico acima e respeite as preferências persistentes da memória. ` +
-          `Use as tools que precisar (search_knowledge, check_calendar, update_lead_facts) e termine SEMPRE com finalize.`,
+          `=== TAREFA (turno atual) ===\n` +
+          `Decida o próximo passo do SDR considerando todo o histórico acima. ` +
+          `Respeite as preferências persistentes da memória. ` +
+          `Use as tools que precisar (search_knowledge, check_calendar, update_lead_facts) ` +
+          `e termine SEMPRE com finalize.`,
       },
     ];
 
