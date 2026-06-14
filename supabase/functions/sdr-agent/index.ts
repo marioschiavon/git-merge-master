@@ -765,7 +765,7 @@ async function execBookingTool(
 async function loadContext(leadId: string) {
   const { data: lead } = await supabase
     .from("leads")
-    .select("id, company_id, name, company_name, email, phone, whatsapp, status, source, created_at")
+    .select("id, company_id, name, company_name, email, phone, whatsapp, status, source, created_at, referral_source_lead_id, referrer_name, referrer_company")
     .eq("id", leadId)
     .maybeSingle();
   if (!lead) throw new Error("lead not found");
