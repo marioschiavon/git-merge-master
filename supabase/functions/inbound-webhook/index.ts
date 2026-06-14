@@ -196,7 +196,7 @@ serve(async (req) => {
       body = await req.json();
     }
 
-    const { from, content, channel, conversation_id, lead_id, skip_insert } = body;
+    const { from, content, channel, conversation_id, lead_id, skip_insert, provider, provider_message_id } = body;
 
     if (!content) {
       return new Response(JSON.stringify({ error: "content é obrigatório" }), {
@@ -249,6 +249,75 @@ serve(async (req) => {
     // FIX: Strip quoted email content before saving
     const cleanContent = stripQuotedEmail(content);
     console.log("Original content length:", content.length, "Clean content length:", cleanContent.length, "skip_insert:", !!skip_insert);
+
+    // IDEMPOTÊNCIA: evita reprocessar a MESMA mensagem do mesmo lead duas vezes.
+    // Causa observada: zapi-webhook (ou retry) + outro caller dispararam inbound-webhook
+    // duas vezes para "Dia 16", e a segunda execução cancelou o booking recém-confirmado.
+    if (leadData?.id) {
+      try {
+        // Hash leve do conteúdo + bucket de 5min, para mensagens sem provider_message_id.
+        const enc = new TextEncoder().encode(`${leadData.id}|${convChannel || channel || ""}|${cleanContent.trim().toLowerCase()}`);
+        const hashBuf = await crypto.subtle.digest("SHA-1", enc);
+        const contentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+
+        const pid = provider_message_id ? String(provider_message_id) : null;
+        const prov = provider ? String(provider) : (convChannel || channel || null);
+
+        // 1) Checa duplicata por provider_message_id (janela de 10 min)
+        if (pid) {
+          const { data: dupPid } = await supabase
+            .from("processed_inbound_messages")
+            .select("id, processed_at")
+            .eq("lead_id", leadData.id)
+            .eq("provider", prov)
+            .eq("provider_message_id", pid)
+            .gte("processed_at", new Date(Date.now() - 10 * 60_000).toISOString())
+            .maybeSingle();
+          if (dupPid) {
+            console.log(`INBOUND_DEDUP_SKIP provider_message_id=${pid} lead=${leadData.id}`);
+            return new Response(JSON.stringify({ ok: true, deduped: true, reason: "provider_message_id" }), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+
+        // 2) Checa duplicata por hash de conteúdo (mesmo lead, mesmo texto, últimos 2 min)
+        const { data: dupHash } = await supabase
+          .from("processed_inbound_messages")
+          .select("id, processed_at")
+          .eq("lead_id", leadData.id)
+          .eq("content_hash", contentHash)
+          .gte("processed_at", new Date(Date.now() - 2 * 60_000).toISOString())
+          .maybeSingle();
+        if (dupHash) {
+          console.log(`INBOUND_DEDUP_SKIP content_hash=${contentHash.slice(0, 8)} lead=${leadData.id}`);
+          return new Response(JSON.stringify({ ok: true, deduped: true, reason: "content_hash" }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Grava marcador ANTES do processamento — o UNIQUE INDEX cobre a corrida.
+        const { error: insErr } = await supabase
+          .from("processed_inbound_messages")
+          .insert({
+            lead_id: leadData.id,
+            provider: prov,
+            provider_message_id: pid,
+            content_hash: contentHash,
+          });
+        if (insErr && (insErr as any).code === "23505") {
+          console.log(`INBOUND_DEDUP_SKIP race lead=${leadData.id}`);
+          return new Response(JSON.stringify({ ok: true, deduped: true, reason: "race" }), {
+            status: 200,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+      } catch (e) {
+        console.error("inbound-webhook dedup guard failed (continuing):", e);
+      }
+    }
 
     // EARLY: detectar perguntas esclarecedoras (duração/formato/etc) — usado para impedir
     // que o classificador de intent roteie como scheduling e também como blindagem final.
@@ -1421,6 +1490,34 @@ Analise a última mensagem e decida a ação.`,
     } else if (parsed.action === "reschedule") {
       // Reschedule: cancel existing booking + held slots, then offer new ones
       console.log(`Reschedule requested for lead ${leadData?.id}`);
+
+      // GUARD: se existe um booking recém-confirmado (< 90s) para este lead,
+      // NÃO cancelar nada — provavelmente é uma execução duplicada/concorrente
+      // do mesmo inbound. Responder confirmando e abortar o reschedule.
+      try {
+        const { data: recentBooking } = await supabase
+          .from("bookings")
+          .select("id, calcom_booking_uid, scheduled_at, status, created_at")
+          .eq("lead_id", leadData.id)
+          .neq("status", "cancelled")
+          .gte("created_at", new Date(Date.now() - 90_000).toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (recentBooking) {
+          const formatted = formatDateTimeBrt(recentBooking.scheduled_at);
+          console.log(`RESCHEDULE_SKIPPED_RECENT_BOOKING lead=${leadData.id} booking=${recentBooking.calcom_booking_uid} created_at=${recentBooking.created_at}`);
+          parsed.reply_message = parsed.reply_message
+            || `Sua reunião está confirmada para ${formatted}. Quer trocar para outro horário?`;
+          // Pula todo o processamento do branch reschedule.
+          parsed.action = "reply";
+        }
+      } catch (e) {
+        console.error("recent-booking guard failed (continuing reschedule):", e);
+      }
+    }
+
+    if (parsed.action === "reschedule") {
 
       // 1) Cancel any held or confirmed slots in slot_holds
       const { data: liveSlots } = await supabase
