@@ -1111,13 +1111,30 @@ Deno.serve(async (req) => {
       console.error("date pre-extraction failed:", e);
     }
 
-    const sys = buildSystemPrompt(ctx);
+    // ── Fase 3: estado estruturado calculado em código ────────────
+    const lastInbound = lastInboundContent(ctx.messages);
+    const factsNow = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
+    const state: StructuredState = computeState({
+      hasInbound: !!lastInbound,
+      lastInbound,
+      lastIntent: ctx.intents[0] ?? null,
+      factsOfferedSlotsPending: (factsNow.offered_slots_pending ?? null) as any,
+      heldSlots: (ctx.heldSlots ?? []) as any,
+      activeBookings: (ctx.activeBookings ?? []) as any,
+      datePreference: (factsNow.date_preference ?? null) as any,
+      matchesSlotRef: matchesSlotReference,
+      isLikelyConfirmation,
+    });
+    console.log("sdr-agent state:", JSON.stringify({
+      stage: state.conversation_stage,
+      allowed: state.allowed_actions,
+      finalize_allowed: state.finalize_allowed,
+      pending: state.pending_action,
+    }));
+
+    const sys = buildSystemPrompt(ctx) + "\n\n" + renderStateBlock(state);
     const nativeHistory = buildNativeHistory(ctx.messages);
 
-    // Histórico nativo: cada turno passado vira `role: assistant` (SDR) ou
-    // `role: user` (lead) em vez de ser concatenado num único bloco de texto.
-    // Isso evita que o modelo "esqueça" o que ele mesmo já disse e relista
-    // horários que já ofereceu verbalmente.
     const messages: ChatMessage[] = [
       { role: "system", content: sys },
       ...nativeHistory,
@@ -1125,10 +1142,11 @@ Deno.serve(async (req) => {
         role: "user",
         content:
           `=== TAREFA (turno atual) ===\n` +
-          `Decida o próximo passo do SDR considerando todo o histórico acima. ` +
-          `Respeite as preferências persistentes da memória. ` +
-          `Use as tools que precisar (search_knowledge, check_calendar, update_lead_facts) ` +
-          `e termine SEMPRE com finalize.`,
+          `Decida o próximo passo considerando o histórico e o estado estruturado acima. ` +
+          `Use SOMENTE tools listadas em \`allowed_actions\`. ` +
+          (state.finalize_allowed
+            ? "Você pode chamar `finalize` quando tiver a decisão."
+            : `\`finalize\` está BLOQUEADO — você DEVE chamar primeiro a tool requerida pelo estado (pending_action=${state.pending_action}).`),
       },
     ];
 
