@@ -94,7 +94,7 @@ Se modelo responde em texto durante stage que exige tool, re-prompt com `tool_ch
 
 ---
 
-## Fase 4 — Guards obrigatórios antes de booking
+## Fase 4 — Guards obrigatórios antes de booking ✅
 
 Helper `assertCanBook(args, state)` checa em ordem:
 1. `active_booking` existe → bloqueia `book_slot`, força `reschedule_booking`.
