@@ -471,9 +471,28 @@ async function execTool(
     return await execBookingTool(name, args, ctx);
   }
 
+  if (name === "create_new_contact" || name === "mark_referrer") {
+    if (ctx.mode === "shadow") {
+      return { ok: true, simulated: true, shadow: true, tool: name, args };
+    }
+    const action_type = name === "create_new_contact" ? "create_new_contact" : "mark_current_contact_as_referrer";
+    const { data, error } = await supabase.functions.invoke("execute-action", {
+      body: {
+        company_id: ctx.company_id,
+        lead_id: ctx.lead_id,
+        conversation_id: ctx.conversation_id ?? null,
+        action_type,
+        params: args,
+      },
+    });
+    if (error) return { ok: false, error: String(error) };
+    return { ok: true, ...((data as any)?.result ?? data ?? {}) };
+  }
+
   if (name === "finalize") {
     return { ok: true, decision: args };
   }
+
 
   return { error: `unknown tool: ${name}` };
 }
