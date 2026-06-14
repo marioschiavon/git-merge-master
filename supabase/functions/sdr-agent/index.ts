@@ -1352,11 +1352,14 @@ Deno.serve(async (req) => {
 
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.
       const r = result as any;
-      if (r && r.ok === false && typeof r.suggested_message === "string" && r.suggested_message) {
+      if (r && r.ok === false) {
+        const fallbackMsg = typeof r.suggested_message === "string" && r.suggested_message
+          ? r.suggested_message
+          : "Tive uma instabilidade aqui pra confirmar esse horário. Pode me mandar outro dia/horário que funcione pra você? Vou garantir a reserva.";
         finalDecision = {
           decision: "send_message",
-          message: r.suggested_message,
-          rationale: `Forced ${forcedToolName} downgraded: ${r.downgrade ?? r.error_code ?? "unknown"}.`,
+          message: fallbackMsg,
+          rationale: `Forced ${forcedToolName} failed: ${r.error_code ?? r.downgrade ?? r.error ?? "unknown"}.`,
         };
       } else if (r && r.ok && typeof r.message_suggestion === "string") {
         // Happy path: ask LLM ONE turn to either echo or refine the suggestion.
