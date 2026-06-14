@@ -97,6 +97,7 @@ const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i;
 const PHONE_RE = /(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4}/;
 const PERMISSION_RE = /\b(pode\s+(?:dizer|falar|mencionar|usar)|use\s+meu\s+nome|diga\s+que\s+(?:eu|fui\s+eu)|fui\s+eu\s+que\s+indiquei|sim,?\s+pode|autorizo|tem\s+minha\s+autoriza[çc][ãa]o)\b/i;
 const NAME_HINT_RE = /\b(?:falar?\s+com|procurar?\s+(?:o\s+|a\s+|pelo\s+|pela\s+)?|contatar?\s+(?:o\s+|a\s+)?|fala\s+com|fale\s+com)([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})/;
+const REDIRECT_SIGNAL_RE = /(n[aã]o\s+(?:sou\s+eu|seria\s+comigo|[ée]\s+comigo|sou\s+(?:o|a)\s+respons[aá]vel)|esse\s+assunto\s+n[aã]o\s+(?:[ée]|seria)\s+comigo|quem\s+(?:cuida|v[eê]|trata|cuidaria)\s+(?:disso|desse\s+assunto)|sou\s+s[óo]\s+(?:o|a)\s+(?:assistente|secret[aá]ri))/i;
 
 function detectReferralContact(text: string): ReferralContact | null {
   const email = text.match(EMAIL_RE)?.[0]?.toLowerCase();
@@ -106,12 +107,14 @@ function detectReferralContact(text: string): ReferralContact | null {
   const permission = PERMISSION_RE.test(text) ? true : undefined;
   const nameMatch = text.match(NAME_HINT_RE)?.[1];
   const name = nameMatch ? nameMatch.trim() : undefined;
+  const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
 
-  if (!email && !phone && permission === undefined && !name) return null;
+  if (!email && !phone && permission === undefined && !name && !redirect) return null;
   const contact: ReferralContact = {};
   if (email) contact.email = email;
   if (phone) contact.phone = phone;
   if (name) contact.name = name;
   if (permission !== undefined) contact.permission_to_mention = permission;
+  if (redirect) contact.redirect_signal = true;
   return contact;
 }
