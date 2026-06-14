@@ -265,7 +265,44 @@ const TOOLS: ToolDef[] = [
     },
   },
 ];
-
+  {
+    type: "function",
+    function: {
+      name: "create_new_contact",
+      description:
+        "Cria um novo lead a partir de uma indicação recebida na conversa atual. " +
+        "Use SOMENTE quando o lead atual indicou outra pessoa e forneceu pelo menos email OU telefone. " +
+        "O novo lead entra automaticamente no pipeline de enriquecimento/cadência.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", description: "Nome do indicado (se conhecido)." },
+          email: { type: "string" },
+          phone: { type: "string" },
+          role: { type: "string", description: "Cargo do indicado, se mencionado." },
+          context: { type: "string", description: "Contexto curto: por que o lead atual indicou esta pessoa." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mark_referrer",
+      description:
+        "Marca o lead da conversa atual como INDICANTE (referral_stage='is_referrer'). " +
+        "Use logo após create_new_contact. Inclui permission_to_mention se o lead autorizou citar o nome dele.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          permission_to_mention: { type: "boolean", default: true },
+        },
+      },
+    },
+  },
+  
 
 // ────────────────────────────────────────────────────────────────
 // Tool executors
