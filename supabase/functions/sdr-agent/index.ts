@@ -432,8 +432,27 @@ async function execTool(
 async function execBookingTool(
   name: "book_slot" | "reschedule_booking" | "cancel_booking",
   args: Record<string, unknown>,
-  ctx: { lead_id: string; company_id: string; conversation_id?: string | null },
+  ctx: { lead_id: string; company_id: string; conversation_id?: string | null; mode?: "shadow" | "live" },
 ): Promise<Record<string, unknown>> {
+  // SHADOW MODE: nunca executa ações reais no Cal.com nem grava calendar_actions/bookings.
+  // Retorna preview sintético para o LLM seguir o fluxo (gerar finalize/mensagem) sem mutar estado.
+  if (ctx.mode === "shadow") {
+    const slotStart = typeof args.slot_start === "string" ? args.slot_start : null;
+    const reason = typeof args.reason === "string" ? args.reason : null;
+    const previewMsg = name === "cancel_booking"
+      ? "[shadow] Cancelamento simulado — nada foi enviado ao Cal.com."
+      : `[shadow] Reserva simulada para ${slotStart ?? "(slot)"} — nada foi enviado ao Cal.com.`;
+    return {
+      ok: true,
+      simulated: true,
+      shadow: true,
+      booking_uid: "shadow",
+      scheduled_at: slotStart,
+      reason,
+      message_suggestion: previewMsg,
+    };
+  }
+
   // Recarrega estado fresco (memória, holds, última inbound/outbound).
   const [{ data: memRow }, { data: holdsRaw }, { data: bookingsRaw }, { data: convs }] = await Promise.all([
     supabase.from("lead_memory").select("facts").eq("lead_id", ctx.lead_id).maybeSingle(),
