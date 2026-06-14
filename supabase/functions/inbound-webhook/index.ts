@@ -196,7 +196,7 @@ serve(async (req) => {
       body = await req.json();
     }
 
-    const { from, content, channel, conversation_id, lead_id, skip_insert } = body;
+    const { from, content, channel, conversation_id, lead_id, skip_insert, provider, provider_message_id } = body;
 
     if (!content) {
       return new Response(JSON.stringify({ error: "content é obrigatório" }), {
