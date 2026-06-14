@@ -1310,7 +1310,9 @@ Deno.serve(async (req) => {
           lead_id,
           company_id: ctx.lead.company_id,
           conversation_id: conversation_id ?? null,
+          mode,
         });
+
         steps.push({
           step, event: "tool_call",
           tool: call.function.name,
