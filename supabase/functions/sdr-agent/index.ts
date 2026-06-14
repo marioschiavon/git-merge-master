@@ -557,7 +557,12 @@ async function execBookingTool(
       await markCalendarActionFailed(supabase, claim.row.id, errStr);
       return { ok: false, error: errStr };
     }
-    const bookingUid = (booking as any)?.booking?.calcom_booking_uid ?? (booking as any)?.calcom_booking_uid ?? null;
+    const bookingUid =
+      (booking as any)?.booking?.uid ??
+      (booking as any)?.booking?.calcom_booking_uid ??
+      (booking as any)?.booking_uid ??
+      (booking as any)?.calcom_booking_uid ??
+      null;
     await markCalendarActionOk(supabase, claim.row.id, {
       provider_booking_uid: bookingUid,
       response_payload: (booking as any) ?? {},
