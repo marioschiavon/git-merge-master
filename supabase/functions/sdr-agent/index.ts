@@ -1329,12 +1329,12 @@ Deno.serve(async (req) => {
     }
 
 
-    for (let step = 0; step < MAX_STEPS; step++) {
+    for (let step = 0; step < MAX_STEPS && !finalDecision; step++) {
       const t0 = Date.now();
       const res = await chatCompletion({
         model: MODEL,
         messages,
-        tools: TOOLS,
+        tools: TOOLS_ALLOWED,
         tool_choice: "auto",
         temperature: 0.3,
       });
