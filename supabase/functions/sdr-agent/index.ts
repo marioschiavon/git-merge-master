@@ -1421,6 +1421,33 @@ Deno.serve(async (req) => {
         latency_ms: Date.now() - ft0,
       });
 
+      // ── Post-actions: deterministic side-effects after the forced tool ──
+      const postActions = (policy as any).post_actions as string[] | undefined;
+      if (postActions && postActions.length > 0 && mode !== "shadow") {
+        for (const pa of postActions) {
+          try {
+            if (pa === "mark_referrer") {
+              const permission = (entities as any)?.referral_contact?.permission_to_mention ?? true;
+              const paRes = await execTool("mark_referrer", { permission_to_mention: permission }, {
+                lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
+              });
+              steps.push({ event: "post_action", action: pa, result: paRes });
+            } else if (pa === "release_slot_holds") {
+              const { data: rel, error: relErr } = await supabase
+                .from("slot_holds")
+                .update({ status: "released" })
+                .eq("lead_id", lead_id)
+                .eq("status", "held")
+                .select("id");
+              steps.push({ event: "post_action", action: pa, released: rel?.length ?? 0, error: relErr ? String(relErr) : null });
+            }
+          } catch (e) {
+            steps.push({ event: "post_action", action: pa, error: String(e) });
+          }
+        }
+      }
+
+
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.
       const r = result as any;
       if (r && r.ok === false) {
