@@ -363,13 +363,17 @@ REGRAS OBRIGATÓRIAS PARA REFERRAL:
 ${aiInstructionsContext}=== SEU PRODUTO/SERVIÇO (o que você vende) ===
 ${knowledgeContext || "Sem informações adicionais do produto."}
 ${highlightsContext}
+${referralContextBlock}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${insightsContext || "Sem diferenciais disponíveis do prospect."}
 ${mentalTriggersContext}
 
 === TEMPLATE BASE DO STEP ===
-${currentStep.template || "Sem template definido."}
+${(currentStep.template || "Sem template definido.")
+  .replaceAll("{{referrer_name}}", referrerName || "")
+  .replaceAll("{{referrer_company}}", referrerCompany || "")
+  .replaceAll("{{referral_context}}", lead.referral_context || "")}
 
 CANAL: ${currentStep.channel}
 STEP: ${currentStep.step_order} de ${steps.length}
