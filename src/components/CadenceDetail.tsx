@@ -47,6 +47,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const executeCadence = useExecuteCadenceNow();
   const generateSteps = useGenerateCadenceSteps();
   const resumeEnrollment = useResumeEnrollment();
+  const updateCadence = useUpdateCadence();
   const { data: allLeads = [] } = useLeads({ status: "all", search: "" });
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
