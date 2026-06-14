@@ -1192,8 +1192,11 @@ Deno.serve(async (req) => {
     }));
 
     // ── Fase 4: Intent classifier → Entity extractor → Policy engine ───
+    // Bookings remarcados (status='rescheduled') continuam reservando o horário
+    // no Cal.com — devem contar como ativo. Apenas cancelled/no_show/completed
+    // liberam o slot.
     const activeBookingRow = (ctx.activeBookings ?? []).find(
-      (b: any) => b.status === "confirmed" || b.status === "pending",
+      (b: any) => b.status === "confirmed" || b.status === "pending" || b.status === "rescheduled",
     );
     const offeredSlotsNow: string[] = Array.isArray((factsNow.offered_slots_pending as any)?.slots)
       ? ((factsNow.offered_slots_pending as any).slots as string[])

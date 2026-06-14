@@ -75,6 +75,8 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
   const candidates = Array.from(new Set([...state.offered_slots, ...state.held_slots]));
 
   // ── 1. Slot já apontado de forma inequívoca + booking ativo num horário DIFERENTE
+  // Vale para QUALQUER intent (confirm_slot, create_booking, reschedule_booking…),
+  // porque com booking ativo o caminho correto é SEMPRE reschedule — nunca book_slot.
   if (entities.selected_slot_iso && state.has_active_booking &&
       !slotsEqual(entities.selected_slot_iso, state.active_booking_at)) {
     return {
@@ -83,8 +85,9 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
       forced_tool: "reschedule_booking",
       forced_args: { slot_start: entities.selected_slot_iso },
       response_directive:
-        `O lead escolheu reagendar para ${entities.selected_slot_iso}. ` +
-        `A tool reschedule_booking foi executada — apenas escreva a confirmação curta para o lead.`,
+        `O lead tinha reserva ativa em ${state.active_booking_at} e escolheu ${entities.selected_slot_iso}. ` +
+        `A tool reschedule_booking JÁ foi executada — escreva uma confirmação curta mencionando o novo horário. ` +
+        `NÃO pergunte de novo se ele quer remarcar e NÃO chame book_slot.`,
       reason: "selected_slot_diverges_from_active_booking",
     };
   }
