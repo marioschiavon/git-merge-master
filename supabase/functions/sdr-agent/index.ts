@@ -14,6 +14,7 @@ import {
 } from "../_shared/ai-gateway.ts";
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
+import { buildNativeHistory } from "../_shared/history-builder.ts";
 
 // Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
 // Returns epoch ms.
@@ -728,22 +729,8 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
   ].filter(Boolean).join("\n");
 }
 
-function buildHistoryAsUserMessage(messages: Array<{ direction: string; content: string; created_at: string; metadata?: Record<string, unknown> | null; channel?: string | null }>): string {
-  if (messages.length === 0) return "(sem histórico ainda — esta é a primeira interação)";
-  return messages
-    .map((m) => {
-      const who = m.direction === "outbound" ? "SDR" : "Lead";
-      const when = fmtBrt(m.created_at);
-      const ch = m.channel ? ` ${m.channel}` : "";
-      const meta = m.metadata && typeof m.metadata === "object"
-        ? Object.keys(m.metadata).length
-          ? ` meta=${JSON.stringify(m.metadata).slice(0, 240)}`
-          : ""
-        : "";
-      return `[${when}${ch} ${who}]${meta}\n${m.content}`;
-    })
-    .join("\n\n");
-}
+// `buildHistoryAsUserMessage` foi removido: o histórico agora é serializado em
+// roles nativos via `_shared/history-builder.ts#buildNativeHistory`.
 
 // ────────────────────────────────────────────────────────────────
 // Main handler
@@ -851,18 +838,23 @@ Deno.serve(async (req) => {
     }
 
     const sys = buildSystemPrompt(ctx);
-    const history = buildHistoryAsUserMessage(ctx.messages);
+    const nativeHistory = buildNativeHistory(ctx.messages);
 
-
+    // Histórico nativo: cada turno passado vira `role: assistant` (SDR) ou
+    // `role: user` (lead) em vez de ser concatenado num único bloco de texto.
+    // Isso evita que o modelo "esqueça" o que ele mesmo já disse e relista
+    // horários que já ofereceu verbalmente.
     const messages: ChatMessage[] = [
       { role: "system", content: sys },
+      ...nativeHistory,
       {
         role: "user",
         content:
-          `=== HISTÓRICO COMPLETO DA CONVERSA (mais recente por último) ===\n${history}\n\n` +
-          `=== TAREFA ===\nDecida o próximo passo do SDR. ` +
-          `Leia TODO o histórico acima e respeite as preferências persistentes da memória. ` +
-          `Use as tools que precisar (search_knowledge, check_calendar, update_lead_facts) e termine SEMPRE com finalize.`,
+          `=== TAREFA (turno atual) ===\n` +
+          `Decida o próximo passo do SDR considerando todo o histórico acima. ` +
+          `Respeite as preferências persistentes da memória. ` +
+          `Use as tools que precisar (search_knowledge, check_calendar, update_lead_facts) ` +
+          `e termine SEMPRE com finalize.`,
       },
     ];
 
