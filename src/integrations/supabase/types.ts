@@ -1890,6 +1890,33 @@ export type Database = {
         }
         Relationships: []
       }
+      processed_inbound_messages: {
+        Row: {
+          content_hash: string | null
+          id: string
+          lead_id: string
+          processed_at: string
+          provider: string | null
+          provider_message_id: string | null
+        }
+        Insert: {
+          content_hash?: string | null
+          id?: string
+          lead_id: string
+          processed_at?: string
+          provider?: string | null
+          provider_message_id?: string | null
+        }
+        Update: {
+          content_hash?: string | null
+          id?: string
+          lead_id?: string
+          processed_at?: string
+          provider?: string | null
+          provider_message_id?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null

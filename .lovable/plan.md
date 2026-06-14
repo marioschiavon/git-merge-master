@@ -1,74 +1,73 @@
-## O que aconteceu
+# Bug: agendamento foi cancelado sozinho e novas opções foram enviadas
 
-Na conversa do lead `eu@julianocarneiro.com.br`, o `execute-action` cron disparou **5 mensagens em rajada** às 13:20 — quando o esperado era apenas o acknowledge do cancelamento que ele fez pelo link do e-mail:
+## O que aconteceu (lead a6ba77a3, "Dia 16" às 13:30:48)
 
-```
-13:20:03  outbound  Reunião confirmada 18/06 17:00   (booking i9cD… já cancelada)
-13:20:04  outbound  Reunião confirmada 18/06 09:45   (booking 58uk… já cancelada)
-13:20:17  outbound  Vi que você cancelou…            (ack do reschedule interno)
-13:20:18  outbound  Reunião confirmada 15/06 17:00   (booking rboj… já cancelada)
-13:20:28  outbound  Vi aqui que você cancelou…       (ack do cancel via link – este é o único correto)
-```
-
-## Causas (encadeadas)
-
-### 1) `calendar_actions` sem `provider_booking_uid` → webhook trata todo BOOKING_CREATED como órfão
-Investigação na tabela:
-
-```
-action_type | status | provider_booking_uid | resp_uid
-book        | ok     | (null)               | (null)
-cancel      | failed | i9cD…                | (null)
-```
-
-O SDR invoca `calcom-confirm-booking`, que devolve `{ booking: bookingData.data, … }`. O `uid` real do Cal.com fica em `data.uid`, mas o `sdr-agent` extrai com:
-
-```ts
-const bookingUid = booking?.booking?.calcom_booking_uid ?? booking?.calcom_booking_uid ?? null;
+```text
+13:30:30  inbound-webhook RUN #1  ("Dia 15 as 17h")
+          → cancela bookings antigos, reserva slots, oferece 2 opções
+13:30:32  slot_holds gravados: 15/06 17:45 + 18/06 17:45
+          MAS texto da mensagem outbound dizia "16/06 17:30 + 18/06 17:45"
+          (mismatch entre texto e slots realmente reservados — bug paralelo)
+13:30:48  zapi-webhook recebe "Dia 16"
+          → inbound-webhook RUN #2  ("Dia 16", skip_insert=false)
+          → matcher determinístico achou hold 16/06 → confirm_slot
+13:31:09  calcom-confirm-booking cria booking ayiMejjQ7CgkLwivPyQSrq (16/06 17:30) ✅
+13:31:08  inbound-webhook RUN #3  ("Dia 16", skip_insert=true)  ← DUPLICADO
+          → matcher determinístico falha (holds atuais são 15+18)
+          → AI classifica como "reschedule" com suggested_datetime=15/06 20:00
+13:31:10  RUN #3 entra no branch reschedule
+13:31:11  cancela booking ayiMejjQ7CgkLwivPyQSrq recém-criado
+13:31:12  system msg "🔄 Reunião remarcada"
+13:31:13  system msg "❌ Reunião cancelada (era 16/06 17:30)"
+13:31:15  outbound "Sem problemas! Aqui vão novas opções: 15/06 17:45, 18/06 17:45"
 ```
 
-Nenhuma das duas chaves existe → `markCalendarActionOk` grava `provider_booking_uid = null`. Consequência: o `calcom-webhook` faz `select … where provider_booking_uid = uid and status = 'ok'` e não encontra → marca o booking como `source='webhook'` (órfão) → enfileira `send_booking_confirmation`. Ocorreu nas 3 reservas criadas pelo SDR durante a conversa.
+## Causas raiz
 
-### 2) `execute-action.send_booking_confirmation` não valida estado atual do booking
-Quando o cron finalmente roda (~4 min depois), envia a confirmação mesmo que o booking já esteja `cancelled` ou tenha sido substituído por outro mais recente. Por isso saíram 3 "Reunião confirmada" para horários já cancelados.
+1. **inbound-webhook foi invocado duas vezes para a MESMA mensagem `Dia 16`** (mesmo `provider_message_id`). A segunda chamada veio com `skip_insert=true`. Não existe guard de idempotência por `(lead_id, provider_message_id)` dentro de `inbound-webhook`, então a mesma mensagem foi re-processada com o estado de `slot_holds` já alterado pela primeira execução.
 
-### 3) Reschedule não estampa `cancellation_source` no booking antigo
-Quando o SDR reagenda, o Cal.com emite **BOOKING_CANCELLED** do antigo. O webhook só pula o ack quando vê `bookings.cancellation_source ≠ 'lead'` (estampado em até 5 min). O `calcom-booking-reschedule` não escreve esse marcador → ack vira pending → resultou no 2º "Vi que você cancelou…" enviado erroneamente.
+2. **`reschedule` cancela bookings recém-confirmados sem janela de proteção.** O branch em `inbound-webhook/index.ts:1421` cancela qualquer booking ativo do lead, independentemente de quão recente seja. Quando duas execuções rodam em paralelo, a segunda destrói o trabalho da primeira.
 
-### 4) Sem coalescência por lead na fila
-O `execute-action` consome todos os pendentes do lead em ordem, sem suprimir mensagens redundantes/superadas no mesmo flush.
+3. **Mismatch entre slots oferecidos no texto e slots reservados.** A mensagem outbound em 13:30:33 listou `16/06 17:30 + 18/06 17:45` enquanto `slot_holds` da iteração tinha `15/06 17:45 + 18/06 17:45`. Isso confunde o matcher determinístico em runs subsequentes e leva o AI a classificar "Dia 16" como `reschedule` em vez de `confirm_slot`.
 
-## Correções
+## Plano de correção
 
-### A. Capturar o `uid` do Cal.com no SDR (raiz dos problemas 1 e 2)
-- `sdr-agent/index.ts` (book): trocar a extração para `booking?.booking?.uid ?? booking?.booking?.calcom_booking_uid ?? booking?.calcom_booking_uid ?? null`.
-- `sdr-agent/index.ts` (reschedule): mesma normalização em `newUid`.
-- Bônus defensivo em `calcom-confirm-booking/index.ts`: expor também `booking_uid` e `calcom_booking_uid` no JSON de retorno para evitar contrato frágil.
+### A. Idempotência em `inbound-webhook`
+Arquivo: `supabase/functions/inbound-webhook/index.ts`
 
-Efeito: `calendar_actions.provider_booking_uid` passa a ser preenchido → webhook reconcilia BOOKING_CREATED → não vira órfão → não enfileira `send_booking_confirmation` redundante.
+- Logo após resolver `leadData` e o `provider_message_id` do payload, consultar `pending_inbound_runs` / nova tabela leve `processed_inbound_messages(lead_id, provider, provider_message_id, processed_at)` (criar via migration) e retornar `{deduped:true}` quando já existir registro recente (< 5min).
+- Gravar o registro ao final da execução bem-sucedida.
+- Para mensagens sem `provider_message_id`, usar hash `(lead_id, channel, sha1(cleanContent), bucket_60s)` como chave alternativa.
 
-### B. Estampar origem na remarcação (problema 3)
-Em `calcom-booking-reschedule/index.ts`, antes de chamar Cal.com, atualizar a linha do booking **antigo** com `cancellation_source='sdr_reschedule'` e `cancellation_requested_at=now()`, e na linha do booking **novo** registrar `source='sdr_agent'` após o upsert. Assim o `calcom-webhook` (que já tem o filtro de 5 min) suprime o ack do cancelamento implícito.
+### B. Guard de "booking acabou de ser confirmado" no branch `reschedule`
+Arquivo: `supabase/functions/inbound-webhook/index.ts:1421`
 
-### C. Hardening em `execute-action.send_booking_confirmation`
-Antes de enviar, recarregar o booking e abortar quando:
-- `booking.status` ∈ {`cancelled`, `rescheduled`, `no_show`}; ou
-- existir outra reserva mais recente (`scheduled_at`/`updated_at`) para o mesmo `lead_id` em estado ativo; ou
-- já houver mensagem outbound nos últimos 10 min com `metadata.action='send_booking_confirmation'` ou `metadata.booking_uid=<uid>` (idempotência local). Pular registra `note` em `lead_activities` e marca a action como `done` com `result.skipped=true`.
+Antes de cancelar bookings em `activeBookings`:
+- Carregar `created_at` do booking.
+- Se foi criado há menos de 60s pela MESMA conversa (`source IN ('sdr_agent','inbound-webhook')`), abortar o reschedule com log `RESCHEDULE_SKIPPED_RECENT_BOOKING` e simplesmente responder "Sua reunião está confirmada para X — quer trocar?" sem cancelar nada.
+- Manter cancelamento normal quando o booking é antigo (caso real de remarcação).
 
-### D. Hardening em `execute-action.acknowledge_cancellation`
-Manter os dois guards atuais e adicionar:
-- pular se já existe outro `acknowledge_cancellation` `done` para o mesmo `lead_id` nas últimas 24 h (independente do `booking_uid`) — evita o caso "reschedule + cancel real" gerar dois acks.
+### C. Alinhar texto da oferta com slots realmente reservados
+Arquivo: `supabase/functions/inbound-webhook/index.ts` (branches `reject_slots` ~1395, `reschedule` ~1530, `check_availability` ~1700)
 
-### E. Coalescência no flush do `execute-action`
-Ao carregar o lote pendente do lead, ordenar por `scheduled_for`/`created_at` e, **antes de executar**, descartar (marcar `skipped`) qualquer `send_booking_confirmation` cujo `booking_uid` não seja o mais recente da fila/lead. Idem manter apenas o `acknowledge_cancellation` mais recente.
+Hoje a mensagem usa `slotsRes.data.formatted[0..1]` enquanto `slot_holds` pode ser gravado com horários diferentes (ex.: 17:30 vs 17:45) por causa de retries/segundo lote. Garantir que:
+- O texto SEMPRE é renderizado a partir dos `slots[]` que foram efetivamente persistidos (re-formatando `slot_datetime` via `formatDateTimeBrt`).
+- Não mostrar um horário que não exista em `slot_holds(status='held')` para o lead no momento.
 
-### F. Verificação
-1. Reproduzir cenário shadow: criar → reagendar → cancelar via link, assertando exatamente 1 outbound (`acknowledge_cancellation`) e 0 confirmações redundantes.
-2. Conferir `calendar_actions.provider_booking_uid` populado após cada `book`/`reschedule`.
-3. Inspecionar `lead_action_queue` — itens redundantes devem aparecer com `status='done'` e `result.skipped=true`.
+### D. Reforço no classificador
+Arquivo: `supabase/functions/inbound-webhook/index.ts` (prompt em ~651, matcher determinístico em ~1186–1234)
 
-## Não incluso (proposta separada, se quiser)
+- Quando existir `heldSlots.length >= 1`, o matcher determinístico já deve cobrir frases curtas como "Dia 16", "16", "segunda". Estender para aceitar variações ("o dia 16", "fica o 16", "vai o segundo") via regex adicional.
+- Se o AI ainda retornar `reschedule` mas existir um held slot que dá match exato com `suggested_datetime`, converter para `confirm_slot` antes de executar (já existe lógica reversa em 1249; adicionar a inversa).
 
-- Backfill dos `calendar_actions` órfãos antigos.
-- Reduzir intervalo do cron `execute-action` para 1 min (hoje ~4 min agrava o efeito rajada).
+### E. Verificação
+1. Reproduzir cenário: lead recebe 2 opções → responde "Dia X" → executar `inbound-webhook` 2× em paralelo (curl). Esperado:
+   - 1ª execução confirma booking.
+   - 2ª execução retorna `{deduped:true}` (ou cai no guard de "booking recente") e NÃO cancela.
+2. Conferir no banco: exatamente 1 booking ativo, 1 mensagem outbound de confirmação, 0 mensagens "Aqui vão novas opções".
+3. Rodar testes unitários existentes (`booking-guards_test.ts`, `state-machine_test.ts`) + adicionar caso novo `inbound-webhook.dedup_test.ts` cobrindo o cenário acima.
+
+## Fora de escopo
+- Reduzir intervalo do `sdr-debounce-tick`.
+- Investigar por que a segunda invocação ocorreu (provavelmente retry do Z-API ou trigger externo) — a defesa A já neutraliza independentemente da causa.
+- Backfill/limpeza de bookings/slot_holds antigos do lead de teste.
