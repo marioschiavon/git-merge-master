@@ -115,7 +115,13 @@ serve(async (req) => {
         response_payload: data ?? {},
       });
 
-      return jsonResponse({ success: true, booking: data, idempotency_key });
+      return jsonResponse({
+        success: true,
+        booking: data,
+        booking_uid: data?.uid ?? booking_uid,
+        calcom_booking_uid: data?.uid ?? booking_uid,
+        idempotency_key,
+      });
     } catch (err) {
       await markCalendarActionFailed(supabase, claim.row.id, err);
       throw err;
