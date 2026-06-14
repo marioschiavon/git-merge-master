@@ -63,6 +63,17 @@ export async function classifyIntent(args: {
     return { intent: "other", confidence: 0, reasoning: "empty inbound", raw: null };
   }
 
+  // Fast-path determinístico: "não sou eu / não é comigo / quem cuida disso é / fala com X"
+  // → referral, mesmo sem contato ainda. Evita o erro recorrente do LLM rotular como not_interested.
+  if (REDIRECT_RE.test(inbound)) {
+    return {
+      intent: "referral",
+      confidence: 0.9,
+      reasoning: "deterministic: redirect signal (não sou eu / quem cuida / fala com)",
+      raw: { fast_path: "redirect" },
+    };
+  }
+
   // Pequena janela de contexto: últimas 4 mensagens.
   const tail = args.recentHistory.slice(-4)
     .map((m) => `${m.direction === "inbound" ? "LEAD" : "SDR"}: ${(m.content || "").slice(0, 240)}`)
