@@ -113,13 +113,13 @@ Falha de qualquer guard → tool result `{ ok: false, error_code, hint }` para o
 
 ---
 
-## Fase 6 — Documentação do gateway
+## Fase 6 — Documentação do gateway ✅
 
 Criar `supabase/functions/_shared/ai-gateway.md` documentando que o gateway preserva `tool_call_id`, ordem das mensagens, `tool_choice`, e o formato esperado de `role: tool`.
 
 ---
 
-## Fase 7 — Logs por execução
+## Fase 7 — Logs por execução ✅
 
 Expandir `sdr_agent_runs.steps[]` com:
 - `messages_sent` (truncado), `structured_state`, `allowed_actions`
