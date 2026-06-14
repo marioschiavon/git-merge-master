@@ -1491,6 +1491,34 @@ Analise a última mensagem e decida a ação.`,
       // Reschedule: cancel existing booking + held slots, then offer new ones
       console.log(`Reschedule requested for lead ${leadData?.id}`);
 
+      // GUARD: se existe um booking recém-confirmado (< 90s) para este lead,
+      // NÃO cancelar nada — provavelmente é uma execução duplicada/concorrente
+      // do mesmo inbound. Responder confirmando e abortar o reschedule.
+      try {
+        const { data: recentBooking } = await supabase
+          .from("bookings")
+          .select("id, calcom_booking_uid, scheduled_at, status, created_at")
+          .eq("lead_id", leadData.id)
+          .neq("status", "cancelled")
+          .gte("created_at", new Date(Date.now() - 90_000).toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (recentBooking) {
+          const formatted = formatDateTimeBrt(recentBooking.scheduled_at);
+          console.log(`RESCHEDULE_SKIPPED_RECENT_BOOKING lead=${leadData.id} booking=${recentBooking.calcom_booking_uid} created_at=${recentBooking.created_at}`);
+          parsed.reply_message = parsed.reply_message
+            || `Sua reunião está confirmada para ${formatted}. Quer trocar para outro horário?`;
+          // Pula todo o processamento do branch reschedule.
+          parsed.action = "reply";
+        }
+      } catch (e) {
+        console.error("recent-booking guard failed (continuing reschedule):", e);
+      }
+    }
+
+    if (parsed.action === "reschedule") {
+
       // 1) Cancel any held or confirmed slots in slot_holds
       const { data: liveSlots } = await supabase
         .from("slot_holds")
