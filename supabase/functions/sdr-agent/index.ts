@@ -295,14 +295,28 @@ async function execTool(
   }
 
   if (name === "check_calendar") {
+    // Slots no passado (ou nos próximos ~30min) são inúteis para oferecer.
+    const MIN_LEAD_MS = 30 * 60 * 1000;
+    const earliestAllowed = new Date(Date.now() + MIN_LEAD_MS);
+    const filterFutureSlots = (slots: any[]): any[] => {
+      return (slots || []).filter((s: any) => {
+        const iso = typeof s === "string"
+          ? s
+          : (s?.start ?? s?.slot ?? s?.datetime ?? s?.slot_datetime ?? null);
+        if (!iso) return true;
+        const ts = parseSlotStartAsBrt(String(iso));
+        return !isNaN(ts) && ts >= earliestAllowed.getTime();
+      });
+    };
+
     const fetchSlots = async (b: Record<string, unknown>): Promise<{ slots: any[]; raw: any; httpError: boolean }> => {
       const { data, error } = await supabase.functions.invoke("calcom-slots", { body: b });
       if (error) {
-        // 404 with "Não há slots" payload is reported as FunctionsHttpError; treat as empty
         return { slots: [], raw: { error: String(error) }, httpError: true };
       }
-      const slots = (data as any)?.slots ?? [];
-      return { slots: Array.isArray(slots) ? slots : [], raw: data ?? {}, httpError: false };
+      const slots = filterFutureSlots((data as any)?.slots ?? []);
+      const raw = { ...(data ?? {}), slots };
+      return { slots, raw, httpError: false };
     };
 
     try {
@@ -311,23 +325,24 @@ async function execTool(
         lead_id: ctx.lead_id,
         conversation_id: ctx.conversation_id ?? undefined,
       };
-      if (typeof args.start_after === "string") body.start_after = args.start_after;
+      // Hard floor: nunca pedir slots que comecem no passado ou nos próximos 30min.
+      const startAfterArg = typeof args.start_after === "string" ? args.start_after : null;
+      const startAfterTs = startAfterArg ? Date.parse(startAfterArg) : NaN;
+      body.start_after = (!isNaN(startAfterTs) && startAfterTs > earliestAllowed.getTime())
+        ? startAfterArg!
+        : earliestAllowed.toISOString();
       if (typeof args.end_before === "string") body.end_before = args.end_before;
       if (Array.isArray(args.exclude_datetimes)) body.exclude_datetimes = args.exclude_datetimes;
       if (Array.isArray(args.exclude_dates)) body.exclude_dates = args.exclude_dates;
-      if (typeof args.days_ahead === "number" && !body.end_before && !body.start_after) {
-        const start = new Date();
-        const end = new Date(Date.now() + Number(args.days_ahead) * 86400000);
-        body.start_after = start.toISOString();
-        body.end_before = end.toISOString();
+      if (typeof args.days_ahead === "number" && !body.end_before) {
+        body.end_before = new Date(Date.now() + Number(args.days_ahead) * 86400000).toISOString();
       }
       const requestedWindow = { start_after: body.start_after ?? null, end_before: body.end_before ?? null };
       const first = await fetchSlots(body);
 
-      const hasWindow = !!(body.start_after || body.end_before);
+      const hasWindow = !!body.end_before;
       if (first.slots.length === 0 && hasWindow) {
-        // Janela pedida vazia (ou erro 404 "sem slots") → amplia +14 dias
-        const widenFrom = body.end_before ? new Date(String(body.end_before)) : new Date(String(body.start_after));
+        const widenFrom = new Date(String(body.end_before));
         const widenTo = new Date(widenFrom.getTime() + 14 * 86400000);
         const widenBody: Record<string, unknown> = {
           company_id: ctx.company_id,
