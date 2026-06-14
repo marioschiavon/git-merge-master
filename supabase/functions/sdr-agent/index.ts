@@ -1397,7 +1397,7 @@ Deno.serve(async (req) => {
                     `Chame \`${forcedTool}\` agora com os argumentos corretos. Não use \`finalize\` nem responda em texto livre.`,
               },
             ],
-            tools: TOOLS,
+            tools: TOOLS_ALLOWED,
             tool_choice: { type: "function", function: { name: forcedTool } } as unknown as "auto",
             temperature: 0.1,
           });
