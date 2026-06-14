@@ -1281,6 +1281,11 @@ Deno.serve(async (req) => {
       matchesSlotRef: matchesSlotReference,
     });
 
+    // Heurística leve para a Policy: o lead tem pergunta pendente?
+    // Nossa última explicação foi curta? — usado pelo branch referral
+    // para priorizar responder antes de coletar contato.
+    const pendingQRe = /(\?|\bcomo\b|funciona|explica|me\s+conta|exemplo|diferen[cç]|pre[çc]o|valor|prazo|integra|pra\s+que|para\s+que\s+serve|o\s+que\s+[ée])/i;
+    const lastOutboundLen = (lastOutboundContent(ctx.messages) || "").length;
     const policy = decidePolicy({
       intent: intentResult.intent,
       confidence: intentResult.confidence,
@@ -1292,7 +1297,12 @@ Deno.serve(async (req) => {
         offered_slots: offeredSlotsNow,
         held_slots: heldSlotIsos,
       },
+      context: {
+        last_inbound_has_pending_question: pendingQRe.test(lastInbound || ""),
+        last_outbound_short: lastOutboundLen > 0 && lastOutboundLen < 200,
+      },
     });
+
 
     console.log("sdr-agent pipeline:", JSON.stringify({
       intent: intentResult.intent,
