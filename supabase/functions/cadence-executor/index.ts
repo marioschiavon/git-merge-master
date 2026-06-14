@@ -323,6 +323,29 @@ serve(async (req) => {
           }
         }
 
+        // Contexto de indicação (apenas para cadências kind='referral')
+        let referralContextBlock = "";
+        let referrerName = "";
+        let referrerCompany = "";
+        if (cadence.kind === "referral" && lead.referral_source_lead_id) {
+          const { data: referrer } = await supabase
+            .from("leads")
+            .select("name, company_name, title")
+            .eq("id", lead.referral_source_lead_id)
+            .maybeSingle();
+          referrerName = referrer?.name || "";
+          referrerCompany = referrer?.company_name || "";
+          const ctxTxt = lead.referral_context || "";
+          referralContextBlock = `\n\n=== INDICAÇÃO (PRIORIDADE MÁXIMA) ===
+Este lead foi indicado por ${referrerName || "um contato nosso"}${referrerCompany ? ` (${referrerCompany})` : ""}${referrer?.title ? `, ${referrer.title}` : ""}.
+Contexto da indicação: ${ctxTxt || "não detalhado"}
+REGRAS OBRIGATÓRIAS PARA REFERRAL:
+- ABRA mencionando que ${referrerName || "um contato em comum"} passou o contato (ex.: "Oi {nome}, o ${referrerName || "[indicante]"} me passou seu contato...").
+- Se houver contexto da indicação, cite-o em 1 frase para dar legitimidade.
+- Tom mais quente e direto — você NÃO é desconhecido, foi indicado.
+- NÃO finja que descobriu o lead sozinho. NÃO ignore o indicante.`;
+        }
+
         // Generate personalized message with AI
         const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
