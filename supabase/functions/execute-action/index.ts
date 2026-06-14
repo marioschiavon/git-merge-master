@@ -654,6 +654,30 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   async acknowledge_cancellation(ctx) {
     const { booking_uid } = ctx.params;
     let whenLabel = "";
+
+    // Guard 0: já reconhecemos um cancelamento para este lead nas últimas 24h?
+    // Evita rajada quando reschedule + cancel real disparam dois acks.
+    try {
+      const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+      const { data: prevAck } = await ctx.supabase
+        .from("lead_action_queue")
+        .select("id, params, executed_at, result")
+        .eq("lead_id", ctx.lead_id)
+        .eq("action_type", "acknowledge_cancellation")
+        .eq("status", "done")
+        .gte("created_at", since)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      const alreadySent = (prevAck || []).some((row: any) => {
+        // Conta apenas envios efetivos (não skipped).
+        return row?.result?.sent === true;
+      });
+      if (alreadySent) {
+        await logActivity(ctx, "note", `↩️ acknowledge_cancellation ignorado (já reconhecido nas últimas 24h)`, { booking_uid });
+        return { skipped: true, reason: "already_acknowledged_24h" };
+      }
+    } catch (_) { /* best effort */ }
+
     // Safety net: se o cancelamento foi iniciado por nós (SDR/humano/sistema)
     // ou se o SDR já enviou alguma resposta outbound nos últimos 10 min, não
     // mandar o acknowledge — o lead já foi atendido conversacionalmente.
@@ -719,6 +743,60 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
     const { booking_uid, rescheduled } = ctx.params;
     const { data: booking } = await ctx.supabase.from("bookings").select("*").eq("calcom_booking_uid", booking_uid).maybeSingle();
     if (!booking) throw new Error("booking não encontrado");
+
+    // Guard 1: booking não está mais ativo (foi cancelado/remarcado/no-show).
+    const inactiveStatuses = new Set(["cancelled", "rescheduled", "no_show"]);
+    if (booking.status && inactiveStatuses.has(booking.status)) {
+      await logActivity(ctx, "note", `↩️ send_booking_confirmation ignorado (status=${booking.status})`, { booking_uid });
+      return { skipped: true, reason: `status=${booking.status}` };
+    }
+
+    // Guard 2: existe outra reserva mais recente ativa para o mesmo lead.
+    const { data: newer } = await ctx.supabase
+      .from("bookings")
+      .select("id, calcom_booking_uid, scheduled_at, status")
+      .eq("lead_id", ctx.lead_id)
+      .in("status", ["confirmed", "pending"])
+      .neq("calcom_booking_uid", booking_uid)
+      .gt("created_at", booking.created_at)
+      .limit(1)
+      .maybeSingle();
+    if (newer) {
+      await logActivity(ctx, "note", `↩️ send_booking_confirmation ignorado (superseded por ${newer.calcom_booking_uid})`, { booking_uid });
+      return { skipped: true, reason: "superseded_by_newer_booking" };
+    }
+
+    // Guard 3: idempotência local — já mandamos confirmação para este uid
+    // (ou qualquer confirmação nos últimos 10 min)?
+    try {
+      const { data: conv } = await ctx.supabase
+        .from("conversations").select("id").eq("lead_id", ctx.lead_id)
+        .order("created_at", { ascending: false }).limit(1).maybeSingle();
+      if (conv?.id) {
+        const since = new Date(Date.now() - 10 * 60_000).toISOString();
+        const { data: recent } = await ctx.supabase
+          .from("messages")
+          .select("id, sent_at, metadata")
+          .eq("conversation_id", conv.id)
+          .eq("direction", "outbound")
+          .gte("sent_at", since)
+          .order("sent_at", { ascending: false })
+          .limit(10);
+        const dup = (recent || []).some((m: any) => {
+          const act = m?.metadata?.action;
+          const uid = m?.metadata?.booking_uid;
+          if (act === "send_booking_confirmation" && uid === booking_uid) return true;
+          // SDR já respondeu sincronamente confirmando esta reserva
+          if (uid === booking_uid && (act === "book" || act === "reschedule" || act === "send_reply")) return true;
+          return false;
+        });
+        if (dup) {
+          await logActivity(ctx, "note", `↩️ send_booking_confirmation ignorado (já enviado nos últimos 10 min)`, { booking_uid });
+          return { skipped: true, reason: "already_sent_recently" };
+        }
+      }
+    } catch (_) { /* best effort */ }
+
     const when = booking.scheduled_at ? new Date(booking.scheduled_at).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }) : "horário a confirmar";
     const lead = await loadLead(ctx);
     const verb = rescheduled ? "remarcada" : "confirmada";

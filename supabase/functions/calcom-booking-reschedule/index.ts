@@ -57,6 +57,21 @@ serve(async (req) => {
       return jsonResponse({ success: false, in_flight: true, idempotency_key }, 409);
     }
 
+    // Estampar origem do cancelamento implícito no booking antigo ANTES de
+    // chamar Cal.com — assim o webhook BOOKING_CANCELLED detecta que foi o
+    // SDR quem reagendou e suprime o acknowledge_cancellation redundante.
+    if (prev) {
+      try {
+        await supabase
+          .from("bookings")
+          .update({
+            cancellation_source: "sdr_reschedule",
+            cancellation_requested_at: new Date().toISOString(),
+          })
+          .eq("id", prev.id);
+      } catch (_) { /* best effort */ }
+    }
+
     try {
       const result = await calcomFetch(`/v2/bookings/${booking_uid}/reschedule`, {
         method: "POST",
@@ -76,7 +91,12 @@ serve(async (req) => {
       if (newBooking) {
         await supabase
           .from("bookings")
-          .update({ status: "confirmed", previous_booking_id: prev?.id || null, reschedule_reason: reason || null })
+          .update({
+            status: "confirmed",
+            source: "sdr_agent",
+            previous_booking_id: prev?.id || null,
+            reschedule_reason: reason || null,
+          })
           .eq("id", newBooking.id);
       }
 
@@ -95,7 +115,13 @@ serve(async (req) => {
         response_payload: data ?? {},
       });
 
-      return jsonResponse({ success: true, booking: data, idempotency_key });
+      return jsonResponse({
+        success: true,
+        booking: data,
+        booking_uid: data?.uid ?? booking_uid,
+        calcom_booking_uid: data?.uid ?? booking_uid,
+        idempotency_key,
+      });
     } catch (err) {
       await markCalendarActionFailed(supabase, claim.row.id, err);
       throw err;

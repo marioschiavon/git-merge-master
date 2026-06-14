@@ -235,9 +235,13 @@ serve(async (req) => {
       .update({ pending_email_slot_hold_id: null })
       .eq("id", lead_id);
 
+    const finalBookingUid =
+      bookingData?.data?.uid || bookingData?.data?.id || null;
     return new Response(JSON.stringify({
       success: true,
       booking: bookingData?.data,
+      booking_uid: finalBookingUid,
+      calcom_booking_uid: finalBookingUid,
       confirmed_slot: selectedHold.slot_datetime,
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

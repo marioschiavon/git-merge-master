@@ -557,7 +557,12 @@ async function execBookingTool(
       await markCalendarActionFailed(supabase, claim.row.id, errStr);
       return { ok: false, error: errStr };
     }
-    const bookingUid = (booking as any)?.booking?.calcom_booking_uid ?? (booking as any)?.calcom_booking_uid ?? null;
+    const bookingUid =
+      (booking as any)?.booking?.uid ??
+      (booking as any)?.booking?.calcom_booking_uid ??
+      (booking as any)?.booking_uid ??
+      (booking as any)?.calcom_booking_uid ??
+      null;
     await markCalendarActionOk(supabase, claim.row.id, {
       provider_booking_uid: bookingUid,
       response_payload: (booking as any) ?? {},
@@ -604,7 +609,12 @@ async function execBookingTool(
     await markCalendarActionFailed(supabase, claim.row.id, errStr);
     return { ok: false, error: errStr };
   }
-  const newUid = (resched as any)?.booking?.calcom_booking_uid ?? (resched as any)?.calcom_booking_uid ?? bookingUid;
+  const newUid =
+    (resched as any)?.booking?.uid ??
+    (resched as any)?.booking?.calcom_booking_uid ??
+    (resched as any)?.booking_uid ??
+    (resched as any)?.calcom_booking_uid ??
+    bookingUid;
   await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: newUid, response_payload: (resched as any) ?? {} });
   return {
     ok: true, booking_uid: newUid, scheduled_at: startIso,
