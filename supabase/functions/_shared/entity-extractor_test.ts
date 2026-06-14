@@ -76,3 +76,28 @@ Deno.test("referral_contact: nulo quando não há sinal", () => {
   assertEquals(r.referral_contact, null);
 });
 
+
+Deno.test("referral_contact: detecta redirect_signal 'não seria comigo'", () => {
+  const r = extractEntities({
+    lastInbound: "Muito legal, mas esse assunto não seria comigo.",
+    offeredSlots: [],
+    heldSlots: [],
+    activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.redirect_signal, true);
+  assertEquals(r.referral_contact?.email, undefined);
+  assertEquals(r.referral_contact?.phone, undefined);
+  assertEquals(r.referral_contact?.name, undefined);
+});
+
+Deno.test("referral_contact: detecta 'quem cuida disso é'", () => {
+  const r = extractEntities({
+    lastInbound: "Quem cuida disso é o financeiro",
+    offeredSlots: [],
+    heldSlots: [],
+    activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.redirect_signal, true);
+});
