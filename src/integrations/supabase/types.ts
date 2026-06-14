@@ -472,6 +472,7 @@ export type Database = {
           created_by: string
           description: string | null
           id: string
+          kind: string
           mode: string
           name: string
           simulation_mode: boolean
@@ -485,6 +486,7 @@ export type Database = {
           created_by: string
           description?: string | null
           id?: string
+          kind?: string
           mode?: string
           name: string
           simulation_mode?: boolean
@@ -498,6 +500,7 @@ export type Database = {
           created_by?: string
           description?: string | null
           id?: string
+          kind?: string
           mode?: string
           name?: string
           simulation_mode?: boolean

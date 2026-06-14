@@ -1,41 +1,56 @@
-## Problema
+## Objetivo
 
-Na ação `create_new_contact` (em `supabase/functions/execute-action/index.ts`, linhas 465-493), quando o SDR cria um novo lead via indicação:
+Quando um lead novo for criado por indicação (`source='referral'`, com `referral_source_lead_id` preenchido), ele entra numa **cadência marcada como `kind='referral'`** em vez da cadência padrão — com mensagens que citam quem indicou e o contexto da indicação, e priorizando WhatsApp.
 
-1. **Email vai para o campo `name`** — a linha `name: name || email` faz isso porque `name` é NOT NULL. Quando o lead indicante só dá o e-mail (sem o nome completo da pessoa indicada), o e-mail acaba virando o nome exibido na lista de leads.
-2. **Faltam dados da empresa e website** — só copia `company_name` do indicante; não copia `website`, `address`, `linkedin_company_url` (que normalmente são da mesma empresa em indicações internas).
+## Mudanças
 
-## Correções
+### 1. Schema (migration)
+- `public.cadences` ganha coluna `kind text NOT NULL DEFAULT 'outbound'` com CHECK em `('outbound', 'referral')`.
+- Índice parcial `idx_cadences_referral` em `(company_id, status)` onde `kind = 'referral'` (para lookup rápido da ativa).
 
-### 1. `supabase/functions/execute-action/index.ts` — `create_new_contact`
+### 2. UI — editor de cadência (`src/components/CadenceDetail.tsx` / lista em `src/pages/Cadences.tsx`)
+- Novo seletor "Tipo da cadência": **Outbound padrão** | **Indicações (referral)**.
+- Badge "Indicações" na listagem.
+- Hint no editor de step: "Você pode usar `{{referrer_name}}` e `{{referral_context}}` nos templates desta cadência."
 
-- **Nome inteligente**: usar `name` se vier; senão derivar do e-mail (parte antes do `@`, capitalizada, ex.: `joao.silva@x.com` → `Joao Silva`); senão usar o telefone formatado; nunca colocar o e-mail bruto no campo nome.
-- **Herdar dados do indicante** quando o lead novo não trouxer valor próprio:
-  - `company_name` (já existe — manter)
-  - `website`
-  - `address`
-  - `linkedin_company_url`
-  - `pipeline_mode` (manter `'agent'` por padrão, igual ao indicante)
-- **Permitir override via params** caso o SDR já tenha extraído website/empresa diferentes.
-- **Activity log mais claro**: incluir indicador "(via indicação de {nome do indicante})" e os campos copiados.
+### 3. Inscrição automática — `supabase/functions/execute-action/index.ts` (`create_new_contact`)
+Logo após inserir o novo lead, se existir cadência ativa com `kind='referral'` na mesma `company_id`:
+- Cria `cadence_enrollments` (status `active`, `current_step=1`, `next_execution_at=now()` ou conforme `delay_days` do primeiro step) apontando para essa cadência.
+- Pula a inscrição padrão (sinalizar via `lead.source='referral'` para o `enrich-lead` não enrolar de novo na default).
+- Activity log: "Inscrito na cadência de indicações: {nome}".
 
-### 2. `supabase/functions/sdr-agent/index.ts` — tool `create_new_contact`
+### 4. Pular default cadence para referrals — `supabase/functions/enrich-lead/index.ts`
+No bloco `generate_message` (linhas 463-483), quando `lead.source === 'referral'` e já existir enrollment ativo do tipo referral, não criar enrollment na `default_cadence_id`.
 
-Atualizar o schema/descrição da tool `n` (e a forma como o LLM a chama) para aceitar opcionalmente `website` e `company_name` quando o lead indicante mencionar.
+### 5. Renderização com contexto do indicante — `supabase/functions/cadence-executor/index.ts`
+Antes do prompt da IA (≈ linha 383), quando a cadência for `kind='referral'`:
+- Carregar o indicante via `leads` join em `referral_source_lead_id` → `referrer_name`, `referrer_company`, `referrer_role`.
+- Carregar `referral_context` do próprio lead.
+- Adicionar bloco no prompt:
+  ```
+  === INDICAÇÃO ===
+  Este lead foi indicado por {referrer_name} ({referrer_company}).
+  Contexto da indicação: {referral_context || "—"}
+  REGRAS OBRIGATÓRIAS:
+  - Abra mencionando "{referrer_name} me passou seu contato" (ou variação natural).
+  - Cite o contexto da indicação se houver, pra dar legitimidade.
+  - Tom mais quente e direto que outbound frio — a indicação já te aproxima.
+  ```
+- Pré-interpolar `{{referrer_name}}` e `{{referral_context}}` no `currentStep.template` antes de mandar pro LLM (fallback: se variável não existir, troca por string vazia).
 
-### 3. Testes
+### 6. Canal padrão WhatsApp-first
+- Na cadência seed que sugerirmos no doc, primeiro step `channel='whatsapp'`, segundo step `channel='email'` como fallback.
+- Não forçar override no executor — quem define o canal é o step. Apenas garantir que o template seed venha com WhatsApp no step 1.
 
-Adicionar caso em `entity-extractor_test.ts` ou um novo `execute-action`-style teste verificando:
-- Quando só email é informado → name = derivado do local-part, não o e-mail completo.
-- Lead criado herda `website`, `company_name`, `address` do indicante quando params não trazem esses campos.
-
-## Fora de escopo
-
-- Não mexer no fluxo do `policy-engine` (já ajustado na rodada anterior).
-- Não alterar tipos do banco — `name` continua NOT NULL.
+### 7. Tests
+- `execute-action_test.ts` (novo): create_new_contact com referral cadence ativa → cria enrollment correto; sem referral cadence ativa → não cria enrollment (fica pro fluxo normal).
+- Atualizar `useCadences.ts` types após regenerar.
 
 ## Verificação
+- `supabase--migration` para schema.
+- Deploy `execute-action`, `enrich-lead`, `cadence-executor`.
+- Criar cadência de teste marcada como referral, criar referral via SDR, conferir no `/cadences` que o lead aparece com mensagem citando o indicante.
 
-- `supabase--test_edge_functions` em `execute-action` e `_shared`.
-- Deploy de `execute-action` e `sdr-agent`.
-- Conferir na UI `/leads` que um novo referral criado mostra o nome correto e os dados da empresa preenchidos.
+## Fora de escopo
+- Multi-cadência referral (1 ativa por empresa basta agora).
+- Variáveis `{{referrer_company}}` / `{{referrer_role}}` nos templates (ficam disponíveis só via prompt da IA, não como placeholders, conforme sua escolha).
