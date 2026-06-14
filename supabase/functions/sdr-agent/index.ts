@@ -1211,11 +1211,12 @@ Deno.serve(async (req) => {
       allowed: policy.allowed_tools,
     }));
 
-    steps.unshift_safe = true; // marker
     // Filter the TOOLS exposed to the LLM to the policy-allowed subset.
     const TOOLS_ALLOWED = TOOLS.filter((t) =>
       (policy.allowed_tools as string[]).includes(t.function.name),
     );
+
+
 
     const sys =
       buildSystemPrompt(ctx) + "\n\n" +
