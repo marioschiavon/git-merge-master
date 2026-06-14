@@ -1,144 +1,63 @@
-# Modernizar o SDR — cutover total, AI SDK e remoção do pipeline legado
+## Diagnóstico
 
-Aprovado: (1) cutover imediato, (2) sem flag de fallback, (3) migração para AI SDK na mesma PR.
+Lead `a6ba77a3…` está aguardando resposta desde 14:13. A última run do `sdr-agent` (id `71388998…`, iniciada 14:13:30) ficou `status='running'` para sempre — boot ok, logou o estado e morreu sem enviar mensagem nem gravar erro.
 
-## Resumo do que muda
+Sequência reconstruída:
 
-O `sdr-agent` passa a ser o **único** decisor de cada turno inbound. O pipeline legado (`classify-intent` + branches `schedule/reschedule/reply` no `inbound-webhook`) é removido. O agent é reescrito com o AI SDK (Vercel) + provider Lovable AI Gateway, com tools tipadas em Zod, máquina de estado explícita e resolver determinístico de slots antes da LLM.
+1. 14:11:47 — booking **confirmado** para 18/jun 17:45 (BRT).
+2. 14:12:16 — lead: *"Esse horário não consigo. Quais outros horários você tem dia 18?"*
+3. 14:13:01 — agent **ignorou** o booking ativo, tratou como novo agendamento e ofereceu **18/jun 09:00** (criou `slot_hold` 951685a0 às 12:00 UTC).
+4. 14:13:12 — lead: *"Sim"*.
+5. 14:13:30 — agent entra com `stage=scheduling_confirming_now`, `pending=book_then_confirm` → tenta `book_slot` num lead que **já tem booking confirmado**. `assertCanBook` rejeita, o loop não tem saída válida (não está em `rescheduling`), atinge limite/timeout e morre sem `finalize` nem mensagem.
 
-## 1. Cutover (banco)
+Duas falhas combinadas:
 
-- `UPDATE leads SET pipeline_mode='agent'` em todos os leads.
-- `ALTER TABLE leads ALTER COLUMN pipeline_mode SET DEFAULT 'agent'`.
-- Manter a coluna para auditoria; remoção fica para PR de housekeeping.
+- **A state machine não reconhece "quero outro horário" pós-confirmação como reschedule.** Continua em `scheduling_confirming_now` em vez de transicionar para `rescheduling`.
+- **Quando `book_slot` falha por já existir booking, o agent não tem fallback** (nem converte em `reschedule_booking`, nem aborta com mensagem ao lead, nem marca a run como `failed`).
 
-## 2. `inbound-webhook/index.ts` — enxugar
+## Plano
 
-Mantém apenas:
-- Validação + CORS + auth do webhook.
-- Dedup (`processed_inbound_messages`) — já existe.
-- Resolver `lead` + `conversation`, persistir a mensagem inbound.
-- Invocar `sdr-agent` (sempre, sem checar pipeline_mode).
-- Retornar 200.
+### 1. Detectar intenção de reschedule mesmo sem palavra "remarcar"
 
-Remove:
-- Chamada a `classify-intent` para gerar resposta.
-- Branches `schedule`, `reschedule`, `reply`, regex `reschedRe`, guard de booking recente (passa a ser responsabilidade do agent via tools).
-- `slot_expiry_followups` triggers que dependem do legado (avaliar — provavelmente fica, é cron).
+Em `sdr-agent/index.ts`, no resolver de estado pré-LLM (ou no `state-machine.ts`):
+- Se existe booking `confirmed` ativo **e** a última mensagem inbound contém sinais de troca ("outro", "outros horários", "não consigo", "não posso", "muda", "troca", "antes", "depois", "mais cedo", "mais tarde") → forçar transição para `rescheduling` e instruir o LLM a usar `reschedule_booking` (não `book_slot`).
+- Reforçar no system prompt: *"Se já existe booking confirmado, NUNCA chame `book_slot`. Use `reschedule_booking` ou `cancel_booking`."*
 
-Resultado esperado: ~70% menos código.
+### 2. Guard determinístico no `book_slot`
 
-## 3. `sdr-agent/index.ts` — reescrever com AI SDK
+Em `_shared/booking-guards.ts` (`assertCanBook`): se já há booking `confirmed` para o lead, **retornar erro estruturado** `{ code: "ACTIVE_BOOKING_EXISTS", existing_booking_id, scheduled_at }`. A tool propaga esse erro como `tool_result` para o LLM, que é instruído a:
+- chamar `reschedule_booking` com o novo slot, ou
+- responder ao lead pedindo confirmação de troca.
 
-### 3a. Provider compartilhado
+### 3. Safety net: run não pode ficar `running` para sempre
 
-Criar `supabase/functions/_shared/ai-gateway.ts` com o helper canônico `createLovableAiGatewayProvider` (header `Lovable-API-Key`, `X-Lovable-AIG-SDK: vercel-ai-sdk`). Imports via `npm:ai` e `npm:@ai-sdk/openai-compatible`.
+Em `sdr-agent/index.ts`:
+- `try/catch/finally` ao redor do loop principal: em qualquer exceção/timeout, gravar `sdr_agent_runs.status='failed'` + `error` antes de retornar.
+- Limite de steps explícito (ex.: 8) com fallback: se atingido sem `finalize`, enviar mensagem genérica *"Só um instante, vou confirmar e te respondo."* e marcar `status='failed'` para auditoria.
+- Adicionar `setTimeout` watchdog (ex.: 25s) que aborta o loop e força fallback.
 
-### 3b. Loop principal
+### 4. Destravar a run atual e responder o lead
 
-```ts
-const result = await generateText({
-  model: gateway("google/gemini-3-flash-preview"),
-  system: buildSystemPrompt(ctx),
-  messages: convertHistoryToModelMessages(history),
-  tools,
-  stopWhen: stepCountIs(50),
-  experimental_output: Output.object({ schema: TurnDecisionSchema }),
-});
-```
+Script único de cleanup:
+- `UPDATE sdr_agent_runs SET status='failed', error='stuck_after_book_conflict' WHERE id='71388998…'`.
+- Expirar o `slot_hold` órfão `951685a0` (`status='expired'`).
+- Disparar `sdr-agent` manualmente para o lead, agora com os fixes em #1–#3, para que ele responda algo como: *"Você já tem reunião confirmada para 18/jun às 17:45. Quer que eu remarque para outro horário no dia 18? Tenho [opções]."*
 
-`TurnDecisionSchema` (Zod): `{ decision: "send_message"|"silence"|"escalate", message?: string, rationale: string }`.
+### 5. Eval mínima (mesmo PR)
 
-### 3c. Tools (todas com Zod `inputSchema` + `execute` server-side)
-
-| Tool | Função | needsApproval |
-|---|---|---|
-| `get_calendar_availability` | Busca slots livres no Cal.com em janela | não |
-| `offer_slots` | Persiste 2 slots em `slot_holds` e retorna texto formatado | não |
-| `book_slot` | Cria booking no Cal.com (idempotente via `assertCanBook`) | sim* |
-| `reschedule_booking` | Cancela + reagenda (atomicamente) | sim* |
-| `cancel_booking` | Cancela | sim* |
-| `update_lead_facts` | Persiste fatos em `lead_memory` | não |
-| `finalize_turn` | Encerra com decisão final | não |
-
-*`needsApproval` aqui significa guard determinístico pré-execução (não UI humana): valida estado, idempotência e janela temporal antes de tocar Cal.com.
-
-### 3d. Resolver determinístico de slot (pré-LLM)
-
-Novo `_shared/slot-resolver.ts`:
-- Carrega `slot_holds WHERE status='held' AND expires_at>now()`.
-- Heurísticas:
-  - "dia 18", "no 18", "18/06" → match por data; se houver 1 slot naquele dia → resolve direto.
-  - "o que sugeriu", "qualquer um", "tanto faz", "o primeiro", "primeira opção" → primeiro slot ofertado.
-  - "o segundo", "a outra" → segundo slot.
-  - "as 17", "17h", "17:45" → match por hora dentro do dia já resolvido.
-- Se resolve sem ambiguidade, o agent já entra no turno com `prefilled_choice` no contexto e a tool `book_slot`/`reschedule_booking` vira a próxima ação natural.
-
-Isso evita o caso "Dia 18" → "Qual horário?" quando só havia um 18 ofertado.
-
-### 3e. Máquina de estado
-
-`_shared/state-machine.ts` formalizada:
-```
-idle → offering → awaiting_choice → confirming → confirmed
-                ↘ awaiting_clarification        ↘ rescheduling → confirming
-                                                ↘ cancelling → cancelled
-```
-Estado vive em `lead_memory.facts.scheduling_state`. Transições validadas em código — LLM não consegue pular de `confirmed` direto para `offering` sem passar por `rescheduling`.
-
-### 3f. Contexto passado ao LLM
-
-- Últimas 20 mensagens (parts).
-- Estado atual + `offered_slots` ativos.
-- Booking atual (se houver) com data formatada em BRT.
-- Fatos do lead.
-- Hora atual em BRT (resolve "horários no passado").
-- Pre-resolução de slot (se houver).
-
-### 3g. Filtro temporal
-
-Antes de oferecer slots, filtra fora qualquer slot com `start <= now() + 30min`. Resolve o relato "SDR perguntou horário que já tinha passado".
-
-## 4. Frontend
-
-Sem mudanças. O `inbound-webhook` continua sendo o webhook; `messages` continua sendo a fonte da UI.
-
-## 5. Evals (mesmo PR, mínimo)
-
-`supabase/functions/sdr-agent/sdr-agent_test.ts` com cenários golden (mockando Cal.com + Lovable AI via `Deno.test` + fixtures):
-1. "Dia 18" com `[16/10:00, 18/17:45]` → confirma 18/17:45.
-2. "O que sugeriu" → confirma 1º ofertado.
-3. "Dia 15 segunda" pós-confirmação → reagenda corretamente, **uma** mensagem de confirmação.
-4. "Cancela" sem novo horário → cancela e oferece reagendamento, não inventa horário.
-5. Lead pede slot fora dos ofertados → checa disponibilidade real antes de confirmar.
-
-## 6. Validação manual pós-deploy
-
-Conversa nova com o mesmo fluxo problemático. Critérios:
-- 1 única mensagem `📅 Reunião confirmada` por agendamento.
-- "Dia 18" com slot único naquele dia → confirma direto.
-- "O que sugeriu" → escolhe primeiro ofertado, nunca inventa.
-- Nenhum slot oferecido com horário no passado.
+Adicionar cenário ao `sdr-agent_test.ts` (já planejado):
+- Booking confirmado existe + lead pede "outros horários dia X" → agent oferece slots e usa `reschedule_booking`, **nunca** `book_slot`. Run termina com `status='succeeded'` e exatamente 1 mensagem outbound.
 
 ## Arquivos
 
-**Novos:**
-- `supabase/functions/_shared/ai-gateway.ts`
-- `supabase/functions/_shared/slot-resolver.ts`
-- `supabase/functions/sdr-agent/sdr-agent_test.ts`
+- `supabase/functions/sdr-agent/index.ts` — detecção de reschedule, watchdog, fallback, `finally` que grava `failed`.
+- `supabase/functions/_shared/state-machine.ts` — transição `booking_confirmed → rescheduling` por sinais textuais.
+- `supabase/functions/_shared/booking-guards.ts` — erro estruturado `ACTIVE_BOOKING_EXISTS`.
+- `supabase/functions/sdr-agent/sdr-agent_test.ts` — novo cenário.
+- Migration de housekeeping (one-off) para o lead travado.
 
-**Reescritos:**
-- `supabase/functions/sdr-agent/index.ts` (AI SDK + tools Zod + state machine + resolver)
-- `supabase/functions/inbound-webhook/index.ts` (enxugado, sempre agent)
-- `supabase/functions/_shared/state-machine.ts` (formalizar transições)
+## Critérios de validação
 
-**Migration:**
-- `pipeline_mode` default `'agent'` + backfill.
-
-**Sem mudança:** `calcom-*`, frontend, schema (exceto default acima).
-
-## Riscos e mitigações
-
-- **Risco:** AI SDK em Deno Edge pode ter incompatibilidade pontual. **Mitigação:** uso via `npm:ai@^4` e `npm:@ai-sdk/openai-compatible`, padrão documentado para Edge Functions; testes locais com `deno test` antes de deploy.
-- **Risco:** remover legado expõe bugs latentes do agent. **Mitigação:** evals + monitorar `sdr_agent_runs.status='failed'` nas primeiras horas; rollback = reverter PR.
-- **Risco:** leads com booking em andamento no momento do deploy. **Mitigação:** cutover idempotente — agent reidrata estado de `bookings`+`slot_holds`.
+1. Run `71388998…` vira `failed` e o lead recebe resposta coerente.
+2. Repetir o fluxo "outros horários dia X" pós-confirmação → 1 mensagem de reagendamento, sem nova run travada.
+3. `sdr_agent_runs.status='running'` há mais de 60s passa a ser zero em condições normais.
