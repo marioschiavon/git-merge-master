@@ -136,9 +136,26 @@ serve(async (req) => {
 
     const { data: lead } = await supabase
       .from("leads")
-      .select("name, email, phone, whatsapp")
+      .select("name, email, phone, whatsapp, status, referral_stage")
       .eq("id", lead_id)
       .maybeSingle();
+
+    // ── Guard (defense-in-depth): never message a lead whose conversation
+    // is effectively closed (referral handoff, disqualified, won/lost).
+    const refStage = (lead as any)?.referral_stage ?? null;
+    const leadStatus = (lead as any)?.status ?? null;
+    const closedStages = ["is_referrer", "pending_outreach", "aguardando_encaminhamento_interno"];
+    const closedStatuses = ["disqualified", "not_interested", "won", "lost"];
+    let skipReason: string | null = null;
+    if (refStage && closedStages.includes(refStage)) skipReason = `referral_stage=${refStage}`;
+    else if (leadStatus && closedStatuses.includes(leadStatus)) skipReason = `status=${leadStatus}`;
+    if (skipReason) {
+      console.log(`[slot-expiry-followup] skipped lead ${lead_id}: ${skipReason}`);
+      return new Response(JSON.stringify({ skipped: true, reason: skipReason }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
     let stageToRun: Stage = nextStage((tracker?.stage as Stage) || null);
 
