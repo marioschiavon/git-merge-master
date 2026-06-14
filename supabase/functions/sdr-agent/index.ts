@@ -15,6 +15,12 @@ import {
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 import { buildNativeHistory } from "../_shared/history-builder.ts";
+import {
+  buildIdempotencyKey,
+  claimCalendarAction,
+  markCalendarActionFailed,
+  markCalendarActionOk,
+} from "../_shared/idempotency.ts";
 
 // Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
 // Returns epoch ms.
