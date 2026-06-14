@@ -1680,6 +1680,8 @@ export type Database = {
           referral_role: string | null
           referral_source_lead_id: string | null
           referral_stage: string | null
+          referrer_company: string | null
+          referrer_name: string | null
           score: number | null
           source: string | null
           status: Database["public"]["Enums"]["lead_status"]
@@ -1723,6 +1725,8 @@ export type Database = {
           referral_role?: string | null
           referral_source_lead_id?: string | null
           referral_stage?: string | null
+          referrer_company?: string | null
+          referrer_name?: string | null
           score?: number | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
@@ -1766,6 +1770,8 @@ export type Database = {
           referral_role?: string | null
           referral_source_lead_id?: string | null
           referral_stage?: string | null
+          referrer_company?: string | null
+          referrer_name?: string | null
           score?: number | null
           source?: string | null
           status?: Database["public"]["Enums"]["lead_status"]

@@ -1,56 +1,58 @@
-## Objetivo
+# Ajustes no fluxo de Referral
 
-Quando um lead novo for criado por indicação (`source='referral'`, com `referral_source_lead_id` preenchido), ele entra numa **cadência marcada como `kind='referral'`** em vez da cadência padrão — com mensagens que citam quem indicou e o contexto da indicação, e priorizando WhatsApp.
+Três correções no fluxo de indicações para resolver o que apareceu na conversa.
 
-## Mudanças
+## 1. SDR pede WhatsApp quando o lead de indicação responde por email
 
-### 1. Schema (migration)
-- `public.cadences` ganha coluna `kind text NOT NULL DEFAULT 'outbound'` com CHECK em `('outbound', 'referral')`.
-- Índice parcial `idx_cadences_referral` em `(company_id, status)` onde `kind = 'referral'` (para lookup rápido da ativa).
+**Problema:** lead de indicação respondeu o primeiro email e o SDR não pediu o WhatsApp. Como WhatsApp é o canal preferencial da cadência de indicações, perder essa chance trava o fluxo.
 
-### 2. UI — editor de cadência (`src/components/CadenceDetail.tsx` / lista em `src/pages/Cadences.tsx`)
-- Novo seletor "Tipo da cadência": **Outbound padrão** | **Indicações (referral)**.
-- Badge "Indicações" na listagem.
-- Hint no editor de step: "Você pode usar `{{referrer_name}}` e `{{referral_context}}` nos templates desta cadência."
+**Solução** — em `supabase/functions/sdr-agent/index.ts`, no system prompt:
 
-### 3. Inscrição automática — `supabase/functions/execute-action/index.ts` (`create_new_contact`)
-Logo após inserir o novo lead, se existir cadência ativa com `kind='referral'` na mesma `company_id`:
-- Cria `cadence_enrollments` (status `active`, `current_step=1`, `next_execution_at=now()` ou conforme `delay_days` do primeiro step) apontando para essa cadência.
-- Pula a inscrição padrão (sinalizar via `lead.source='referral'` para o `enrich-lead` não enrolar de novo na default).
-- Activity log: "Inscrito na cadência de indicações: {nome}".
+- Adicionar uma regra dedicada ao contexto referral: se `lead.source === 'referral'` E `!lead.whatsapp` E o canal atual da conversa é `email` E ainda não houve pedido prévio de WhatsApp (checar `lead_activities` ou `lead_memory.facts.whatsapp_asked`), o SDR DEVE, na próxima resposta, pedir educadamente o número de WhatsApp ("para agilizar a conversa") junto com a resposta normal.
+- Após pedir, chamar `update_lead_facts({ facts: { whatsapp_asked: true } })` para não repetir.
+- Quando o lead responder com número, o SDR já tem a tool de extrair entities — garantir que `whatsapp` extraído é salvo no `leads.whatsapp` (verificar branch de update; se faltar, adicionar).
 
-### 4. Pular default cadence para referrals — `supabase/functions/enrich-lead/index.ts`
-No bloco `generate_message` (linhas 463-483), quando `lead.source === 'referral'` e já existir enrollment ativo do tipo referral, não criar enrollment na `default_cadence_id`.
+## 2. Cadência de indicações começa pelo email quando lead não tem WhatsApp
 
-### 5. Renderização com contexto do indicante — `supabase/functions/cadence-executor/index.ts`
-Antes do prompt da IA (≈ linha 383), quando a cadência for `kind='referral'`:
-- Carregar o indicante via `leads` join em `referral_source_lead_id` → `referrer_name`, `referrer_company`, `referrer_role`.
-- Carregar `referral_context` do próprio lead.
-- Adicionar bloco no prompt:
-  ```
-  === INDICAÇÃO ===
-  Este lead foi indicado por {referrer_name} ({referrer_company}).
-  Contexto da indicação: {referral_context || "—"}
-  REGRAS OBRIGATÓRIAS:
-  - Abra mencionando "{referrer_name} me passou seu contato" (ou variação natural).
-  - Cite o contexto da indicação se houver, pra dar legitimidade.
-  - Tom mais quente e direto que outbound frio — a indicação já te aproxima.
-  ```
-- Pré-interpolar `{{referrer_name}}` e `{{referral_context}}` no `currentStep.template` antes de mandar pro LLM (fallback: se variável não existir, troca por string vazia).
+**Problema atual:** a cadência referral tem step 1 = WhatsApp, step 2 = email. Hoje o `cadence-executor` só pula o step de WhatsApp se `lead.whatsapp_valid === false` (validação explícita). Para lead novo de indicação, `whatsapp` é `null` e `whatsapp_valid` é `null` — o step não é pulado, mas também não há número pra enviar, então o envio falha silenciosamente ou fica preso.
 
-### 6. Canal padrão WhatsApp-first
-- Na cadência seed que sugerirmos no doc, primeiro step `channel='whatsapp'`, segundo step `channel='email'` como fallback.
-- Não forçar override no executor — quem define o canal é o step. Apenas garantir que o template seed venha com WhatsApp no step 1.
+**Solução** — em `supabase/functions/cadence-executor/index.ts`, na verificação do step:
 
-### 7. Tests
-- `execute-action_test.ts` (novo): create_new_contact com referral cadence ativa → cria enrollment correto; sem referral cadence ativa → não cria enrollment (fica pro fluxo normal).
-- Atualizar `useCadences.ts` types após regenerar.
+- Estender o skip atual para também pular quando `currentStep.channel === 'whatsapp'` E `!lead.whatsapp && !lead.phone` (sem número algum cadastrado). Log: `skip_reason: 'no_whatsapp_number'`.
+- Quando pula, avança para o próximo step imediatamente (sem aguardar `delay_days`) para que o email saia logo — definir `next_execution_at = now()` em vez de `now + delay_days` quando o motivo do skip é falta de canal.
+- Mesma regra para step `whatsapp` quando lead só tem email: pula e cai no email.
 
-## Verificação
-- `supabase--migration` para schema.
-- Deploy `execute-action`, `enrich-lead`, `cadence-executor`.
-- Criar cadência de teste marcada como referral, criar referral via SDR, conferir no `/cadences` que o lead aparece com mensagem citando o indicante.
+Resultado: lead de indicação sem WhatsApp recebe direto o email (step 2) sem ficar parado.
+
+## 3. Cadastro do indicado guarda nome correto e nome do indicante
+
+**Problema:** ao criar o lead via `create_new_contact`, o nome às vezes vinha como email. Já existe `deriveNameFromEmail` que limpa isso, mas o nome do indicante não fica acessível direto no novo lead (só via join em `referral_source_lead_id`).
+
+**Solução** — em `supabase/functions/execute-action/index.ts` no handler `create_new_contact`:
+
+- Reforçar validação de nome: se `name` parecer email (contém `@`) OU for igual ao email OU vazio, sempre usar `deriveNameFromEmail(email)`. Já está parcial — endurecer o check.
+- Adicionar campos snapshot no insert do novo lead:
+  - `referrer_name` = `referrer?.name`
+  - `referrer_company` = `referrer?.company_name`
+- Atualizar a activity log para sempre mostrar `"Indicado por {referrer.name} ({referrer.company_name})"`.
+
+**Migração necessária:** adicionar colunas em `public.leads`:
+```sql
+ALTER TABLE public.leads
+  ADD COLUMN IF NOT EXISTS referrer_name text,
+  ADD COLUMN IF NOT EXISTS referrer_company text;
+```
+
+Atualizar `cadence-executor` para usar esses snapshots quando interpolar `{{referrer_name}}` (fallback: join atual).
+
+## Arquivos alterados
+
+- `supabase/migrations/<novo>.sql` — adiciona `referrer_name`, `referrer_company` em `leads`.
+- `supabase/functions/execute-action/index.ts` — endurece nome, salva snapshot do indicante.
+- `supabase/functions/cadence-executor/index.ts` — skip de step WhatsApp quando lead não tem número, avanço imediato.
+- `supabase/functions/sdr-agent/index.ts` — regra no system prompt para pedir WhatsApp em referral via email.
 
 ## Fora de escopo
-- Multi-cadência referral (1 ativa por empresa basta agora).
-- Variáveis `{{referrer_company}}` / `{{referrer_role}}` nos templates (ficam disponíveis só via prompt da IA, não como placeholders, conforme sua escolha).
+
+- Reordenar steps da cadência automaticamente (continua skip simples).
+- UI para editar manualmente o `referrer_name` snapshot (vem só do create).
