@@ -422,6 +422,216 @@ async function execTool(
 // ────────────────────────────────────────────────────────────────
 // Context loader
 // ────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
+// Booking tools (book_slot / reschedule_booking / cancel_booking)
+// Executados DENTRO do loop de tools — não são mais ações pós-finalize.
+// ────────────────────────────────────────────────────────────────
+async function execBookingTool(
+  name: "book_slot" | "reschedule_booking" | "cancel_booking",
+  args: Record<string, unknown>,
+  ctx: { lead_id: string; company_id: string; conversation_id?: string | null },
+): Promise<Record<string, unknown>> {
+  // Recarrega estado fresco (memória, holds, última inbound/outbound).
+  const [{ data: memRow }, { data: holdsRaw }, { data: bookingsRaw }, { data: convs }] = await Promise.all([
+    supabase.from("lead_memory").select("facts").eq("lead_id", ctx.lead_id).maybeSingle(),
+    supabase.from("slot_holds").select("id, slot_datetime, status, expires_at").eq("lead_id", ctx.lead_id).in("status", ["held", "confirmed"]),
+    supabase.from("bookings").select("id, calcom_booking_uid, status, scheduled_at, updated_at").eq("lead_id", ctx.lead_id).in("status", ["confirmed", "pending", "rescheduled"]).order("updated_at", { ascending: false }).limit(5),
+    supabase.from("conversations").select("id").eq("lead_id", ctx.lead_id),
+  ]);
+  const convIds = (convs ?? []).map((c: any) => c.id);
+  let lastInbound = "";
+  let lastOutbound = "";
+  if (convIds.length > 0) {
+    const { data: msgs } = await supabase.from("messages")
+      .select("direction, content, sent_at").in("conversation_id", convIds)
+      .order("sent_at", { ascending: false }).limit(20);
+    for (const m of (msgs ?? [])) {
+      if (!lastInbound && m.direction === "inbound") lastInbound = String(m.content || "");
+      if (!lastOutbound && m.direction === "outbound") lastOutbound = String(m.content || "");
+      if (lastInbound && lastOutbound) break;
+    }
+  }
+
+  const facts = (memRow?.facts ?? {}) as Record<string, unknown>;
+  const heldIsos = (holdsRaw ?? []).map((h: any) => h.slot_datetime as string);
+
+  // ── CANCEL ────────────────────────────────────────────────────
+  if (name === "cancel_booking") {
+    const activeBooking = (bookingsRaw ?? []).find((b: any) => b.status === "confirmed" || b.status === "pending");
+    const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || activeBooking?.calcom_booking_uid;
+    if (!bookingUid) return { ok: false, error: "no active booking" };
+    const reason = typeof args.reason === "string" ? args.reason : "Cliente solicitou cancelamento";
+    const idempotency_key = await buildIdempotencyKey({
+      conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
+      action_type: "cancel", provider_booking_uid: bookingUid,
+    });
+    const claim = await claimCalendarAction(supabase, {
+      idempotency_key, conversation_id: ctx.conversation_id, lead_id: ctx.lead_id, company_id: ctx.company_id,
+      action_type: "cancel", provider_booking_uid: bookingUid,
+      request_payload: { booking_uid: bookingUid, reason },
+    });
+    if (claim.kind === "existing") {
+      return { ok: true, replayed: true, booking_uid: bookingUid, message_suggestion: "Cancelamento já confirmado anteriormente." };
+    }
+    try {
+      await supabase.from("bookings").update({
+        cancellation_source: "sdr",
+        cancellation_requested_at: new Date().toISOString(),
+      }).eq("calcom_booking_uid", bookingUid);
+    } catch (_) {}
+    const { data, error } = await supabase.functions.invoke("calcom-booking-cancel", {
+      body: { booking_uid: bookingUid, reason, idempotency_key, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id },
+    });
+    if (error || (data as any)?.error) {
+      const errStr = error ? String(error) : String((data as any)?.error);
+      await markCalendarActionFailed(supabase, claim.row.id, errStr);
+      return { ok: false, error: errStr };
+    }
+    await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: bookingUid, response_payload: (data as any) ?? {} });
+    return {
+      ok: true, booking_uid: bookingUid,
+      message_suggestion: "Tudo bem, cancelei nossa reunião. Se quiser remarcar mais pra frente, é só me chamar.",
+    };
+  }
+
+  // ── BOOK / RESCHEDULE: guarda de confirmação ──────────────────
+  const slotStartRaw = typeof args.slot_start === "string" ? args.slot_start : "";
+  if (!slotStartRaw) return { ok: false, error: "slot_start required" };
+  const slotStart = slotStartRaw;
+
+  const pendingMeta = facts.offered_slots_pending as { slots?: string[]; offered_at?: string } | undefined;
+  const pendingFresh = pendingMeta?.offered_at
+    ? Date.now() - new Date(pendingMeta.offered_at).getTime() < 30 * 60_000
+    : false;
+  const pending = (pendingFresh ? pendingMeta?.slots : null) ?? [];
+  let candidates: string[];
+  if (pending.length > 0) {
+    candidates = pending;
+  } else {
+    const implicit = implicitOfferFromOutbound(lastOutbound, heldIsos);
+    candidates = implicit ? [implicit] : heldIsos;
+  }
+  const explicit = isLikelyConfirmation(lastInbound);
+  const ref = matchesSlotReference(lastInbound, candidates);
+  const target = parseSlotStartAsBrt(slotStart);
+  const matchesOffered = candidates.some((iso) => Math.abs(new Date(iso).getTime() - target) < 5 * 60_000);
+  const hasConfirmation = explicit || !!ref.iso;
+
+  if (!matchesOffered || !hasConfirmation) {
+    let suggested_message: string;
+    const refIso = ref.iso || (candidates.length === 1 ? candidates[0] : null);
+    if (refIso && !ref.ambiguous) {
+      suggested_message = name === "reschedule_booking"
+        ? `Só confirmando: posso remarcar para ${formatBRTLong(refIso)}?`
+        : `Só confirmando: posso fechar para ${formatBRTLong(refIso)}?`;
+    } else if (candidates.length > 0) {
+      const formatted = candidates.slice(0, 3).map((s) => `• ${formatBRTLong(s)}`).join("\n");
+      suggested_message = `Antes de ${name === "reschedule_booking" ? "remarcar" : "confirmar"}, qual destes horários funciona melhor pra você?\n\n${formatted}`;
+    } else {
+      suggested_message = "Antes de confirmar, qual horário funciona melhor pra você?";
+    }
+    return {
+      ok: false,
+      downgrade: "ask_confirmation",
+      reason: !matchesOffered ? "slot_start does not match any offered/held slot" : "no explicit confirmation in last inbound message",
+      candidates,
+      suggested_message,
+      next_action: "Chame finalize com decision=send_message e message=suggested_message.",
+    };
+  }
+
+  // ── BOOK ──────────────────────────────────────────────────────
+  if (name === "book_slot") {
+    const idempotency_key = await buildIdempotencyKey({
+      conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
+      action_type: "book", requested_start: slotStart,
+    });
+    const claim = await claimCalendarAction(supabase, {
+      idempotency_key, conversation_id: ctx.conversation_id, lead_id: ctx.lead_id, company_id: ctx.company_id,
+      action_type: "book", requested_start: slotStart,
+      request_payload: { slot_start: slotStart },
+    });
+    if (claim.kind === "existing") {
+      const resp = (claim.row.response_payload ?? {}) as any;
+      return {
+        ok: true, replayed: true,
+        booking_uid: claim.row.provider_booking_uid,
+        scheduled_at: resp?.booking?.scheduled_at ?? resp?.scheduled_at ?? slotStart,
+        message_suggestion: `Reserva já confirmada para ${formatBRTLong(slotStart)}.`,
+      };
+    }
+    const match = (holdsRaw ?? []).find((h: any) =>
+      h.status === "held" && Math.abs(new Date(h.slot_datetime).getTime() - target) < 5 * 60_000,
+    );
+    if (!match) {
+      await markCalendarActionFailed(supabase, claim.row.id, "no matching held slot");
+      return { ok: false, error: "no matching held slot for " + slotStart };
+    }
+    const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-confirm-booking", {
+      body: { lead_id: ctx.lead_id, selected_slot_hold_id: match.id, force_placeholder: true },
+    });
+    if (bookErr || (booking as any)?.error) {
+      const errStr = bookErr ? String(bookErr) : String((booking as any)?.error);
+      await markCalendarActionFailed(supabase, claim.row.id, errStr);
+      return { ok: false, error: errStr };
+    }
+    const bookingUid = (booking as any)?.booking?.calcom_booking_uid ?? (booking as any)?.calcom_booking_uid ?? null;
+    await markCalendarActionOk(supabase, claim.row.id, {
+      provider_booking_uid: bookingUid,
+      response_payload: (booking as any) ?? {},
+    });
+    // Limpa offered_slots_pending da memória.
+    try {
+      const newFacts = { ...facts };
+      if (newFacts.offered_slots_pending) {
+        delete newFacts.offered_slots_pending;
+        await supabase.from("lead_memory").upsert({ lead_id: ctx.lead_id, facts: newFacts }, { onConflict: "lead_id" });
+      }
+    } catch (_) {}
+    return {
+      ok: true, booking_uid: bookingUid, scheduled_at: slotStart,
+      message_suggestion: `Pronto! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail. 🙌`,
+    };
+  }
+
+  // ── RESCHEDULE ────────────────────────────────────────────────
+  const activeBooking = (bookingsRaw ?? []).find((b: any) => b.status === "confirmed" || b.status === "pending" || b.status === "rescheduled");
+  const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || activeBooking?.calcom_booking_uid;
+  if (!bookingUid) return { ok: false, error: "no active booking to reschedule" };
+  const reason = typeof args.reason === "string" ? args.reason : "Cliente solicitou remarcação";
+  const startIso = normalizeSlotStartIsoBrt(slotStart);
+  const idempotency_key = await buildIdempotencyKey({
+    conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
+    action_type: "reschedule", requested_start: startIso, provider_booking_uid: bookingUid,
+  });
+  const claim = await claimCalendarAction(supabase, {
+    idempotency_key, conversation_id: ctx.conversation_id, lead_id: ctx.lead_id, company_id: ctx.company_id,
+    action_type: "reschedule", requested_start: startIso, provider_booking_uid: bookingUid,
+    request_payload: { booking_uid: bookingUid, start: startIso, reason },
+  });
+  if (claim.kind === "existing") {
+    return {
+      ok: true, replayed: true, booking_uid: bookingUid, scheduled_at: startIso,
+      message_suggestion: `Remarcação já confirmada para ${formatBRTLong(startIso)}.`,
+    };
+  }
+  const { data: resched, error: reschedErr } = await supabase.functions.invoke("calcom-booking-reschedule", {
+    body: { booking_uid: bookingUid, start: startIso, reason, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id, idempotency_key },
+  });
+  if (reschedErr || (resched as any)?.error) {
+    const errStr = reschedErr ? String(reschedErr) : String((resched as any)?.error);
+    await markCalendarActionFailed(supabase, claim.row.id, errStr);
+    return { ok: false, error: errStr };
+  }
+  const newUid = (resched as any)?.booking?.calcom_booking_uid ?? (resched as any)?.calcom_booking_uid ?? bookingUid;
+  await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: newUid, response_payload: (resched as any) ?? {} });
+  return {
+    ok: true, booking_uid: newUid, scheduled_at: startIso,
+    message_suggestion: `Pronto! Remarquei para ${formatBRTLong(startIso)}. Você vai receber o novo convite por e-mail. 🙌`,
+  };
+}
+
+
 async function loadContext(leadId: string) {
   const { data: lead } = await supabase
     .from("leads")
