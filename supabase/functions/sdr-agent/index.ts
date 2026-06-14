@@ -23,6 +23,9 @@ import {
 } from "../_shared/idempotency.ts";
 import { assertCanBook } from "../_shared/booking-guards.ts";
 import { computeState, renderStateBlock, type StructuredState } from "../_shared/state-machine.ts";
+import { classifyIntent } from "../_shared/intent-classifier.ts";
+import { extractEntities } from "../_shared/entity-extractor.ts";
+import { decidePolicy, renderPolicyBlock, type Tool as PolicyTool } from "../_shared/policy-engine.ts";
 
 // Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
 // Returns epoch ms.
