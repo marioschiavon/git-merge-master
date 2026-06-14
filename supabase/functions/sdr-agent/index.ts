@@ -432,6 +432,16 @@ async function execTool(
       },
       { onConflict: "lead_id" },
     );
+    // Side effect: se o agente extraiu um whatsapp/phone novo do lead, persiste na coluna do lead
+    // (para que a cadência consiga enviar via WhatsApp dali em diante).
+    const leadPatch: Record<string, unknown> = {};
+    const wpp = typeof facts.whatsapp === "string" ? (facts.whatsapp as string).trim() : null;
+    const phn = typeof facts.phone === "string" ? (facts.phone as string).trim() : null;
+    if (wpp) { leadPatch.whatsapp = wpp; leadPatch.whatsapp_valid = true; }
+    if (phn) { leadPatch.phone = phn; }
+    if (Object.keys(leadPatch).length > 0) {
+      await supabase.from("leads").update(leadPatch as any).eq("id", ctx.lead_id);
+    }
     return { ok: true, facts: merged };
   }
 
@@ -1065,6 +1075,13 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- Português brasileiro. Mensagens curtas (2-3 parágrafos no máximo). Não use 'olá' nem 'tudo bem?' se já está no meio da conversa.",
 
     "",
+    "## Indicações (referral)",
+    "- Se `Fonte` do lead é `referral` e ele NÃO tem WhatsApp cadastrado (veja `Canais` abaixo), você DEVE, na primeira resposta dele, pedir educadamente o número de WhatsApp para agilizar a conversa. Exemplo: 'Pra gente conversar mais rápido, qual o melhor número de WhatsApp pra te chamar?'. Inclua o pedido junto da resposta normal — não envie uma mensagem só pra isso.",
+    "- Depois de pedir, chame `update_lead_facts({ facts: { whatsapp_asked: true } })` para não repetir nos próximos turnos.",
+    "- Quando o lead RESPONDER com um número de telefone/WhatsApp, chame `update_lead_facts({ facts: { whatsapp: '<numero normalizado +55...>' } })`. Isso persiste o número no cadastro do lead e a cadência passa a usar WhatsApp.",
+    "- Sempre que possível, mencione naturalmente quem indicou (use o campo `Indicado por` abaixo) para criar conexão — sem soar artificial.",
+
+    "",
     "## Reservas existentes (remarcar/cancelar)",
     "- **Agendar/remarcar/cancelar são TOOLS (`book_slot`, `reschedule_booking`, `cancel_booking`), NÃO valores de `decision` na `finalize`.** Você chama a tool, ela executa o agendamento de fato no Cal.com, retorna `{ ok, booking_uid, scheduled_at, message_suggestion }`, e SÓ ENTÃO você chama `finalize` com `decision=send_message` usando o `message_suggestion` como mensagem ao lead (ou refinando-o).",
     "- **NUNCA chame `book_slot`/`reschedule_booking` num turno onde o lead ainda NÃO escolheu explicitamente um horário que você já tinha oferecido antes.** Pedir desculpas ou pedir para 'remarcar' NÃO é confirmação de um novo horário. Se chamar prematuramente, a tool devolve `{ ok:false, downgrade:'ask_confirmation', suggested_message }` — nesse caso finalize com `send_message` e o `suggested_message`.",
@@ -1088,6 +1105,12 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     `Empresa: ${lead.company_name ?? "?"}`,
     `Status: ${lead.status ?? "?"} | Fonte: ${lead.source ?? "?"} | Criado: ${lead.created_at ? fmtBrt(lead.created_at) : "?"}`,
     `Canais: ${[lead.whatsapp && `whatsapp:${lead.whatsapp}`, lead.email && `email:${lead.email}`, lead.phone && `phone:${lead.phone}`].filter(Boolean).join(", ") || "—"}`,
+    (lead as any).source === "referral" && ((lead as any).referrer_name || (lead as any).referral_source_lead_id)
+      ? `Indicado por: ${(lead as any).referrer_name ?? "(indicante)"}${(lead as any).referrer_company ? ` — ${(lead as any).referrer_company}` : ""}`
+      : "",
+    (lead as any).source === "referral" && !lead.whatsapp && !facts?.whatsapp_asked
+      ? `⚠️ AÇÃO OBRIGATÓRIA: este lead veio por indicação e ainda não tem WhatsApp. Peça o número nesta resposta e chame update_lead_facts({ whatsapp_asked: true }).`
+      : "",
     preferredChannel ? `Canal preferido: ${preferredChannel}` : "",
     "",
     `## Memória do lead (persiste entre turnos)`,
