@@ -249,3 +249,4 @@ Deno.test("referral redirect SEM pergunta pendente e outbound longo → sem pref
   });
   assertEquals(/ANTES de pedir qualquer contato/i.test(d.response_directive), false);
 
+});
