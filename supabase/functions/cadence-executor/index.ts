@@ -63,8 +63,8 @@ serve(async (req) => {
       .from("cadence_enrollments")
       .select(`
         *,
-        leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status),
-        cadences(id, name, type, company_id, status, mode)
+        leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status, source, referral_source_lead_id, referral_role, referral_context),
+        cadences(id, name, type, company_id, status, mode, kind)
       `)
       .eq("status", "active")
       .eq("meeting_scheduled", false)
@@ -323,6 +323,29 @@ serve(async (req) => {
           }
         }
 
+        // Contexto de indicação (apenas para cadências kind='referral')
+        let referralContextBlock = "";
+        let referrerName = "";
+        let referrerCompany = "";
+        if (cadence.kind === "referral" && lead.referral_source_lead_id) {
+          const { data: referrer } = await supabase
+            .from("leads")
+            .select("name, company_name, title")
+            .eq("id", lead.referral_source_lead_id)
+            .maybeSingle();
+          referrerName = referrer?.name || "";
+          referrerCompany = referrer?.company_name || "";
+          const ctxTxt = lead.referral_context || "";
+          referralContextBlock = `\n\n=== INDICAÇÃO (PRIORIDADE MÁXIMA) ===
+Este lead foi indicado por ${referrerName || "um contato nosso"}${referrerCompany ? ` (${referrerCompany})` : ""}${referrer?.title ? `, ${referrer.title}` : ""}.
+Contexto da indicação: ${ctxTxt || "não detalhado"}
+REGRAS OBRIGATÓRIAS PARA REFERRAL:
+- ABRA mencionando que ${referrerName || "um contato em comum"} passou o contato (ex.: "Oi {nome}, o ${referrerName || "[indicante]"} me passou seu contato...").
+- Se houver contexto da indicação, cite-o em 1 frase para dar legitimidade.
+- Tom mais quente e direto — você NÃO é desconhecido, foi indicado.
+- NÃO finja que descobriu o lead sozinho. NÃO ignore o indicante.`;
+        }
+
         // Generate personalized message with AI
         const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -340,13 +363,17 @@ serve(async (req) => {
 ${aiInstructionsContext}=== SEU PRODUTO/SERVIÇO (o que você vende) ===
 ${knowledgeContext || "Sem informações adicionais do produto."}
 ${highlightsContext}
+${referralContextBlock}
 
 === DIFERENCIAIS DO PROSPECT ===
 ${insightsContext || "Sem diferenciais disponíveis do prospect."}
 ${mentalTriggersContext}
 
 === TEMPLATE BASE DO STEP ===
-${currentStep.template || "Sem template definido."}
+${(currentStep.template || "Sem template definido.")
+  .replaceAll("{{referrer_name}}", referrerName || "")
+  .replaceAll("{{referrer_company}}", referrerCompany || "")
+  .replaceAll("{{referral_context}}", lead.referral_context || "")}
 
 CANAL: ${currentStep.channel}
 STEP: ${currentStep.step_order} de ${steps.length}

@@ -144,6 +144,11 @@ export default function Cadences() {
                             <FlaskConical className="h-3 w-3" />Simulação
                           </Badge>
                         )}
+                        {(c as any).kind === "referral" && (
+                          <Badge className="bg-purple-100 text-purple-800 text-xs">
+                            Indicações
+                          </Badge>
+                        )}
                       </div>
                     </TableCell>
                     <TableCell>{(c as any).mode === "agentic" ? "Inteligente (IA)" : (typeLabels[c.type] || c.type)}</TableCell>

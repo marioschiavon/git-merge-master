@@ -518,18 +518,66 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       .select()
       .single();
     if (error) throw error;
+
+    // Auto-enroll na cadência de indicações ativa (kind='referral') da empresa.
+    let referralEnrollmentId: string | null = null;
+    try {
+      const { data: refCadence } = await ctx.supabase
+        .from("cadences")
+        .select("id")
+        .eq("company_id", ctx.company_id)
+        .eq("kind", "referral")
+        .eq("status", "active")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (refCadence?.id) {
+        const { data: firstStep } = await ctx.supabase
+          .from("cadence_steps")
+          .select("id, delay_days")
+          .eq("cadence_id", refCadence.id)
+          .order("step_order", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+        const nextAt = new Date();
+        if (firstStep?.delay_days && firstStep.delay_days > 0) {
+          nextAt.setDate(nextAt.getDate() + Number(firstStep.delay_days));
+        }
+        const { data: enr, error: enrErr } = await ctx.supabase
+          .from("cadence_enrollments")
+          .insert({
+            cadence_id: refCadence.id,
+            lead_id: newLead.id,
+            company_id: ctx.company_id,
+            status: "active",
+            current_step: 1,
+            next_execution_at: nextAt.toISOString(),
+          } as any)
+          .select("id")
+          .single();
+        if (enrErr) {
+          console.error("[create_new_contact] enroll referral cadence failed:", enrErr);
+        } else {
+          referralEnrollmentId = enr?.id ?? null;
+        }
+      }
+    } catch (e) {
+      console.error("[create_new_contact] referral enrollment exception:", e);
+    }
+
     await logActivity(
       ctx,
       "note",
-      `🆕 Novo contato criado por indicação${referrer?.name ? ` (via ${referrer.name})` : ""}: ${finalName}${email ? ` <${email}>` : ""}`,
+      `🆕 Novo contato criado por indicação${referrer?.name ? ` (via ${referrer.name})` : ""}: ${finalName}${email ? ` <${email}>` : ""}${referralEnrollmentId ? " — inscrito na cadência de indicações" : ""}`,
       {
         new_lead_id: newLead.id,
+        referral_enrollment_id: referralEnrollmentId,
         inherited_company_name: !company_name && !!referrer?.company_name,
         inherited_website: !website && !!referrer?.website,
         inherited_address: !address && !!referrer?.address,
       },
     );
-    return { new_lead_id: newLead.id, name: finalName };
+    return { new_lead_id: newLead.id, name: finalName, referral_enrollment_id: referralEnrollmentId };
   },
 
   async mark_current_contact_as_referrer(ctx) {

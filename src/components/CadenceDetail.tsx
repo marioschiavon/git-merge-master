@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads, useExecuteCadenceNow, useGenerateCadenceSteps, useResumeEnrollment } from "@/hooks/useCadences";
+import { useCadence, useCadenceSteps, useCadenceEnrollments, useUpsertStep, useDeleteStep, useEnrollLeads, useExecuteCadenceNow, useGenerateCadenceSteps, useResumeEnrollment, useUpdateCadence } from "@/hooks/useCadences";
 import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
 import { LeadMessagePreview } from "@/components/LeadMessagePreview";
@@ -47,6 +47,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const executeCadence = useExecuteCadenceNow();
   const generateSteps = useGenerateCadenceSteps();
   const resumeEnrollment = useResumeEnrollment();
+  const updateCadence = useUpdateCadence();
   const { data: allLeads = [] } = useLeads({ status: "all", search: "" });
   const [enrollDialogOpen, setEnrollDialogOpen] = useState(false);
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
@@ -79,6 +80,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
 
   const isAgentic = (cadence as any).mode === "agentic";
   const isSimulation = !!(cadence as any).simulation_mode;
+  const isReferral = (cadence as any).kind === "referral";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -94,6 +96,11 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
             {isSimulation && (
               <Badge className="bg-amber-100 text-amber-800 text-xs gap-1">
                 <FlaskConical className="h-3 w-3" />Simulação
+              </Badge>
+            )}
+            {isReferral && (
+              <Badge className="bg-purple-100 text-purple-800 text-xs">
+                Indicações
               </Badge>
             )}
           </SheetTitle>
@@ -122,6 +129,25 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
             />
           </div>
         )}
+
+        {cadenceId && (
+          <div className="mt-3 rounded-md border p-3 flex items-center justify-between gap-3 border-border bg-muted/30">
+            <div className="flex-1">
+              <div className="text-sm font-medium">Cadência de indicações (referral)</div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Quando ligado, esta cadência é usada automaticamente para leads criados por indicação.
+                Você pode usar <code>{"{{referrer_name}}"}</code> e <code>{"{{referral_context}}"}</code> nos templates.
+              </p>
+            </div>
+            <Switch
+              checked={isReferral}
+              onCheckedChange={(v) => updateCadence.mutate({ id: cadenceId, kind: v ? "referral" : "outbound" })}
+              disabled={updateCadence.isPending}
+            />
+          </div>
+        )}
+
+
 
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
