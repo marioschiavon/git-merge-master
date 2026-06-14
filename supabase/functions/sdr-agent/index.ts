@@ -23,6 +23,9 @@ import {
 } from "../_shared/idempotency.ts";
 import { assertCanBook } from "../_shared/booking-guards.ts";
 import { computeState, renderStateBlock, type StructuredState } from "../_shared/state-machine.ts";
+import { classifyIntent } from "../_shared/intent-classifier.ts";
+import { extractEntities } from "../_shared/entity-extractor.ts";
+import { decidePolicy, renderPolicyBlock, type Tool as PolicyTool } from "../_shared/policy-engine.ts";
 
 // Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
 // Returns epoch ms.
@@ -1157,42 +1160,68 @@ Deno.serve(async (req) => {
       pending: state.pending_action,
     }));
 
-    // Pré-resolução determinística: se a última mensagem do lead referencia
-    // um dos slots ativos (held) ou o horário da reserva confirmada, deixa
-    // explícito no prompt o ISO correspondente — evita o LLM perguntar "qual horário"
-    // quando só existe uma opção naquele dia ou quando a referência é inequívoca.
-    let preResolutionBlock = "";
-    try {
-      const candidateIsos: string[] = [
-        ...((ctx.heldSlots ?? []).map((h: any) => h.slot_datetime).filter(Boolean) as string[]),
-        ...((ctx.activeBookings ?? []).map((b: any) => b.scheduled_at).filter(Boolean) as string[]),
-      ];
-      if (lastInbound && candidateIsos.length > 0) {
-        const ref = matchesSlotReference(lastInbound, candidateIsos);
-        if (ref.iso) {
-          const isHold = (ctx.heldSlots ?? []).some((h: any) => h.slot_datetime === ref.iso);
-          const tool = (ctx.activeBookings ?? []).some((b: any) => b.scheduled_at === ref.iso && !isHold)
-            ? "reschedule_booking"
-            : "book_slot";
-          preResolutionBlock =
-            `\n\n## ⚡ Pré-resolução (determinística)\n` +
-            `A última mensagem do lead aponta de forma inequívoca para o horário **${fmtBrt(ref.iso)}** ` +
-            `(ISO=${ref.iso}). ${isHold ? "É um dos slots oferecidos." : "É o horário da reserva ativa."}\n` +
-            `**Próxima ação obrigatória neste turno:** chame \`${tool}({ slot_start: "${ref.iso}" })\` ` +
-            `e em seguida finalize com decision=send_message usando o message_suggestion retornado. ` +
-            `NÃO peça confirmação de horário, NÃO ofereça outras datas, NÃO chame check_calendar.`;
-        } else if (ref.ambiguous) {
-          preResolutionBlock =
-            `\n\n## ⚡ Pré-resolução (determinística)\n` +
-            `A última mensagem do lead é ambígua entre os horários ativos. ` +
-            `Peça uma escolha clara (referenciando dia E hora), sem chamar tools de booking.`;
-        }
-      }
-    } catch (e) {
-      console.error("pre-resolution failed:", e);
-    }
+    // ── Fase 4: Intent classifier → Entity extractor → Policy engine ───
+    const activeBookingRow = (ctx.activeBookings ?? []).find(
+      (b: any) => b.status === "confirmed" || b.status === "pending",
+    );
+    const offeredSlotsNow: string[] = Array.isArray((factsNow.offered_slots_pending as any)?.slots)
+      ? ((factsNow.offered_slots_pending as any).slots as string[])
+      : [];
+    const heldSlotIsos: string[] = (ctx.heldSlots ?? [])
+      .filter((h: any) => h.status === "held")
+      .map((h: any) => h.slot_datetime as string);
 
-    const sys = buildSystemPrompt(ctx) + "\n\n" + renderStateBlock(state) + preResolutionBlock;
+    const intentResult = await classifyIntent({
+      lastInbound,
+      recentHistory: ctx.messages.map((m) => ({ direction: m.direction, content: m.content })),
+      state: {
+        hasActiveBooking: !!activeBookingRow,
+        activeBookingAt: activeBookingRow?.scheduled_at ?? null,
+        offeredSlots: offeredSlotsNow,
+      },
+    });
+
+    const entities = extractEntities({
+      lastInbound,
+      offeredSlots: offeredSlotsNow,
+      heldSlots: heldSlotIsos,
+      activeBookingAt: activeBookingRow?.scheduled_at ?? null,
+      matchesSlotRef: matchesSlotReference,
+    });
+
+    const policy = decidePolicy({
+      intent: intentResult.intent,
+      confidence: intentResult.confidence,
+      entities,
+      state: {
+        has_active_booking: !!activeBookingRow,
+        active_booking_at: activeBookingRow?.scheduled_at ?? null,
+        active_booking_uid: activeBookingRow?.calcom_booking_uid ?? null,
+        offered_slots: offeredSlotsNow,
+        held_slots: heldSlotIsos,
+      },
+    });
+
+    console.log("sdr-agent pipeline:", JSON.stringify({
+      intent: intentResult.intent,
+      conf: intentResult.confidence,
+      selected: entities.selected_slot_iso,
+      stage: policy.stage,
+      forced: policy.forced_tool,
+      allowed: policy.allowed_tools,
+    }));
+
+    // Filter the TOOLS exposed to the LLM to the policy-allowed subset.
+    const TOOLS_ALLOWED = TOOLS.filter((t) =>
+      (policy.allowed_tools as string[]).includes(t.function.name),
+    );
+
+
+
+    const sys =
+      buildSystemPrompt(ctx) + "\n\n" +
+      renderStateBlock(state) + "\n\n" +
+      renderPolicyBlock(policy);
     const nativeHistory = buildNativeHistory(ctx.messages);
 
     const messages: ChatMessage[] = [
@@ -1202,13 +1231,14 @@ Deno.serve(async (req) => {
         role: "user",
         content:
           `=== TAREFA (turno atual) ===\n` +
-          `Decida o próximo passo considerando o histórico e o estado estruturado acima. ` +
-          `Use SOMENTE tools listadas em \`allowed_actions\`. ` +
-          (state.finalize_allowed
-            ? "Você pode chamar `finalize` quando tiver a decisão."
-            : `\`finalize\` está BLOQUEADO — você DEVE chamar primeiro a tool requerida pelo estado (pending_action=${state.pending_action}).`),
+          `Intent classificada: ${intentResult.intent} (conf=${intentResult.confidence.toFixed(2)}).\n` +
+          `Stage: ${policy.stage}. ` +
+          (policy.forced_tool
+            ? `A tool ${policy.forced_tool} já será executada — você precisa apenas redigir a mensagem final.`
+            : `Use SOMENTE tools listadas em allowed_tools. Termine com finalize.`),
       },
     ];
+
 
     const steps: Array<Record<string, unknown>> = [];
     let totalPromptTokens = 0;
@@ -1237,16 +1267,74 @@ Deno.serve(async (req) => {
       allowed_actions: state.allowed_actions,
       finalize_allowed: state.finalize_allowed,
       pending_action: state.pending_action,
+      intent: { intent: intentResult.intent, confidence: intentResult.confidence, reasoning: intentResult.reasoning },
+      entities,
+      policy: { stage: policy.stage, allowed_tools: policy.allowed_tools, forced_tool: policy.forced_tool, reason: policy.reason },
       messages_sent: messagesPreview,
       facts_in: factsNow,
     });
 
-    for (let step = 0; step < MAX_STEPS; step++) {
+    // ── Forced tool short-circuit ─────────────────────────────────
+    // When the Policy Engine determined a unique path, execute the tool here
+    // and feed the result back as a tool message before letting the LLM only
+    // write the user-facing confirmation.
+    if (policy.forced_tool && policy.forced_args) {
+      const ft0 = Date.now();
+      const forcedToolName = policy.forced_tool;
+      const forcedArgs = policy.forced_args;
+      const result = await execTool(forcedToolName, forcedArgs, {
+        lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
+      });
+      const synthCallId = `forced_${forcedToolName}_${Date.now()}`;
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: [{
+          id: synthCallId,
+          type: "function",
+          function: { name: forcedToolName, arguments: JSON.stringify(forcedArgs) },
+        }],
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: synthCallId,
+        name: forcedToolName,
+        content: JSON.stringify(result),
+      });
+      steps.push({
+        event: "forced_tool_call",
+        tool: forcedToolName,
+        args: forcedArgs,
+        result,
+        latency_ms: Date.now() - ft0,
+      });
+
+      // If the forced tool failed gracefully with a suggested_message, finalize immediately.
+      const r = result as any;
+      if (r && r.ok === false && typeof r.suggested_message === "string" && r.suggested_message) {
+        finalDecision = {
+          decision: "send_message",
+          message: r.suggested_message,
+          rationale: `Forced ${forcedToolName} downgraded: ${r.downgrade ?? r.error_code ?? "unknown"}.`,
+        };
+      } else if (r && r.ok && typeof r.message_suggestion === "string") {
+        // Happy path: ask LLM ONE turn to either echo or refine the suggestion.
+        messages.push({
+          role: "user",
+          content:
+            `Tool ${forcedToolName} executou com sucesso. Chame APENAS finalize com decision=send_message ` +
+            `e message igual (ou levemente personalizada) a: "${r.message_suggestion}". Não chame outras tools.`,
+        });
+      }
+    }
+
+
+    for (let step = 0; step < MAX_STEPS && !finalDecision; step++) {
       const t0 = Date.now();
       const res = await chatCompletion({
         model: MODEL,
         messages,
-        tools: TOOLS,
+        tools: TOOLS_ALLOWED,
         tool_choice: "auto",
         temperature: 0.3,
       });
@@ -1309,7 +1397,7 @@ Deno.serve(async (req) => {
                     `Chame \`${forcedTool}\` agora com os argumentos corretos. Não use \`finalize\` nem responda em texto livre.`,
               },
             ],
-            tools: TOOLS,
+            tools: TOOLS_ALLOWED,
             tool_choice: { type: "function", function: { name: forcedTool } } as unknown as "auto",
             temperature: 0.1,
           });
