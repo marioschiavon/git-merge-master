@@ -1892,6 +1892,7 @@ export type Database = {
       }
       processed_inbound_messages: {
         Row: {
+          content_bucket: number | null
           content_hash: string | null
           id: string
           lead_id: string
@@ -1900,6 +1901,7 @@ export type Database = {
           provider_message_id: string | null
         }
         Insert: {
+          content_bucket?: number | null
           content_hash?: string | null
           id?: string
           lead_id: string
@@ -1908,6 +1910,7 @@ export type Database = {
           provider_message_id?: string | null
         }
         Update: {
+          content_bucket?: number | null
           content_hash?: string | null
           id?: string
           lead_id?: string
