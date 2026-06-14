@@ -639,21 +639,62 @@ async function execBookingTool(
       message_suggestion: `Remarcação já confirmada para ${formatBRTLong(startIso)}.`,
     };
   }
-  const { data: resched, error: reschedErr } = await supabase.functions.invoke("calcom-booking-reschedule", {
-    body: { booking_uid: bookingUid, start: startIso, reason, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id, idempotency_key },
+
+  // Use raw fetch so we can read the structured error body that the edge
+  // function returns on non-2xx (supabase.functions.invoke throws and drops it).
+  const reschedUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/calcom-booking-reschedule`;
+  const reschedResp = await fetch(reschedUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+      apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    },
+    body: JSON.stringify({ booking_uid: bookingUid, start: startIso, reason, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id, idempotency_key }),
   });
-  if (reschedErr || (resched as any)?.error) {
-    const errStr = reschedErr ? String(reschedErr) : String((resched as any)?.error);
-    await markCalendarActionFailed(supabase, claim.row.id, errStr);
-    return { ok: false, error: errStr };
+  const reschedText = await reschedResp.text();
+  let resched: any; try { resched = reschedText ? JSON.parse(reschedText) : {}; } catch { resched = { raw: reschedText }; }
+
+  if (!reschedResp.ok || resched?.success === false || resched?.error) {
+    const errStr = String(resched?.error ?? `HTTP ${reschedResp.status}`);
+    await markCalendarActionFailed(supabase, claim.row.id, errStr, {
+      calcom_status: resched?.calcom_status ?? null,
+      calcom_body: resched?.calcom_body ?? null,
+      http_status: reschedResp.status,
+    });
+
+    // ── Auto-downgrade: booking no longer exists → fall through to book_slot.
+    if (resched?.error_code === "booking_not_found") {
+      console.log("[sdr-agent] reschedule→book_slot downgrade (booking_not_found):", bookingUid);
+      // The pre-flight in calcom-booking-reschedule already marked the local
+      // booking as cancelled, so the next book_slot guard sees no active booking.
+      const bookResult = await execBookingTool("book_slot", { slot_start: slotStart }, ctx);
+      // Annotate so the agent loop knows this came from a recovery path.
+      return { ...(bookResult as object), downgraded_from: "reschedule_booking" };
+    }
+
+    // Structured errors from Cal.com → return suggested_message so the loop
+    // (and the forced-tool short-circuit) can finalize cleanly instead of looping.
+    const suggested = typeof resched?.suggested_message === "string"
+      ? resched.suggested_message
+      : "Tive um problema técnico ao confirmar esse horário. Pode escolher outro dia/hora pra eu reservar?";
+    return {
+      ok: false,
+      error: errStr,
+      error_code: resched?.error_code ?? "reschedule_failed",
+      downgrade: resched?.error_code === "slot_unavailable" ? "reoffer_slots" : "ask_confirmation",
+      calcom_status: resched?.calcom_status ?? null,
+      calcom_body: resched?.calcom_body ?? null,
+      suggested_message: suggested,
+    };
   }
   const newUid =
-    (resched as any)?.booking?.uid ??
-    (resched as any)?.booking?.calcom_booking_uid ??
-    (resched as any)?.booking_uid ??
-    (resched as any)?.calcom_booking_uid ??
+    resched?.booking?.uid ??
+    resched?.booking?.calcom_booking_uid ??
+    resched?.booking_uid ??
+    resched?.calcom_booking_uid ??
     bookingUid;
-  await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: newUid, response_payload: (resched as any) ?? {} });
+  await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: newUid, response_payload: resched ?? {} });
   return {
     ok: true, booking_uid: newUid, scheduled_at: startIso,
     message_suggestion: `Pronto! Remarquei para ${formatBRTLong(startIso)}. Você vai receber o novo convite por e-mail. 🙌`,
