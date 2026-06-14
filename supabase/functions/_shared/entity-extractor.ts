@@ -5,6 +5,13 @@
 
 import { extractDateRangeFromText } from "./date-range.ts";
 
+export interface ReferralContact {
+  name?: string;
+  email?: string;
+  phone?: string;
+  permission_to_mention?: boolean;
+}
+
 export interface EntityResult {
   /** ISO of slot the lead explicitly chose (from offered/held candidates), or null. */
   selected_slot_iso: string | null;
@@ -14,6 +21,8 @@ export interface EntityResult {
   date_preference: { start_after?: string; end_before?: string; raw?: string; source?: string } | null;
   /** Coarse period preference if mentioned ("manhã" / "tarde" / "noite"). */
   prefers_period: "morning" | "afternoon" | "evening" | null;
+  /** Detected referral contact in the inbound (email/phone/name + mention permission). */
+  referral_contact: ReferralContact | null;
 }
 
 export type SlotMatcher = (text: string, isos: string[]) => { iso: string | null; ambiguous: boolean };
