@@ -1272,8 +1272,9 @@ Deno.serve(async (req) => {
               messages.push({ role: "assistant", content: "", tool_calls: rcall ? [rcall] : undefined });
               const tt0 = Date.now();
               const tresult = await execTool(forcedTool, rargs, {
-                lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null,
+                lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
               });
+
               steps.push({
                 step, event: "tool_call",
                 tool: forcedTool, args: rargs, result: tresult,
