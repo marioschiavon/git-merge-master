@@ -72,6 +72,7 @@ export interface PolicyInputs {
       email?: string;
       phone?: string;
       permission_to_mention?: boolean;
+      redirect_signal?: boolean;
     } | null;
   };
   state: {
@@ -303,17 +304,29 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
       }
       // Sem contato ainda: pedir contato + permissão. Ainda assim soltar holds:
       // o lead não está mais agendando para si.
+      const hasName = !!(rc && rc.name);
+      const redirectOnly = !!(rc && rc.redirect_signal && !hasName);
+      const directive = redirectOnly
+        ? `O lead sinalizou que NÃO é a pessoa certa para esse assunto, mas ainda não indicou QUEM é. ` +
+          `Responda de forma curta e cordial reconhecendo, e pergunte: (1) quem seria a pessoa correta (nome e cargo, se possível) ` +
+          `e (2) o melhor contato dela (email ou WhatsApp). Pergunte também se você pode mencionar que falou com ele(a). ` +
+          `NÃO se despeça nem encerre o contato — estamos buscando o decisor. NÃO ofereça reunião nem horários.`
+        : hasName
+          ? `O lead indicou ${rc!.name} mas ainda não passou contato. Agradeça brevemente e peça o melhor email ou WhatsApp ` +
+            `de ${rc!.name}, e se você pode mencionar que foi este lead quem indicou. NÃO ofereça horários.`
+          : `Agradeça a indicação. Pergunte o nome e o melhor contato (email ou telefone) do indicado ` +
+            `e se você pode mencionar que foi este lead quem indicou. NÃO ofereça horários nem mantenha ` +
+            `o foco em agendar para o lead atual.`;
       return {
         stage: "referral_provided",
         allowed_tools: ["update_lead_facts", "finalize"],
         forced_tool: null,
         forced_args: null,
         post_actions: ["release_slot_holds"],
-        response_directive:
-          `Agradeça a indicação. Pergunte o nome e o melhor contato (email ou telefone) do indicado ` +
-          `e se você pode mencionar que foi este lead quem indicou. NÃO ofereça horários nem mantenha ` +
-          `o foco em agendar para o lead atual.`,
-        reason: "referral_awaiting_contact",
+        response_directive: directive,
+        reason: redirectOnly
+          ? "referral_redirect_no_contact"
+          : hasName ? "referral_named_no_contact" : "referral_awaiting_contact",
       };
     }
 

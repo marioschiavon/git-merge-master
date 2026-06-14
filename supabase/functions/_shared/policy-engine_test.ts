@@ -192,3 +192,30 @@ Deno.test("not_interested → release_slot_holds", () => {
   assertEquals(d.post_actions?.includes("release_slot_holds"), true);
 });
 
+
+Deno.test("referral redirect_signal sem contato → pede pessoa correta, não encerra", () => {
+  const d = decidePolicy({
+    intent: "referral",
+    confidence: 0.9,
+    entities: {
+      selected_slot_iso: null,
+      ambiguous_slot: false,
+      date_preference: null,
+      prefers_period: null,
+      referral_contact: { redirect_signal: true },
+    },
+    state: {
+      has_active_booking: false,
+      active_booking_at: null,
+      active_booking_uid: null,
+      offered_slots: [],
+      held_slots: [],
+    },
+  });
+  assertEquals(d.stage, "referral_provided");
+  assertEquals(d.forced_tool, null);
+  assertEquals(d.reason, "referral_redirect_no_contact");
+  assertEquals(d.post_actions?.includes("release_slot_holds"), true);
+  assertEquals(/pessoa correta|pessoa certa|quem seria/i.test(d.response_directive), true);
+  assertEquals(/encerre|despe[çc]a|despedida/i.test(d.response_directive), true); // diretiva explícita "NÃO se despeça"
+});
