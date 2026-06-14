@@ -10,6 +10,9 @@ export interface ReferralContact {
   email?: string;
   phone?: string;
   permission_to_mention?: boolean;
+  /** True when the inbound contains a "wrong person / redirect" signal
+   *  ("não sou eu", "não é comigo", "quem cuida disso é", "fala com X"). */
+  redirect_signal?: boolean;
 }
 
 export interface EntityResult {
