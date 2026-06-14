@@ -120,6 +120,19 @@ export function computeState(inputs: StateInputs): StructuredState {
     stage = "cancel_request";
   } else if (sub && RESCHEDULE_INTENTS.has(sub) && active_booking) {
     stage = "reschedule_request";
+  } else if (
+    // Sinal textual de troca/insatisfação com horário + booking ativo
+    // → tratar como reschedule mesmo sem intent explícita.
+    active_booking && inputs.lastInbound && RESCHEDULE_TEXT_REGEX.test(inputs.lastInbound)
+  ) {
+    stage = "reschedule_request";
+  } else if (
+    // Lead escolheu um slot, mas já existe booking confirmado num horário DIFERENTE.
+    // Não é nova reserva — é reagendamento.
+    selected_slot && active_booking &&
+    Math.abs(new Date(selected_slot).getTime() - new Date(active_booking.scheduled_at).getTime()) > 60_000
+  ) {
+    stage = "reschedule_request";
   } else if (selected_slot && (offered_slots.length > 0 || candidates.length > 0)) {
     stage = "scheduling_confirming_now";
   } else if (offered_slots.length > 0) {
