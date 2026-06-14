@@ -21,6 +21,7 @@ import {
   markCalendarActionFailed,
   markCalendarActionOk,
 } from "../_shared/idempotency.ts";
+import { computeState, renderStateBlock, type StructuredState } from "../_shared/state-machine.ts";
 
 // Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
 // Returns epoch ms.
