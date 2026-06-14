@@ -38,8 +38,8 @@ Taxonomia FECHADA:
 - ask_availability: lead pergunta horários/disponibilidade SEM apontar opção específica (ex.: "tem na quinta?", "manhã da semana que vem?").
 - product_qna: dúvida sobre produto, preço, prazo, integração, política.
 - objection: resistência ("tá caro", "não tenho time", "preciso pensar").
-- referral: lead indica outra pessoa.
-- not_interested: descarte explícito ("não tenho interesse", "para de me mandar mensagem").
+- referral: lead indica outra pessoa OU sinaliza que não é o interlocutor certo. Inclui: "não sou eu", "não é comigo", "não seria comigo", "esse assunto não é comigo", "quem cuida disso é o(a) X", "fala com X", "procura o financeiro", "sou só o assistente". MESMO sem contato/nome ainda — é referral (precisamos PEDIR o contato), NÃO not_interested.
+- not_interested: recusa do PRODUTO/empresa ("não tenho interesse", "não precisamos", "para de me mandar mensagem", "não quero mais receber"). NÃO confundir com redirecionamento de interlocutor — se o lead só disse que não é com ele, classifique como referral.
 - smalltalk: saudação, agradecimento, conversa sem ação clara.
 - other: qualquer outra coisa.
 
