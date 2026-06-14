@@ -461,7 +461,20 @@ async function runJob(job_id: string) {
         ]);
         const draft = parseJsonBlob(ai) || { subject: null, message: ai, hook_used: null, sources: [] };
         const cadenceId: string | null = settings.default_cadence_id || null;
-        if (cadenceId) {
+        // Não sobrescreve cadência de indicações: se o lead veio de referral e já
+        // tem enrollment ativo, pula a default.
+        let skipDefault = false;
+        if (lead.source === "referral") {
+          const { data: existing } = await supabase.from("cadence_enrollments")
+            .select("id, cadences:cadence_id(kind)")
+            .eq("lead_id", lead.id)
+            .in("status", ["active", "draft"])
+            .limit(5);
+          if ((existing || []).some((e: any) => e?.cadences?.kind === "referral")) {
+            skipDefault = true;
+          }
+        }
+        if (cadenceId && !skipDefault) {
           const { data: firstStep } = await supabase.from("cadence_steps")
             .select("id").eq("cadence_id", cadenceId).order("step_order", { ascending: true }).limit(1).maybeSingle();
           if (firstStep) {
