@@ -1,44 +1,41 @@
-# Bug: "não seria comigo" virou not_interested em vez de referral
+## Problema
 
-## Diagnóstico (com base no run real)
+Na ação `create_new_contact` (em `supabase/functions/execute-action/index.ts`, linhas 465-493), quando o SDR cria um novo lead via indicação:
 
-O Juliano respondeu: **"Muito legal, mas esse assunto não seria comigo."**
+1. **Email vai para o campo `name`** — a linha `name: name || email` faz isso porque `name` é NOT NULL. Quando o lead indicante só dá o e-mail (sem o nome completo da pessoa indicada), o e-mail acaba virando o nome exibido na lista de leads.
+2. **Faltam dados da empresa e website** — só copia `company_name` do indicante; não copia `website`, `address`, `linkedin_company_url` (que normalmente são da mesma empresa em indicações internas).
 
-O classificador rotulou como `not_interested` (confidence alta), então a Policy caiu no branch `closed_lost` e o LLM apenas se despediu cordialmente — **sem perguntar quem seria a pessoa certa, sem pedir nome/contato, sem oferecer mencionar a indicação**.
+## Correções
 
-`final_output.rationale` do último run confirma:
-> "O lead informou que não é a pessoa certa para o assunto, o que interpreto como uma forma de declinar... A política é `closed_lost`."
+### 1. `supabase/functions/execute-action/index.ts` — `create_new_contact`
 
-Sinais como *"não sou eu / não é comigo / não seria comigo / quem cuida disso é o(a)…"* devem ser tratados como **referral implícito** (lead redireciona, não recusa), abrindo espaço para perguntar contato.
+- **Nome inteligente**: usar `name` se vier; senão derivar do e-mail (parte antes do `@`, capitalizada, ex.: `joao.silva@x.com` → `Joao Silva`); senão usar o telefone formatado; nunca colocar o e-mail bruto no campo nome.
+- **Herdar dados do indicante** quando o lead novo não trouxer valor próprio:
+  - `company_name` (já existe — manter)
+  - `website`
+  - `address`
+  - `linkedin_company_url`
+  - `pipeline_mode` (manter `'agent'` por padrão, igual ao indicante)
+- **Permitir override via params** caso o SDR já tenha extraído website/empresa diferentes.
+- **Activity log mais claro**: incluir indicador "(via indicação de {nome do indicante})" e os campos copiados.
 
-## Mudanças
+### 2. `supabase/functions/sdr-agent/index.ts` — tool `create_new_contact`
 
-### 1. `supabase/functions/_shared/intent-classifier.ts`
-- Atualizar o `SYSTEM_PROMPT`:
-  - Em **referral**, listar explicitamente o caso "não sou eu para este assunto / não é comigo / não seria comigo / quem cuida disso é outra pessoa / fala com X" — mesmo SEM contato ainda. Isso é referral (precisamos pedir contato), NÃO not_interested.
-  - Em **not_interested**, deixar claro que exige recusa do PRODUTO ("não tenho interesse", "para de me mandar", "não quero", "não precisamos"), não apenas redirecionamento de interlocutor.
-- Adicionar **regra determinística pré-LLM**: se o inbound bater regex `/(n[aã]o\s+(?:sou\s+eu|seria\s+comigo|[ée]\s+comigo|sou\s+(?:o|a)\s+respons[aá]vel)|quem\s+(?:cuida|v[eê]|trata)\s+(?:disso|desse\s+assunto)|fal[ae]\s+com\s+\w+|procura\s+(?:o|a)\s+\w+)/i` → retornar `intent: "referral"`, `confidence: 0.9` sem chamar LLM. Mais barato e elimina o erro observado.
+Atualizar o schema/descrição da tool `n` (e a forma como o LLM a chama) para aceitar opcionalmente `website` e `company_name` quando o lead indicante mencionar.
 
-### 2. `supabase/functions/_shared/policy-engine.ts`
-- No branch `case "referral"`, subdividir o caminho "sem contato":
-  - **Sem contato E sem nome detectados** (caso "não seria comigo" puro): `response_directive` passa a ser
-    > "O lead sinalizou que NÃO é a pessoa certa para esse assunto, mas ainda não indicou quem é. Responda de forma curta e cordial reconhecendo, e pergunte quem seria a pessoa correta (nome/cargo) e o melhor contato (email ou WhatsApp). Pergunte também se você pode mencionar que falou com ele. NÃO se despeça nem encerre o contato — estamos buscando o decisor. NÃO ofereça reunião."
-  - **Com nome mas sem email/telefone**: pedir apenas o contato + permissão.
-  - Continuar com `post_actions: ["release_slot_holds"]` (lead atual não vai agendar).
-- Manter `reason` distintos: `referral_redirect_no_contact`, `referral_named_no_contact`, `referral_with_contact`.
+### 3. Testes
 
-### 3. `supabase/functions/_shared/entity-extractor.ts`
-- Adicionar flag `redirect_signal: boolean` em `ReferralContact` quando o regex de "não sou eu / não é comigo" disparar, para a Policy distinguir referral implícito de explícito mesmo sem nome.
-
-### 4. Testes
-- `intent-classifier_test.ts` (criar se não existir): cobrir "não seria comigo", "não sou eu, fala com a Marina", "quem cuida disso é o financeiro" → todos `referral`, todos via fast-path determinístico (sem chamar AI gateway).
-- `policy-engine_test.ts`: adicionar caso referral com `redirect_signal=true` e sem contato → `forced_tool=null`, diretiva contém "quem seria a pessoa correta", `post_actions` inclui `release_slot_holds`.
-- `entity-extractor_test.ts`: caso "não seria comigo" → `referral_contact.redirect_signal=true`, sem email/phone/name.
-
-### 5. Verificação
-- `supabase--test_edge_functions` nos shared tests.
-- Deploy de `sdr-agent`. Não há mudança de schema.
+Adicionar caso em `entity-extractor_test.ts` ou um novo `execute-action`-style teste verificando:
+- Quando só email é informado → name = derivado do local-part, não o e-mail completo.
+- Lead criado herda `website`, `company_name`, `address` do indicante quando params não trazem esses campos.
 
 ## Fora de escopo
-- Não mexer em cadência/follow-up automático para leads marcados como "wrong person" — fica para iteração futura (hoje o release_slot_holds + ausência de booking já evita mensagens órfãs; o lead atual permanece em fluxo padrão até alguém marcar como `not_interested` real).
-- Não criar novo intent `wrong_person` — reusar `referral` evita refatorar a Policy.
+
+- Não mexer no fluxo do `policy-engine` (já ajustado na rodada anterior).
+- Não alterar tipos do banco — `name` continua NOT NULL.
+
+## Verificação
+
+- `supabase--test_edge_functions` em `execute-action` e `_shared`.
+- Deploy de `execute-action` e `sdr-agent`.
+- Conferir na UI `/leads` que um novo referral criado mostra o nome correto e os dados da empresa preenchidos.
