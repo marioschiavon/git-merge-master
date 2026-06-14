@@ -407,6 +407,10 @@ async function execTool(
     return data;
   }
 
+  if (name === "book_slot" || name === "reschedule_booking" || name === "cancel_booking") {
+    return await execBookingTool(name, args, ctx);
+  }
+
   if (name === "finalize") {
     return { ok: true, decision: args };
   }
