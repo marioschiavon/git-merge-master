@@ -46,7 +46,29 @@ Transformar o `sdr-agent` em um agente com estado real e loop completo de ferram
 
 ---
 
-## Fase 3 — Estado estruturado + máquina de estados
+## Fase 3 — Estado estruturado + máquina de estados ✅ (implementada)
+
+Novo módulo `supabase/functions/_shared/state-machine.ts` exporta `computeState()` + `renderStateBlock()`. `sdr-agent` chama no início de cada execução, injeta o JSON no system prompt e passa `allowed_actions`/`finalize_allowed` para o modelo. O `finalize_retry` cego foi substituído por re-prompt guiado: se o estado exige uma tool específica (ex.: `book_slot`, `check_calendar`, `search_knowledge`), o re-prompt força essa tool via `tool_choice` em vez de sempre forçar `finalize`.
+
+### Stages detectados
+`awaiting_first_reply`, `qualification`, `product_qna`, `scheduling_request`, `scheduling_waiting_confirmation`, `scheduling_confirming_now`, `reschedule_request`, `cancel_request`, `booking_confirmed`, `referral_provided`, `closed_lost`, `general`.
+
+### `allowed_actions` / `finalize_allowed` por estado
+- `product_qna` → `[search_knowledge, list_knowledge, read_knowledge_item, check_calendar, update_lead_facts, finalize]`, `finalize_allowed=false` até `search_knowledge`.
+- `scheduling_request` → `[check_calendar, ...]`, `finalize_allowed=false` até `check_calendar`.
+- `scheduling_waiting_confirmation` → `[update_lead_facts, finalize]`, `finalize_allowed=true`.
+- `scheduling_confirming_now` (lead apontou um slot oferecido) → `[book_slot, ...]`, `finalize_allowed=false` até `book_slot`.
+- `reschedule_request` com slot escolhido → `[reschedule_booking, ...]`, `finalize_allowed=false`.
+- `cancel_request` → `[cancel_booking, ...]`, `finalize_allowed=false`.
+- `booking_confirmed`, `referral_provided`, `closed_lost`, `general` → `finalize_allowed=true`.
+
+### Arquivos alterados
+- criado `supabase/functions/_shared/state-machine.ts`
+- editado `supabase/functions/sdr-agent/index.ts` (compute+render no início de cada run; re-prompt guiado em vez de `finalize_retry`)
+
+---
+
+## Fase 3 (original — referência) — Estado estruturado + máquina de estados
 
 ### 3.1 Bloco de estado no system prompt
 A cada turno, injetar JSON estruturado calculado em código (não inferido pelo modelo):
