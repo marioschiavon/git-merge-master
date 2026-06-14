@@ -1157,7 +1157,42 @@ Deno.serve(async (req) => {
       pending: state.pending_action,
     }));
 
-    const sys = buildSystemPrompt(ctx) + "\n\n" + renderStateBlock(state);
+    // Pré-resolução determinística: se a última mensagem do lead referencia
+    // um dos slots ativos (held) ou o horário da reserva confirmada, deixa
+    // explícito no prompt o ISO correspondente — evita o LLM perguntar "qual horário"
+    // quando só existe uma opção naquele dia ou quando a referência é inequívoca.
+    let preResolutionBlock = "";
+    try {
+      const candidateIsos: string[] = [
+        ...((ctx.heldSlots ?? []).map((h: any) => h.slot_datetime).filter(Boolean) as string[]),
+        ...((ctx.activeBookings ?? []).map((b: any) => b.scheduled_at).filter(Boolean) as string[]),
+      ];
+      if (lastInbound && candidateIsos.length > 0) {
+        const ref = matchesSlotReference(lastInbound, candidateIsos);
+        if (ref.iso) {
+          const isHold = (ctx.heldSlots ?? []).some((h: any) => h.slot_datetime === ref.iso);
+          const tool = (ctx.activeBookings ?? []).some((b: any) => b.scheduled_at === ref.iso && !isHold)
+            ? "reschedule_booking"
+            : "book_slot";
+          preResolutionBlock =
+            `\n\n## ⚡ Pré-resolução (determinística)\n` +
+            `A última mensagem do lead aponta de forma inequívoca para o horário **${fmtBrt(ref.iso)}** ` +
+            `(ISO=${ref.iso}). ${isHold ? "É um dos slots oferecidos." : "É o horário da reserva ativa."}\n` +
+            `**Próxima ação obrigatória neste turno:** chame \`${tool}({ slot_start: "${ref.iso}" })\` ` +
+            `e em seguida finalize com decision=send_message usando o message_suggestion retornado. ` +
+            `NÃO peça confirmação de horário, NÃO ofereça outras datas, NÃO chame check_calendar.`;
+        } else if (ref.ambiguous) {
+          preResolutionBlock =
+            `\n\n## ⚡ Pré-resolução (determinística)\n` +
+            `A última mensagem do lead é ambígua entre os horários ativos. ` +
+            `Peça uma escolha clara (referenciando dia E hora), sem chamar tools de booking.`;
+        }
+      }
+    } catch (e) {
+      console.error("pre-resolution failed:", e);
+    }
+
+    const sys = buildSystemPrompt(ctx) + "\n\n" + renderStateBlock(state) + preResolutionBlock;
     const nativeHistory = buildNativeHistory(ctx.messages);
 
     const messages: ChatMessage[] = [
