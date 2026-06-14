@@ -270,8 +270,9 @@ const TOOLS: ToolDef[] = [
 async function execTool(
   name: string,
   args: Record<string, unknown>,
-  ctx: { lead_id: string; company_id: string; conversation_id?: string | null },
+  ctx: { lead_id: string; company_id: string; conversation_id?: string | null; mode?: "shadow" | "live" },
 ): Promise<unknown> {
+
   if (name === "search_knowledge") {
     const query = String(args.query ?? "");
     const topK = Number(args.top_k ?? 5);
