@@ -11,6 +11,20 @@ export function calcomHeaders(apiKey: string, version = CALCOM_BOOKINGS_API_VERS
   };
 }
 
+export class CalcomError extends Error {
+  status: number;
+  body: any;
+  path: string;
+  constructor(path: string, status: number, body: any) {
+    const snippet = typeof body === "string" ? body : JSON.stringify(body ?? null);
+    super(`Cal.com ${path} ${status}: ${snippet.slice(0, 500)}`);
+    this.name = "CalcomError";
+    this.status = status;
+    this.body = body;
+    this.path = path;
+  }
+}
+
 export async function calcomFetch(
   path: string,
   init: RequestInit & { version?: string } = {}
@@ -26,7 +40,8 @@ export async function calcomFetch(
   let json: any;
   try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
   if (!res.ok) {
-    throw new Error(`Cal.com ${path} ${res.status}: ${text.slice(0, 500)}`);
+    console.error(`[calcom] ${path} → ${res.status}`, json?.error || json?.message || text.slice(0, 300));
+    throw new CalcomError(path, res.status, json ?? text);
   }
   return json;
 }
