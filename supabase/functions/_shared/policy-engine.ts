@@ -18,6 +18,8 @@ export type Tool =
   | "book_slot"
   | "reschedule_booking"
   | "cancel_booking"
+  | "create_new_contact"
+  | "mark_referrer"
   | "finalize";
 
 export type Stage =
