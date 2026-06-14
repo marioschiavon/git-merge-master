@@ -1863,8 +1863,31 @@ Deno.serve(async (req) => {
         // book_slot / reschedule_booking / cancel_booking não são mais decisões
         // pós-finalize — viraram tools executadas DENTRO do loop do agente
         // (ver execBookingTool). Aqui só restam as decisões puramente comunicacionais.
-        } else if (decision === "silence" || decision === "schedule_followup" || decision === "mark_referral") {
+        } else if (decision === "mark_referral") {
+          // mark_referral é uma DECISÃO LEGADA. Hoje o referral correto vem por
+          // forced_tool=create_new_contact + post_actions=mark_referrer. Mas o LLM
+          // às vezes ainda escolhe mark_referral diretamente — quando isso acontece
+          // E há texto a entregar, ENVIE a mensagem em vez de descartá-la.
+          const fd = finalDecision as any;
+          const msg = String(fd.message || "").trim();
+          if (msg) {
+            const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+              body: {
+                company_id: ctx.lead.company_id,
+                lead_id,
+                conversation_id: conversation_id ?? null,
+                action_type: "send_reply",
+                params: { message: msg, channel: fd.channel || undefined },
+              },
+            });
+            const sent = !execErr && (exec as any)?.result?.sent === true;
+            liveResult = { action: "mark_referral", ok: !execErr, sent, result: exec, error: execErr ? String(execErr) : ((exec as any)?.result?.error ?? null) };
+          } else {
+            liveResult = { action: "mark_referral", ok: true, note: "no outbound (empty message)" };
+          }
+        } else if (decision === "silence" || decision === "schedule_followup") {
           liveResult = { action: decision, ok: true, note: "no outbound" };
+
         } else {
           liveResult = { action: decision, ok: false, error: "live_action_not_implemented" };
         }
