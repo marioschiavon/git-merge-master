@@ -618,6 +618,79 @@ export type Database = {
           },
         ]
       }
+      calendar_actions: {
+        Row: {
+          action_type: string
+          company_id: string | null
+          conversation_id: string | null
+          created_at: string
+          error_message: string | null
+          id: string
+          idempotency_key: string
+          lead_id: string | null
+          provider_booking_uid: string | null
+          request_payload: Json
+          requested_start: string | null
+          response_payload: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          action_type: string
+          company_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idempotency_key: string
+          lead_id?: string | null
+          provider_booking_uid?: string | null
+          request_payload?: Json
+          requested_start?: string | null
+          response_payload?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          action_type?: string
+          company_id?: string | null
+          conversation_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          id?: string
+          idempotency_key?: string
+          lead_id?: string | null
+          provider_booking_uid?: string | null
+          request_payload?: Json
+          requested_start?: string | null
+          response_payload?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_actions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_actions_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_actions_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           calcom_default_event_type_id: number | null
@@ -1724,6 +1797,8 @@ export type Database = {
           gmail_thread_id: string | null
           id: string
           metadata: Json | null
+          provider: string | null
+          provider_message_id: string | null
           rfc_message_id: string | null
           sent_at: string
         }
@@ -1737,6 +1812,8 @@ export type Database = {
           gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
+          provider?: string | null
+          provider_message_id?: string | null
           rfc_message_id?: string | null
           sent_at?: string
         }
@@ -1750,6 +1827,8 @@ export type Database = {
           gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
+          provider?: string | null
+          provider_message_id?: string | null
           rfc_message_id?: string | null
           sent_at?: string
         }

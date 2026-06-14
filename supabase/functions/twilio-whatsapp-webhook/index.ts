@@ -109,6 +109,23 @@ serve(async (req) => {
       conv = newConv;
     }
 
+    // Dedup por provider_message_id (Twilio MessageSid). Se já existir, ignora.
+    if (messageSid) {
+      const { data: dup } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("provider", "twilio")
+        .eq("provider_message_id", messageSid)
+        .maybeSingle();
+      if (dup) {
+        console.log("twilio-webhook: duplicate MessageSid, skipping:", messageSid);
+        return new Response("<Response/>", {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/xml" },
+        });
+      }
+    }
+
     // Inserir mensagem com channel='whatsapp'
     await supabase.from("messages").insert({
       conversation_id: conv!.id,
@@ -117,6 +134,8 @@ serve(async (req) => {
       channel: "whatsapp",
       ai_suggested: false,
       metadata: { twilio_sid: messageSid, from: fromPhone, to: toPhone },
+      provider: "twilio",
+      provider_message_id: messageSid,
     });
 
     // Encaminha para o pipeline padrão (intenção, IA, etc.) pulando insert duplicado
@@ -133,6 +152,8 @@ serve(async (req) => {
         content: body,
         channel: "whatsapp",
         skip_insert: true,
+        provider: "twilio",
+        provider_message_id: messageSid,
       }),
     }).catch((e) => console.error("inbound-webhook forward error:", e));
 
