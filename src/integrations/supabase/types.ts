@@ -38,6 +38,7 @@ export type Database = {
           raw_payload: Json | null
           reschedule_reason: string | null
           scheduled_at: string | null
+          source: string
           status: Database["public"]["Enums"]["booking_status"]
           timezone: string | null
           title: string | null
@@ -66,6 +67,7 @@ export type Database = {
           raw_payload?: Json | null
           reschedule_reason?: string | null
           scheduled_at?: string | null
+          source?: string
           status?: Database["public"]["Enums"]["booking_status"]
           timezone?: string | null
           title?: string | null
@@ -94,6 +96,7 @@ export type Database = {
           raw_payload?: Json | null
           reschedule_reason?: string | null
           scheduled_at?: string | null
+          source?: string
           status?: Database["public"]["Enums"]["booking_status"]
           timezone?: string | null
           title?: string | null
@@ -629,6 +632,7 @@ export type Database = {
           idempotency_key: string
           lead_id: string | null
           provider_booking_uid: string | null
+          reconciled_at: string | null
           request_payload: Json
           requested_start: string | null
           response_payload: Json
@@ -645,6 +649,7 @@ export type Database = {
           idempotency_key: string
           lead_id?: string | null
           provider_booking_uid?: string | null
+          reconciled_at?: string | null
           request_payload?: Json
           requested_start?: string | null
           response_payload?: Json
@@ -661,6 +666,7 @@ export type Database = {
           idempotency_key?: string
           lead_id?: string | null
           provider_booking_uid?: string | null
+          reconciled_at?: string | null
           request_payload?: Json
           requested_start?: string | null
           response_payload?: Json
