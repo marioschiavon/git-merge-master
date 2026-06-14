@@ -729,22 +729,8 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
   ].filter(Boolean).join("\n");
 }
 
-function buildHistoryAsUserMessage(messages: Array<{ direction: string; content: string; created_at: string; metadata?: Record<string, unknown> | null; channel?: string | null }>): string {
-  if (messages.length === 0) return "(sem histórico ainda — esta é a primeira interação)";
-  return messages
-    .map((m) => {
-      const who = m.direction === "outbound" ? "SDR" : "Lead";
-      const when = fmtBrt(m.created_at);
-      const ch = m.channel ? ` ${m.channel}` : "";
-      const meta = m.metadata && typeof m.metadata === "object"
-        ? Object.keys(m.metadata).length
-          ? ` meta=${JSON.stringify(m.metadata).slice(0, 240)}`
-          : ""
-        : "";
-      return `[${when}${ch} ${who}]${meta}\n${m.content}`;
-    })
-    .join("\n\n");
-}
+// `buildHistoryAsUserMessage` foi removido: o histórico agora é serializado em
+// roles nativos via `_shared/history-builder.ts#buildNativeHistory`.
 
 // ────────────────────────────────────────────────────────────────
 // Main handler
