@@ -54,3 +54,7 @@ Na conversa de `eu@julianocarneiro.com.br` (`a6ba77a3-…`) o lead disse "Voce p
 
 ## Risco
 Médio. Mexe em referral (caminho relativamente novo) e em cron de expiração (em produção). Mitigação: guards conservadores (pulam follow-up só com sinais claros de encerramento), e testes Deno cobrindo os novos branches.
+
+
+## Status
+Implementado e deployado. Testes Deno passando (14 policy + 5 entity).
