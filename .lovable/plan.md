@@ -1,63 +1,102 @@
-## Diagnóstico
 
-Lead `a6ba77a3…` está aguardando resposta desde 14:13. A última run do `sdr-agent` (id `71388998…`, iniciada 14:13:30) ficou `status='running'` para sempre — boot ok, logou o estado e morreu sem enviar mensagem nem gravar erro.
+# Pipeline SDR determinístico (intent-first, policy-gated)
 
-Sequência reconstruída:
+Você está certo: hoje o LLM "decide tudo" e a state-machine só corrige depois. A inversão correta é: **código classifica e decide o que é permitido; LLM apenas redige ou executa a tool já liberada**.
 
-1. 14:11:47 — booking **confirmado** para 18/jun 17:45 (BRT).
-2. 14:12:16 — lead: *"Esse horário não consigo. Quais outros horários você tem dia 18?"*
-3. 14:13:01 — agent **ignorou** o booking ativo, tratou como novo agendamento e ofereceu **18/jun 09:00** (criou `slot_hold` 951685a0 às 12:00 UTC).
-4. 14:13:12 — lead: *"Sim"*.
-5. 14:13:30 — agent entra com `stage=scheduling_confirming_now`, `pending=book_then_confirm` → tenta `book_slot` num lead que **já tem booking confirmado**. `assertCanBook` rejeita, o loop não tem saída válida (não está em `rescheduling`), atinge limite/timeout e morre sem `finalize` nem mensagem.
+## Arquitetura proposta
 
-Duas falhas combinadas:
+```text
+Mensagem recebida
+        │
+        ▼
+[1] Carrega histórico + estado atual (booking ativo, slots oferecidos, holds, facts)
+        │
+        ▼
+[2] Classificador semântico de intenção        ← LLM pequeno (Gemini Flash), JSON estrito
+        │                                          (intent, sub_intent, confidence)
+        ▼
+[3] Extrator de entidades                       ← LLM pequeno + parsers determinísticos
+        │  (datas, horários, slot escolhido,       (chrono-node/regex BRT, match contra
+        │   pessoas, preferências, timezone)        slots oferecidos/holds)
+        ▼
+[4] Policy Engine (PURO, em código)             ← decide stage + allowed_tools + forced_tool
+        │  valida intent × estado:
+        │   • reschedule + booking ativo → rescheduling
+        │   • reschedule + sem booking   → scheduling OU clarify
+        │   • create + booking ativo     → bloquear, tratar como reschedule
+        │   • cancel + sem booking       → clarify, NÃO chamar Cal.com
+        │   • slot escolhido idêntico ao booking → no-op + confirm
+        ▼
+[5] Atualiza estado (sdr_agent_runs.state, lead_intents_log)
+        │
+        ▼
+[6] Restringe tools expostas ao LLM             ← TOOLS = allowed_tools do Policy Engine
+        │                                          (ex.: só `reschedule_booking`+`finalize`)
+        ▼
+[7] LLM redige resposta OU executa a tool       ← loop curto (≤4 steps), sem poder
+                                                   "escolher" outra rota
+```
 
-- **A state machine não reconhece "quero outro horário" pós-confirmação como reschedule.** Continua em `scheduling_confirming_now` em vez de transicionar para `rescheduling`.
-- **Quando `book_slot` falha por já existir booking, o agent não tem fallback** (nem converte em `reschedule_booking`, nem aborta com mensagem ao lead, nem marca a run como `failed`).
+## Mudanças concretas
 
-## Plano
+### A. Novo módulo `_shared/intent-classifier.ts`
+- `classifyIntent({ lastInbound, history, state }) → { intent, sub_intent, confidence, raw }`
+- Modelo: `google/gemini-2.5-flash`, `response_format: json_object`, prompt curto com taxonomia fechada (`create_booking | reschedule_booking | cancel_booking | confirm_slot | ask_availability | product_qna | objection | referral | not_interested | smalltalk | other`).
+- Persistido em `lead_intents_log` (já existe).
 
-### 1. Detectar intenção de reschedule mesmo sem palavra "remarcar"
+### B. Novo módulo `_shared/entity-extractor.ts`
+- `extractEntities({ lastInbound, offeredSlots, heldSlots, activeBooking, tz }) → { selected_slot_iso, date_preference, mentioned_people, prefers_period }`
+- Combina: regex de datas BR + reaproveita `matchesSlotReference` (já no sdr-agent) + `extractDateRangeFromText` (já existe).
+- Resolução determinística primeiro; só chama LLM como fallback de baixa confiança.
 
-Em `sdr-agent/index.ts`, no resolver de estado pré-LLM (ou no `state-machine.ts`):
-- Se existe booking `confirmed` ativo **e** a última mensagem inbound contém sinais de troca ("outro", "outros horários", "não consigo", "não posso", "muda", "troca", "antes", "depois", "mais cedo", "mais tarde") → forçar transição para `rescheduling` e instruir o LLM a usar `reschedule_booking` (não `book_slot`).
-- Reforçar no system prompt: *"Se já existe booking confirmado, NUNCA chame `book_slot`. Use `reschedule_booking` ou `cancel_booking`."*
+### C. Novo módulo `_shared/policy-engine.ts` (substitui parte do `state-machine.ts`)
+- `decide({ intent, entities, state }) → { stage, allowed_tools, forced_tool?, response_directive, reason }`
+- Tabela de decisão explícita (matriz intent × estado). Saída inclui:
+  - `allowed_tools`: subconjunto fechado das tools.
+  - `forced_tool`: quando o caminho é único (ex.: `reschedule_booking` com slot já resolvido) — o loop chama direto, sem passar pelo LLM.
+  - `response_directive`: instrução curta para o LLM quando há ambiguidade (ex.: "peça ao lead para escolher entre os 2 slots ativos").
+- 100% testável via Deno tests (sem rede).
 
-### 2. Guard determinístico no `book_slot`
+### D. `sdr-agent/index.ts` reescrito como orquestrador fino
+Loop novo (≤4 iterações):
+1. carrega contexto → `classifyIntent` → `extractEntities` → `policy.decide`
+2. se `forced_tool` → executa direto, persiste, finaliza
+3. senão → `chatCompletion` com `tools = allowed_tools` e prompt contendo só `response_directive` + estado
+4. executa tool retornada (validada novamente contra `allowed_tools`); repete até `finalize`
+- Remove os hacks de "pré-resolução", `RESCHEDULE_TEXT_REGEX` no state-machine, `toolFailureCount`, downgrade por `suggested_message`. Tudo isso passa a ser decidido em (C).
 
-Em `_shared/booking-guards.ts` (`assertCanBook`): se já há booking `confirmed` para o lead, **retornar erro estruturado** `{ code: "ACTIVE_BOOKING_EXISTS", existing_booking_id, scheduled_at }`. A tool propaga esse erro como `tool_result` para o LLM, que é instruído a:
-- chamar `reschedule_booking` com o novo slot, ou
-- responder ao lead pedindo confirmação de troca.
+### E. `booking-guards.ts`
+- `assertCanBook` continua, mas erros viram códigos estruturados (`ACTIVE_BOOKING_EXISTS`, `SLOT_IN_PAST`, `SLOT_NOT_HELD`) consumidos pelo Policy Engine — não pelo LLM.
 
-### 3. Safety net: run não pode ficar `running` para sempre
+### F. Testes (Deno)
+- `policy-engine_test.ts`: matriz completa (intent × {sem booking, booking ativo, slot selecionado, slot no passado, etc.}).
+- `intent-classifier_test.ts`: golden set de ~30 mensagens reais (incluindo "Dia 18", "não consigo nesse horário", "outros horários dia 15").
+- `sdr-agent_test.ts`: cenários ponta-a-ponta com stubs do Cal.com — incluindo o bug que originou tudo (lead escolhe "Dia 18" entre 2 opções; agente confirma sem perguntar hora).
 
-Em `sdr-agent/index.ts`:
-- `try/catch/finally` ao redor do loop principal: em qualquer exceção/timeout, gravar `sdr_agent_runs.status='failed'` + `error` antes de retornar.
-- Limite de steps explícito (ex.: 8) com fallback: se atingido sem `finalize`, enviar mensagem genérica *"Só um instante, vou confirmar e te respondo."* e marcar `status='failed'` para auditoria.
-- Adicionar `setTimeout` watchdog (ex.: 25s) que aborta o loop e força fallback.
+### G. Telemetria
+- `sdr_agent_runs.state` passa a guardar `{ intent, entities, policy_decision, allowed_tools, forced_tool, steps[] }` para auditoria.
 
-### 4. Destravar a run atual e responder o lead
+## O que NÃO muda
+- Schema do banco (nenhuma migration de tabelas).
+- Tools individuais (`check_calendar`, `book_slot`, `reschedule_booking`, `cancel_booking`, `search_knowledge`, `update_lead_facts`, `finalize`) mantêm assinatura.
+- Cutover continua total (sem flags), mantendo decisão anterior.
 
-Script único de cleanup:
-- `UPDATE sdr_agent_runs SET status='failed', error='stuck_after_book_conflict' WHERE id='71388998…'`.
-- Expirar o `slot_hold` órfão `951685a0` (`status='expired'`).
-- Disparar `sdr-agent` manualmente para o lead, agora com os fixes em #1–#3, para que ele responda algo como: *"Você já tem reunião confirmada para 18/jun às 17:45. Quer que eu remarque para outro horário no dia 18? Tenho [opções]."*
+## Risco e mitigação
+- **Risco principal:** classificador errar e travar uma intenção legítima. **Mitigação:** quando `confidence < 0.6`, Policy Engine cai para `clarify` (pergunta curta ao lead) em vez de agir. Logamos cada divergência classifier ↔ ação final em `sdr_agent_runs.state` para tunar o prompt.
+- **Tempo extra:** +1 chamada Flash (~300ms). Aceitável: elimina loops de 8 steps do Pro.
 
-### 5. Eval mínima (mesmo PR)
+## Critérios de aceite
+1. Cenário "Dia 18 + 2 opções (17:45 e 18:30)" → Policy retorna `clarify` (pedir hora) **se** ambíguo, ou confirma direto se só houver 1 opção naquele dia. **Nunca** sugere data nova.
+2. Lead com booking confirmado responde "outro horário dia 15" → intent=`reschedule_booking`, stage=`reschedule_request`, `forced_tool=check_calendar` com `start_after=15/06 00:00 / end_before=15/06 23:59`. Zero chamada a `book_slot`.
+3. Lead sem booking diz "cancela" → Policy retorna `clarify`, Cal.com não é chamado.
+4. Slot oferecido já no passado nunca chega ao LLM (filtrado no extractor).
+5. `sdr_agent_runs.status='running'` por >60s = 0 em condições normais (loop curto + forced_tool).
 
-Adicionar cenário ao `sdr-agent_test.ts` (já planejado):
-- Booking confirmado existe + lead pede "outros horários dia X" → agent oferece slots e usa `reschedule_booking`, **nunca** `book_slot`. Run termina com `status='succeeded'` e exatamente 1 mensagem outbound.
+## Entrega sugerida
+PR único, dividido em commits:
+1. `policy-engine` + tests (sem integrar)
+2. `intent-classifier` + `entity-extractor` + tests
+3. `sdr-agent` reescrito + remoção dos hacks
+4. Deploy + smoke test no lead `a6ba77a3...`
 
-## Arquivos
-
-- `supabase/functions/sdr-agent/index.ts` — detecção de reschedule, watchdog, fallback, `finally` que grava `failed`.
-- `supabase/functions/_shared/state-machine.ts` — transição `booking_confirmed → rescheduling` por sinais textuais.
-- `supabase/functions/_shared/booking-guards.ts` — erro estruturado `ACTIVE_BOOKING_EXISTS`.
-- `supabase/functions/sdr-agent/sdr-agent_test.ts` — novo cenário.
-- Migration de housekeeping (one-off) para o lead travado.
-
-## Critérios de validação
-
-1. Run `71388998…` vira `failed` e o lead recebe resposta coerente.
-2. Repetir o fluxo "outros horários dia X" pós-confirmação → 1 mensagem de reagendamento, sem nova run travada.
-3. `sdr_agent_runs.status='running'` há mais de 60s passa a ser zero em condições normais.
+Confirma esse desenho para eu implementar?
