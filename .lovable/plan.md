@@ -1,102 +1,67 @@
+## Diagnóstico
 
-# Pipeline SDR determinístico (intent-first, policy-gated)
+Olhando o último run do lead (`526345a6...`, 14:36:23): o SDR não parou por bug de lógica — ele caiu em `decision=silence` **porque a tool `reschedule_booking` falhou 3 vezes seguidas** e o loop esgotou.
 
-Você está certo: hoje o LLM "decide tudo" e a state-machine só corrige depois. A inversão correta é: **código classifica e decide o que é permitido; LLM apenas redige ou executa a tool já liberada**.
+Sequência observada nos `steps`:
+1. Pipeline determinístico funciona: intent=`confirm_slot` (conf=1.0), slot=`2026-06-22T20:00Z`, `forced_tool=reschedule_booking` sobre o booking ativo `b4ADMYcJmojrtEP57rSuR5` (18/06 17:45 BRT).
+2. `reschedule_booking` → `FunctionsHttpError: Edge Function returned a non-2xx status code` (3x).
+3. Modelo redige mensagem de fallback ("Tivemos uma instabilidade..."), mas como `finalize_allowed=false` e o pending action é `reschedule_then_confirm`, o loop nunca conseguiu emitir `finalize(send_message)` e terminou em **silêncio**.
 
-## Arquitetura proposta
+Confirmação na infra:
+- `calendar_actions` do lead: **6 linhas seguidas com `status=failed`** para o mesmo `booking_uid=b4ADMYcJmojrtEP57rSuR5`, todas com `error_message='FunctionsHttpError…'` — ou seja, a edge function `calcom-booking-reschedule` está retornando não-2xx, mas **o erro real do Cal.com não está sendo logado** (o `console.error` interno não aparece nos logs).
+- Edge logs HTTP da reschedule: 9× `POST | 409` no último minuto. Ou é o Cal.com devolvendo 409 (conflito — slot já bookado / booking inválido), ou é o nosso próprio short-circuit `claim.kind === "pending"` devolvendo 409 e nunca chegando ao Cal.com.
 
-```text
-Mensagem recebida
-        │
-        ▼
-[1] Carrega histórico + estado atual (booking ativo, slots oferecidos, holds, facts)
-        │
-        ▼
-[2] Classificador semântico de intenção        ← LLM pequeno (Gemini Flash), JSON estrito
-        │                                          (intent, sub_intent, confidence)
-        ▼
-[3] Extrator de entidades                       ← LLM pequeno + parsers determinísticos
-        │  (datas, horários, slot escolhido,       (chrono-node/regex BRT, match contra
-        │   pessoas, preferências, timezone)        slots oferecidos/holds)
-        ▼
-[4] Policy Engine (PURO, em código)             ← decide stage + allowed_tools + forced_tool
-        │  valida intent × estado:
-        │   • reschedule + booking ativo → rescheduling
-        │   • reschedule + sem booking   → scheduling OU clarify
-        │   • create + booking ativo     → bloquear, tratar como reschedule
-        │   • cancel + sem booking       → clarify, NÃO chamar Cal.com
-        │   • slot escolhido idêntico ao booking → no-op + confirm
-        ▼
-[5] Atualiza estado (sdr_agent_runs.state, lead_intents_log)
-        │
-        ▼
-[6] Restringe tools expostas ao LLM             ← TOOLS = allowed_tools do Policy Engine
-        │                                          (ex.: só `reschedule_booking`+`finalize`)
-        ▼
-[7] LLM redige resposta OU executa a tool       ← loop curto (≤4 steps), sem poder
-                                                   "escolher" outra rota
-```
+**Sua hipótese está correta no espírito**: existe um booking antigo (`b4ADMYcJmojrtEP57rSuR5`, 18/06) e o reschedule contra ele está falhando em loop. Pode ser (a) o uid não existe mais no Cal.com, (b) o slot destino conflita com outra reunião na agenda, ou (c) o claim de idempotência está travando antes do Cal.com ser chamado. Hoje não dá pra distinguir porque a mensagem original do Cal.com é descartada.
 
-## Mudanças concretas
+## Plano
 
-### A. Novo módulo `_shared/intent-classifier.ts`
-- `classifyIntent({ lastInbound, history, state }) → { intent, sub_intent, confidence, raw }`
-- Modelo: `google/gemini-2.5-flash`, `response_format: json_object`, prompt curto com taxonomia fechada (`create_booking | reschedule_booking | cancel_booking | confirm_slot | ask_availability | product_qna | objection | referral | not_interested | smalltalk | other`).
-- Persistido em `lead_intents_log` (já existe).
+### 1. Tornar o erro do Cal.com visível (root cause)
+`supabase/functions/calcom-booking-reschedule/index.ts`:
+- Capturar o erro real do `calcomFetch` (já vem como `Cal.com /v2/.../reschedule 409: {body}`) e:
+  - gravar em `calendar_actions.response_payload` o `{ status, body }` retornado pelo Cal.com;
+  - retornar `jsonResponse({ error, calcom_status, calcom_body }, calcomStatus || 502)` para que o SDR veja o erro estruturado.
+- Idem em `calcom-booking-create` e `calcom-booking-cancel` para padronizar.
+- `calcomFetch` passa a anexar `err.status` e `err.body` na exceção para os callers não precisarem fazer regex no `message`.
 
-### B. Novo módulo `_shared/entity-extractor.ts`
-- `extractEntities({ lastInbound, offeredSlots, heldSlots, activeBooking, tz }) → { selected_slot_iso, date_preference, mentioned_people, prefers_period }`
-- Combina: regex de datas BR + reaproveita `matchesSlotReference` (já no sdr-agent) + `extractDateRangeFromText` (já existe).
-- Resolução determinística primeiro; só chama LLM como fallback de baixa confiança.
+### 2. Distinguir falha de idempotência vs falha do Cal.com
+`calcom-booking-reschedule`:
+- Quando `claim.kind === "pending"`, devolver `{ in_flight: true }` com status **425** (Too Early) em vez de 409, para não colidir com 409 do próprio Cal.com nos logs.
+- Quando `claim.kind === "pending"` e o `updated_at` do claim > 60s, considerar órfão e re-clamar (status="pending" stale → reset para nova tentativa).
 
-### C. Novo módulo `_shared/policy-engine.ts` (substitui parte do `state-machine.ts`)
-- `decide({ intent, entities, state }) → { stage, allowed_tools, forced_tool?, response_directive, reason }`
-- Tabela de decisão explícita (matriz intent × estado). Saída inclui:
-  - `allowed_tools`: subconjunto fechado das tools.
-  - `forced_tool`: quando o caminho é único (ex.: `reschedule_booking` com slot já resolvido) — o loop chama direto, sem passar pelo LLM.
-  - `response_directive`: instrução curta para o LLM quando há ambiguidade (ex.: "peça ao lead para escolher entre os 2 slots ativos").
-- 100% testável via Deno tests (sem rede).
+### 3. Sincronizar booking antes de reschedule
+`calcom-booking-reschedule`, antes de chamar `/reschedule`:
+- `GET /v2/bookings/{uid}` para validar o booking.
+- Se 404 → marcar `bookings.status='cancelled'` localmente, devolver `{ error_code: "booking_not_found", suggested_message: "Vou criar um novo agendamento" }` para que o sdr-agent caia em `book_slot`.
+- Se status no Cal.com já é `cancelled`/`rejected` → mesmo tratamento.
 
-### D. `sdr-agent/index.ts` reescrito como orquestrador fino
-Loop novo (≤4 iterações):
-1. carrega contexto → `classifyIntent` → `extractEntities` → `policy.decide`
-2. se `forced_tool` → executa direto, persiste, finaliza
-3. senão → `chatCompletion` com `tools = allowed_tools` e prompt contendo só `response_directive` + estado
-4. executa tool retornada (validada novamente contra `allowed_tools`); repete até `finalize`
-- Remove os hacks de "pré-resolução", `RESCHEDULE_TEXT_REGEX` no state-machine, `toolFailureCount`, downgrade por `suggested_message`. Tudo isso passa a ser decidido em (C).
+### 4. Tratamento estruturado no `sdr-agent`
+`supabase/functions/sdr-agent/index.ts`:
+- Após `forced_tool` falhar:
+  - Se erro estruturado = `booking_not_found` → recomputar policy com `active_booking=null` e re-rodar como `book_slot`.
+  - Se erro = `slot_unavailable` (409 do Cal.com com motivo "no_available_users") → cair em `check_calendar` para reofertar.
+  - Caso contrário → forçar `finalize({ decision: "send_message", message: <pedido de desculpas + pergunta de novo horário> })` **mesmo com `finalize_allowed=false`**. Garante que **nunca** terminamos em silêncio quando o lead está esperando.
+- Adicionar guard no fim do loop: se nenhum step gerou `decision=send_message|offer_slots|...` e há inbound não respondido, escalar para `escalate_to_human` em vez de `silence`.
 
-### E. `booking-guards.ts`
-- `assertCanBook` continua, mas erros viram códigos estruturados (`ACTIVE_BOOKING_EXISTS`, `SLOT_IN_PAST`, `SLOT_NOT_HELD`) consumidos pelo Policy Engine — não pelo LLM.
+### 5. Reconciliação periódica (defesa em profundidade)
+Novo cron leve `calcom-reconcile-bookings` (a cada 15min):
+- Para cada `bookings.status IN ('confirmed','pending','rescheduled')` cujo `updated_at > 1h`, faz `GET /v2/bookings/{uid}` e aplica `upsertBookingFromCalcom` (ou marca cancelled se 404). Evita que UIDs órfãos fiquem aparecendo como booking ativo no policy engine.
 
-### F. Testes (Deno)
-- `policy-engine_test.ts`: matriz completa (intent × {sem booking, booking ativo, slot selecionado, slot no passado, etc.}).
-- `intent-classifier_test.ts`: golden set de ~30 mensagens reais (incluindo "Dia 18", "não consigo nesse horário", "outros horários dia 15").
-- `sdr-agent_test.ts`: cenários ponta-a-ponta com stubs do Cal.com — incluindo o bug que originou tudo (lead escolhe "Dia 18" entre 2 opções; agente confirma sem perguntar hora).
+### 6. Testes
+- `calcom-booking-reschedule_test.ts`: stub do Cal.com retornando 404 e 409 — verifica que (a) `bookings.status` é atualizado, (b) response inclui `calcom_status`/`calcom_body`, (c) idempotência reusa o registro `failed` corretamente.
+- `sdr-agent_test.ts`: novo cenário "reschedule falha 3x" → verifica que o run termina em `send_message` (nunca em `silence`).
 
-### G. Telemetria
-- `sdr_agent_runs.state` passa a guardar `{ intent, entities, policy_decision, allowed_tools, forced_tool, steps[] }` para auditoria.
-
-## O que NÃO muda
-- Schema do banco (nenhuma migration de tabelas).
-- Tools individuais (`check_calendar`, `book_slot`, `reschedule_booking`, `cancel_booking`, `search_knowledge`, `update_lead_facts`, `finalize`) mantêm assinatura.
-- Cutover continua total (sem flags), mantendo decisão anterior.
-
-## Risco e mitigação
-- **Risco principal:** classificador errar e travar uma intenção legítima. **Mitigação:** quando `confidence < 0.6`, Policy Engine cai para `clarify` (pergunta curta ao lead) em vez de agir. Logamos cada divergência classifier ↔ ação final em `sdr_agent_runs.state` para tunar o prompt.
-- **Tempo extra:** +1 chamada Flash (~300ms). Aceitável: elimina loops de 8 steps do Pro.
+### 7. Limpeza pontual deste lead (durante o deploy)
+- `UPDATE calendar_actions SET status='failed' WHERE lead_id='a6ba77a3…' AND status='pending'` (já está, mas garantir).
+- Validar o uid `b4ADMYcJmojrtEP57rSuR5` direto no Cal.com via novo log da etapa 1; se 404, marcar `bookings` local como cancelled e disparar `sdr-agent` manualmente para o lead receber resposta.
 
 ## Critérios de aceite
-1. Cenário "Dia 18 + 2 opções (17:45 e 18:30)" → Policy retorna `clarify` (pedir hora) **se** ambíguo, ou confirma direto se só houver 1 opção naquele dia. **Nunca** sugere data nova.
-2. Lead com booking confirmado responde "outro horário dia 15" → intent=`reschedule_booking`, stage=`reschedule_request`, `forced_tool=check_calendar` com `start_after=15/06 00:00 / end_before=15/06 23:59`. Zero chamada a `book_slot`.
-3. Lead sem booking diz "cancela" → Policy retorna `clarify`, Cal.com não é chamado.
-4. Slot oferecido já no passado nunca chega ao LLM (filtrado no extractor).
-5. `sdr_agent_runs.status='running'` por >60s = 0 em condições normais (loop curto + forced_tool).
+1. Nova chamada falha do Cal.com aparece em `calendar_actions.response_payload` com `{calcom_status, calcom_body}` legível.
+2. Quando o booking não existe mais no Cal.com, o SDR converte automaticamente para `book_slot` sem intervenção.
+3. Nenhum run termina com `decision=silence` quando o último step é um `tool_call` que falhou — sempre vira `send_message` ou `escalate_to_human`.
+4. Lead `a6ba77a3…` recebe resposta dentro de 1 minuto após o redeploy.
 
-## Entrega sugerida
-PR único, dividido em commits:
-1. `policy-engine` + tests (sem integrar)
-2. `intent-classifier` + `entity-extractor` + tests
-3. `sdr-agent` reescrito + remoção dos hacks
-4. Deploy + smoke test no lead `a6ba77a3...`
+## O que não muda
+- Pipeline determinístico (classifier → extractor → policy) permanece intacto.
+- Schema de `bookings` e `calendar_actions` sem alterações (apenas mais campos preenchidos em `response_payload`).
 
-Confirma esse desenho para eu implementar?
+Confirma esse plano para eu implementar?

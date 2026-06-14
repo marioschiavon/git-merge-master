@@ -620,6 +620,8 @@ async function execBookingTool(
   }
 
   // ── RESCHEDULE ────────────────────────────────────────────────
+  // Idempotency is owned entirely by the calcom-booking-reschedule edge
+  // function — claiming it here too caused a double-claim and 425 (in_flight).
   const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || guard.activeBookingUid;
   if (!bookingUid) return { ok: false, error: "no active booking to reschedule" };
   const reason = typeof args.reason === "string" ? args.reason : "Cliente solicitou remarcação";
@@ -628,32 +630,61 @@ async function execBookingTool(
     conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
     action_type: "reschedule", requested_start: startIso, provider_booking_uid: bookingUid,
   });
-  const claim = await claimCalendarAction(supabase, {
-    idempotency_key, conversation_id: ctx.conversation_id, lead_id: ctx.lead_id, company_id: ctx.company_id,
-    action_type: "reschedule", requested_start: startIso, provider_booking_uid: bookingUid,
-    request_payload: { booking_uid: bookingUid, start: startIso, reason },
+
+  // Use raw fetch so we can read the structured error body that the edge
+  // function returns on non-2xx (supabase.functions.invoke throws and drops it).
+  const reschedUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/calcom-booking-reschedule`;
+  const reschedResp = await fetch(reschedUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!}`,
+      apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    },
+    body: JSON.stringify({ booking_uid: bookingUid, start: startIso, reason, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id, idempotency_key }),
   });
-  if (claim.kind === "existing") {
+  const reschedText = await reschedResp.text();
+  let resched: any; try { resched = reschedText ? JSON.parse(reschedText) : {}; } catch { resched = { raw: reschedText }; }
+
+  if (!reschedResp.ok || resched?.success === false || resched?.error) {
+    const errStr = String(resched?.error ?? `HTTP ${reschedResp.status}`);
+
+    // ── Auto-downgrade: booking no longer exists → fall through to book_slot.
+    if (resched?.error_code === "booking_not_found") {
+      console.log("[sdr-agent] reschedule→book_slot downgrade (booking_not_found):", bookingUid);
+      const bookResult = await execBookingTool("book_slot", { slot_start: slotStart }, ctx);
+      return { ...(bookResult as object), downgraded_from: "reschedule_booking" };
+    }
+
+    // Structured errors from Cal.com → return suggested_message so the loop
+    // (and the forced-tool short-circuit) can finalize cleanly instead of looping.
+    const suggested = typeof resched?.suggested_message === "string"
+      ? resched.suggested_message
+      : "Tive um problema técnico ao confirmar esse horário. Pode escolher outro dia/hora pra eu reservar?";
     return {
-      ok: true, replayed: true, booking_uid: bookingUid, scheduled_at: startIso,
+      ok: false,
+      error: errStr,
+      error_code: resched?.error_code ?? "reschedule_failed",
+      downgrade: resched?.error_code === "slot_unavailable" ? "reoffer_slots" : "ask_confirmation",
+      calcom_status: resched?.calcom_status ?? null,
+      calcom_body: resched?.calcom_body ?? null,
+      suggested_message: suggested,
+    };
+  }
+
+  if (resched?.idempotent_replay) {
+    return {
+      ok: true, replayed: true, booking_uid: resched.booking_uid ?? bookingUid, scheduled_at: startIso,
       message_suggestion: `Remarcação já confirmada para ${formatBRTLong(startIso)}.`,
     };
   }
-  const { data: resched, error: reschedErr } = await supabase.functions.invoke("calcom-booking-reschedule", {
-    body: { booking_uid: bookingUid, start: startIso, reason, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id, idempotency_key },
-  });
-  if (reschedErr || (resched as any)?.error) {
-    const errStr = reschedErr ? String(reschedErr) : String((resched as any)?.error);
-    await markCalendarActionFailed(supabase, claim.row.id, errStr);
-    return { ok: false, error: errStr };
-  }
+
   const newUid =
-    (resched as any)?.booking?.uid ??
-    (resched as any)?.booking?.calcom_booking_uid ??
-    (resched as any)?.booking_uid ??
-    (resched as any)?.calcom_booking_uid ??
+    resched?.booking?.uid ??
+    resched?.booking?.calcom_booking_uid ??
+    resched?.booking_uid ??
+    resched?.calcom_booking_uid ??
     bookingUid;
-  await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: newUid, response_payload: (resched as any) ?? {} });
   return {
     ok: true, booking_uid: newUid, scheduled_at: startIso,
     message_suggestion: `Pronto! Remarquei para ${formatBRTLong(startIso)}. Você vai receber o novo convite por e-mail. 🙌`,
@@ -1311,11 +1342,14 @@ Deno.serve(async (req) => {
 
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.
       const r = result as any;
-      if (r && r.ok === false && typeof r.suggested_message === "string" && r.suggested_message) {
+      if (r && r.ok === false) {
+        const fallbackMsg = typeof r.suggested_message === "string" && r.suggested_message
+          ? r.suggested_message
+          : "Tive uma instabilidade aqui pra confirmar esse horário. Pode me mandar outro dia/horário que funcione pra você? Vou garantir a reserva.";
         finalDecision = {
           decision: "send_message",
-          message: r.suggested_message,
-          rationale: `Forced ${forcedToolName} downgraded: ${r.downgrade ?? r.error_code ?? "unknown"}.`,
+          message: fallbackMsg,
+          rationale: `Forced ${forcedToolName} failed: ${r.error_code ?? r.downgrade ?? r.error ?? "unknown"}.`,
         };
       } else if (r && r.ok && typeof r.message_suggestion === "string") {
         // Happy path: ask LLM ONE turn to either echo or refine the suggestion.
@@ -1507,7 +1541,8 @@ Deno.serve(async (req) => {
     }
 
     if (!finalDecision) {
-      // Fallback final: usar última suggested_message conhecida em vez de silêncio.
+      // Fallback final: nunca terminar em silêncio se houve tentativa de tool.
+      // Usa última suggested_message conhecida ou pede para o lead reenviar.
       if (lastDowngradeSuggestion) {
         finalDecision = {
           decision: "send_message",
@@ -1515,7 +1550,21 @@ Deno.serve(async (req) => {
           rationale: `MAX_STEPS atingido; usando suggested_message de ${lastDowngradeSuggestion.tool}.`,
         };
       } else {
-        finalDecision = { decision: "silence", rationale: "MAX_STEPS atingido sem finalize" };
+        // Procura por qualquer tool_call que tenha falhado no histórico de steps.
+        const hadFailedTool = steps.some((s) =>
+          (s.event === "tool_call" || s.event === "forced_tool_call") &&
+          (s as any).result && (s as any).result.ok === false,
+        );
+        if (hadFailedTool) {
+          finalDecision = {
+            decision: "send_message",
+            message:
+              "Tive uma instabilidade aqui pra confirmar nosso horário agora. Pode me mandar de novo o dia e a hora que funciona pra você? Vou garantir a reserva.",
+            rationale: "MAX_STEPS atingido sem finalize; tools falharam — evitando silêncio.",
+          };
+        } else {
+          finalDecision = { decision: "silence", rationale: "MAX_STEPS atingido sem finalize" };
+        }
       }
     }
 
