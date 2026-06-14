@@ -1214,6 +1214,11 @@ Deno.serve(async (req) => {
     let totalPromptTokens = 0;
     let totalCompletionTokens = 0;
     let finalDecision: Record<string, unknown> | null = null;
+    // Watchdog: contagem de falhas por tool com `downgrade`. Se a mesma tool
+    // falhar 2× e tiver `suggested_message`, finaliza automaticamente para evitar
+    // loop infinito (que mata a function por timeout sem gravar status).
+    const toolFailureCount = new Map<string, number>();
+    let lastDowngradeSuggestion: { tool: string; message: string } | null = null;
 
     // Fase 7: snapshot inicial do turno (estado estruturado + preview do prompt).
     const truncate = (s: unknown, n = 600) => {
