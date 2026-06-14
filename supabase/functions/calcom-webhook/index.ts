@@ -66,6 +66,27 @@ serve(async (req) => {
   }
 
   try {
+    // ── Phase 5: reconciliation mode ────────────────────────────────
+    // Try to locate a calendar_actions row that originated this booking. If
+    // present, this webhook is just an echo of an SDR-initiated action — we
+    // mark it reconciled and do NOT send any new outbound to the lead
+    // (the agent already confirmed synchronously in the tool loop).
+    // Orphan events (no calendar_actions) are treated as bookings created
+    // directly via the public Cal.com link and recorded with source='webhook'.
+    let originatingAction: { id: string; action_type: string } | null = null;
+    if (bookingUid) {
+      const { data: action } = await supabase
+        .from("calendar_actions")
+        .select("id, action_type")
+        .eq("provider_booking_uid", bookingUid)
+        .eq("status", "ok")
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      originatingAction = action ?? null;
+    }
+    const isOrphan = !originatingAction;
+
     // Capture previous scheduled_at BEFORE upsert (for reschedule events)
     let previousScheduledAt: string | null = null;
     if (bookingUid) {
@@ -79,7 +100,7 @@ serve(async (req) => {
 
     const booking = await upsertBookingFromCalcom(supabase, bookingPayload, { company_id, lead_id });
 
-    // Update status based on event type
+    // Update status + source based on event type and whether it's orphan.
     if (booking) {
       let newStatus: string | null = null;
       switch (eventType) {
@@ -89,10 +110,26 @@ serve(async (req) => {
         case "BOOKING_NO_SHOW_UPDATED": newStatus = "no_show"; break;
         case "MEETING_ENDED": newStatus = "completed"; break;
       }
-      if (newStatus) await supabase.from("bookings").update({ status: newStatus }).eq("id", booking.id);
+      const patch: Record<string, unknown> = {};
+      if (newStatus) patch.status = newStatus;
+      // Stamp source only on creation (don't overwrite on later updates).
+      if (eventType === "BOOKING_CREATED") {
+        patch.source = isOrphan ? "webhook" : "sdr_agent";
+      }
+      if (Object.keys(patch).length > 0) {
+        await supabase.from("bookings").update(patch).eq("id", booking.id);
+      }
     }
 
-    // Insert system message in the lead's conversation
+    // Mark calendar_actions reconciled.
+    if (originatingAction) {
+      await supabase
+        .from("calendar_actions")
+        .update({ reconciled_at: new Date().toISOString() })
+        .eq("id", originatingAction.id);
+    }
+
+    // Insert system message in the lead's conversation (internal audit trail).
     const eventMap: Record<string, BookingEventType> = {
       BOOKING_CREATED: "booking_created",
       BOOKING_RESCHEDULED: "booking_rescheduled",
@@ -112,9 +149,10 @@ serve(async (req) => {
       });
     }
 
-    // Enqueue follow-up actions
+    // Enqueue follow-up actions. For SDR-initiated events the agent already
+    // handled the outbound — webhook only enqueues outbounds when the lead
+    // acted directly on Cal.com.
     if (company_id && lead_id) {
-      // Resolve conversation_id once, so o executor consiga enviar a mensagem.
       const { data: convRow } = await supabase
         .from("conversations")
         .select("id")
@@ -151,26 +189,29 @@ serve(async (req) => {
         !!cancelledByEmail &&
         !!organizerEmailLower &&
         cancelledByEmail === organizerEmailLower;
-      // Presumir lead quando o cancelamento não foi feito pelo organizador.
-      // Cobre o caso comum do link público do Cal.com (cancelledByEmail vazio).
       const cancelledByLead = !cancelledByOrganizer;
 
       switch (eventType) {
         case "BOOKING_CREATED":
-          await enqueue("send_booking_confirmation", { booking_uid: bookingUid });
+          // SDR-initiated bookings already got a synchronous confirmation
+          // from the agent loop (Phase 2B). Only orphan bookings — created
+          // by the lead through the public Cal.com link — need an outbound.
+          if (isOrphan) {
+            await enqueue("send_booking_confirmation", { booking_uid: bookingUid });
+          }
+          // Lead-score update is always valid (idempotent on backend).
           await enqueue("update_lead_score", { delta: 30, reason: "meeting_booked" });
           break;
         case "BOOKING_RESCHEDULED":
-          // Intentionally no outbound: lead already saw confirmation on Cal.com.
-          // System message + lead_activity above are enough.
+          // No outbound: SDR loop already confirmed, or lead saw confirmation
+          // on Cal.com when rescheduling themselves.
           break;
         case "BOOKING_CANCELLED": {
           if (!cancelledByLead) {
             console.log(`calcom-webhook: cancellation initiated by organizer (${cancelledByEmail}), skipping follow-up.`);
             break;
           }
-          // Marca interna: se cancel_booking (SDR/humano/sistema) carimbou a origem
-          // nos últimos 5 minutos, este webhook é eco do nosso próprio cancelamento.
+          // Internal-stamp check (5min window) — eco of our own cancel.
           if (bookingUid) {
             const { data: bk } = await supabase
               .from("bookings")
@@ -184,7 +225,7 @@ serve(async (req) => {
               break;
             }
           }
-          // Idempotency: skip if we already enqueued acknowledge_cancellation for this booking in the last 24h.
+          // Idempotency: skip if already enqueued for this booking in the last 24h.
           const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
           const { data: existing } = await supabase
             .from("lead_action_queue")
