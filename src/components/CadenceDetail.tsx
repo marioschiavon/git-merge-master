@@ -130,6 +130,25 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
           </div>
         )}
 
+        {cadenceId && (
+          <div className="mt-3 rounded-md border p-3 flex items-center justify-between gap-3 border-border bg-muted/30">
+            <div className="flex-1">
+              <div className="text-sm font-medium">Cadência de indicações (referral)</div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Quando ligado, esta cadência é usada automaticamente para leads criados por indicação.
+                Você pode usar <code>{"{{referrer_name}}"}</code> e <code>{"{{referral_context}}"}</code> nos templates.
+              </p>
+            </div>
+            <Switch
+              checked={isReferral}
+              onCheckedChange={(v) => updateCadence.mutate({ id: cadenceId, kind: v ? "referral" : "outbound" })}
+              disabled={updateCadence.isPending}
+            />
+          </div>
+        )}
+
+
+
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
           <TabsList className={`grid w-full ${isAgentic ? "grid-cols-3" : "grid-cols-2"}`}>
