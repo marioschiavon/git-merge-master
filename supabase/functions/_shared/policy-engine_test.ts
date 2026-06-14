@@ -219,3 +219,34 @@ Deno.test("referral redirect_signal sem contato → pede pessoa correta, não en
   assertEquals(/pessoa correta|pessoa certa|quem seria/i.test(d.response_directive), true);
   assertEquals(/encerre|despe[çc]a|despedida/i.test(d.response_directive), true); // diretiva explícita "NÃO se despeça"
 });
+
+Deno.test("referral redirect + pergunta pendente → diretiva manda RESPONDER antes", () => {
+  const d = decidePolicy({
+    intent: "referral",
+    confidence: 0.9,
+    entities: {
+      ...baseEntities,
+      referral_contact: { redirect_signal: true },
+    },
+    state: baseState,
+    context: { last_inbound_has_pending_question: true, last_outbound_short: true },
+  });
+  assertEquals(d.reason, "referral_redirect_no_contact");
+  assertEquals(/ANTES de pedir qualquer contato/i.test(d.response_directive), true);
+  assertEquals(/RESPONDA primeiro/i.test(d.response_directive), true);
+});
+
+Deno.test("referral redirect SEM pergunta pendente e outbound longo → sem prefixo answer-first", () => {
+  const d = decidePolicy({
+    intent: "referral",
+    confidence: 0.9,
+    entities: {
+      ...baseEntities,
+      referral_contact: { redirect_signal: true },
+    },
+    state: baseState,
+    context: { last_inbound_has_pending_question: false, last_outbound_short: false },
+  });
+  assertEquals(/ANTES de pedir qualquer contato/i.test(d.response_directive), false);
+
+});

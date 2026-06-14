@@ -82,6 +82,12 @@ export interface PolicyInputs {
     offered_slots: string[];   // slots oferecidos no turno anterior, ainda válidos
     held_slots: string[];       // holds ativos no banco
   };
+  /** Sinais derivados do histórico recente, usados pela Policy para decidir
+   *  se deve priorizar responder antes de coletar. NÃO afeta tool routing. */
+  context?: {
+    last_inbound_has_pending_question?: boolean;
+    last_outbound_short?: boolean;
+  };
 }
 
 export function decidePolicy(input: PolicyInputs): PolicyDecision {
@@ -306,15 +312,27 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
       // o lead não está mais agendando para si.
       const hasName = !!(rc && rc.name);
       const redirectOnly = !!(rc && rc.redirect_signal && !hasName);
+      const ctx = input.context ?? {};
+      const answerFirst = !!(ctx.last_inbound_has_pending_question || ctx.last_outbound_short);
+      const answerFirstPrefix = answerFirst
+        ? `ANTES de pedir qualquer contato: releia as últimas mensagens do lead. Se houver pergunta sem resposta ` +
+          `(ex.: "como funciona", "pra que serve", "me explica", "qual o diferencial") OU se sua última explicação ` +
+          `foi curta/genérica, RESPONDA primeiro de forma clara, com 2-3 bullets de valor concretos para o segmento dele. ` +
+          `Só DEPOIS — no mesmo turno se a resposta for curta, ou no turno seguinte se você precisou se estender — ` +
+          `pergunte de forma natural quem cuidaria desse assunto aí. Não force a coleta enquanto houver dúvida pendente.\n\n`
+        : ``;
       const directive = redirectOnly
-        ? `O lead sinalizou que NÃO é a pessoa certa para esse assunto, mas ainda não indicou QUEM é. ` +
-          `Responda de forma curta e cordial reconhecendo, e pergunte: (1) quem seria a pessoa correta (nome e cargo, se possível) ` +
-          `e (2) o melhor contato dela (email ou WhatsApp). Pergunte também se você pode mencionar que falou com ele(a). ` +
+        ? answerFirstPrefix +
+          `O lead sinalizou que NÃO é a pessoa certa para esse assunto, mas ainda não indicou QUEM é. ` +
+          `Pergunte com naturalidade quem seria a pessoa correta (nome e cargo, se possível) ` +
+          `e, se ele topar direcionar, o melhor contato dela (email ou WhatsApp). Pergunte também se você pode mencionar que falou com ele(a). ` +
           `NÃO se despeça nem encerre o contato — estamos buscando o decisor. NÃO ofereça reunião nem horários.`
         : hasName
-          ? `O lead indicou ${rc!.name} mas ainda não passou contato. Agradeça brevemente e peça o melhor email ou WhatsApp ` +
+          ? answerFirstPrefix +
+            `O lead indicou ${rc!.name} mas ainda não passou contato. Agradeça brevemente e peça o melhor email ou WhatsApp ` +
             `de ${rc!.name}, e se você pode mencionar que foi este lead quem indicou. NÃO ofereça horários.`
-          : `Agradeça a indicação. Pergunte o nome e o melhor contato (email ou telefone) do indicado ` +
+          : answerFirstPrefix +
+            `Agradeça a indicação. Pergunte o nome e o melhor contato (email ou telefone) do indicado ` +
             `e se você pode mencionar que foi este lead quem indicou. NÃO ofereça horários nem mantenha ` +
             `o foco em agendar para o lead atual.`;
       return {
@@ -329,6 +347,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           : hasName ? "referral_named_no_contact" : "referral_awaiting_contact",
       };
     }
+
 
     case "not_interested":
       return {
