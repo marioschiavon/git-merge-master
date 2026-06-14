@@ -82,6 +82,12 @@ export interface PolicyInputs {
     offered_slots: string[];   // slots oferecidos no turno anterior, ainda válidos
     held_slots: string[];       // holds ativos no banco
   };
+  /** Sinais derivados do histórico recente, usados pela Policy para decidir
+   *  se deve priorizar responder antes de coletar. NÃO afeta tool routing. */
+  context?: {
+    last_inbound_has_pending_question?: boolean;
+    last_outbound_short?: boolean;
+  };
 }
 
 export function decidePolicy(input: PolicyInputs): PolicyDecision {
