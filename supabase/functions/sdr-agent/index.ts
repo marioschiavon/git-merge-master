@@ -161,9 +161,67 @@ const TOOLS: ToolDef[] = [
   {
     type: "function",
     function: {
+      name: "book_slot",
+      description:
+        "Confirma um agendamento (PRIMEIRA reserva) num horário JÁ OFERECIDO pelo SDR e EXPLICITAMENTE escolhido pelo lead no turno atual. " +
+        "PROIBIDO chamar sem confirmação clara do lead. " +
+        "Retorna { ok, booking_uid, scheduled_at, message_suggestion } em sucesso, ou { ok:false, downgrade, suggested_message } se a guarda recusar — nesse caso, finalize com send_message usando suggested_message.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          slot_start: {
+            type: "string",
+            description: "ISO datetime do slot escolhido pelo lead. Deve coincidir EXATAMENTE com um dos slots oferecidos.",
+          },
+          channel: { type: "string", enum: ["whatsapp", "email"] },
+        },
+        required: ["slot_start"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reschedule_booking",
+      description:
+        "Remarca uma reserva ATIVA para um novo horário JÁ OFERECIDO pelo SDR e EXPLICITAMENTE escolhido pelo lead. " +
+        "Mesma guarda de confirmação de book_slot.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          slot_start: { type: "string", description: "ISO datetime do novo horário escolhido." },
+          booking_uid: { type: "string", description: "UID Cal.com. Se omitido, usa a reserva ativa do lead." },
+          reason: { type: "string" },
+        },
+        required: ["slot_start"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "cancel_booking",
+      description:
+        "Cancela uma reserva ativa quando o lead pede para desmarcar SEM pedir novo horário. Não exige slot.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          booking_uid: { type: "string" },
+          reason: { type: "string" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "finalize",
       description:
-        "Encerra o raciocínio e devolve a decisão final: mensagem a enviar, ação (agendar/encaminhar/escalar) ou silêncio.",
+        "Encerra o raciocínio e devolve a decisão final: mensagem a enviar, ação (encaminhar/escalar) ou silêncio. " +
+        "Para agendamentos use as tools book_slot/reschedule_booking/cancel_booking ANTES e finalize com send_message contendo a confirmação.",
       parameters: {
         type: "object",
         properties: {
@@ -174,9 +232,6 @@ const TOOLS: ToolDef[] = [
               "schedule_followup",
               "escalate_to_human",
               "silence",
-              "book_slot",
-              "reschedule_booking",
-              "cancel_booking",
               "mark_referral",
               "offer_slots",
             ],
@@ -193,9 +248,6 @@ const TOOLS: ToolDef[] = [
             description: "Slots ISO a oferecer (se decision=offer_slots)",
           },
           followup_at: { type: "string", description: "ISO datetime para próximo follow-up (se aplicável)" },
-          slot_start: { type: "string", description: "Horário ISO do slot (book_slot ou reschedule_booking)" },
-          booking_uid: { type: "string", description: "UID Cal.com do booking a remarcar/cancelar (opcional — se omitido, usamos a reserva ativa do lead)" },
-          reason: { type: "string", description: "Motivo (reschedule_booking ou cancel_booking)" },
           referrer_lead_id: { type: "string", description: "Lead que indicou (se mark_referral)" },
           rationale: {
             type: "string",
