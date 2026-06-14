@@ -486,8 +486,10 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       const digits = String(p).replace(/\D/g, "");
       return digits.length >= 10 ? `Contato ${digits.slice(-4)}` : null;
     };
+    const isEmailLike = (s?: string | null) =>
+      !!s && (String(s).includes("@") || String(s).trim() === String(email ?? "").trim());
     const finalName =
-      (typeof name === "string" && name.trim() && !name.includes("@") ? name.trim() : null) ||
+      (typeof name === "string" && name.trim() && !isEmailLike(name) ? name.trim() : null) ||
       deriveNameFromEmail(email) ||
       formatPhone(phone) ||
       "Indicação sem nome";
@@ -510,6 +512,9 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       referral_role: role || null,
       referral_context: context || null,
       referral_stage: "pending_outreach",
+      // Snapshot do indicante para fácil acesso (sem precisar de join).
+      referrer_name: referrer?.name || null,
+      referrer_company: referrer?.company_name || null,
     };
 
     const { data: newLead, error } = await ctx.supabase
