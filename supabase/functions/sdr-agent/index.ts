@@ -1267,9 +1267,67 @@ Deno.serve(async (req) => {
       allowed_actions: state.allowed_actions,
       finalize_allowed: state.finalize_allowed,
       pending_action: state.pending_action,
+      intent: { intent: intentResult.intent, confidence: intentResult.confidence, reasoning: intentResult.reasoning },
+      entities,
+      policy: { stage: policy.stage, allowed_tools: policy.allowed_tools, forced_tool: policy.forced_tool, reason: policy.reason },
       messages_sent: messagesPreview,
       facts_in: factsNow,
     });
+
+    // ── Forced tool short-circuit ─────────────────────────────────
+    // When the Policy Engine determined a unique path, execute the tool here
+    // and feed the result back as a tool message before letting the LLM only
+    // write the user-facing confirmation.
+    if (policy.forced_tool && policy.forced_args) {
+      const ft0 = Date.now();
+      const forcedToolName = policy.forced_tool;
+      const forcedArgs = policy.forced_args;
+      const result = await execTool(forcedToolName, forcedArgs, {
+        lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
+      });
+      const synthCallId = `forced_${forcedToolName}_${Date.now()}`;
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: [{
+          id: synthCallId,
+          type: "function",
+          function: { name: forcedToolName, arguments: JSON.stringify(forcedArgs) },
+        }],
+      });
+      messages.push({
+        role: "tool",
+        tool_call_id: synthCallId,
+        name: forcedToolName,
+        content: JSON.stringify(result),
+      });
+      steps.push({
+        event: "forced_tool_call",
+        tool: forcedToolName,
+        args: forcedArgs,
+        result,
+        latency_ms: Date.now() - ft0,
+      });
+
+      // If the forced tool failed gracefully with a suggested_message, finalize immediately.
+      const r = result as any;
+      if (r && r.ok === false && typeof r.suggested_message === "string" && r.suggested_message) {
+        finalDecision = {
+          decision: "send_message",
+          message: r.suggested_message,
+          rationale: `Forced ${forcedToolName} downgraded: ${r.downgrade ?? r.error_code ?? "unknown"}.`,
+        };
+      } else if (r && r.ok && typeof r.message_suggestion === "string") {
+        // Happy path: ask LLM ONE turn to either echo or refine the suggestion.
+        messages.push({
+          role: "user",
+          content:
+            `Tool ${forcedToolName} executou com sucesso. Chame APENAS finalize com decision=send_message ` +
+            `e message igual (ou levemente personalizada) a: "${r.message_suggestion}". Não chame outras tools.`,
+        });
+      }
+    }
+
 
     for (let step = 0; step < MAX_STEPS; step++) {
       const t0 = Date.now();
