@@ -50,6 +50,22 @@ export function extractEntities(args: {
   ].filter(Boolean)));
 
   let ref = primary.length > 0
+  const text = (args.lastInbound || "").trim();
+  if (!text) {
+    return { selected_slot_iso: null, ambiguous_slot: false, date_preference: null, prefers_period: null, referral_contact: null };
+  }
+
+  // Candidates priority: offered (current turn) > held (persisted) > active booking time.
+  // Quando o lead aponta uma data que casa tanto com um slot OFERECIDO quanto
+  // com o booking ATIVO, priorizamos o oferecido — a intenção dele é escolher
+  // a nova oferta, não repetir o horário antigo. Por isso resolvemos primeiro
+  // contra offered+held; só caímos para active_booking se nada bater.
+  const primary: string[] = Array.from(new Set([
+    ...args.offeredSlots,
+    ...args.heldSlots,
+  ].filter(Boolean)));
+
+  let ref = primary.length > 0
     ? args.matchesSlotRef(text, primary)
     : { iso: null, ambiguous: false };
 
@@ -69,12 +85,14 @@ export function extractEntities(args: {
     : null;
 
   const prefers_period = detectPeriod(text);
+  const referral_contact = detectReferralContact(text);
 
   return {
     selected_slot_iso: ref.iso,
     ambiguous_slot: ref.ambiguous,
     date_preference,
     prefers_period,
+    referral_contact,
   };
 }
 
@@ -84,4 +102,28 @@ function detectPeriod(text: string): EntityResult["prefers_period"] {
   if (/\b(tarde|à tarde|de tarde)\b/.test(t)) return "afternoon";
   if (/\b(noite|à noite|de noite|final do dia|fim do dia)\b/.test(t)) return "evening";
   return null;
+}
+
+const EMAIL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i;
+// BR phones: (11) 99999-9999 / 11999999999 / +55 11 99999-9999
+const PHONE_RE = /(?:\+?55\s?)?\(?(\d{2})\)?\s?9?\d{4}[-\s]?\d{4}/;
+const PERMISSION_RE = /\b(pode\s+(?:dizer|falar|mencionar|usar)|use\s+meu\s+nome|diga\s+que\s+(?:eu|fui\s+eu)|fui\s+eu\s+que\s+indiquei|sim,?\s+pode|autorizo|tem\s+minha\s+autoriza[çc][ãa]o)\b/i;
+// "fale com X", "procure o X", "procurar pelo X", "fala com X"
+const NAME_HINT_RE = /\b(?:falar?\s+com|procurar?\s+(?:o|a|pelo|pela)?|contatar?\s+(?:o|a)?|fala\s+com|fale\s+com)\s+([A-ZÀ-Ý][\wÀ-ÿ'’-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'’-]+){0,2})/;
+
+function detectReferralContact(text: string): ReferralContact | null {
+  const email = text.match(EMAIL_RE)?.[0]?.toLowerCase() ?? undefined;
+  const phoneMatch = text.match(PHONE_RE)?.[0];
+  const phone = phoneMatch ? phoneMatch.replace(/\D/g, "") : undefined;
+  const permission = PERMISSION_RE.test(text) ? true : undefined;
+  const nameMatch = text.match(NAME_HINT_RE)?.[1];
+  const name = nameMatch ? nameMatch.trim() : undefined;
+
+  if (!email && !phone && permission === undefined && !name) return null;
+  const contact: ReferralContact = {};
+  if (email) contact.email = email;
+  if (phone && phone.length >= 10) contact.phone = phone;
+  if (name) contact.name = name;
+  if (permission !== undefined) contact.permission_to_mention = permission;
+  return Object.keys(contact).length > 0 ? contact : null;
 }
