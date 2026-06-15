@@ -1654,6 +1654,7 @@ export type Database = {
           call_requested_at: string | null
           company_id: string
           company_name: string | null
+          contact_identified: boolean
           created_at: string
           email: string | null
           enrichment_status: string | null
@@ -1665,9 +1666,11 @@ export type Database = {
           id: string
           instagram_url: string | null
           last_synced_at: string | null
+          lead_kind: string
           linkedin_company_url: string | null
           linkedin_url: string | null
           name: string
+          parent_company_lead_id: string | null
           pending_email_slot_hold_id: string | null
           phone: string | null
           pipedrive_data: Json | null
@@ -1699,6 +1702,7 @@ export type Database = {
           call_requested_at?: string | null
           company_id: string
           company_name?: string | null
+          contact_identified?: boolean
           created_at?: string
           email?: string | null
           enrichment_status?: string | null
@@ -1710,9 +1714,11 @@ export type Database = {
           id?: string
           instagram_url?: string | null
           last_synced_at?: string | null
+          lead_kind?: string
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           name: string
+          parent_company_lead_id?: string | null
           pending_email_slot_hold_id?: string | null
           phone?: string | null
           pipedrive_data?: Json | null
@@ -1744,6 +1750,7 @@ export type Database = {
           call_requested_at?: string | null
           company_id?: string
           company_name?: string | null
+          contact_identified?: boolean
           created_at?: string
           email?: string | null
           enrichment_status?: string | null
@@ -1755,9 +1762,11 @@ export type Database = {
           id?: string
           instagram_url?: string | null
           last_synced_at?: string | null
+          lead_kind?: string
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           name?: string
+          parent_company_lead_id?: string | null
           pending_email_slot_hold_id?: string | null
           phone?: string | null
           pipedrive_data?: Json | null
@@ -1790,6 +1799,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_parent_company_lead_id_fkey"
+            columns: ["parent_company_lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
             referencedColumns: ["id"]
           },
           {
