@@ -523,10 +523,11 @@ async function runPostActions(
     entities: any;
     steps: Array<Record<string, unknown>>;
   },
-): Promise<void> {
+): Promise<{ failures: Array<{ action: string; error: string; user_message?: string }> }> {
+  const failures: Array<{ action: string; error: string; user_message?: string }> = [];
   const { lead_id, ctx, conversation_id, mode, entities, steps } = args;
   const postActions = (policy as any).post_actions as string[] | undefined;
-  if (!postActions || postActions.length === 0 || mode === "shadow") return;
+  if (!postActions || postActions.length === 0 || mode === "shadow") return { failures };
   for (const pa of postActions) {
     try {
       if (pa === "mark_referrer") {
@@ -566,10 +567,11 @@ async function runPostActions(
           steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
         }
       } else if (pa === "add_guests_to_active_booking") {
-        // Cal.com v2 não suporta PATCH confiável de guests num booking confirmado.
-        // Estratégia: ler booking ativo + attendees + raw_payload, cancelar e recriar
-        // no MESMO slot incluindo guests (existentes + novos). Idempotente: no-op
-        // se não houver booking confirmado ou se forced_args.guest_emails estiver vazio.
+        // Estratégia: REBOOK-FIRST, cancel-after, com rollback em caso de falha.
+        // Cal.com v2 não permite PATCH confiável de guests; precisamos recriar o
+        // booking. Para evitar o cenário em que o original é cancelado mas o
+        // novo falha (e o lead acha que está tudo certo), criamos o novo PRIMEIRO
+        // com idempotency_key único; só cancelamos o antigo após sucesso.
         const requested = Array.isArray(policy?.forced_args?.guest_emails)
           ? (policy.forced_args.guest_emails as unknown[])
               .map((g) => String(g || "").trim().toLowerCase())
@@ -592,7 +594,6 @@ async function runPostActions(
           steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
           continue;
         }
-        // Coleta guests existentes dos attendees do booking original.
         const existingAttendeeEmails = Array.isArray(activeBk.attendees)
           ? (activeBk.attendees as any[]).map((a) => String(a?.email || "").toLowerCase()).filter(Boolean)
           : [];
@@ -605,7 +606,55 @@ async function runPostActions(
           .filter((e) => e && e !== leadEmail);
 
         const oldUid = activeBk.calcom_booking_uid;
-        // Marca origem antes pra suprimir o follow-up automático do webhook.
+        const startIso = new Date(activeBk.scheduled_at as string).toISOString();
+
+        // Marca origem ANTES de cancelar pra suprimir o follow-up do webhook
+        // — só será aplicada se o rebook der certo (faremos cancel depois).
+        // Por ora, pré-marca em memória; só persistimos no DB no caminho feliz.
+
+        // PASSO 1: tentar criar o novo booking com guests (idem-key único pra
+        // não colidir com o calendar_actions do booking original).
+        const rebookIdemKey = `add_guests:${activeBk.id}:${crypto.randomUUID()}`;
+        let rebookData: any = null;
+        let rebookFail: string | null = null;
+        try {
+          const { data: rebook, error: rebookErr } = await supabase.functions.invoke("calcom-booking-create", {
+            body: {
+              lead_id,
+              conversation_id,
+              start: startIso,
+              guests: mergedGuests,
+              idempotency_key: rebookIdemKey,
+            },
+          });
+          if (rebookErr) {
+            rebookFail = String(rebookErr);
+          } else if ((rebook as any)?.error) {
+            rebookFail = String((rebook as any).error);
+          } else {
+            rebookData = rebook;
+          }
+        } catch (e) {
+          rebookFail = String(e);
+        }
+
+        if (rebookFail || !rebookData) {
+          // NÃO mexemos no booking original — está intacto. Sinalizamos falha
+          // pro LLM/safety-net e seguimos.
+          const userMsg = `Tive uma instabilidade ao incluir ${requested.join(", ")} no convite. Sua reunião segue confirmada como estava. Pode me reenviar o e-mail do convidado em alguns minutos? Vou tentar de novo.`;
+          steps.push({
+            event: "post_action",
+            action: pa,
+            stage: "rebook_failed_no_op",
+            error: rebookFail,
+            note: "booking original intacto",
+            user_message: userMsg,
+          });
+          failures.push({ action: pa, error: rebookFail || "rebook_failed", user_message: userMsg });
+          continue;
+        }
+
+        // PASSO 2: rebook ok — cancelar o booking original.
         await supabase.from("bookings").update({
           cancellation_source: "sdr_add_guests",
           cancellation_requested_at: new Date().toISOString(),
@@ -615,22 +664,23 @@ async function runPostActions(
           body: { booking_uid: oldUid, reason: "Atualizando convidados da reunião", lead_id, conversation_id },
         });
         if (cxlErr) {
-          steps.push({ event: "post_action", action: pa, stage: "cancel", error: String(cxlErr) });
-          continue;
+          // Booking novo criado, antigo NÃO cancelou — agora há dois bookings
+          // no mesmo slot. Logamos pra investigação manual mas seguimos
+          // (lead recebe convite novo com guests; cleanup manual depois).
+          steps.push({
+            event: "post_action",
+            action: pa,
+            stage: "cancel_old_failed",
+            old_uid: oldUid,
+            new_uid: (rebookData as any)?.booking?.uid ?? null,
+            error: String(cxlErr),
+            warning: "duplicate_booking_on_same_slot",
+          });
         }
-        const { data: rebook, error: rebookErr } = await supabase.functions.invoke("calcom-booking-create", {
-          body: {
-            lead_id, conversation_id, start: activeBk.scheduled_at,
-            guests: mergedGuests,
-          },
-        });
-        if (rebookErr || (rebook as any)?.error) {
-          steps.push({ event: "post_action", action: pa, stage: "rebook", error: String(rebookErr ?? (rebook as any)?.error) });
-          continue;
-        }
+
         // Persiste guests no novo booking pra preservar lista canônica.
         try {
-          const newUid = (rebook as any)?.booking?.uid ?? (rebook as any)?.booking_uid ?? null;
+          const newUid = (rebookData as any)?.booking?.uid ?? (rebookData as any)?.booking_uid ?? null;
           if (newUid) {
             const { data: newRow } = await supabase.from("bookings").select("id, raw_payload").eq("calcom_booking_uid", newUid).maybeSingle();
             if (newRow) {
@@ -643,15 +693,17 @@ async function runPostActions(
           event: "post_action",
           action: pa,
           old_uid: oldUid,
-          new_uid: (rebook as any)?.booking?.uid ?? null,
+          new_uid: (rebookData as any)?.booking?.uid ?? null,
           added_guests: requested,
           total_guests: mergedGuests,
         });
       }
     } catch (e) {
       steps.push({ event: "post_action", action: pa, error: String(e) });
+      failures.push({ action: pa, error: String(e) });
     }
   }
+  return { failures };
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -1648,8 +1700,22 @@ Deno.serve(async (req) => {
     // ── Post-actions WITHOUT forced tool ──────────────────────────
     // Algumas decisões (ex.: add_guests com booking ativo) não têm forced_tool
     // mas precisam rodar side-effects determinísticos antes do LLM escrever.
+    let postActionFailures: Array<{ action: string; error: string; user_message?: string }> = [];
     if (!policy.forced_tool && (policy as any).post_actions?.length > 0) {
-      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      const paRes = await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      postActionFailures = paRes.failures;
+      // Injeta nota para o LLM saber que a side-effect falhou e ajustar a mensagem.
+      for (const f of postActionFailures) {
+        messages.push({
+          role: "user",
+          content:
+            `⚠️ SIDE-EFFECT FALHOU: ${f.action} — ${f.error}.\n` +
+            `NÃO confirme ao lead que a ação foi concluída. ` +
+            (f.user_message
+              ? `Use ESTA mensagem (ou equivalente honesto): "${f.user_message}"`
+              : `Explique brevemente que houve uma instabilidade e que você tentará novamente.`),
+        });
+      }
     }
 
     // ── Forced tool short-circuit ─────────────────────────────────
@@ -1708,7 +1774,19 @@ Deno.serve(async (req) => {
       });
 
       // ── Post-actions: deterministic side-effects after the forced tool ──
-      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      const paResForced = await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      postActionFailures.push(...paResForced.failures);
+      for (const f of paResForced.failures) {
+        messages.push({
+          role: "user",
+          content:
+            `⚠️ SIDE-EFFECT FALHOU: ${f.action} — ${f.error}.\n` +
+            `NÃO confirme ao lead que a ação foi concluída. ` +
+            (f.user_message
+              ? `Use ESTA mensagem (ou equivalente honesto): "${f.user_message}"`
+              : `Explique brevemente que houve uma instabilidade e que você tentará novamente.`),
+        });
+      }
 
 
 
@@ -1981,7 +2059,22 @@ Deno.serve(async (req) => {
       try {
         const decision = String(finalDecision.decision || "");
         if (decision === "send_message") {
-          const msg = String((finalDecision as any).message || "").trim();
+          let msg = String((finalDecision as any).message || "").trim();
+          // ── SAFETY NET pós-action: se add_guests_to_active_booking falhou,
+          // sobrescreve a mensagem para não enganar o lead.
+          const guestFail = postActionFailures.find((f) => f.action === "add_guests_to_active_booking");
+          if (guestFail) {
+            const honest = guestFail.user_message ||
+              "Tive uma instabilidade aqui ao incluir o convidado. Sua reunião segue confirmada como estava — me reenvia o e-mail em alguns minutos que eu tento de novo.";
+            // Se a mensagem do LLM ignorou o aviso e ainda promete inclusão, override.
+            const PROMISES_INCLUDE = /\b(incluir|incluo|adicion(?:ar|ei|o)|conv[ií]dei|j[áa] (?:incl|adic))/i;
+            if (!msg || PROMISES_INCLUDE.test(msg)) {
+              console.log("[sdr-agent] safety-net: add_guests falhou — sobrescrevendo mensagem outbound");
+              msg = honest;
+              (finalDecision as any).message = msg;
+              (finalDecision as any).rationale = `safety_net_override: add_guests failed (${guestFail.error})`;
+            }
+          }
           // ── SAFETY NET: se o texto promete cancelar e há reserva ativa
           // sem cancel_booking executado nesta run, cancela programaticamente
           // antes de enviar a mensagem.
