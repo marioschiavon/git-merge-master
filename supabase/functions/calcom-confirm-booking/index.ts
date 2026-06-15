@@ -42,7 +42,7 @@ serve(async (req) => {
     if (!CALCOM_API_KEY) throw new Error("CALCOM_API_KEY not configured");
 
     const body = await req.json();
-    const { lead_id, selected_slot_hold_id, force_placeholder } = body;
+    const { lead_id, selected_slot_hold_id, force_placeholder, guest_emails } = body;
 
     if (!lead_id || !selected_slot_hold_id) {
       return new Response(JSON.stringify({ error: "lead_id and selected_slot_hold_id are required" }), {
