@@ -84,6 +84,17 @@ export async function classifyIntent(args: {
     };
   }
 
+  // Fast-path: lead pede para incluir convidado(s) com email + verbo de inclusão.
+  // Só dispara quando NÃO há sinal de redirect (já tratado acima).
+  if (INCLUDE_GUEST_RE.test(inbound) && EMAIL_QUICK_RE.test(inbound)) {
+    return {
+      intent: "add_guests",
+      confidence: 0.9,
+      reasoning: "deterministic: include-guest verb + email",
+      raw: { fast_path: "add_guests" },
+    };
+  }
+
   // Pequena janela de contexto: últimas 4 mensagens.
   const tail = args.recentHistory.slice(-4)
     .map((m) => `${m.direction === "inbound" ? "LEAD" : "SDR"}: ${(m.content || "").slice(0, 240)}`)
