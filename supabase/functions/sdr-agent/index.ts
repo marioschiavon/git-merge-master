@@ -1628,6 +1628,13 @@ Deno.serve(async (req) => {
       facts_in: factsNow,
     });
 
+    // ── Post-actions WITHOUT forced tool ──────────────────────────
+    // Algumas decisões (ex.: add_guests com booking ativo) não têm forced_tool
+    // mas precisam rodar side-effects determinísticos antes do LLM escrever.
+    if (!policy.forced_tool && (policy as any).post_actions?.length > 0) {
+      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+    }
+
     // ── Forced tool short-circuit ─────────────────────────────────
     // When the Policy Engine determined a unique path, execute the tool here
     // and feed the result back as a tool message before letting the LLM only
