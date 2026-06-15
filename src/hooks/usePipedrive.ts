@@ -157,7 +157,7 @@ export function useSyncLeads() {
 }
 
 export type LeadInput = {
-  name: string;
+  name?: string | null;
   email?: string | null;
   phone?: string | null;
   whatsapp?: string | null;
@@ -173,7 +173,28 @@ export type LeadInput = {
   source?: string | null;
 };
 
-
+function buildLeadRow(input: LeadInput, companyId: string, defaultSource: string) {
+  const hasPersonName = Boolean(input.name && String(input.name).trim());
+  const display = computeLeadDisplayName(input);
+  return {
+    company_id: companyId,
+    name: display,
+    email: input.email || null,
+    phone: input.phone || null,
+    whatsapp: input.whatsapp || null,
+    company_name: input.company_name || null,
+    title: input.title || null,
+    website: input.website || null,
+    instagram_url: input.instagram_url || null,
+    linkedin_url: input.linkedin_url || null,
+    linkedin_company_url: input.linkedin_company_url || null,
+    facebook_url: input.facebook_url || null,
+    address: input.address || null,
+    status: (input.status || "new") as LeadStatus,
+    source: input.source || defaultSource,
+    lead_kind: hasPersonName ? "person" : "company",
+  } as any;
+}
 
 export function useCreateLead() {
   const queryClient = useQueryClient();
@@ -184,24 +205,7 @@ export function useCreateLead() {
       if (!companyId) throw new Error("Empresa não identificada");
       const { data, error } = await supabase
         .from("leads")
-        .insert({
-          company_id: companyId,
-          name: input.name,
-          email: input.email || null,
-          phone: input.phone || null,
-          whatsapp: input.whatsapp || null,
-          company_name: input.company_name || null,
-          title: input.title || null,
-          website: input.website || null,
-          instagram_url: input.instagram_url || null,
-          linkedin_url: input.linkedin_url || null,
-          linkedin_company_url: input.linkedin_company_url || null,
-          facebook_url: input.facebook_url || null,
-          address: input.address || null,
-          status: (input.status || "new") as LeadStatus,
-          source: input.source || "manual",
-        })
-
+        .insert(buildLeadRow(input, companyId, "manual"))
         .select()
         .single();
 
@@ -227,23 +231,7 @@ export function useImportLeads() {
       if (!companyId) throw new Error("Empresa não identificada");
       if (leads.length === 0) throw new Error("Nenhum lead para importar");
 
-      const rows = leads.map((l) => ({
-        company_id: companyId,
-        name: l.name,
-        email: l.email || null,
-        phone: l.phone || null,
-        whatsapp: l.whatsapp || null,
-        company_name: l.company_name || null,
-        title: l.title || null,
-        website: l.website || null,
-        instagram_url: l.instagram_url || null,
-        linkedin_url: l.linkedin_url || null,
-        linkedin_company_url: l.linkedin_company_url || null,
-        facebook_url: l.facebook_url || null,
-        address: l.address || null,
-        status: (l.status || "new") as LeadStatus,
-        source: l.source || "csv_import",
-      }));
+      const rows = leads.map((l) => buildLeadRow(l, companyId, "csv_import"));
 
 
       // Insert in chunks of 500
@@ -273,10 +261,12 @@ export function useUpdateLead() {
 
   return useMutation({
     mutationFn: async ({ id, ...input }: LeadInput & { id: string }) => {
+      const hasPersonName = Boolean(input.name && String(input.name).trim());
+      const display = computeLeadDisplayName(input);
       const { data, error } = await supabase
         .from("leads")
         .update({
-          name: input.name,
+          name: display,
           email: input.email || null,
           phone: input.phone || null,
           whatsapp: input.whatsapp || null,
@@ -290,6 +280,7 @@ export function useUpdateLead() {
           address: input.address || null,
           status: (input.status || "new") as LeadStatus,
           source: input.source || null,
+          lead_kind: hasPersonName ? "person" : "company",
         } as any)
 
         .eq("id", id)
