@@ -1,55 +1,53 @@
 ## Diagnóstico
 
-Olhei o run mais recente do lead (Carolina, 15/06 20:46). O lead respondeu:
-> "Quarta-feira. Pode adicionar no invite o Eduardo? whatsappcarneiro@gmail.com"
+### 1) Por que o SDR disse "tive uma instabilidade"
+Na run `b286a33c…` (15/06 21:18) o handler `add_guests_to_active_booking` tentou **recriar** o booking no mesmo slot (rebook-first, cancel-after) e o Cal.com devolveu non-2xx — porque o slot ainda estava ocupado pelo próprio booking original que só seria cancelado no passo seguinte. O safety-net entrou e avisou a lead corretamente.
 
-O agente gerou uma boa mensagem (acusou o convidado + repetiu os 2 horários), mas ela **nunca chegou** ao lead. Causas encontradas:
+A causa raiz é a estratégia: tentamos resolver "adicionar convidado" cancelando e recriando, quando o Cal.com tem endpoint próprio pra isso.
 
-**1) `offer_slots` aborta silenciosamente quando os holds expiraram.**
-Em `sdr-agent/index.ts` (l.2060-2151), antes de enviar a mensagem o código valida que cada ISO oferecido tem hold ativo. Se nenhum sobrevive (caso atual — os holds anteriores foram liberados pelo book_slot tentado), o caminho cai em:
-```
-liveResult = { action: "offer_slots", ok: false, error: "no_valid_holds" }
-```
-e **pula completamente a chamada `execute-action`**. Resultado: `final_output.message` existe, mas nada é enviado pelo canal. Foi exatamente o que aconteceu — `final_output.live = { ok:false, error:"no_valid_holds" }` e não há outbound no `messages` depois das 20:38.
+### 2) Por que o SDR mandou 2× a mesma mensagem
+Toda resposta por e-mail é gravada duas vezes em `messages`:
+- `gmail-send` insere a linha "oficial" (com `gmail_message_id`, `rfc_message_id`, subject)
+- `execute-action › sendOutbound` insere outra linha logo depois (`metadata.source = "execute-action"`)
 
-**2) `book_slot` foi tentado mas bloqueado por "falta de confirmação explícita".**
-A `rationale` do run diz isso. O lead disse "Quarta-feira" — bate com 1 (e só 1) dos 2 slots oferecidos (qua 09:00 vs sex 09:45). O `matchesSlotReference` já resolve isso (score por dia → único positivo vence), mas o `booking-guards` exige confirmação textual mais forte ("pode ser", "confirmo", "esse mesmo"). Hoje "Quarta-feira" sozinho não passa.
+Ocorre em todos os turnos (21:02, 21:14, 21:18 — sempre duas linhas com ~30ms de diferença). Não é envio duplicado pelo Gmail; é **dupla escrita no banco** que vira duas bolhas idênticas na UI.
 
-**3) Combinação `add_guests` + escolha de slot vira `add_guests` puro.**
-O `intent-classifier` priorizou `add_guests` (lead pediu pra incluir Eduardo). Como não há booking ativo, o post-action `add_guests_to_active_booking` não roda; e como o intent não é `confirm_slot`, o LLM não escolhe book_slot com confiança. Os `guest_emails` ficam pendurados sem ação.
+## Plano de correção
 
----
+### A) Usar o endpoint nativo do Cal.com (sem cancelar)
+O Cal.com v2 expõe `POST /v2/bookings/{bookingUid}/guests` — adiciona convidados, atualiza o evento no Google Calendar conectado e dispara e-mail para os novos. Aceita até 10 convidados/chamada, máx 30 totais, rate limit 5/min (`cal-api-version: 2024-08-13`, que já usamos).
 
-## Plano
+Mudanças:
+1. **Nova edge function** `supabase/functions/calcom-add-guests/index.ts`:
+   - Body: `{ booking_uid, guests: string[], lead_id?, conversation_id? }`.
+   - Valida e-mails, deduplica, remove o próprio lead.
+   - Idempotência via `claimCalendarAction` com `action_type: "add_guests"` e payload incluindo os e-mails ordenados (assim retentativas com a mesma lista batem replay; uma lista diferente vira nova ação).
+   - Chama `POST /v2/bookings/{uid}/guests` via `calcomFetch` (passa `name` derivado do e-mail; `timeZone` opcional).
+   - No sucesso: atualiza `bookings.raw_payload.guest_emails` e `bookings.attendees` (merge), insere `lead_activities` ("👥 Convidado(s) adicionado(s): …"), `markCalendarActionOk`.
+   - No erro: `markCalendarActionFailed`, devolve 4xx/5xx com `error`.
 
-### 1. Nunca silenciar uma `finalize` — sempre entregar a mensagem
-Em `supabase/functions/sdr-agent/index.ts`, no branch `offer_slots` (l.2081):
-- Quando `offered.length === 0` (ou `no_valid_holds`), **recriar os holds** chamando `check_calendar` para os ISOs originais antes de desistir. Se a janela ainda está livre no Cal.com, refaz o hold e segue normal.
-- Se mesmo assim não conseguir holds (slots realmente indisponíveis), **enviar a mensagem mesmo assim** com um aviso curto ("os horários que mencionei podem ter sido preenchidos, me confirma e eu reservo na hora") — em vez de descartar.
-- Garantia geral: adicionar invariante no fim de `runAgent` — se `final_output.message` está populado e `liveResult.sent` ≠ true e nenhum `forced_tool` enviou outbound, chamar `execute-action send_reply` como fallback (com flag de log). Isso evita futuras regressões silenciosas.
+2. **`supabase/functions/sdr-agent/index.ts`** — handler `add_guests_to_active_booking` (linhas ~569-700):
+   - Substituir toda a lógica de rebook+cancel pela invocação de `calcom-add-guests` com a lista mesclada.
+   - Em caso de erro/rate-limit: **não cancelar nada**, sinalizar `failures` (safety-net já cobre — a reunião segue intacta e o lead recebe a mensagem honesta).
+   - Manter `cancellation_source = sdr_add_guests` **apenas** no fluxo legado, se ainda houver caminho para cancelamento — neste novo desenho não há cancel, então remover esse trecho.
 
-### 2. Tratar "só o dia" como seleção implícita quando há apenas 1 slot naquele dia
-Em `_shared/booking-guards.ts` (a guarda que pediu confirmação explícita):
-- Quando `selected_slot_iso` veio do `entity-extractor` E entre os `offered_slots_pending` **apenas um** cai naquele dia, considerar isso confirmação suficiente para `book_slot` — sem exigir verbo de confirmação adicional.
-- Se houver ≥2 slots no mesmo dia (ex.: ofereci qua 9h e qua 14h), manter exigência de hora/confirmação (já é ambíguo).
-- Adicionar testes em `booking-guards_test.ts` cobrindo: (a) "quarta-feira" + 1 slot quarta + 1 sexta → confirma; (b) "quarta" + 2 slots quarta → pede hora; (c) "quarta às 9" → confirma (caso atual já funciona).
+3. **`supabase/functions/_shared/calcom.ts`**: opcionalmente expor helper `addGuestsToBooking(uid, guests)` para reutilizar.
 
-### 3. `add_guests` + slot na mesma mensagem → bookar com guests
-Em `_shared/policy-engine.ts`:
-- Quando `intent === "add_guests"` E `entities.selected_slot_iso` está setado E **não** existe booking ativo, sobrescrever para `forced_tool = "book_slot"` com `forced_args = { slot_start: selected_slot_iso, guest_emails }`. O post-action `add_guests_to_active_booking` só faz sentido com booking existente.
-- Testes em `policy-engine_test.ts`: lead pede slot + guests sem booking → forced book_slot com guests; lead pede só guests com booking → mantém add_guests_to_active_booking.
+### B) Eliminar duplicação de `messages` no canal e-mail
+Em `supabase/functions/execute-action/index.ts`:
+- No helper `sendOutbound` (linhas 113-194): **não inserir** em `messages` quando `channel === "email"` e o `gmail-send` retornou sucesso — o `gmail-send` é o dono dessa persistência. Continuar inserindo se o envio falhou (registrar `delivery_status: "failed"`) ou em canais que não persistem por conta própria (whatsapp/linkedin/pending_manual).
+- No `schedule_followup › lead_request › email` (linha 281): remover o `insert` redundante pelo mesmo motivo.
 
-### 4. Validação ao vivo
-- Rodar `supabase--test_edge_functions` para os tests de `policy-engine`, `booking-guards`, `entity-extractor`.
-- Reenviar a mensagem da Carolina via `supabase--curl_edge_functions` (sdr-debounce-tick ou sdr-agent direto com o último inbound) e confirmar que: (a) `book_slot` roda com guests, (b) outbound é persistida em `messages` com `delivery_status`, (c) `bookings` cria o evento com o Eduardo no `raw_payload.guests`.
+### C) Testes
+- Novo `supabase/functions/calcom-add-guests/index.test.ts`: mock do Cal.com retornando 200 → verifica claim ok + merge no `bookings.raw_payload`; mock retornando 429/500 → verifica `markCalendarActionFailed` e resposta de erro.
+- Em `supabase/functions/sdr-agent/`: mock de `calcom-add-guests` retornando erro → verifica que **não** há chamada a `calcom-booking-cancel`/`calcom-booking-create` e que `failures` contém `add_guests_to_active_booking`.
+- Smoke do `execute-action`: enviar e-mail e checar que `messages` ganha exatamente **uma** linha (com `gmail_message_id`).
 
-### Arquivos a editar
-- `supabase/functions/sdr-agent/index.ts` — branch offer_slots + fallback de envio
-- `supabase/functions/_shared/booking-guards.ts` — regra de "dia único"
-- `supabase/functions/_shared/booking-guards_test.ts` — 3 testes
-- `supabase/functions/_shared/policy-engine.ts` — combinar add_guests + selected_slot
-- `supabase/functions/_shared/policy-engine_test.ts` — 2 testes
+### D) Recuperação manual da conversa atual
+Após o deploy, disparar `calcom-add-guests` no UID ativo `f4MAXD8wFyQEyVn9L9CZ7X` com `guests: ["joao@julianocarneiro.com.br"]` e, em seguida, `execute-action › send_reply` confirmando para a Carolina que o João já está no convite — sem cancelar nada.
 
-### Fora de escopo
-- Mudar o `intent-classifier` para um intent composto (`confirm_slot_with_guests`). A fix no policy engine já cobre o caso sem inventar um novo intent.
-- Mexer no `cadence-executor` ou em outros fluxos não-SDR.
+### Arquivos afetados
+- Novo: `supabase/functions/calcom-add-guests/index.ts` (+ teste).
+- Editado: `supabase/functions/sdr-agent/index.ts` (handler `add_guests_to_active_booking`).
+- Editado: `supabase/functions/execute-action/index.ts` (`sendOutbound` + `schedule_followup`).
+- Opcional: helper em `supabase/functions/_shared/calcom.ts`.
