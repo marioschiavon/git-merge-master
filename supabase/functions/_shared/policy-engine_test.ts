@@ -168,6 +168,8 @@ Deno.test("referral com contato → forced create_new_contact + post_actions", (
   assertEquals((d.forced_args as any).email, "carlos@example.com");
   assertEquals(d.post_actions?.includes("mark_referrer"), true);
   assertEquals(d.post_actions?.includes("release_slot_holds"), true);
+  assertEquals(d.post_actions?.includes("cancel_active_booking"), true);
+
 });
 
 Deno.test("referral sem contato → pede contato + release_slot_holds", () => {
@@ -216,6 +218,7 @@ Deno.test("referral redirect_signal sem contato → pede pessoa correta, não en
   assertEquals(d.forced_tool, null);
   assertEquals(d.reason, "referral_redirect_no_contact");
   assertEquals(d.post_actions?.includes("release_slot_holds"), true);
+  assertEquals(d.post_actions?.includes("cancel_active_booking"), true);
   assertEquals(/pessoa correta|pessoa certa|quem seria/i.test(d.response_directive), true);
   assertEquals(/encerre|despe[çc]a|despedida/i.test(d.response_directive), true); // diretiva explícita "NÃO se despeça"
 });

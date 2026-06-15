@@ -1,42 +1,61 @@
-## Diagnóstico
+## Problema
 
-Cronologia da conversa do Juliano (15/06):
+O lead Juliano confirmou reunião para 17/06 15:30. No turno seguinte disse: *"Putz, confundi. Esse assunto não seria comigo e sim com a Carolina Rocha."* O SDR reconheceu o redirecionamento (intent `referral`) e pediu o contato da Carolina — mas a reunião confirmada com Juliano **continuou ativa** no Cal.com. Deveria ter sido cancelada automaticamente, já que ele não é mais o interlocutor.
 
-- 19:47:18 — SDR ofereceu 2 slots: **ter 16/06 17:30** e **qui 18/06 17:45**. Ambos viraram `slot_holds` em 19:47:10.
-- 19:47:27 — Lead: "Terça".
-- 19:48:12 — SDR estreitou: "podemos confirmar para terça-feira (16/06) às **17:30**?"
-- 19:48:28 — Lead: "**Ok**".
-- 19:48:52 — `sdr-agent` run: intent=`confirm_slot` (conf=1), **selected=null**, stage=`scheduling_clarify`, allowed=`["finalize"]` → só `send_message`. **Nenhuma chamada a `book_slot`.**
-- 19:49:53 — SDR mandou "Confirmado então… vou gerar o convite…", mas **a reunião nunca foi criada na Cal.com** (último `calendar_actions` de book é da reserva anterior, das 18:15, já cancelada).
-
-### Causa raiz
-
-Em `supabase/functions/_shared/policy-engine.ts` o `candidates` é `offered_slots ∪ held_slots` (linha 96). Quando o SDR estreita a oferta no último outbound para **um único slot** ("podemos confirmar para 17:30?"), os `candidates` continuam com os 2 slots originalmente oferecidos. Resultado: `confirm_slot` com `selected_slot_iso=null` e `candidates.length=2` cai no ramo "ambíguo" (linha 151) → `scheduling_clarify`, `allowed_tools=["finalize"]`. O modelo só pode mandar mensagem — não tem `book_slot` na caixa de ferramentas.
-
-A função `implicitOfferFromOutbound` já existe em `booking-guards.ts` e detecta exatamente esse caso (último outbound mencionou explicitamente um único slot entre os candidatos), mas a **policy-engine não a usa**. Por isso o `sdr-agent` mandou a mensagem de "confirmado" sem nunca chamar `book_slot`.
+Hoje, no branch `case "referral"` de `policy-engine.ts`, o único `post_action` é `release_slot_holds`. Holds são pre-bookings; bookings confirmados não são tocados.
 
 ## Mudanças
 
-### `supabase/functions/_shared/policy-engine.ts`
+### 1. `supabase/functions/_shared/policy-engine.ts` — branch `referral`
+Adicionar `"cancel_active_booking"` ao `post_actions` em todos os sub-casos do `case "referral"` (com contato, redirect_only, com nome, agradecendo). O handler no `sdr-agent` decide se há booking a cancelar (no-op se não houver).
 
-1. Aceitar opcionalmente `context.implicit_single_offer_iso?: string | null` em `PolicyInputs.context`.
-2. No início de `decidePolicy`, se `intent === "confirm_slot"` (ou `create_booking`) e `entities.selected_slot_iso` for null e `context.implicit_single_offer_iso` estiver setado e existir entre `candidates`, **promover** esse ISO para `entities.selected_slot_iso` antes de entrar no `switch`. Isso faz o fluxo cair em `scheduling_confirming_now` com `forced_tool=book_slot` (linhas 134–146), igual ao caminho de slot único explícito.
-3. Manter o fallback antigo (`candidates.length === 1`) intacto para retrocompatibilidade.
+Também ajustar o `response_directive` do sub-caso **referral_with_contact** e **redirect_only** para instruir o LLM a mencionar de forma natural que vai *liberar a agenda dele* / *cancelar o horário que tínhamos marcado*, evitando que o lead receba um cancelamento via email Cal.com sem contexto.
 
-### `supabase/functions/sdr-agent/index.ts`
+### 2. `supabase/functions/sdr-agent/index.ts` — loop `postActions`
+Adicionar novo handler `cancel_active_booking` ao lado de `release_slot_holds` (linha ~1531):
 
-Onde a policy é chamada (no pipeline que loga `sdr-agent pipeline:`), calcular `implicit_single_offer_iso` usando a helper já existente `implicitOfferFromOutbound(lastOutbound, candidates)` e passar via `context`. Já temos `lastOutbound` e `candidates` disponíveis nesse ponto (são os mesmos dados usados em `assertCanBook`).
+```ts
+} else if (pa === "cancel_active_booking") {
+  // Busca booking confirmado ativo do lead
+  const { data: activeBk } = await supabase
+    .from("bookings")
+    .select("calcom_booking_uid")
+    .eq("lead_id", lead.id)
+    .eq("status", "confirmed")
+    .not("calcom_booking_uid", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (activeBk?.calcom_booking_uid) {
+    // marca origem ANTES (mesmo padrão do safety-net já existente)
+    // para o webhook do Cal.com não disparar a mensagem
+    // "Vi que você cancelou nossa conversa…"
+    await supabase.from("bookings").update({
+      cancellation_source: "sdr",
+      cancellation_requested_at: new Date().toISOString(),
+    }).eq("calcom_booking_uid", activeBk.calcom_booking_uid);
+    const { error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
+      body: {
+        booking_uid: activeBk.calcom_booking_uid,
+        reason: "Lead redirecionou o contato para outra pessoa",
+        lead_id: lead.id,
+      },
+    });
+    steps.push({ event: "post_action_cancel_active_booking", ok: !cxlErr, error: cxlErr ? String(cxlErr) : null });
+  }
+}
+```
 
-### `supabase/functions/_shared/policy-engine_test.ts`
+### 3. Teste em `supabase/functions/_shared/policy-engine_test.ts`
+Adicionar caso: `intent=referral` com `referral_contact.email` → espera `post_actions` contendo `"cancel_active_booking"` e `"mark_referrer"`.
 
-Adicionar um teste novo: intent `confirm_slot`, `selected_slot_iso=null`, 2 candidates, `context.implicit_single_offer_iso` = um dos candidates → espera `stage="scheduling_confirming_now"`, `forced_tool="book_slot"`, `forced_args.slot_start` igual ao implicit.
+### 4. Backfill manual
+Cancelar manualmente no Cal.com o booking `hn2H56t7cbF7Y5gMsPjBbt` (lead `d5e433a0-…`, Juliano, 17/06 15:30 BRT) via `calcom-booking-cancel` com `cancellation_source='sdr'` para evitar a mensagem duplicada de cancelamento.
 
-## Backfill manual
+### 5. Deploy
+`sdr-agent`.
 
-A reunião do Juliano para 16/06 17:30 não existe na Cal.com — só a mensagem de "confirmado" foi enviada. Após o deploy, posso criar manualmente o booking via `calcom-booking-create` para o slot 2026-06-16T20:30:00Z para esse lead, de modo que ele receba o convite por e-mail prometido. Confirma se quer que eu rode esse backfill junto com o fix.
-
-## Validação
-
-- Rodar `policy-engine_test.ts` (deno test) — passa nos casos existentes + novo.
-- Deploy `sdr-agent`.
-- Próxima conversa que estreitar oferta a 1 slot + "Ok" do lead deve disparar `book_slot` e o `calendar_actions` mostrar um row `action_type=book status=ok`.
+## Por que isso é seguro
+- `cancel_active_booking` é idempotente: se não há booking confirmado, é no-op.
+- O guard `cancellation_source='sdr'` (já implementado para o safety-net e webhook do Cal.com) suprime a mensagem automática *"Vi que você cancelou nossa conversa…"*.
+- `release_slot_holds` segue rodando em paralelo para o caso de holds não convertidos.

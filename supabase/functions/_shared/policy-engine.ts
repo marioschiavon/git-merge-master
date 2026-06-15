@@ -38,7 +38,7 @@ export type Stage =
   | "closed_lost"
   | "general";
 
-export type PostAction = "mark_referrer" | "release_slot_holds";
+export type PostAction = "mark_referrer" | "release_slot_holds" | "cancel_active_booking";
 
 export interface PolicyDecision {
   stage: Stage;
@@ -320,14 +320,16 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           allowed_tools: ["create_new_contact", "mark_referrer", "update_lead_facts", "finalize"],
           forced_tool: "create_new_contact",
           forced_args: args,
-          post_actions: ["mark_referrer", "release_slot_holds"],
+          post_actions: ["mark_referrer", "release_slot_holds", "cancel_active_booking"],
           response_directive:
             `O lead indicou outra pessoa e já passou contato (${rc!.email ?? rc!.phone}). ` +
-            `create_new_contact JÁ foi executada. Escreva apenas um agradecimento curto e cordial, ` +
-            `dizendo que vai procurar o(a) indicado(a). NÃO ofereça reunião nem horários para este lead atual ` +
-            `— a conversa com ele encerra aqui.`,
+            `create_new_contact JÁ foi executada e qualquer reunião marcada com este lead será cancelada automaticamente. ` +
+            `Escreva apenas um agradecimento curto e cordial, dizendo que vai procurar o(a) indicado(a) ` +
+            `e — se havia reunião marcada — mencione naturalmente que vai liberar a agenda dele(a). ` +
+            `NÃO ofereça reunião nem horários para este lead atual — a conversa com ele encerra aqui.`,
           reason: "referral_with_contact",
         };
+
       }
       // Sem contato ainda: pedir contato + permissão. Ainda assim soltar holds:
       // o lead não está mais agendando para si.
@@ -361,12 +363,13 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
         allowed_tools: ["update_lead_facts", "finalize"],
         forced_tool: null,
         forced_args: null,
-        post_actions: ["release_slot_holds"],
+        post_actions: ["release_slot_holds", "cancel_active_booking"],
         response_directive: directive,
         reason: redirectOnly
           ? "referral_redirect_no_contact"
           : hasName ? "referral_named_no_contact" : "referral_awaiting_contact",
       };
+
     }
 
 
