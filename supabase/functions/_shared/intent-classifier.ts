@@ -30,6 +30,11 @@ const CLASSIFIER_MODEL = "google/gemini-2.5-flash";
 // Sinais determinísticos de "wrong person / redirect" → classificar como referral.
 export const REDIRECT_RE = /(n[aã]o\s+(?:sou\s+eu|seria\s+comigo|[ée]\s+comigo|sou\s+(?:o|a)\s+respons[aá]vel)|esse\s+assunto\s+n[aã]o\s+(?:[ée]|seria)\s+comigo|quem\s+(?:cuida|v[eê]|trata|cuidaria)\s+(?:disso|desse\s+assunto|disso\s+aqui)|fal[ae]\s+com\s+[A-Za-zÀ-ÿ]|procura(?:r)?\s+(?:o|a)\s+[A-Za-zÀ-ÿ]|sou\s+s[óo]\s+(?:o|a)\s+(?:assistente|secret[aá]ri))/i;
 
+// Sinais determinísticos de "incluir convidados no invite" → add_guests.
+// Diferente de referral: o lead CONTINUA participando, só quer adicionar gente.
+const INCLUDE_GUEST_RE = /\b(inclu[ai]|incluir|adicion[ae]|adicionar|convid[ae]|convidar|copia(?:r)?|com\s+c[oó]pia|c\/c|\bcc\b|junto\s+(?:comigo|no\s+convite|com\s+a\s+gente)|tamb[ée]m\s+(?:vai|participa|estar[áa])|mais\s+(?:uma\s+pessoa|alguem|algu[ée]m))\b/i;
+const EMAIL_QUICK_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i;
+
 const SYSTEM_PROMPT = `Você é um classificador de intenção de mensagens recebidas por um SDR de IA em pt-BR.
 Devolva APENAS JSON no formato:
 {"intent":"<um_dos_valores>","confidence":<0..1>,"reasoning":"<curto>"}
