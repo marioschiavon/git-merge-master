@@ -56,12 +56,17 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
   const parsed = useMemo(() => {
     const valid: LeadInput[] = [];
     let skipped = 0;
+    let companyOnly = 0;
     for (const r of rows) {
       const m = mapRow(r);
-      if (m) valid.push(m);
-      else skipped++;
+      if (m) {
+        valid.push(m);
+        if (!m.name || !String(m.name).trim()) companyOnly++;
+      } else {
+        skipped++;
+      }
     }
-    return { valid, skipped };
+    return { valid, skipped, companyOnly };
   }, [rows]);
 
   const handleFile = (file: File) => {
@@ -140,9 +145,11 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
             <>
               <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
                 <div><strong>{parsed.valid.length}</strong> leads válidos
-                {parsed.skipped > 0 && <> · <span className="text-destructive">{parsed.skipped} ignorados (sem nome)</span></>}</div>
-                <p className="text-xs text-muted-foreground">Se o enriquecimento automático estiver ativo, os leads serão analisados em background nos próximos minutos.</p>
+                {parsed.companyOnly > 0 && <> · <span className="text-amber-700">{parsed.companyOnly} sem nome (modo empresa)</span></>}
+                {parsed.skipped > 0 && <> · <span className="text-destructive">{parsed.skipped} ignorados (sem dados de contato)</span></>}</div>
+                <p className="text-xs text-muted-foreground">Leads sem nome serão tratados como canal corporativo: a primeira mensagem usa dados da empresa/redes e pede direcionamento ao decisor.</p>
               </div>
+
 
 
               <div className="rounded-md border overflow-x-auto">
