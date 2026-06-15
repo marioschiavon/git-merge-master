@@ -142,6 +142,12 @@ function detectReferralContact(text: string): ReferralContact | null {
     }
   }
   const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
+  // Fallback: se há sinal de redirect mas nenhum padrão nominal casou, tenta "é o/a X".
+  if (!name && redirect) {
+    const m = text.match(NAME_REDIRECT_FALLBACK_RE);
+    const cand = m?.[1]?.trim();
+    if (cand && !NAME_STOPWORDS.has(cand)) name = cand;
+  }
 
   if (!email && !phone && permission === undefined && !name && !redirect) return null;
   const contact: ReferralContact = {};
