@@ -4,7 +4,7 @@
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-export type CalendarActionType = "book" | "reschedule" | "cancel";
+export type CalendarActionType = "book" | "reschedule" | "cancel" | "add_guests";
 
 /** Stable idempotency key for a calendar action. */
 export async function buildIdempotencyKey(parts: {
