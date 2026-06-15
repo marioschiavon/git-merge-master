@@ -135,7 +135,6 @@ function detectReferralContact(text: string): ReferralContact | null {
     }
   }
   const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
-  const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
 
   if (!email && !phone && permission === undefined && !name && !redirect) return null;
   const contact: ReferralContact = {};
