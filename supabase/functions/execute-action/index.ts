@@ -285,16 +285,9 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
             conversation_id: ctx.conversation_id,
           },
         });
-        if (ctx.conversation_id) {
-          await ctx.supabase.from("messages").insert({
-            conversation_id: ctx.conversation_id,
-            content: reply.body,
-            direction: "outbound",
-            ai_suggested: true,
-            channel: "email",
-            metadata: { source: "execute-action", action: "schedule_followup", subject: reply.subject, lead_requested: true } as any,
-          });
-        }
+        // `gmail-send` já persiste a mensagem outbound em `messages` com
+        // gmail_message_id; não duplicamos aqui.
+
         await logActivity(ctx, "email", `📧 Callback enviado conforme solicitado pelo lead`, { channel: "email" });
       } else {
         await sendOutbound(ctx, reply.body, reply.subject ?? null, requestedChannel, {
