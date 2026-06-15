@@ -268,3 +268,49 @@ Deno.test("confirm_slot + implicit_single_offer_iso narrows ambiguous candidates
   assertEquals(d.forced_tool, "book_slot");
   assertEquals((d.forced_args as { slot_start: string }).slot_start, iso1);
 });
+
+Deno.test("add_guests com booking ativo + emails → post_action add_guests_to_active_booking", () => {
+  const d = decidePolicy({
+    intent: "add_guests",
+    confidence: 0.9,
+    entities: { ...baseEntities, guest_emails: ["maria@x.com", "joao@y.com"] } as any,
+    state: {
+      ...baseState,
+      has_active_booking: true,
+      active_booking_at: "2026-06-18T15:00:00-03:00",
+      active_booking_uid: "uid_abc",
+    },
+  });
+  assertEquals(d.stage, "add_guests_request");
+  assertEquals(d.forced_tool, null);
+  assertEquals((d.post_actions || []).includes("add_guests_to_active_booking"), true);
+  assertEquals((d.forced_args as any)?.guest_emails?.length, 2);
+});
+
+Deno.test("add_guests com booking ativo SEM emails → clarify pedindo emails", () => {
+  const d = decidePolicy({
+    intent: "add_guests",
+    confidence: 0.9,
+    entities: { ...baseEntities, guest_emails: [] } as any,
+    state: {
+      ...baseState,
+      has_active_booking: true,
+      active_booking_at: "2026-06-18T15:00:00-03:00",
+      active_booking_uid: "uid_abc",
+    },
+  });
+  assertEquals(d.stage, "scheduling_clarify");
+  assertEquals(/email/i.test(d.response_directive), true);
+});
+
+Deno.test("confirm_slot + guest_emails → forced book_slot inclui guests no forced_args", () => {
+  const iso = "2026-06-18T15:00:00-03:00";
+  const d = decidePolicy({
+    intent: "confirm_slot",
+    confidence: 0.95,
+    entities: { ...baseEntities, selected_slot_iso: iso, guest_emails: ["a@x.com"] } as any,
+    state: { ...baseState, offered_slots: [iso], held_slots: [iso] },
+  });
+  assertEquals(d.forced_tool, "book_slot");
+  assertEquals((d.forced_args as any)?.guest_emails?.[0], "a@x.com");
+});
