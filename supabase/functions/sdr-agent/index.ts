@@ -1540,68 +1540,8 @@ Deno.serve(async (req) => {
       });
 
       // ── Post-actions: deterministic side-effects after the forced tool ──
-      const postActions = (policy as any).post_actions as string[] | undefined;
-      if (postActions && postActions.length > 0 && mode !== "shadow") {
-        for (const pa of postActions) {
-          try {
-            if (pa === "mark_referrer") {
-              const permission = (entities as any)?.referral_contact?.permission_to_mention ?? true;
-              const paRes = await execTool("mark_referrer", { permission_to_mention: permission }, {
-                lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
-              });
-              steps.push({ event: "post_action", action: pa, result: paRes });
-            } else if (pa === "release_slot_holds") {
-              const { data: rel, error: relErr } = await supabase
-                .from("slot_holds")
-                .update({ status: "released" })
-                .eq("lead_id", lead_id)
-                .eq("status", "held")
-                .select("id");
-              steps.push({ event: "post_action", action: pa, released: rel?.length ?? 0, error: relErr ? String(relErr) : null });
-            } else if (pa === "cancel_active_booking") {
-              // Cancela booking confirmado ativo do lead (ex.: lead redirecionou o contato).
-              // Idempotente: no-op se não houver booking confirmado.
-              const { data: activeBk } = await supabase
-                .from("bookings")
-                .select("calcom_booking_uid")
-                .eq("lead_id", lead_id)
-                .eq("status", "confirmed")
-                .not("calcom_booking_uid", "is", null)
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-              if (activeBk?.calcom_booking_uid) {
-                // Marca origem ANTES para o webhook do Cal.com suprimir a mensagem
-                // automática "Vi que você cancelou nossa conversa…".
-                await supabase.from("bookings").update({
-                  cancellation_source: "sdr",
-                  cancellation_requested_at: new Date().toISOString(),
-                }).eq("calcom_booking_uid", activeBk.calcom_booking_uid);
-                const { data: cxlData, error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
-                  body: {
-                    booking_uid: activeBk.calcom_booking_uid,
-                    reason: "Lead redirecionou o contato para outra pessoa",
-                    lead_id,
-                  },
-                });
-                steps.push({
-                  event: "post_action",
-                  action: pa,
-                  booking_uid: activeBk.calcom_booking_uid,
-                  ok: !cxlErr,
-                  error: cxlErr ? String(cxlErr) : null,
-                  result: cxlData ?? null,
-                });
-              } else {
-                steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
-              }
-            }
+      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
 
-          } catch (e) {
-            steps.push({ event: "post_action", action: pa, error: String(e) });
-          }
-        }
-      }
 
 
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.
