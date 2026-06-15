@@ -1089,6 +1089,7 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- **Fluxo correto de REMARCAÇÃO (2 turnos):** quando existe 'Reserva ativa' e o lead pede para mudar, (1) `offer_slots` com 2 novos horários, (2) AGUARDAR. No turno SEGUINTE, quando o lead escolher, chame `reschedule_booking({ slot_start })` e depois `finalize(send_message)`.",
     "- **Interpretação de escolha curta:** respostas como 'dia 1', 'o primeiro', '9h', 'esse mesmo', 'a primeira', 'a segunda opção' SÃO confirmação válida — copie o ISO EXATO do horário oferecido para `slot_start`. Ordinais apontam a POSIÇÃO da lista oferecida. Se a referência for ambígua, peça pra esclarecer (não chame a tool).",
     "- Se o lead pede CANCELAR/desmarcar sem pedir novo horário, chame a tool `cancel_booking({ reason })` e finalize com `send_message`.",
+    "- **REGRA DURA:** se na sua mensagem você vai dizer 'vou cancelar', 'cancelei', 'vou desmarcar', 'desmarquei', 'cancelar nosso horário/agendamento/reunião' e existe Reserva ativa, é OBRIGATÓRIO chamar `cancel_booking` ANTES do `finalize`. Se você perguntou no turn anterior 'devo cancelar?' / 'posso cancelar?' e o lead respondeu afirmativamente (isso/sim/pode/combinado/ok), é OBRIGATÓRIO chamar `cancel_booking` agora antes de responder.",
     "- A confirmação da remarcação/cancelamento (depois de feita) deve vir no campo `message` da finalize.",
     "",
     "## Antes de escalar para humano (escalate_to_human) você DEVE esgotar a KB:",
