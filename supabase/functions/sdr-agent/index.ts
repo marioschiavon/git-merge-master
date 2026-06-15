@@ -2059,7 +2059,22 @@ Deno.serve(async (req) => {
       try {
         const decision = String(finalDecision.decision || "");
         if (decision === "send_message") {
-          const msg = String((finalDecision as any).message || "").trim();
+          let msg = String((finalDecision as any).message || "").trim();
+          // ── SAFETY NET pós-action: se add_guests_to_active_booking falhou,
+          // sobrescreve a mensagem para não enganar o lead.
+          const guestFail = postActionFailures.find((f) => f.action === "add_guests_to_active_booking");
+          if (guestFail) {
+            const honest = guestFail.user_message ||
+              "Tive uma instabilidade aqui ao incluir o convidado. Sua reunião segue confirmada como estava — me reenvia o e-mail em alguns minutos que eu tento de novo.";
+            // Se a mensagem do LLM ignorou o aviso e ainda promete inclusão, override.
+            const PROMISES_INCLUDE = /\b(incluir|incluo|adicion(?:ar|ei|o)|conv[ií]dei|j[áa] (?:incl|adic))/i;
+            if (!msg || PROMISES_INCLUDE.test(msg)) {
+              console.log("[sdr-agent] safety-net: add_guests falhou — sobrescrevendo mensagem outbound");
+              msg = honest;
+              (finalDecision as any).message = msg;
+              (finalDecision as any).rationale = `safety_net_override: add_guests failed (${guestFail.error})`;
+            }
+          }
           // ── SAFETY NET: se o texto promete cancelar e há reserva ativa
           // sem cancel_booking executado nesta run, cancela programaticamente
           // antes de enviar a mensagem.
