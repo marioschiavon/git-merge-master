@@ -168,6 +168,8 @@ Deno.test("referral com contato → forced create_new_contact + post_actions", (
   assertEquals((d.forced_args as any).email, "carlos@example.com");
   assertEquals(d.post_actions?.includes("mark_referrer"), true);
   assertEquals(d.post_actions?.includes("release_slot_holds"), true);
+  assertEquals(d.post_actions?.includes("cancel_active_booking"), true);
+
 });
 
 Deno.test("referral sem contato → pede contato + release_slot_holds", () => {
