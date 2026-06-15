@@ -126,8 +126,16 @@ function detectReferralContact(text: string): ReferralContact | null {
   const phoneDigits = phoneMatch ? phoneMatch.replace(/\D/g, "") : "";
   const phone = phoneDigits.length >= 10 ? phoneDigits : undefined;
   const permission = PERMISSION_RE.test(text) ? true : undefined;
-  const nameMatch = text.match(NAME_HINT_RE)?.[1];
-  const name = nameMatch ? nameMatch.trim() : undefined;
+  let name: string | undefined;
+  for (const re of NAME_HINT_PATTERNS) {
+    const m = text.match(re);
+    const cand = m?.[1]?.trim();
+    if (cand && !NAME_STOPWORDS.has(cand)) {
+      name = cand;
+      break;
+    }
+  }
+  const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
   const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
 
   if (!email && !phone && permission === undefined && !name && !redirect) return null;
