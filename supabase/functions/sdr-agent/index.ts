@@ -523,7 +523,8 @@ async function runPostActions(
     entities: any;
     steps: Array<Record<string, unknown>>;
   },
-): Promise<void> {
+): Promise<{ failures: Array<{ action: string; error: string; user_message?: string }> }> {
+  const failures: Array<{ action: string; error: string; user_message?: string }> = [];
   const { lead_id, ctx, conversation_id, mode, entities, steps } = args;
   const postActions = (policy as any).post_actions as string[] | undefined;
   if (!postActions || postActions.length === 0 || mode === "shadow") return;
