@@ -175,3 +175,32 @@ function detectReferralContact(text: string): ReferralContact | null {
   if (redirect) contact.redirect_signal = true;
   return contact;
 }
+
+// ── Guest emails (lead asks to invite additional people) ───────────────
+const EMAIL_GLOBAL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi;
+// Verbos / marcadores que indicam INCLUSÃO de convidados (não substituição).
+const INCLUDE_VERB_RE = /\b(inclu[ai]|incluir|adicion[ae]|adicionar|convid[ae]|convidar|coloca(?:r)?|chama(?:r)?|p[oõ]e|copia(?:r)?|copiar?|c\/c|cc\b|com\s+c[oó]pia|junto\s+(?:comigo|com\s+a\s+gente|no\s+convite)|tamb[ée]m\s+(?:vai|participa|estar[áa])|mais\s+(?:uma\s+pessoa|alguem|algu[ée]m)|trazer\s+(?:meu|minha|o|a))\b/i;
+const INVITE_NOUN_RE = /\b(convite|reuni[ãa]o|call|meet|chamada|encontro)\b/i;
+
+function detectGuestEmails(text: string): string[] {
+  if (!text) return [];
+  const hasIncludeVerb = INCLUDE_VERB_RE.test(text);
+  if (!hasIncludeVerb) return [];
+  // Redirect/wrong-person tem prioridade — ali os emails são REFERRAL, não guest.
+  if (REDIRECT_SIGNAL_RE.test(text)) return [];
+  const emails = (text.match(EMAIL_GLOBAL_RE) || []).map((e) => e.toLowerCase());
+  if (emails.length === 0) return [];
+  // Heurística leve: se a frase com o verbo de inclusão também menciona
+  // "reunião/convite/call", confiamos mais. Caso contrário, mantemos só se
+  // ambos sinais estiverem na mesma janela (~120 chars).
+  if (INVITE_NOUN_RE.test(text)) return Array.from(new Set(emails));
+  // Janela: verbo + email a < 120 chars de distância.
+  const verbMatch = text.match(INCLUDE_VERB_RE);
+  if (!verbMatch || verbMatch.index === undefined) return [];
+  const vi = verbMatch.index;
+  const near = emails.filter((email) => {
+    const ei = text.toLowerCase().indexOf(email);
+    return ei >= 0 && Math.abs(ei - vi) < 120;
+  });
+  return Array.from(new Set(near));
+}
