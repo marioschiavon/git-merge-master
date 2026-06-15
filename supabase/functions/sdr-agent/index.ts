@@ -527,7 +527,7 @@ async function runPostActions(
   const failures: Array<{ action: string; error: string; user_message?: string }> = [];
   const { lead_id, ctx, conversation_id, mode, entities, steps } = args;
   const postActions = (policy as any).post_actions as string[] | undefined;
-  if (!postActions || postActions.length === 0 || mode === "shadow") return;
+  if (!postActions || postActions.length === 0 || mode === "shadow") return { failures };
   for (const pa of postActions) {
     try {
       if (pa === "mark_referrer") {
