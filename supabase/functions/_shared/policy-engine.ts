@@ -293,6 +293,47 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
     case "ask_availability":
       return askAvailability(input, "explicit_ask");
 
+    // ── ADD GUESTS ────────────────────────────────────────────────
+    case "add_guests": {
+      const guestList = guests.length > 0 ? guests : [];
+      // Sem booking ativo: o lead quer agendar e já adiantou os convidados.
+      // Carregamos a oferta normal de horários — os emails ficam pendentes na
+      // memória do agente (sdr-agent stash) para serem aplicados no book_slot.
+      if (!state.has_active_booking) {
+        const dec = askAvailability(input, "add_guests_without_booking");
+        return {
+          ...dec,
+          response_directive:
+            dec.response_directive +
+            (guestList.length > 0
+              ? ` O lead pediu para incluir ${guestList.join(", ")} no convite — confirme isso na sua resposta e siga oferecendo horários.`
+              : ` O lead pediu para incluir convidados mas não passou email ainda — peça o email da(s) pessoa(s).`),
+        };
+      }
+      // Com booking ativo: o lead quer adicionar pessoas à reunião JÁ confirmada.
+      // O sdr-agent (post_action add_guests_to_active_booking) cancela e recria
+      // o booking no mesmo slot incluindo os guests. Se não temos emails ainda,
+      // pedimos.
+      if (guestList.length === 0) {
+        return clarify(
+          `Posso incluir mais alguém no convite da nossa reunião — me passa o(s) email(s) da(s) pessoa(s) que você quer adicionar?`,
+          "add_guests_active_booking_missing_emails",
+        );
+      }
+      return {
+        stage: "add_guests_request",
+        allowed_tools: ["finalize"],
+        forced_tool: null,
+        forced_args: { guest_emails: guestList },
+        post_actions: ["add_guests_to_active_booking"],
+        response_directive:
+          `O lead pediu pra incluir ${guestList.join(", ")} no convite da reunião já marcada (${state.active_booking_at}). ` +
+          `O sistema vai atualizar o convite automaticamente — escreva uma confirmação CURTA dizendo que vai incluir esses emails e que eles vão receber o invite. ` +
+          `NÃO ofereça novos horários, NÃO peça pra remarcar.`,
+        reason: "add_guests_with_active_booking",
+      };
+    }
+
     // ── PRODUCT QNA / OBJECTION ──────────────────────────────────
     case "product_qna":
     case "objection":
