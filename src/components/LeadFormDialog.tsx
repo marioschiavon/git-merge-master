@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useCreateLead, useUpdateLead } from "@/hooks/usePipedrive";
 
 const schema = z.object({
-  name: z.string().trim().min(1, "Nome obrigatório").max(150),
+  name: z.string().trim().max(150).optional().or(z.literal("")),
   email: z.string().trim().max(255).email("Email inválido").optional().or(z.literal("")),
   phone: z.string().trim().max(50).optional().or(z.literal("")),
   whatsapp: z.string().trim().max(50).optional().or(z.literal("")),
@@ -25,7 +25,19 @@ const schema = z.object({
   address: z.string().trim().max(500).optional().or(z.literal("")),
   status: z.enum(["new", "contacted", "qualified", "unqualified", "converted"]),
   source: z.string().trim().max(50).optional().or(z.literal("")),
-});
+}).refine(
+  (v) => Boolean(
+    (v.name && v.name.trim()) ||
+    (v.company_name && v.company_name.trim()) ||
+    (v.website && v.website.trim()) ||
+    (v.whatsapp && v.whatsapp.trim()) ||
+    (v.phone && v.phone.trim()) ||
+    (v.instagram_url && v.instagram_url.trim()) ||
+    (v.linkedin_company_url && v.linkedin_company_url.trim()) ||
+    (v.email && v.email.trim())
+  ),
+  { message: "Informe ao menos nome, empresa, site, WhatsApp, telefone, e-mail ou rede social", path: ["name"] }
+);
 
 
 type FormValues = z.infer<typeof schema>;
@@ -145,8 +157,8 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
             <div className="grid grid-cols-2 gap-4">
               <FormField control={form.control} name="name" render={({ field }) => (
                 <FormItem className="col-span-2">
-                  <FormLabel>Nome *</FormLabel>
-                  <FormControl><Input {...field} /></FormControl>
+                  <FormLabel>Nome</FormLabel>
+                  <FormControl><Input placeholder="Deixe em branco se for canal corporativo (recepção/redes)" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )} />
