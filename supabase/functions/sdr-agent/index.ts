@@ -1700,8 +1700,22 @@ Deno.serve(async (req) => {
     // ── Post-actions WITHOUT forced tool ──────────────────────────
     // Algumas decisões (ex.: add_guests com booking ativo) não têm forced_tool
     // mas precisam rodar side-effects determinísticos antes do LLM escrever.
+    let postActionFailures: Array<{ action: string; error: string; user_message?: string }> = [];
     if (!policy.forced_tool && (policy as any).post_actions?.length > 0) {
-      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      const paRes = await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      postActionFailures = paRes.failures;
+      // Injeta nota para o LLM saber que a side-effect falhou e ajustar a mensagem.
+      for (const f of postActionFailures) {
+        messages.push({
+          role: "user",
+          content:
+            `⚠️ SIDE-EFFECT FALHOU: ${f.action} — ${f.error}.\n` +
+            `NÃO confirme ao lead que a ação foi concluída. ` +
+            (f.user_message
+              ? `Use ESTA mensagem (ou equivalente honesto): "${f.user_message}"`
+              : `Explique brevemente que houve uma instabilidade e que você tentará novamente.`),
+        });
+      }
     }
 
     // ── Forced tool short-circuit ─────────────────────────────────
