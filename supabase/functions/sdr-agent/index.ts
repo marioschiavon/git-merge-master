@@ -1492,6 +1492,30 @@ Deno.serve(async (req) => {
       matchesSlotRef: matchesSlotReference,
     });
 
+    // ── Fallback: herdar emails de convidados do histórico recente ──
+    // Quando o lead já passou emails em turnos anteriores (intent=add_guests)
+    // e a inbound atual é só uma clarificação ("esse é outro Eduardo"),
+    // o detector de entidades do turno atual devolve []. Sem isso, o policy
+    // engine força allowed_tools=["finalize"] e o LLM "mente" dizendo que
+    // incluiu sem que `add_guests_to_active_booking` jamais rode.
+    if (intentResult.intent === "add_guests" && entities.guest_emails.length === 0) {
+      const leadEmailLc = String((ctx.lead as any)?.email || "").toLowerCase();
+      const EMAIL_RE_G = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi;
+      const recentInbound = [...ctx.messages]
+        .filter((m: any) => m.direction === "inbound")
+        .slice(-6);
+      const fromHistory: string[] = [];
+      for (const m of recentInbound) {
+        const ems = (String(m.content || "").match(EMAIL_RE_G) || []).map((e) => e.toLowerCase());
+        for (const e of ems) if (e && e !== leadEmailLc && !fromHistory.includes(e)) fromHistory.push(e);
+      }
+      if (fromHistory.length > 0) {
+        console.log("sdr-agent guest_emails inherited from history:", fromHistory);
+        (entities as any).guest_emails = fromHistory;
+      }
+    }
+
+
     // ── Referral: persistir/hidratar nome pendente do indicado ──
     // Caso 1: lead disse o NOME mas ainda não passou contato → salva em facts
     //         para usarmos quando o e-mail/telefone chegar nos turnos seguintes.
@@ -2017,6 +2041,37 @@ Deno.serve(async (req) => {
               (finalDecision as any).rationale = `safety_net_override: add_guests failed (${guestFail.error})`;
             }
           }
+          // ── SAFETY NET anti-alucinação: intent add_guests + msg promete
+          // inclusão MAS nenhum add_guests_to_active_booking bem-sucedido
+          // rodou neste turno → sobrescreve para evitar mentir ao lead.
+          try {
+            const PROMISES_INCLUDE2 = /\b(incluir|inclu[íi]|incluo|adicion(?:ar|ei|o|ado|ada)|conv[ií]dei|acabei?\s+de\s+(?:incluir|adicionar)|j[áa]\s+(?:incl|adic|est[áa]\s+no\s+convite|foi\s+inclu))/i;
+            const guestActionOk = steps.some((s: any) =>
+              s.event === "post_action" &&
+              s.action === "add_guests_to_active_booking" &&
+              !s.error && !s.skipped && !s.stage,
+            );
+            const guestActionFailed = postActionFailures.some((f) => f.action === "add_guests_to_active_booking");
+            if (
+              intentResult.intent === "add_guests" &&
+              msg &&
+              PROMISES_INCLUDE2.test(msg) &&
+              !guestActionOk &&
+              !guestActionFailed
+            ) {
+              console.log("[sdr-agent] safety-net: msg promete inclusão sem add_guests rodar — sobrescrevendo");
+              const activeBkRow = (ctx.activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending");
+              const honest = activeBkRow
+                ? "Preciso confirmar antes — pode me reenviar o e-mail do convidado que você quer adicionar? Vou incluir agora no convite."
+                : "Pode me reenviar o e-mail do convidado? Vou incluir assim que confirmar.";
+              msg = honest;
+              (finalDecision as any).message = msg;
+              (finalDecision as any).rationale = "safety_net_override: add_guests promised but not executed";
+            }
+          } catch (e) {
+            console.error("[sdr-agent] safety-net add_guests hallucination check failed:", e);
+          }
+
           // ── SAFETY NET: se o texto promete cancelar e há reserva ativa
           // sem cancel_booking executado nesta run, cancela programaticamente
           // antes de enviar a mensagem.
