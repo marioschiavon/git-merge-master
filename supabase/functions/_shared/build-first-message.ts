@@ -116,13 +116,28 @@ ${durationBlock}
 
 CANAL: ${channel}
 CONTEXTO: PRIMEIRO CONTATO (abertura da cadência)
+${lead.lead_kind === "company" ? `
+=== MODO CANAL CORPORATIVO (lead sem nome de pessoa) ===
+Este contato chegou apenas com dados da EMPRESA (site, redes, WhatsApp da recepção). Provavelmente quem vai ler é recepcionista, social media ou atendimento geral — NÃO o decisor.
 
+Regras OBRIGATÓRIAS para este caso:
+1. NÃO use nome próprio do destinatário (não há nome). Não invente nome.
+2. Abra com um gancho personalizado e CONCRETO usando 1 observação real sobre a EMPRESA, extraída dos DIFERENCIAIS DO PROSPECT ou SINAIS DE REDES SOCIAIS acima (ex.: post recente, prêmio, foco de atuação, diferencial visível no site/Instagram).
+3. Em 1 frase conecte o gancho ao motivo do contato (seu produto/serviço/parceria), explicando brevemente quem somos.
+4. Encerre pedindo direcionamento para o RESPONSÁVEL pela área pertinente (use cargo/área, nunca nome). Ex.: "Poderia me direcionar para o responsável por parcerias?"
+5. Use 'vocês' no plural. Tom cordial e curto. WhatsApp ≤ 70 palavras, email ≤ 80.
+6. PROIBIDO: inventar nome, fingir conhecer alguém, "Olá [Nome]", "Prezado(a) Sr(a)".
+7. Se NÃO houver diferencial concreto disponível, abra com referência ao segmento ("Vi o trabalho de vocês com [segmento]…") sem inventar fatos.
+
+Exemplo de tom esperado (apenas referência, NÃO copiar literal):
+"Olá! Vi no Instagram de vocês o cuidado com o pós-operatório dos pets — chamou atenção. Somos uma rede americana selecionando clínicas parceiras no Brasil para [benefício]. Poderia me direcionar para o responsável por parcerias?"
+` : `
 REGRAS DE PERSONALIZAÇÃO:
 - Faça um gancho com 1 diferencial do prospect APENAS SE houver relação clara e coerente com o produto/serviço (respeitando as INSTRUÇÕES OBRIGATÓRIAS DA EMPRESA acima)
 - Se houver fit: estrutura sugerida — "Vi que vocês [diferencial do prospect] → nosso [produto/solução] potencializa isso porque [benefício concreto]"
 - Se NÃO houver fit claro: NÃO invente conexão. Faça abordagem neutra focada no segmento do prospect e termine perguntando se faz sentido conversar.
 - Nunca seja genérico, mas também nunca force uma ligação sem sentido
-
+`}
 REGRAS GERAIS:
 - Mantenha o tom profissional mas humano (respeite o TOM da cadência acima)
 - ${channel === "whatsapp" ? "WhatsApp: mensagem curta, até 80 palavras, informal, sem assinatura formal" : ""}
@@ -133,7 +148,7 @@ REGRAS GERAIS:
   - Subject: máximo 6 palavras, curioso, referenciando o negócio do prospect. NUNCA genérico.
   - PROIBIDO: "Meu nome é...", "Somos uma empresa...", "Gostaria de me apresentar...", introduções longas
   - Tom: direto, confiante, como se já conhecesse o mercado do prospect` : ""}
-- SEMPRE inclua um CTA claro para agendar uma conversa rápida (sem cravar duração)
+- ${lead.lead_kind === "company" ? "CTA neste caso = pedir direcionamento ao responsável (não pedir reunião direta ainda)." : "SEMPRE inclua um CTA claro para agendar uma conversa rápida (sem cravar duração)"}
 
 Responda APENAS com JSON:
 {
@@ -141,7 +156,17 @@ Responda APENAS com JSON:
   "message": "mensagem personalizada para enviar"
 }`;
 
-  const userPrompt = `Dados do lead:
+  const userPrompt = lead.lead_kind === "company"
+    ? `Dados do lead (CANAL CORPORATIVO — sem nome de pessoa):
+- Empresa: ${lead.company_name || lead.name || "N/A"}
+- Website: ${lead.website || "N/A"}
+- Instagram: ${lead.instagram_url || "N/A"}
+- LinkedIn da empresa: ${lead.linkedin_company_url || "N/A"}
+- Canal de contato: ${channel} (${lead.whatsapp || lead.phone || lead.email || "N/A"})
+
+Use os DIFERENCIAIS DO PROSPECT e SINAIS DE REDES SOCIAIS acima para personalizar.
+Gere a PRIMEIRA mensagem seguindo as regras do MODO CANAL CORPORATIVO.`
+    : `Dados do lead:
 - Nome: ${lead.name}
 - Email: ${lead.email || "N/A"}
 - Telefone: ${lead.phone || lead.whatsapp || "N/A"}
