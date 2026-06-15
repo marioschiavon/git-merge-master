@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
+import { computeLeadDisplayName } from "@/lib/lead-display-name";
 
 type IntegrationProvider = "pipedrive";
 type LeadStatus = "new" | "contacted" | "qualified" | "unqualified" | "converted";
