@@ -26,6 +26,8 @@ export interface EntityResult {
   prefers_period: "morning" | "afternoon" | "evening" | null;
   /** Detected referral contact in the inbound (email/phone/name + mention permission). */
   referral_contact: ReferralContact | null;
+  /** Extra invitees the lead asked to include in the meeting invite (NOT a referral). */
+  guest_emails: string[];
 }
 
 export type SlotMatcher = (text: string, isos: string[]) => { iso: string | null; ambiguous: boolean };
@@ -45,6 +47,7 @@ export function extractEntities(args: {
       date_preference: null,
       prefers_period: null,
       referral_contact: null,
+      guest_emails: [],
     };
   }
 
@@ -73,7 +76,20 @@ export function extractEntities(args: {
     : null;
 
   const prefers_period = detectPeriod(text);
-  const referral_contact = detectReferralContact(text);
+  const guest_emails = detectGuestEmails(text);
+  // Quando o lead pede pra incluir convidados, os emails são CONVIDADOS, não
+  // indicação. Suprimimos a detecção de referral aqui pra evitar dupla rota.
+  let referral_contact = detectReferralContact(text);
+  if (guest_emails.length > 0 && referral_contact) {
+    const filteredEmail = referral_contact.email && guest_emails.includes(referral_contact.email)
+      ? undefined : referral_contact.email;
+    // Se só tinha email e ele é guest, descarta o referral_contact inteiro.
+    if (!filteredEmail && !referral_contact.phone && !referral_contact.name && !referral_contact.redirect_signal) {
+      referral_contact = null;
+    } else if (filteredEmail !== referral_contact.email) {
+      referral_contact = { ...referral_contact, email: filteredEmail };
+    }
+  }
 
   return {
     selected_slot_iso: ref.iso,
@@ -81,6 +97,7 @@ export function extractEntities(args: {
     date_preference,
     prefers_period,
     referral_contact,
+    guest_emails,
   };
 }
 
@@ -157,4 +174,34 @@ function detectReferralContact(text: string): ReferralContact | null {
   if (permission !== undefined) contact.permission_to_mention = permission;
   if (redirect) contact.redirect_signal = true;
   return contact;
+}
+
+// ── Guest emails (lead asks to invite additional people) ───────────────
+const EMAIL_GLOBAL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi;
+// Verbos / marcadores que indicam INCLUSÃO de convidados (não substituição).
+// Mantenha estreito — "chama"/"coloca" são ambíguos (também aparecem ao introduzir nome).
+const INCLUDE_VERB_RE = /\b(inclu[ai]|incluir|adicion[ae]|adicionar|convid[ae]|convidar|copia(?:r)?|copiar?|c\/c|cc\b|com\s+c[oó]pia|junto\s+(?:comigo|com\s+a\s+gente|no\s+convite)|tamb[ée]m\s+(?:vai|participa|estar[áa])|mais\s+(?:uma\s+pessoa|alguem|algu[ée]m)|trazer\s+(?:meu|minha))\b/i;
+const INVITE_NOUN_RE = /\b(convite|reuni[ãa]o|call|meet|chamada|encontro)\b/i;
+
+function detectGuestEmails(text: string): string[] {
+  if (!text) return [];
+  const hasIncludeVerb = INCLUDE_VERB_RE.test(text);
+  if (!hasIncludeVerb) return [];
+  // Redirect/wrong-person tem prioridade — ali os emails são REFERRAL, não guest.
+  if (REDIRECT_SIGNAL_RE.test(text)) return [];
+  const emails = (text.match(EMAIL_GLOBAL_RE) || []).map((e) => e.toLowerCase());
+  if (emails.length === 0) return [];
+  // Heurística leve: se a frase com o verbo de inclusão também menciona
+  // "reunião/convite/call", confiamos mais. Caso contrário, mantemos só se
+  // ambos sinais estiverem na mesma janela (~120 chars).
+  if (INVITE_NOUN_RE.test(text)) return Array.from(new Set(emails));
+  // Janela: verbo + email a < 120 chars de distância.
+  const verbMatch = text.match(INCLUDE_VERB_RE);
+  if (!verbMatch || verbMatch.index === undefined) return [];
+  const vi = verbMatch.index;
+  const near = emails.filter((email) => {
+    const ei = text.toLowerCase().indexOf(email);
+    return ei >= 0 && Math.abs(ei - vi) < 120;
+  });
+  return Array.from(new Set(near));
 }

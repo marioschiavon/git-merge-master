@@ -42,7 +42,7 @@ serve(async (req) => {
     if (!CALCOM_API_KEY) throw new Error("CALCOM_API_KEY not configured");
 
     const body = await req.json();
-    const { lead_id, selected_slot_hold_id, force_placeholder } = body;
+    const { lead_id, selected_slot_hold_id, force_placeholder, guest_emails } = body;
 
     if (!lead_id || !selected_slot_hold_id) {
       return new Response(JSON.stringify({ error: "lead_id and selected_slot_hold_id are required" }), {
@@ -106,6 +106,15 @@ serve(async (req) => {
 
     // Create definitive booking on Cal.com
     console.log("Creating booking for slot:", selectedHold.slot_datetime);
+    // Merge guests provided by the agent with any guests previously stashed
+    // on the slot_hold metadata (lead may have mentioned them before book).
+    const holdMetaGuests = Array.isArray((selectedHold as any)?.metadata?.guest_emails)
+      ? (selectedHold as any).metadata.guest_emails as string[] : [];
+    const mergedGuests = Array.from(new Set(
+      [...holdMetaGuests, ...(Array.isArray(guest_emails) ? guest_emails : [])]
+        .map((g) => String(g || "").trim().toLowerCase())
+        .filter((g) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g) && g !== String(attendeeEmail).toLowerCase()),
+    ));
     const bookingRes = await fetch("https://api.cal.com/v2/bookings", {
       method: "POST",
       headers: {
@@ -122,6 +131,7 @@ serve(async (req) => {
           timeZone: "America/Sao_Paulo",
           language: "pt",
         },
+        ...(mergedGuests.length > 0 ? { guests: mergedGuests } : {}),
       }),
     });
 

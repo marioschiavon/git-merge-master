@@ -511,6 +511,150 @@ async function execTool(
 
 
 // ────────────────────────────────────────────────────────────────
+// Post-actions runner (deterministic side-effects after policy decision)
+// ────────────────────────────────────────────────────────────────
+async function runPostActions(
+  policy: any,
+  args: {
+    lead_id: string;
+    ctx: { lead: { company_id: string } };
+    conversation_id: string | null | undefined;
+    mode?: "shadow" | "live";
+    entities: any;
+    steps: Array<Record<string, unknown>>;
+  },
+): Promise<void> {
+  const { lead_id, ctx, conversation_id, mode, entities, steps } = args;
+  const postActions = (policy as any).post_actions as string[] | undefined;
+  if (!postActions || postActions.length === 0 || mode === "shadow") return;
+  for (const pa of postActions) {
+    try {
+      if (pa === "mark_referrer") {
+        const permission = (entities as any)?.referral_contact?.permission_to_mention ?? true;
+        const paRes = await execTool("mark_referrer", { permission_to_mention: permission }, {
+          lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
+        });
+        steps.push({ event: "post_action", action: pa, result: paRes });
+      } else if (pa === "release_slot_holds") {
+        const { data: rel, error: relErr } = await supabase
+          .from("slot_holds")
+          .update({ status: "released" })
+          .eq("lead_id", lead_id)
+          .eq("status", "held")
+          .select("id");
+        steps.push({ event: "post_action", action: pa, released: rel?.length ?? 0, error: relErr ? String(relErr) : null });
+      } else if (pa === "cancel_active_booking") {
+        const { data: activeBk } = await supabase
+          .from("bookings")
+          .select("calcom_booking_uid")
+          .eq("lead_id", lead_id)
+          .eq("status", "confirmed")
+          .not("calcom_booking_uid", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (activeBk?.calcom_booking_uid) {
+          await supabase.from("bookings").update({
+            cancellation_source: "sdr",
+            cancellation_requested_at: new Date().toISOString(),
+          }).eq("calcom_booking_uid", activeBk.calcom_booking_uid);
+          const { data: cxlData, error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
+            body: { booking_uid: activeBk.calcom_booking_uid, reason: "Lead redirecionou o contato para outra pessoa", lead_id },
+          });
+          steps.push({ event: "post_action", action: pa, booking_uid: activeBk.calcom_booking_uid, ok: !cxlErr, error: cxlErr ? String(cxlErr) : null, result: cxlData ?? null });
+        } else {
+          steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
+        }
+      } else if (pa === "add_guests_to_active_booking") {
+        // Cal.com v2 não suporta PATCH confiável de guests num booking confirmado.
+        // Estratégia: ler booking ativo + attendees + raw_payload, cancelar e recriar
+        // no MESMO slot incluindo guests (existentes + novos). Idempotente: no-op
+        // se não houver booking confirmado ou se forced_args.guest_emails estiver vazio.
+        const requested = Array.isArray(policy?.forced_args?.guest_emails)
+          ? (policy.forced_args.guest_emails as unknown[])
+              .map((g) => String(g || "").trim().toLowerCase())
+              .filter((g) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g))
+          : [];
+        if (requested.length === 0) {
+          steps.push({ event: "post_action", action: pa, skipped: "no_guests" });
+          continue;
+        }
+        const { data: activeBk } = await supabase
+          .from("bookings")
+          .select("id, calcom_booking_uid, scheduled_at, attendees, raw_payload, conversation_id, company_id")
+          .eq("lead_id", lead_id)
+          .eq("status", "confirmed")
+          .not("calcom_booking_uid", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!activeBk?.calcom_booking_uid || !activeBk.scheduled_at) {
+          steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
+          continue;
+        }
+        // Coleta guests existentes dos attendees do booking original.
+        const existingAttendeeEmails = Array.isArray(activeBk.attendees)
+          ? (activeBk.attendees as any[]).map((a) => String(a?.email || "").toLowerCase()).filter(Boolean)
+          : [];
+        const { data: leadRow } = await supabase.from("leads").select("email").eq("id", lead_id).maybeSingle();
+        const leadEmail = String(leadRow?.email || "").toLowerCase();
+        const existingGuests = Array.isArray((activeBk.raw_payload as any)?.guest_emails)
+          ? ((activeBk.raw_payload as any).guest_emails as string[])
+          : existingAttendeeEmails.filter((e) => e && e !== leadEmail);
+        const mergedGuests = Array.from(new Set([...existingGuests, ...requested]))
+          .filter((e) => e && e !== leadEmail);
+
+        const oldUid = activeBk.calcom_booking_uid;
+        // Marca origem antes pra suprimir o follow-up automático do webhook.
+        await supabase.from("bookings").update({
+          cancellation_source: "sdr_add_guests",
+          cancellation_requested_at: new Date().toISOString(),
+        }).eq("id", activeBk.id);
+
+        const { error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
+          body: { booking_uid: oldUid, reason: "Atualizando convidados da reunião", lead_id, conversation_id },
+        });
+        if (cxlErr) {
+          steps.push({ event: "post_action", action: pa, stage: "cancel", error: String(cxlErr) });
+          continue;
+        }
+        const { data: rebook, error: rebookErr } = await supabase.functions.invoke("calcom-booking-create", {
+          body: {
+            lead_id, conversation_id, start: activeBk.scheduled_at,
+            guests: mergedGuests,
+          },
+        });
+        if (rebookErr || (rebook as any)?.error) {
+          steps.push({ event: "post_action", action: pa, stage: "rebook", error: String(rebookErr ?? (rebook as any)?.error) });
+          continue;
+        }
+        // Persiste guests no novo booking pra preservar lista canônica.
+        try {
+          const newUid = (rebook as any)?.booking?.uid ?? (rebook as any)?.booking_uid ?? null;
+          if (newUid) {
+            const { data: newRow } = await supabase.from("bookings").select("id, raw_payload").eq("calcom_booking_uid", newUid).maybeSingle();
+            if (newRow) {
+              const merged = { ...(newRow.raw_payload as object || {}), guest_emails: mergedGuests };
+              await supabase.from("bookings").update({ raw_payload: merged }).eq("id", newRow.id);
+            }
+          }
+        } catch (_) { /* best effort */ }
+        steps.push({
+          event: "post_action",
+          action: pa,
+          old_uid: oldUid,
+          new_uid: (rebook as any)?.booking?.uid ?? null,
+          added_guests: requested,
+          total_guests: mergedGuests,
+        });
+      }
+    } catch (e) {
+      steps.push({ event: "post_action", action: pa, error: String(e) });
+    }
+  }
+}
+
+// ────────────────────────────────────────────────────────────────
 // Context loader
 // ────────────────────────────────────────────────────────────────
 // ────────────────────────────────────────────────────────────────
@@ -657,8 +801,27 @@ async function execBookingTool(
       await markCalendarActionFailed(supabase, claim.row.id, "no matching held slot");
       return { ok: false, error: "no matching held slot for " + slotStart };
     }
+    const guestEmails = Array.isArray((args as any).guest_emails)
+      ? ((args as any).guest_emails as unknown[])
+          .map((g) => String(g || "").trim().toLowerCase())
+          .filter((g) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g))
+      : [];
+    // Persiste guests no metadata do hold ANTES de invocar o booking para
+    // garantir que, mesmo se a invocação cair, o próximo retry preserve.
+    if (guestEmails.length > 0) {
+      try {
+        const prevMeta = ((matchedHold as any).metadata ?? {}) as Record<string, unknown>;
+        const merged = Array.from(new Set([
+          ...((prevMeta.guest_emails as string[] | undefined) ?? []),
+          ...guestEmails,
+        ]));
+        await supabase.from("slot_holds").update({
+          metadata: { ...prevMeta, guest_emails: merged },
+        }).eq("id", matchedHold.id);
+      } catch (_) { /* best effort */ }
+    }
     const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-confirm-booking", {
-      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: true },
+      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: true, guest_emails: guestEmails },
     });
     if (bookErr || (booking as any)?.error) {
       const errStr = bookErr ? String(bookErr) : String((booking as any)?.error);
@@ -683,9 +846,12 @@ async function execBookingTool(
         await supabase.from("lead_memory").upsert({ lead_id: ctx.lead_id, facts: newFacts }, { onConflict: "lead_id" });
       }
     } catch (_) {}
+    const guestSuffix = guestEmails.length > 0
+      ? ` Também incluí ${guestEmails.join(", ")} no convite — eles vão receber o invite por e-mail.`
+      : "";
     return {
-      ok: true, booking_uid: bookingUid, scheduled_at: slotStart,
-      message_suggestion: `Pronto! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail. 🙌`,
+      ok: true, booking_uid: bookingUid, scheduled_at: slotStart, guest_emails: guestEmails,
+      message_suggestion: `Pronto! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail.${guestSuffix} 🙌`,
     };
   }
 
@@ -1462,6 +1628,13 @@ Deno.serve(async (req) => {
       facts_in: factsNow,
     });
 
+    // ── Post-actions WITHOUT forced tool ──────────────────────────
+    // Algumas decisões (ex.: add_guests com booking ativo) não têm forced_tool
+    // mas precisam rodar side-effects determinísticos antes do LLM escrever.
+    if (!policy.forced_tool && (policy as any).post_actions?.length > 0) {
+      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+    }
+
     // ── Forced tool short-circuit ─────────────────────────────────
     // When the Policy Engine determined a unique path, execute the tool here
     // and feed the result back as a tool message before letting the LLM only
@@ -1518,68 +1691,8 @@ Deno.serve(async (req) => {
       });
 
       // ── Post-actions: deterministic side-effects after the forced tool ──
-      const postActions = (policy as any).post_actions as string[] | undefined;
-      if (postActions && postActions.length > 0 && mode !== "shadow") {
-        for (const pa of postActions) {
-          try {
-            if (pa === "mark_referrer") {
-              const permission = (entities as any)?.referral_contact?.permission_to_mention ?? true;
-              const paRes = await execTool("mark_referrer", { permission_to_mention: permission }, {
-                lead_id, company_id: ctx.lead.company_id, conversation_id: conversation_id ?? null, mode,
-              });
-              steps.push({ event: "post_action", action: pa, result: paRes });
-            } else if (pa === "release_slot_holds") {
-              const { data: rel, error: relErr } = await supabase
-                .from("slot_holds")
-                .update({ status: "released" })
-                .eq("lead_id", lead_id)
-                .eq("status", "held")
-                .select("id");
-              steps.push({ event: "post_action", action: pa, released: rel?.length ?? 0, error: relErr ? String(relErr) : null });
-            } else if (pa === "cancel_active_booking") {
-              // Cancela booking confirmado ativo do lead (ex.: lead redirecionou o contato).
-              // Idempotente: no-op se não houver booking confirmado.
-              const { data: activeBk } = await supabase
-                .from("bookings")
-                .select("calcom_booking_uid")
-                .eq("lead_id", lead_id)
-                .eq("status", "confirmed")
-                .not("calcom_booking_uid", "is", null)
-                .order("created_at", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-              if (activeBk?.calcom_booking_uid) {
-                // Marca origem ANTES para o webhook do Cal.com suprimir a mensagem
-                // automática "Vi que você cancelou nossa conversa…".
-                await supabase.from("bookings").update({
-                  cancellation_source: "sdr",
-                  cancellation_requested_at: new Date().toISOString(),
-                }).eq("calcom_booking_uid", activeBk.calcom_booking_uid);
-                const { data: cxlData, error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
-                  body: {
-                    booking_uid: activeBk.calcom_booking_uid,
-                    reason: "Lead redirecionou o contato para outra pessoa",
-                    lead_id,
-                  },
-                });
-                steps.push({
-                  event: "post_action",
-                  action: pa,
-                  booking_uid: activeBk.calcom_booking_uid,
-                  ok: !cxlErr,
-                  error: cxlErr ? String(cxlErr) : null,
-                  result: cxlData ?? null,
-                });
-              } else {
-                steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
-              }
-            }
+      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
 
-          } catch (e) {
-            steps.push({ event: "post_action", action: pa, error: String(e) });
-          }
-        }
-      }
 
 
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.

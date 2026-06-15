@@ -34,11 +34,12 @@ export type Stage =
   | "cancel_clarify"
   | "booking_confirmed"
   | "no_op_already_booked"
+  | "add_guests_request"
   | "referral_provided"
   | "closed_lost"
   | "general";
 
-export type PostAction = "mark_referrer" | "release_slot_holds" | "cancel_active_booking";
+export type PostAction = "mark_referrer" | "release_slot_holds" | "cancel_active_booking" | "add_guests_to_active_booking";
 
 export interface PolicyDecision {
   stage: Stage;
@@ -74,6 +75,8 @@ export interface PolicyInputs {
       permission_to_mention?: boolean;
       redirect_signal?: boolean;
     } | null;
+    /** Emails que o lead pediu pra incluir como convidados no invite. */
+    guest_emails?: string[];
   };
   state: {
     has_active_booking: boolean;
@@ -100,6 +103,8 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
   let { entities } = input;
   const lowConf = confidence < CONFIDENCE_FLOOR;
   const candidates = Array.from(new Set([...state.offered_slots, ...state.held_slots]));
+  const guests = Array.isArray((entities as any).guest_emails) ? (entities as any).guest_emails as string[] : [];
+  const withGuests = (a: Record<string, unknown>) => guests.length > 0 ? { ...a, guest_emails: guests } : a;
 
   // ── 0. Confirmação implícita de slot único ─────────────────────────
   // Se o SDR estreitou a oferta para 1 slot no último outbound e o lead
@@ -125,7 +130,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
       stage: "rescheduling_confirming_now",
       allowed_tools: ["reschedule_booking", "finalize"],
       forced_tool: "reschedule_booking",
-      forced_args: { slot_start: entities.selected_slot_iso },
+      forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
       response_directive:
         `O lead tinha reserva ativa em ${state.active_booking_at} e escolheu ${entities.selected_slot_iso}. ` +
         `A tool reschedule_booking JÁ foi executada — escreva uma confirmação curta mencionando o novo horário. ` +
@@ -159,7 +164,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
             stage: "scheduling_confirming_now",
             allowed_tools: ["book_slot", "finalize"],
             forced_tool: "book_slot",
-            forced_args: { slot_start: entities.selected_slot_iso },
+            forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
             response_directive:
               `O lead confirmou ${entities.selected_slot_iso}. book_slot foi executada — ` +
               `escreva uma confirmação curta para o lead.`,
@@ -187,7 +192,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
             stage: "rescheduling_confirming_now",
             allowed_tools: ["reschedule_booking", "finalize"],
             forced_tool: "reschedule_booking",
-            forced_args: { slot_start: onlyIso },
+            forced_args: withGuests({ slot_start: onlyIso }),
             response_directive: `Único slot pendente: ${onlyIso}. reschedule_booking executada — confirme ao lead.`,
             reason: "confirm_slot_single_candidate_reschedule",
           };
@@ -196,7 +201,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           stage: "scheduling_confirming_now",
           allowed_tools: ["book_slot", "finalize"],
           forced_tool: "book_slot",
-          forced_args: { slot_start: onlyIso },
+          forced_args: withGuests({ slot_start: onlyIso }),
           response_directive: `Único slot pendente: ${onlyIso}. book_slot executada — confirme ao lead.`,
           reason: "confirm_slot_single_candidate",
         };
@@ -217,7 +222,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           stage: "rescheduling_confirming_now",
           allowed_tools: ["reschedule_booking", "finalize"],
           forced_tool: "reschedule_booking",
-          forced_args: { slot_start: entities.selected_slot_iso },
+          forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
           response_directive: `Reagendamento confirmado para ${entities.selected_slot_iso} — escreva mensagem curta.`,
           reason: "reschedule_with_explicit_slot",
         };
@@ -276,7 +281,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           stage: "scheduling_confirming_now",
           allowed_tools: ["book_slot", "finalize"],
           forced_tool: "book_slot",
-          forced_args: { slot_start: entities.selected_slot_iso },
+          forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
           response_directive: `Booking executado para ${entities.selected_slot_iso} — confirme ao lead.`,
           reason: "create_with_explicit_slot",
         };
@@ -287,6 +292,47 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
     // ── ASK AVAILABILITY ──────────────────────────────────────────
     case "ask_availability":
       return askAvailability(input, "explicit_ask");
+
+    // ── ADD GUESTS ────────────────────────────────────────────────
+    case "add_guests": {
+      const guestList = guests.length > 0 ? guests : [];
+      // Sem booking ativo: o lead quer agendar e já adiantou os convidados.
+      // Carregamos a oferta normal de horários — os emails ficam pendentes na
+      // memória do agente (sdr-agent stash) para serem aplicados no book_slot.
+      if (!state.has_active_booking) {
+        const dec = askAvailability(input, "add_guests_without_booking");
+        return {
+          ...dec,
+          response_directive:
+            dec.response_directive +
+            (guestList.length > 0
+              ? ` O lead pediu para incluir ${guestList.join(", ")} no convite — confirme isso na sua resposta e siga oferecendo horários.`
+              : ` O lead pediu para incluir convidados mas não passou email ainda — peça o email da(s) pessoa(s).`),
+        };
+      }
+      // Com booking ativo: o lead quer adicionar pessoas à reunião JÁ confirmada.
+      // O sdr-agent (post_action add_guests_to_active_booking) cancela e recria
+      // o booking no mesmo slot incluindo os guests. Se não temos emails ainda,
+      // pedimos.
+      if (guestList.length === 0) {
+        return clarify(
+          `Posso incluir mais alguém no convite da nossa reunião — me passa o(s) email(s) da(s) pessoa(s) que você quer adicionar?`,
+          "add_guests_active_booking_missing_emails",
+        );
+      }
+      return {
+        stage: "add_guests_request",
+        allowed_tools: ["finalize"],
+        forced_tool: null,
+        forced_args: { guest_emails: guestList },
+        post_actions: ["add_guests_to_active_booking"],
+        response_directive:
+          `O lead pediu pra incluir ${guestList.join(", ")} no convite da reunião já marcada (${state.active_booking_at}). ` +
+          `O sistema vai atualizar o convite automaticamente — escreva uma confirmação CURTA dizendo que vai incluir esses emails e que eles vão receber o invite. ` +
+          `NÃO ofereça novos horários, NÃO peça pra remarcar.`,
+        reason: "add_guests_with_active_booking",
+      };
+    }
 
     // ── PRODUCT QNA / OBJECTION ──────────────────────────────────
     case "product_qna":

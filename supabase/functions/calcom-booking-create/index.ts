@@ -13,7 +13,7 @@ serve(async (req) => {
   try {
     const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const body = await req.json();
-    const { lead_id, conversation_id, start, event_type_id, attendee_name, attendee_email, timezone, language, notes } = body;
+    const { lead_id, conversation_id, start, event_type_id, attendee_name, attendee_email, timezone, language, notes, guests } = body;
     let { idempotency_key } = body as { idempotency_key?: string };
 
     if (!start) return jsonResponse({ error: "start (ISO datetime) required" }, 400);
@@ -49,10 +49,19 @@ serve(async (req) => {
       });
     }
 
-    const calBody = {
+    const cleanGuests = Array.isArray(guests)
+      ? Array.from(new Set(
+          guests
+            .map((g: unknown) => String(g || "").trim().toLowerCase())
+            .filter((g) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g) && g !== String(email).toLowerCase()),
+        ))
+      : [];
+
+    const calBody: Record<string, unknown> = {
       eventTypeId: Number(eventTypeId),
       start,
       attendee: { name, email, timeZone: timezone || "America/Sao_Paulo", language: language || "pt" },
+      ...(cleanGuests.length > 0 ? { guests: cleanGuests } : {}),
       ...(notes ? { bookingFieldsResponses: { notes } } : {}),
     };
 
