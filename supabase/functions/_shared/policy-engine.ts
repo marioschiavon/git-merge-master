@@ -297,9 +297,24 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
     case "add_guests": {
       const guestList = guests.length > 0 ? guests : [];
       // Sem booking ativo: o lead quer agendar e já adiantou os convidados.
-      // Carregamos a oferta normal de horários — os emails ficam pendentes na
-      // memória do agente (sdr-agent stash) para serem aplicados no book_slot.
       if (!state.has_active_booking) {
+        // Caso A: lead ALSO apontou um slot na mesma mensagem (ex.: "Quarta.
+        // Inclui o fulano@x"). Bookar direto com guests no mesmo turno.
+        if (entities.selected_slot_iso && !entities.ambiguous_slot) {
+          return {
+            stage: "scheduling_confirming_now",
+            allowed_tools: ["book_slot", "finalize"],
+            forced_tool: "book_slot",
+            forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
+            response_directive:
+              `O lead escolheu ${entities.selected_slot_iso} E pediu pra incluir ${guestList.join(", ") || "convidado(s)"} no convite. ` +
+              `book_slot JÁ foi executada com os guests — escreva uma confirmação curta mencionando o horário e os convidados. ` +
+              `NÃO ofereça novos horários.`,
+            reason: "add_guests_with_selected_slot",
+          };
+        }
+        // Caso B: só pediu pra incluir guests, sem slot — oferece horários.
+        // Os emails ficam pendentes na memória do agente (sdr-agent stash).
         const dec = askAvailability(input, "add_guests_without_booking");
         return {
           ...dec,
