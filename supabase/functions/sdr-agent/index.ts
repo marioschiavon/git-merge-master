@@ -702,9 +702,12 @@ async function execBookingTool(
         await supabase.from("lead_memory").upsert({ lead_id: ctx.lead_id, facts: newFacts }, { onConflict: "lead_id" });
       }
     } catch (_) {}
+    const guestSuffix = guestEmails.length > 0
+      ? ` Também incluí ${guestEmails.join(", ")} no convite — eles vão receber o invite por e-mail.`
+      : "";
     return {
-      ok: true, booking_uid: bookingUid, scheduled_at: slotStart,
-      message_suggestion: `Pronto! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail. 🙌`,
+      ok: true, booking_uid: bookingUid, scheduled_at: slotStart, guest_emails: guestEmails,
+      message_suggestion: `Pronto! Confirmei a reunião para ${formatBRTLong(slotStart)}. Você vai receber o convite com o link por e-mail.${guestSuffix} 🙌`,
     };
   }
 
