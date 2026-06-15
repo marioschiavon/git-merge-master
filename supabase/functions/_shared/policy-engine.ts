@@ -363,12 +363,13 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
         allowed_tools: ["update_lead_facts", "finalize"],
         forced_tool: null,
         forced_args: null,
-        post_actions: ["release_slot_holds"],
+        post_actions: ["release_slot_holds", "cancel_active_booking"],
         response_directive: directive,
         reason: redirectOnly
           ? "referral_redirect_no_contact"
           : hasName ? "referral_named_no_contact" : "referral_awaiting_contact",
       };
+
     }
 
 
