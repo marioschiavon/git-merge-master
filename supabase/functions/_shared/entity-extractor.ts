@@ -99,6 +99,10 @@ const PERMISSION_RE = /\b(pode\s+(?:dizer|falar|mencionar|usar)|use\s+meu\s+nome
 // Captura nome do indicado em frases comuns do PT-BR. Ordem importa:
 // padrões mais específicos primeiro. O grupo capturador é sempre o nome.
 const NAME_HINT_PATTERNS: RegExp[] = [
+  // "quem cuida disso é o Carlos", "quem trata desse assunto seria a Andreia"
+  /\bquem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)\s+(?:disso|desse\s+assunto|isso)?\s*(?:[ée]|seria)\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/i,
+  // "não sou eu, é o Carlos Vilagran" / "nao sou eu é a Andreia"
+  /\b(?:n[aã]o\s+sou\s+eu|n[aã]o\s+(?:[ée]|seria)\s+comigo)[\s,.;:!?-]+(?:[ée]\s+)?(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/i,
   // "com o Carlos", "sim com a Andreia", "comigo e sim com o Carlos"
   /\bcom\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/,
   // "se chama Andreia", "chama-se Andreia", "chama Andreia"
@@ -112,6 +116,9 @@ const NAME_HINT_PATTERNS: RegExp[] = [
   // "falar com X", "fale com X", "procurar (o|a|pelo|pela) X", "contatar (o|a) X"
   /\b(?:fala\s+com|fale\s+com|falar?\s+com|procurar?\s+(?:o\s+|a\s+|pelo\s+|pela\s+)?|contatar?\s+(?:o\s+|a\s+)?)([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})/,
 ];
+// Fallback aplicado APENAS quando há sinal de redirect no texto: pega
+// "é o/a Carlos Vilagran" curto ("...é o Carlos.").
+const NAME_REDIRECT_FALLBACK_RE = /\b[ée]\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/;
 // Palavras que NÃO são nomes próprios (filtro pós-match).
 const NAME_STOPWORDS = new Set([
   "Email", "E-mail", "Whatsapp", "WhatsApp", "Telefone", "Contato",
