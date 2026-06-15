@@ -1027,8 +1027,13 @@ function matchesSlotReference(text: string, candidateIsos: string[]): { iso: str
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
-  const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb } = ctx;
+  const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb, messages } = ctx as any;
   const activeBooking = (activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending");
+  const lastOutbound = (messages || []).find((m: any) => m.direction === "outbound");
+  const lastInbound = (messages || []).find((m: any) => m.direction === "inbound");
+  const cancelQuestionAsked = lastOutbound && /\b(devo|posso|quer(?:es)?\s+que\s+eu|gostaria\s+que\s+eu)\s+(cancel(?:ar|o)|desmarc(?:ar|o))/i.test(String(lastOutbound.content || ""));
+  const leadAffirmed = lastInbound && /^(isso(?:\s+mesmo)?|sim|pode|combinado|ok|claro|por\s+favor|fechado)\b/i.test(String(lastInbound.content || "").trim());
+
 
   const facts = (memory?.facts ?? {}) as Record<string, unknown>;
   const datePref = (facts.date_preference ?? null) as null | { start_after?: string; end_before?: string; raw?: string };
@@ -1089,6 +1094,7 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- **Fluxo correto de REMARCAÇÃO (2 turnos):** quando existe 'Reserva ativa' e o lead pede para mudar, (1) `offer_slots` com 2 novos horários, (2) AGUARDAR. No turno SEGUINTE, quando o lead escolher, chame `reschedule_booking({ slot_start })` e depois `finalize(send_message)`.",
     "- **Interpretação de escolha curta:** respostas como 'dia 1', 'o primeiro', '9h', 'esse mesmo', 'a primeira', 'a segunda opção' SÃO confirmação válida — copie o ISO EXATO do horário oferecido para `slot_start`. Ordinais apontam a POSIÇÃO da lista oferecida. Se a referência for ambígua, peça pra esclarecer (não chame a tool).",
     "- Se o lead pede CANCELAR/desmarcar sem pedir novo horário, chame a tool `cancel_booking({ reason })` e finalize com `send_message`.",
+    "- **REGRA DURA:** se na sua mensagem você vai dizer 'vou cancelar', 'cancelei', 'vou desmarcar', 'desmarquei', 'cancelar nosso horário/agendamento/reunião' e existe Reserva ativa, é OBRIGATÓRIO chamar `cancel_booking` ANTES do `finalize`. Se você perguntou no turn anterior 'devo cancelar?' / 'posso cancelar?' e o lead respondeu afirmativamente (isso/sim/pode/combinado/ok), é OBRIGATÓRIO chamar `cancel_booking` agora antes de responder.",
     "- A confirmação da remarcação/cancelamento (depois de feita) deve vir no campo `message` da finalize.",
     "",
     "## Antes de escalar para humano (escalate_to_human) você DEVE esgotar a KB:",
@@ -1124,6 +1130,9 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     activeBooking
       ? `⚠️ Reserva ativa: status=${activeBooking.status}, agendada para ${fmtBrt(activeBooking.scheduled_at)}, booking_uid=${activeBooking.calcom_booking_uid}. Se o lead quiser mudar de horário, use \`reschedule_booking\` (NÃO use book_slot).`
       : "Sem reserva ativa.",
+    activeBooking && cancelQuestionAsked
+      ? `⚠️ AÇÃO OBRIGATÓRIA: no turn anterior você perguntou se deveria cancelar a reunião. ${leadAffirmed ? "O lead JÁ CONFIRMOU. " : ""}Se for prosseguir com o cancelamento, chame \`cancel_booking({ booking_uid: "${activeBooking.calcom_booking_uid}", reason })\` AGORA antes do finalize.`
+      : "",
     heldSlots.length
       ? `Slots já oferecidos/segurados: ${heldSlots.map((s) => `${fmtBrt(s.slot_datetime)} (${s.status})`).join(", ")}. NÃO ofereça esses mesmos slots novamente — passe-os em exclude_datetimes se for buscar novos.`
       : "Nenhum slot ativo segurado.",
@@ -1801,6 +1810,40 @@ Deno.serve(async (req) => {
         const decision = String(finalDecision.decision || "");
         if (decision === "send_message") {
           const msg = String((finalDecision as any).message || "").trim();
+          // ── SAFETY NET: se o texto promete cancelar e há reserva ativa
+          // sem cancel_booking executado nesta run, cancela programaticamente
+          // antes de enviar a mensagem.
+          try {
+            const PROMISES_CANCEL = /\b(vou\s+cancel(?:ar|o)|cancelei|vou\s+desmarc(?:ar|o)|desmarquei|cancelar\s+(?:nosso|o|a)\s+(?:hor[áa]rio|agendamento|reuni[ãa]o))\b/i;
+            const activeBookingRow = (ctx.activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending");
+            const cancelSucceeded = steps.some((s: any) => s.event === "tool_call" && s.tool === "cancel_booking" && s.result?.ok === true);
+            if (msg && PROMISES_CANCEL.test(msg) && activeBookingRow?.calcom_booking_uid && !cancelSucceeded) {
+              console.log("[sdr-agent] safety-net: cancellation promised but cancel_booking not called — invoking calcom-booking-cancel.");
+              const idempotency_key = await buildIdempotencyKey({
+                conversation_id: conversation_id ?? null, lead_id,
+                action_type: "cancel", provider_booking_uid: activeBookingRow.calcom_booking_uid,
+              });
+              const { data: cxlData, error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
+                body: {
+                  booking_uid: activeBookingRow.calcom_booking_uid,
+                  reason: "SDR safety-net: mensagem prometia cancelamento",
+                  idempotency_key,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                },
+              });
+              steps.push({
+                event: "safety_net_cancel_booking",
+                ok: !cxlErr && !((cxlData as any)?.error),
+                booking_uid: activeBookingRow.calcom_booking_uid,
+                result: cxlData ?? null,
+                error: cxlErr ? String(cxlErr) : ((cxlData as any)?.error ?? null),
+              });
+            }
+          } catch (e) {
+            console.error("[sdr-agent] safety-net cancel failed:", e);
+            steps.push({ event: "safety_net_cancel_booking_error", error: String(e) });
+          }
           if (msg) {
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
