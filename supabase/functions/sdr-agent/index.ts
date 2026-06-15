@@ -1810,6 +1810,40 @@ Deno.serve(async (req) => {
         const decision = String(finalDecision.decision || "");
         if (decision === "send_message") {
           const msg = String((finalDecision as any).message || "").trim();
+          // ── SAFETY NET: se o texto promete cancelar e há reserva ativa
+          // sem cancel_booking executado nesta run, cancela programaticamente
+          // antes de enviar a mensagem.
+          try {
+            const PROMISES_CANCEL = /\b(vou\s+cancel(?:ar|o)|cancelei|vou\s+desmarc(?:ar|o)|desmarquei|cancelar\s+(?:nosso|o|a)\s+(?:hor[áa]rio|agendamento|reuni[ãa]o))\b/i;
+            const activeBookingRow = (ctx.activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending");
+            const cancelSucceeded = steps.some((s: any) => s.event === "tool_call" && s.tool === "cancel_booking" && s.result?.ok === true);
+            if (msg && PROMISES_CANCEL.test(msg) && activeBookingRow?.calcom_booking_uid && !cancelSucceeded) {
+              console.log("[sdr-agent] safety-net: cancellation promised but cancel_booking not called — invoking calcom-booking-cancel.");
+              const idempotency_key = await buildIdempotencyKey({
+                conversation_id: conversation_id ?? null, lead_id,
+                action_type: "cancel", provider_booking_uid: activeBookingRow.calcom_booking_uid,
+              });
+              const { data: cxlData, error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
+                body: {
+                  booking_uid: activeBookingRow.calcom_booking_uid,
+                  reason: "SDR safety-net: mensagem prometia cancelamento",
+                  idempotency_key,
+                  lead_id,
+                  conversation_id: conversation_id ?? null,
+                },
+              });
+              steps.push({
+                event: "safety_net_cancel_booking",
+                ok: !cxlErr && !((cxlData as any)?.error),
+                booking_uid: activeBookingRow.calcom_booking_uid,
+                result: cxlData ?? null,
+                error: cxlErr ? String(cxlErr) : ((cxlData as any)?.error ?? null),
+              });
+            }
+          } catch (e) {
+            console.error("[sdr-agent] safety-net cancel failed:", e);
+            steps.push({ event: "safety_net_cancel_booking_error", error: String(e) });
+          }
           if (msg) {
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
