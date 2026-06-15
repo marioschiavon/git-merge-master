@@ -45,6 +45,7 @@ Taxonomia FECHADA:
 - cancel_booking: lead quer desmarcar SEM pedir novo horário (ex.: "cancela", "desisti", "não quero mais").
 - confirm_slot: lead aponta UM dos horários já oferecidos pelo SDR (ex.: "dia 18", "o primeiro", "às 17h", "esse mesmo", "confirmo"). USE este intent quando houver slots oferecidos pendentes E a mensagem referenciar dia/hora/posição.
 - ask_availability: lead pergunta horários/disponibilidade SEM apontar opção específica (ex.: "tem na quinta?", "manhã da semana que vem?").
+- add_guests: lead pede para INCLUIR outras pessoas no convite/reunião (ex.: "inclui meu sócio joao@x.com", "pode copiar a maria@y.com?", "adiciona o financeiro junto"). O lead CONTINUA participando — diferente de referral (que substitui o interlocutor). Use quando houver verbo de inclusão + email/menção a terceiro, sem sinal de "não é comigo".
 - product_qna: dúvida sobre produto, preço, prazo, integração, política.
 - objection: resistência ("tá caro", "não tenho time", "preciso pensar").
 - referral: lead indica outra pessoa OU sinaliza que não é o interlocutor certo. Inclui: "não sou eu", "não é comigo", "não seria comigo", "esse assunto não é comigo", "quem cuida disso é o(a) X", "fala com X", "procura o financeiro", "sou só o assistente". MESMO sem contato/nome ainda — é referral (precisamos PEDIR o contato), NÃO not_interested.
