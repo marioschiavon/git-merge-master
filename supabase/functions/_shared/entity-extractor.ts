@@ -115,9 +115,8 @@ const NAME_HINT_PATTERNS: RegExp[] = [
 // Palavras que NÃO são nomes próprios (filtro pós-match).
 const NAME_STOPWORDS = new Set([
   "Email", "E-mail", "Whatsapp", "WhatsApp", "Telefone", "Contato",
-  "Empresa", "Pessoa", "Responsável", "Responsavel", "Carlos",
+  "Empresa", "Pessoa", "Responsável", "Responsavel",
 ]);
-NAME_STOPWORDS.delete("Carlos"); // só placeholder pra deixar claro: não filtrar nomes reais
 const REDIRECT_SIGNAL_RE = /(n[aã]o\s+(?:sou\s+eu|seria\s+comigo|[ée]\s+comigo|sou\s+(?:o|a)\s+respons[aá]vel)|esse\s+assunto\s+n[aã]o\s+(?:[ée]|seria)\s+comigo|quem\s+(?:cuida|v[eê]|trata|cuidaria)\s+(?:disso|desse\s+assunto)|sou\s+s[óo]\s+(?:o|a)\s+(?:assistente|secret[aá]ri))/i;
 
 function detectReferralContact(text: string): ReferralContact | null {
