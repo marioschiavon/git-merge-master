@@ -74,6 +74,8 @@ export interface PolicyInputs {
       permission_to_mention?: boolean;
       redirect_signal?: boolean;
     } | null;
+    /** Emails que o lead pediu pra incluir como convidados no invite. */
+    guest_emails?: string[];
   };
   state: {
     has_active_booking: boolean;
