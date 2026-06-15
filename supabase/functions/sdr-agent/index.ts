@@ -1774,7 +1774,19 @@ Deno.serve(async (req) => {
       });
 
       // ── Post-actions: deterministic side-effects after the forced tool ──
-      await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      const paResForced = await runPostActions(policy, { lead_id, ctx, conversation_id, mode, entities, steps });
+      postActionFailures.push(...paResForced.failures);
+      for (const f of paResForced.failures) {
+        messages.push({
+          role: "user",
+          content:
+            `⚠️ SIDE-EFFECT FALHOU: ${f.action} — ${f.error}.\n` +
+            `NÃO confirme ao lead que a ação foi concluída. ` +
+            (f.user_message
+              ? `Use ESTA mensagem (ou equivalente honesto): "${f.user_message}"`
+              : `Explique brevemente que houve uma instabilidade e que você tentará novamente.`),
+        });
+      }
 
 
 
