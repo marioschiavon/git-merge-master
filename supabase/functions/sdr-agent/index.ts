@@ -657,8 +657,27 @@ async function execBookingTool(
       await markCalendarActionFailed(supabase, claim.row.id, "no matching held slot");
       return { ok: false, error: "no matching held slot for " + slotStart };
     }
+    const guestEmails = Array.isArray((args as any).guest_emails)
+      ? ((args as any).guest_emails as unknown[])
+          .map((g) => String(g || "").trim().toLowerCase())
+          .filter((g) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g))
+      : [];
+    // Persiste guests no metadata do hold ANTES de invocar o booking para
+    // garantir que, mesmo se a invocação cair, o próximo retry preserve.
+    if (guestEmails.length > 0) {
+      try {
+        const prevMeta = ((matchedHold as any).metadata ?? {}) as Record<string, unknown>;
+        const merged = Array.from(new Set([
+          ...((prevMeta.guest_emails as string[] | undefined) ?? []),
+          ...guestEmails,
+        ]));
+        await supabase.from("slot_holds").update({
+          metadata: { ...prevMeta, guest_emails: merged },
+        }).eq("id", matchedHold.id);
+      } catch (_) { /* best effort */ }
+    }
     const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-confirm-booking", {
-      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: true },
+      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: true, guest_emails: guestEmails },
     });
     if (bookErr || (booking as any)?.error) {
       const errStr = bookErr ? String(bookErr) : String((booking as any)?.error);
