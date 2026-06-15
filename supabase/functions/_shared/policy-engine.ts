@@ -38,7 +38,7 @@ export type Stage =
   | "closed_lost"
   | "general";
 
-export type PostAction = "mark_referrer" | "release_slot_holds";
+export type PostAction = "mark_referrer" | "release_slot_holds" | "cancel_active_booking";
 
 export interface PolicyDecision {
   stage: Stage;
