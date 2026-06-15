@@ -1382,6 +1382,10 @@ Deno.serve(async (req) => {
       context: {
         last_inbound_has_pending_question: pendingQRe.test(lastInbound || ""),
         last_outbound_short: lastOutboundLen > 0 && lastOutboundLen < 200,
+        implicit_single_offer_iso: implicitOfferFromOutbound(
+          lastOutboundContent(ctx.messages) || "",
+          Array.from(new Set([...offeredSlotsNow, ...heldSlotIsos])),
+        ),
       },
     });
 

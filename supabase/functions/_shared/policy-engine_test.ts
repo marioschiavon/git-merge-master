@@ -250,3 +250,18 @@ Deno.test("referral redirect SEM pergunta pendente e outbound longo → sem pref
   assertEquals(/ANTES de pedir qualquer contato/i.test(d.response_directive), false);
 
 });
+
+Deno.test("confirm_slot + implicit_single_offer_iso narrows ambiguous candidates → forced book_slot", () => {
+  const iso1 = "2026-06-16T17:30:00-03:00";
+  const iso2 = "2026-06-18T17:45:00-03:00";
+  const d = decidePolicy({
+    intent: "confirm_slot",
+    confidence: 1,
+    entities: { ...baseEntities }, // selected_slot_iso=null
+    state: { ...baseState, offered_slots: [iso1, iso2], held_slots: [iso1, iso2] },
+    context: { implicit_single_offer_iso: iso1 },
+  });
+  assertEquals(d.stage, "scheduling_confirming_now");
+  assertEquals(d.forced_tool, "book_slot");
+  assertEquals((d.forced_args as { slot_start: string }).slot_start, iso1);
+});
