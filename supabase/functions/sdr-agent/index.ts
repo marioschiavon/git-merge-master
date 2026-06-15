@@ -1536,7 +1536,45 @@ Deno.serve(async (req) => {
                 .eq("status", "held")
                 .select("id");
               steps.push({ event: "post_action", action: pa, released: rel?.length ?? 0, error: relErr ? String(relErr) : null });
+            } else if (pa === "cancel_active_booking") {
+              // Cancela booking confirmado ativo do lead (ex.: lead redirecionou o contato).
+              // Idempotente: no-op se não houver booking confirmado.
+              const { data: activeBk } = await supabase
+                .from("bookings")
+                .select("calcom_booking_uid")
+                .eq("lead_id", lead_id)
+                .eq("status", "confirmed")
+                .not("calcom_booking_uid", "is", null)
+                .order("created_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (activeBk?.calcom_booking_uid) {
+                // Marca origem ANTES para o webhook do Cal.com suprimir a mensagem
+                // automática "Vi que você cancelou nossa conversa…".
+                await supabase.from("bookings").update({
+                  cancellation_source: "sdr",
+                  cancellation_requested_at: new Date().toISOString(),
+                }).eq("calcom_booking_uid", activeBk.calcom_booking_uid);
+                const { data: cxlData, error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
+                  body: {
+                    booking_uid: activeBk.calcom_booking_uid,
+                    reason: "Lead redirecionou o contato para outra pessoa",
+                    lead_id,
+                  },
+                });
+                steps.push({
+                  event: "post_action",
+                  action: pa,
+                  booking_uid: activeBk.calcom_booking_uid,
+                  ok: !cxlErr,
+                  error: cxlErr ? String(cxlErr) : null,
+                  result: cxlData ?? null,
+                });
+              } else {
+                steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
+              }
             }
+
           } catch (e) {
             steps.push({ event: "post_action", action: pa, error: String(e) });
           }
