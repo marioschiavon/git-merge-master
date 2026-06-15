@@ -567,11 +567,10 @@ async function runPostActions(
           steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
         }
       } else if (pa === "add_guests_to_active_booking") {
-        // Estratégia: REBOOK-FIRST, cancel-after, com rollback em caso de falha.
-        // Cal.com v2 não permite PATCH confiável de guests; precisamos recriar o
-        // booking. Para evitar o cenário em que o original é cancelado mas o
-        // novo falha (e o lead acha que está tudo certo), criamos o novo PRIMEIRO
-        // com idempotency_key único; só cancelamos o antigo após sucesso.
+        // Estratégia: usar o endpoint nativo POST /v2/bookings/{uid}/guests
+        // do Cal.com (via edge function `calcom-add-guests`). Sem cancelar,
+        // sem recriar — o Cal.com atualiza o evento no Google Calendar e
+        // dispara e-mail para os novos convidados.
         const requested = Array.isArray(policy?.forced_args?.guest_emails)
           ? (policy.forced_args.guest_emails as unknown[])
               .map((g) => String(g || "").trim().toLowerCase())
@@ -583,121 +582,64 @@ async function runPostActions(
         }
         const { data: activeBk } = await supabase
           .from("bookings")
-          .select("id, calcom_booking_uid, scheduled_at, attendees, raw_payload, conversation_id, company_id")
+          .select("id, calcom_booking_uid, scheduled_at, conversation_id, company_id")
           .eq("lead_id", lead_id)
           .eq("status", "confirmed")
           .not("calcom_booking_uid", "is", null)
           .order("created_at", { ascending: false })
           .limit(1)
           .maybeSingle();
-        if (!activeBk?.calcom_booking_uid || !activeBk.scheduled_at) {
+        if (!activeBk?.calcom_booking_uid) {
           steps.push({ event: "post_action", action: pa, skipped: "no_active_booking" });
           continue;
         }
-        const existingAttendeeEmails = Array.isArray(activeBk.attendees)
-          ? (activeBk.attendees as any[]).map((a) => String(a?.email || "").toLowerCase()).filter(Boolean)
-          : [];
-        const { data: leadRow } = await supabase.from("leads").select("email").eq("id", lead_id).maybeSingle();
-        const leadEmail = String(leadRow?.email || "").toLowerCase();
-        const existingGuests = Array.isArray((activeBk.raw_payload as any)?.guest_emails)
-          ? ((activeBk.raw_payload as any).guest_emails as string[])
-          : existingAttendeeEmails.filter((e) => e && e !== leadEmail);
-        const mergedGuests = Array.from(new Set([...existingGuests, ...requested]))
-          .filter((e) => e && e !== leadEmail);
 
-        const oldUid = activeBk.calcom_booking_uid;
-        const startIso = new Date(activeBk.scheduled_at as string).toISOString();
-
-        // Marca origem ANTES de cancelar pra suprimir o follow-up do webhook
-        // — só será aplicada se o rebook der certo (faremos cancel depois).
-        // Por ora, pré-marca em memória; só persistimos no DB no caminho feliz.
-
-        // PASSO 1: tentar criar o novo booking com guests (idem-key único pra
-        // não colidir com o calendar_actions do booking original).
-        const rebookIdemKey = `add_guests:${activeBk.id}:${crypto.randomUUID()}`;
-        let rebookData: any = null;
-        let rebookFail: string | null = null;
+        let addFail: string | null = null;
+        let addData: any = null;
         try {
-          const { data: rebook, error: rebookErr } = await supabase.functions.invoke("calcom-booking-create", {
+          const { data, error } = await supabase.functions.invoke("calcom-add-guests", {
             body: {
+              booking_uid: activeBk.calcom_booking_uid,
+              guests: requested,
               lead_id,
-              conversation_id,
-              start: startIso,
-              guests: mergedGuests,
-              idempotency_key: rebookIdemKey,
+              conversation_id: conversation_id ?? null,
             },
           });
-          if (rebookErr) {
-            rebookFail = String(rebookErr);
-          } else if ((rebook as any)?.error) {
-            rebookFail = String((rebook as any).error);
+          if (error) {
+            addFail = String(error);
+          } else if ((data as any)?.error) {
+            addFail = String((data as any).error);
           } else {
-            rebookData = rebook;
+            addData = data;
           }
         } catch (e) {
-          rebookFail = String(e);
+          addFail = String(e);
         }
 
-        if (rebookFail || !rebookData) {
-          // NÃO mexemos no booking original — está intacto. Sinalizamos falha
-          // pro LLM/safety-net e seguimos.
+        if (addFail) {
           const userMsg = `Tive uma instabilidade ao incluir ${requested.join(", ")} no convite. Sua reunião segue confirmada como estava. Pode me reenviar o e-mail do convidado em alguns minutos? Vou tentar de novo.`;
           steps.push({
             event: "post_action",
             action: pa,
-            stage: "rebook_failed_no_op",
-            error: rebookFail,
+            stage: "add_guests_failed_no_op",
+            error: addFail,
             note: "booking original intacto",
             user_message: userMsg,
           });
-          failures.push({ action: pa, error: rebookFail || "rebook_failed", user_message: userMsg });
+          failures.push({ action: pa, error: addFail, user_message: userMsg });
           continue;
         }
 
-        // PASSO 2: rebook ok — cancelar o booking original.
-        await supabase.from("bookings").update({
-          cancellation_source: "sdr_add_guests",
-          cancellation_requested_at: new Date().toISOString(),
-        }).eq("id", activeBk.id);
-
-        const { error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
-          body: { booking_uid: oldUid, reason: "Atualizando convidados da reunião", lead_id, conversation_id },
-        });
-        if (cxlErr) {
-          // Booking novo criado, antigo NÃO cancelou — agora há dois bookings
-          // no mesmo slot. Logamos pra investigação manual mas seguimos
-          // (lead recebe convite novo com guests; cleanup manual depois).
-          steps.push({
-            event: "post_action",
-            action: pa,
-            stage: "cancel_old_failed",
-            old_uid: oldUid,
-            new_uid: (rebookData as any)?.booking?.uid ?? null,
-            error: String(cxlErr),
-            warning: "duplicate_booking_on_same_slot",
-          });
-        }
-
-        // Persiste guests no novo booking pra preservar lista canônica.
-        try {
-          const newUid = (rebookData as any)?.booking?.uid ?? (rebookData as any)?.booking_uid ?? null;
-          if (newUid) {
-            const { data: newRow } = await supabase.from("bookings").select("id, raw_payload").eq("calcom_booking_uid", newUid).maybeSingle();
-            if (newRow) {
-              const merged = { ...(newRow.raw_payload as object || {}), guest_emails: mergedGuests };
-              await supabase.from("bookings").update({ raw_payload: merged }).eq("id", newRow.id);
-            }
-          }
-        } catch (_) { /* best effort */ }
         steps.push({
           event: "post_action",
           action: pa,
-          old_uid: oldUid,
-          new_uid: (rebookData as any)?.booking?.uid ?? null,
-          added_guests: requested,
-          total_guests: mergedGuests,
+          booking_uid: activeBk.calcom_booking_uid,
+          added_guests: (addData as any)?.added_guests ?? requested,
+          total_guests: (addData as any)?.total_guests ?? null,
+          skipped: (addData as any)?.skipped ?? null,
         });
       }
+
     } catch (e) {
       steps.push({ event: "post_action", action: pa, error: String(e) });
       failures.push({ action: pa, error: String(e) });
