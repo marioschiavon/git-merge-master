@@ -103,6 +103,8 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
   let { entities } = input;
   const lowConf = confidence < CONFIDENCE_FLOOR;
   const candidates = Array.from(new Set([...state.offered_slots, ...state.held_slots]));
+  const guests = Array.isArray((entities as any).guest_emails) ? (entities as any).guest_emails as string[] : [];
+  const withGuests = (a: Record<string, unknown>) => guests.length > 0 ? { ...a, guest_emails: guests } : a;
 
   // ── 0. Confirmação implícita de slot único ─────────────────────────
   // Se o SDR estreitou a oferta para 1 slot no último outbound e o lead
