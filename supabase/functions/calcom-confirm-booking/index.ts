@@ -106,6 +106,15 @@ serve(async (req) => {
 
     // Create definitive booking on Cal.com
     console.log("Creating booking for slot:", selectedHold.slot_datetime);
+    // Merge guests provided by the agent with any guests previously stashed
+    // on the slot_hold metadata (lead may have mentioned them before book).
+    const holdMetaGuests = Array.isArray((selectedHold as any)?.metadata?.guest_emails)
+      ? (selectedHold as any).metadata.guest_emails as string[] : [];
+    const mergedGuests = Array.from(new Set(
+      [...holdMetaGuests, ...(Array.isArray(guest_emails) ? guest_emails : [])]
+        .map((g) => String(g || "").trim().toLowerCase())
+        .filter((g) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g) && g !== String(attendeeEmail).toLowerCase()),
+    ));
     const bookingRes = await fetch("https://api.cal.com/v2/bookings", {
       method: "POST",
       headers: {
@@ -122,6 +131,7 @@ serve(async (req) => {
           timeZone: "America/Sao_Paulo",
           language: "pt",
         },
+        ...(mergedGuests.length > 0 ? { guests: mergedGuests } : {}),
       }),
     });
 
