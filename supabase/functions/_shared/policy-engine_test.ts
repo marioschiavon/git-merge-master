@@ -314,3 +314,17 @@ Deno.test("confirm_slot + guest_emails → forced book_slot inclui guests no for
   assertEquals(d.forced_tool, "book_slot");
   assertEquals((d.forced_args as any)?.guest_emails?.[0], "a@x.com");
 });
+
+Deno.test("add_guests + selected_slot + sem booking → forced book_slot com guests", () => {
+  const iso = "2026-06-17T09:00:00-03:00";
+  const d = decidePolicy({
+    intent: "add_guests",
+    confidence: 0.9,
+    entities: { ...baseEntities, selected_slot_iso: iso, guest_emails: ["eduardo@x.com"] } as any,
+    state: { ...baseState, offered_slots: [iso, "2026-06-19T09:45:00-03:00"], held_slots: [iso] },
+  });
+  assertEquals(d.forced_tool, "book_slot");
+  assertEquals((d.forced_args as any)?.slot_start, iso);
+  assertEquals((d.forced_args as any)?.guest_emails?.[0], "eduardo@x.com");
+  assertEquals(d.reason, "add_guests_with_selected_slot");
+});

@@ -1096,37 +1096,54 @@ function _normalizeText(s: string): string {
   return s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
 }
 
-function _brtParts(iso: string): { day: number; month: number; hour: number; minute: number } | null {
+function _brtParts(iso: string): { day: number; month: number; hour: number; minute: number; weekday: number } | null {
   try {
     const d = new Date(iso);
     if (isNaN(d.getTime())) return null;
     const fmt = new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Sao_Paulo",
       day: "numeric", month: "numeric", hour: "numeric", minute: "numeric", hour12: false,
+      weekday: "short",
     });
     const parts = fmt.formatToParts(d);
     const get = (t: string) => Number(parts.find((p) => p.type === t)?.value || 0);
-    return { day: get("day"), month: get("month"), hour: get("hour"), minute: get("minute") };
+    const wkStr = String(parts.find((p) => p.type === "weekday")?.value || "").toLowerCase();
+    const WK: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+    return { day: get("day"), month: get("month"), hour: get("hour"), minute: get("minute"), weekday: WK[wkStr] ?? -1 };
   } catch {
     return null;
   }
 }
 
+// Nomes de dia da semana em PT-BR (já sem acento — bate com _normalizeText).
+// Índice 0=domingo … 6=sabado.
+const WEEKDAY_NAMES_PT: Array<string[]> = [
+  ["domingo", "dom"],
+  ["segunda-feira", "segunda feira", "segunda", "seg"],
+  ["terca-feira", "terca feira", "terca", "ter"],
+  ["quarta-feira", "quarta feira", "quarta", "qua"],
+  ["quinta-feira", "quinta feira", "quinta", "qui"],
+  ["sexta-feira", "sexta feira", "sexta", "sex"],
+  ["sabado", "sab"],
+];
+
 function _slotPatterns(iso: string): { day: string[]; hour: string[] } {
   const p = _brtParts(iso);
   if (!p) return { day: [], hour: [] };
-  const { day, month, hour, minute } = p;
+  const { day, month, hour, minute, weekday } = p;
   const d = String(day), dd = String(day).padStart(2, "0");
   const m = String(month), mm = String(month).padStart(2, "0");
   const monShort = MONTH_NAMES_PT[month - 1];
   const monFull = MONTH_FULL_PT[month - 1];
   const h = String(hour), hh = String(hour).padStart(2, "0");
   const min = String(minute).padStart(2, "0");
+  const wkNames = weekday >= 0 ? WEEKDAY_NAMES_PT[weekday] : [];
   const dayP = [
     `dia ${d}`, `dia ${dd}`,
     `${d}/${m}`, `${dd}/${mm}`, `${d}/${mm}`, `${dd}/${m}`,
     `${d} de ${monShort}`, `${d} de ${monFull}`,
     `${dd} de ${monShort}`, `${dd} de ${monFull}`,
+    ...wkNames,
     ...(day === 1 ? ["primeiro", "1o", "1 de "] : []),
   ];
   const hourP: string[] = [
@@ -2055,8 +2072,10 @@ Deno.serve(async (req) => {
             offered = offered.slice(0, 2);
           }
 
-          // (2) Validar contra holds reais ativos do lead (tolerância 60s) para
+          // (2) Validar contra holds reais ativos do lead (tolerância 5min) para
           //     descartar ISOs alucinados que nunca foram reservados.
+          //     OBS: ISOs do LLM podem vir sem timezone — usar parseSlotStartAsBrt
+          //     pra evitar mismatch contra slot_datetime (UTC) do banco.
           if (offered.length > 0) {
             const { data: liveHolds } = await supabase
               .from("slot_holds")
@@ -2068,9 +2087,9 @@ Deno.serve(async (req) => {
               .map((h: any) => new Date(h.slot_datetime).getTime())
               .filter((t: number) => !isNaN(t));
             const validated = offered.filter((iso) => {
-              const ts = new Date(iso).getTime();
-              if (isNaN(ts)) return false;
-              return holdMs.some((t: number) => Math.abs(t - ts) < 60_000);
+              const ts = parseSlotStartAsBrt(iso);
+              if (!Number.isFinite(ts)) return false;
+              return holdMs.some((t: number) => Math.abs(t - ts) < 5 * 60_000);
             });
             if (validated.length !== offered.length) {
               console.log(`offer_slots: descartando ${offered.length - validated.length} slot(s) sem hold ativo`);
@@ -2079,7 +2098,21 @@ Deno.serve(async (req) => {
           }
 
           if (offered.length === 0) {
-            liveResult = { action: "offer_slots", ok: false, error: "no_valid_holds" };
+            // Sem holds válidos — NÃO descartar a mensagem. Envia mesmo assim
+            // com aviso curto pra não silenciar o turno e perder o lead.
+            const fallbackMsg = (String(fd.message || "").trim() ||
+              "Os horários que mencionei podem ter sido preenchidos. Me confirma qual funciona pra você e eu reservo na hora.");
+            const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
+              body: {
+                company_id: ctx.lead.company_id,
+                lead_id,
+                conversation_id: conversation_id ?? null,
+                action_type: "send_reply",
+                params: { message: fallbackMsg, channel: fd.channel || undefined },
+              },
+            });
+            const sent = !execErr && (exec as any)?.result?.sent === true;
+            liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: "no_valid_holds_sent_anyway" };
           } else {
             // (3) Detectar divergência entre msg do LLM e ISOs validados.
             //     SEMPRE valida que cada slot oferecido aparece (dia + hora) no
