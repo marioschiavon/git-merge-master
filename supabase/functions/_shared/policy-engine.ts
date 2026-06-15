@@ -130,7 +130,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
       stage: "rescheduling_confirming_now",
       allowed_tools: ["reschedule_booking", "finalize"],
       forced_tool: "reschedule_booking",
-      forced_args: { slot_start: entities.selected_slot_iso },
+      forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
       response_directive:
         `O lead tinha reserva ativa em ${state.active_booking_at} e escolheu ${entities.selected_slot_iso}. ` +
         `A tool reschedule_booking JÁ foi executada — escreva uma confirmação curta mencionando o novo horário. ` +
@@ -164,7 +164,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
             stage: "scheduling_confirming_now",
             allowed_tools: ["book_slot", "finalize"],
             forced_tool: "book_slot",
-            forced_args: { slot_start: entities.selected_slot_iso },
+            forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
             response_directive:
               `O lead confirmou ${entities.selected_slot_iso}. book_slot foi executada — ` +
               `escreva uma confirmação curta para o lead.`,
@@ -192,7 +192,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
             stage: "rescheduling_confirming_now",
             allowed_tools: ["reschedule_booking", "finalize"],
             forced_tool: "reschedule_booking",
-            forced_args: { slot_start: onlyIso },
+            forced_args: withGuests({ slot_start: onlyIso }),
             response_directive: `Único slot pendente: ${onlyIso}. reschedule_booking executada — confirme ao lead.`,
             reason: "confirm_slot_single_candidate_reschedule",
           };
@@ -201,7 +201,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           stage: "scheduling_confirming_now",
           allowed_tools: ["book_slot", "finalize"],
           forced_tool: "book_slot",
-          forced_args: { slot_start: onlyIso },
+          forced_args: withGuests({ slot_start: onlyIso }),
           response_directive: `Único slot pendente: ${onlyIso}. book_slot executada — confirme ao lead.`,
           reason: "confirm_slot_single_candidate",
         };
@@ -222,7 +222,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           stage: "rescheduling_confirming_now",
           allowed_tools: ["reschedule_booking", "finalize"],
           forced_tool: "reschedule_booking",
-          forced_args: { slot_start: entities.selected_slot_iso },
+          forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
           response_directive: `Reagendamento confirmado para ${entities.selected_slot_iso} — escreva mensagem curta.`,
           reason: "reschedule_with_explicit_slot",
         };
@@ -281,7 +281,7 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
           stage: "scheduling_confirming_now",
           allowed_tools: ["book_slot", "finalize"],
           forced_tool: "book_slot",
-          forced_args: { slot_start: entities.selected_slot_iso },
+          forced_args: withGuests({ slot_start: entities.selected_slot_iso }),
           response_directive: `Booking executado para ${entities.selected_slot_iso} — confirme ao lead.`,
           reason: "create_with_explicit_slot",
         };
