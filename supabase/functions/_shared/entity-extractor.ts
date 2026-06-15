@@ -47,6 +47,7 @@ export function extractEntities(args: {
       date_preference: null,
       prefers_period: null,
       referral_contact: null,
+      guest_emails: [],
     };
   }
 
@@ -75,7 +76,20 @@ export function extractEntities(args: {
     : null;
 
   const prefers_period = detectPeriod(text);
-  const referral_contact = detectReferralContact(text);
+  const guest_emails = detectGuestEmails(text);
+  // Quando o lead pede pra incluir convidados, os emails são CONVIDADOS, não
+  // indicação. Suprimimos a detecção de referral aqui pra evitar dupla rota.
+  let referral_contact = detectReferralContact(text);
+  if (guest_emails.length > 0 && referral_contact) {
+    const filteredEmail = referral_contact.email && guest_emails.includes(referral_contact.email)
+      ? undefined : referral_contact.email;
+    // Se só tinha email e ele é guest, descarta o referral_contact inteiro.
+    if (!filteredEmail && !referral_contact.phone && !referral_contact.name && !referral_contact.redirect_signal) {
+      referral_contact = null;
+    } else if (filteredEmail !== referral_contact.email) {
+      referral_contact = { ...referral_contact, email: filteredEmail };
+    }
+  }
 
   return {
     selected_slot_iso: ref.iso,
@@ -83,6 +97,7 @@ export function extractEntities(args: {
     date_preference,
     prefers_period,
     referral_contact,
+    guest_emails,
   };
 }
 
