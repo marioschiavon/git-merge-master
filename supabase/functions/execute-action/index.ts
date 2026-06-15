@@ -570,19 +570,24 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       console.error("[create_new_contact] referral enrollment exception:", e);
     }
 
+    const referrerLabel = referrer?.name
+      ? `${referrer.name}${referrer?.company_name ? ` (${referrer.company_name})` : ""}`
+      : "(indicante sem nome)";
     await logActivity(
       ctx,
       "note",
-      `🆕 Novo contato criado por indicação${referrer?.name ? ` (via ${referrer.name})` : ""}: ${finalName}${email ? ` <${email}>` : ""}${referralEnrollmentId ? " — inscrito na cadência de indicações" : ""}`,
+      `🆕 Novo contato criado por indicação — Indicado por ${referrerLabel}: ${finalName}${email ? ` <${email}>` : ""}${referralEnrollmentId ? " — inscrito na cadência de indicações" : ""}`,
       {
         new_lead_id: newLead.id,
         referral_enrollment_id: referralEnrollmentId,
+        referrer_name: referrer?.name ?? null,
+        referrer_company: referrer?.company_name ?? null,
         inherited_company_name: !company_name && !!referrer?.company_name,
         inherited_website: !website && !!referrer?.website,
         inherited_address: !address && !!referrer?.address,
       },
     );
-    return { new_lead_id: newLead.id, name: finalName, referral_enrollment_id: referralEnrollmentId };
+    return { new_lead_id: newLead.id, name: finalName, referrer_name: referrer?.name ?? null, referral_enrollment_id: referralEnrollmentId };
   },
 
   async mark_current_contact_as_referrer(ctx) {
