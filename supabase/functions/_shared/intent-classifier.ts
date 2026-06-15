@@ -147,7 +147,7 @@ function normalizeIntent(x: unknown): Intent {
   const s = String(x ?? "").toLowerCase().trim();
   const allowed: Intent[] = [
     "create_booking", "reschedule_booking", "cancel_booking", "confirm_slot",
-    "ask_availability", "product_qna", "objection", "referral",
+    "ask_availability", "add_guests", "product_qna", "objection", "referral",
     "not_interested", "smalltalk", "other",
   ];
   return (allowed as string[]).includes(s) ? (s as Intent) : "other";
