@@ -87,13 +87,34 @@ export interface PolicyInputs {
   context?: {
     last_inbound_has_pending_question?: boolean;
     last_outbound_short?: boolean;
+    /** ISO de um slot que o último outbound do SDR mencionou de forma única
+     *  (ex: "podemos confirmar para 17:30?"), mesmo que `state.offered_slots`
+     *  ainda contenha múltiplas opções anteriores. Quando setado, uma resposta
+     *  afirmativa do lead é tratada como confirmação desse slot específico. */
+    implicit_single_offer_iso?: string | null;
   };
 }
 
 export function decidePolicy(input: PolicyInputs): PolicyDecision {
-  const { intent, confidence, entities, state } = input;
+  const { intent, confidence, state } = input;
+  let { entities } = input;
   const lowConf = confidence < CONFIDENCE_FLOOR;
   const candidates = Array.from(new Set([...state.offered_slots, ...state.held_slots]));
+
+  // ── 0. Confirmação implícita de slot único ─────────────────────────
+  // Se o SDR estreitou a oferta para 1 slot no último outbound e o lead
+  // respondeu afirmativamente (intent=confirm_slot ou create_booking) sem
+  // citar horário explícito, promover esse ISO para selected_slot_iso.
+  const implicit = input.context?.implicit_single_offer_iso ?? null;
+  if (
+    implicit &&
+    !entities.selected_slot_iso &&
+    !entities.ambiguous_slot &&
+    (intent === "confirm_slot" || intent === "create_booking") &&
+    candidates.some((c) => slotsEqual(c, implicit))
+  ) {
+    entities = { ...entities, selected_slot_iso: implicit };
+  }
 
   // ── 1. Slot já apontado de forma inequívoca + booking ativo num horário DIFERENTE
   // Vale para QUALQUER intent (confirm_slot, create_booking, reschedule_booking…),
