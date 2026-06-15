@@ -1306,6 +1306,54 @@ Deno.serve(async (req) => {
       matchesSlotRef: matchesSlotReference,
     });
 
+    // ── Referral: persistir/hidratar nome pendente do indicado ──
+    // Caso 1: lead disse o NOME mas ainda não passou contato → salva em facts
+    //         para usarmos quando o e-mail/telefone chegar nos turnos seguintes.
+    // Caso 2: lead passou contato sem nome agora, mas existe um nome salvo
+    //         de turnos anteriores → hidrata o entity para create_new_contact
+    //         usar o nome certo (e não derivar do e-mail).
+    // Correção: nome NOVO sempre tem prioridade sobre o salvo (lead corrige).
+    try {
+      const rc = entities.referral_contact;
+      const hasContact = !!(rc && (rc.email || rc.phone));
+      const factsRef = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
+      const savedName = typeof factsRef.referral_pending_name === "string"
+        ? (factsRef.referral_pending_name as string)
+        : null;
+
+      if (rc?.name && !hasContact) {
+        // Persiste o nome novo (ou correção) para uso futuro.
+        if (savedName !== rc.name) {
+          const merged = { ...factsRef, referral_pending_name: rc.name };
+          await supabase.from("lead_memory").upsert(
+            { lead_id, company_id: ctx.lead.company_id, facts: merged, updated_at: new Date().toISOString() },
+            { onConflict: "lead_id" },
+          );
+          ctx.memory = { ...(ctx.memory ?? { summary: null }), facts: merged } as typeof ctx.memory;
+          console.log("sdr-agent referral_pending_name persisted:", rc.name);
+        }
+      } else if (hasContact) {
+        if (!rc!.name && savedName) {
+          (entities.referral_contact as any).name = savedName;
+          console.log("sdr-agent referral_pending_name hydrated:", savedName);
+        }
+        // Após criar o contato (forced_tool=create_new_contact rodará logo abaixo),
+        // limpamos o nome pendente para não vazar pra próximas indicações.
+        if (factsRef.referral_pending_name) {
+          const merged = { ...factsRef };
+          delete (merged as any).referral_pending_name;
+          await supabase.from("lead_memory").upsert(
+            { lead_id, company_id: ctx.lead.company_id, facts: merged, updated_at: new Date().toISOString() },
+            { onConflict: "lead_id" },
+          );
+          ctx.memory = { ...(ctx.memory ?? { summary: null }), facts: merged } as typeof ctx.memory;
+        }
+      }
+    } catch (e) {
+      console.error("referral_pending_name hydration failed:", e);
+    }
+
+
     // Heurística leve para a Policy: o lead tem pergunta pendente?
     // Nossa última explicação foi curta? — usado pelo branch referral
     // para priorizar responder antes de coletar contato.

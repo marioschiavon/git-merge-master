@@ -101,3 +101,32 @@ Deno.test("referral_contact: detecta 'quem cuida disso é'", () => {
   });
   assertEquals(r.referral_contact?.redirect_signal, true);
 });
+
+Deno.test("referral_contact: extrai nome em 'com o Carlos'", () => {
+  const r = extractEntities({
+    lastInbound: "Tudo bem? Não seria comigo e sim com o Carlos.",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.name, "Carlos");
+  assertEquals(r.referral_contact?.redirect_signal, true);
+});
+
+Deno.test("referral_contact: extrai nome em 'a pessoa correta chama Andreia'", () => {
+  const r = extractEntities({
+    lastInbound: "Confundi. A pessoa correta chama Andreia. Email dela é familiarochacarneiro@gmail.com",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.name, "Andreia");
+  assertEquals(r.referral_contact?.email, "familiarochacarneiro@gmail.com");
+});
+
+Deno.test("referral_contact: extrai nome em 'nome dela é Andreia'", () => {
+  const r = extractEntities({
+    lastInbound: "O nome dela é Andreia",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.name, "Andreia");
+});
