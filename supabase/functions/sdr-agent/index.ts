@@ -1027,8 +1027,13 @@ function matchesSlotReference(text: string, candidateIsos: string[]): { iso: str
 }
 
 function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string {
-  const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb } = ctx;
+  const { lead, company, memory, intents, heldSlots, activeBookings, enrollment, kb, messages } = ctx as any;
   const activeBooking = (activeBookings || []).find((b: any) => b.status === "confirmed" || b.status === "pending");
+  const lastOutbound = (messages || []).find((m: any) => m.direction === "outbound");
+  const lastInbound = (messages || []).find((m: any) => m.direction === "inbound");
+  const cancelQuestionAsked = lastOutbound && /\b(devo|posso|quer(?:es)?\s+que\s+eu|gostaria\s+que\s+eu)\s+(cancel(?:ar|o)|desmarc(?:ar|o))/i.test(String(lastOutbound.content || ""));
+  const leadAffirmed = lastInbound && /^(isso(?:\s+mesmo)?|sim|pode|combinado|ok|claro|por\s+favor|fechado)\b/i.test(String(lastInbound.content || "").trim());
+
 
   const facts = (memory?.facts ?? {}) as Record<string, unknown>;
   const datePref = (facts.date_preference ?? null) as null | { start_after?: string; end_before?: string; raw?: string };
