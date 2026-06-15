@@ -130,3 +130,33 @@ Deno.test("referral_contact: extrai nome em 'nome dela é Andreia'", () => {
   });
   assertEquals(r.referral_contact?.name, "Andreia");
 });
+
+Deno.test("referral_contact: extrai 'não sou eu é o Carlos Vilagran'", () => {
+  const r = extractEntities({
+    lastInbound: "Quem cuida disso nao sou eu é o Carlos Vilagran.",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.name, "Carlos Vilagran");
+  assertEquals(r.referral_contact?.redirect_signal, true);
+});
+
+Deno.test("referral_contact: fallback 'é o X' só com redirect signal", () => {
+  // Sem redirect: não deve capturar
+  const r1 = extractEntities({
+    lastInbound: "O responsável aqui é o Pedro mesmo.",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  // "responsável é Pedro" cai no padrão dedicado — ok
+  assertEquals(r1.referral_contact?.name, "Pedro");
+
+  // Com redirect: captura via fallback
+  const r2 = extractEntities({
+    lastInbound: "Não seria comigo. É a Andreia.",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r2.referral_contact?.name, "Andreia");
+  assertEquals(r2.referral_contact?.redirect_signal, true);
+});
