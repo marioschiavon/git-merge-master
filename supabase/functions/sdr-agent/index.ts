@@ -1969,9 +1969,12 @@ Deno.serve(async (req) => {
             liveResult = { action: "offer_slots", ok: false, error: "no_valid_holds" };
           } else {
             // (3) Detectar divergência entre msg do LLM e ISOs validados.
-            const bulletCount = (msg.match(/(^|\n)\s*(•|📅|[-*])\s+/g) || []).length;
-            let needRewrite = !msg || bulletCount > offered.length;
-            if (!needRewrite && bulletCount > 0) {
+            //     SEMPRE valida que cada slot oferecido aparece (dia + hora) no
+            //     texto — independente de bullets — para evitar mensagens
+            //     genéricas tipo "Tenho estes dois horários disponíveis" sem
+            //     listar nada.
+            let needRewrite = !msg;
+            if (!needRewrite) {
               const tNorm = ` ${_normalizeText(msg)} `;
               const allMatched = offered.every((iso) => {
                 const { day, hour } = _slotPatterns(iso);
@@ -1980,6 +1983,8 @@ Deno.serve(async (req) => {
                 return dayHit && hourHit;
               });
               if (!allMatched) needRewrite = true;
+              const bulletCount = (msg.match(/(^|\n)\s*(•|📅|[-*])\s+/g) || []).length;
+              if (bulletCount > offered.length) needRewrite = true;
             }
             if (needRewrite) {
               const formatted = offered.map((s: string) => `📅 ${formatBRTLong(s)}`).join("\n");
