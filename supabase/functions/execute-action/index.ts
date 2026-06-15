@@ -183,13 +183,21 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
     deliveryStatus = "pending_manual";
   }
 
-  await ctx.supabase.from("messages").insert({
-    conversation_id: ctx.conversation_id,
-    content,
-    direction: "outbound",
-    ai_suggested: true,
-    metadata: { source: "execute-action", subject, delivery_status: deliveryStatus, ...deliveryMeta, ...metadata },
-  });
+  // E-mails enviados via gmail-send já são persistidos por aquela função
+  // (com gmail_message_id/rfc_message_id). Para evitar dupla escrita em
+  // `messages`, só inserimos aqui quando NÃO é email-sucesso.
+  const skipInsert = channel === "email" && deliveryStatus === "sent";
+  if (!skipInsert) {
+    await ctx.supabase.from("messages").insert({
+      conversation_id: ctx.conversation_id,
+      content,
+      direction: "outbound",
+      ai_suggested: true,
+      channel,
+      metadata: { source: "execute-action", subject, delivery_status: deliveryStatus, ...deliveryMeta, ...metadata },
+    });
+  }
+
 
   return { sent, channel, delivery_status: deliveryStatus, ...(outboundError ? { error: outboundError } : {}), ...(outboundReason ? { reason: outboundReason } : {}), ...deliveryMeta };
 }
