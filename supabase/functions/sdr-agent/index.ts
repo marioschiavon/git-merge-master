@@ -1819,10 +1819,23 @@ Deno.serve(async (req) => {
             const cancelSucceeded = steps.some((s: any) => s.event === "tool_call" && s.tool === "cancel_booking" && s.result?.ok === true);
             if (msg && PROMISES_CANCEL.test(msg) && activeBookingRow?.calcom_booking_uid && !cancelSucceeded) {
               console.log("[sdr-agent] safety-net: cancellation promised but cancel_booking not called — invoking calcom-booking-cancel.");
+              // Marcar a fonte do cancelamento ANTES de invocar o cancel,
+              // para que o webhook do Cal.com não dispare acknowledge_cancellation
+              // (mensagem "Vi que você cancelou...") — esse follow-up só deve
+              // sair quando o próprio lead cancela pelo link.
+              try {
+                await supabase.from("bookings").update({
+                  cancellation_source: "sdr",
+                  cancellation_requested_at: new Date().toISOString(),
+                }).eq("calcom_booking_uid", activeBookingRow.calcom_booking_uid);
+              } catch (e) {
+                console.error("[sdr-agent] safety-net: falha ao marcar cancellation_source:", e);
+              }
               const idempotency_key = await buildIdempotencyKey({
                 conversation_id: conversation_id ?? null, lead_id,
                 action_type: "cancel", provider_booking_uid: activeBookingRow.calcom_booking_uid,
               });
+
               const { data: cxlData, error: cxlErr } = await supabase.functions.invoke("calcom-booking-cancel", {
                 body: {
                   booking_uid: activeBookingRow.calcom_booking_uid,
