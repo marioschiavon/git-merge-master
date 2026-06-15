@@ -10,6 +10,7 @@ export type Intent =
   | "cancel_booking"      // lead quer desmarcar sem oferecer novo
   | "confirm_slot"        // lead aponta UM dos horários oferecidos
   | "ask_availability"    // lead pergunta horários / janela
+  | "add_guests"          // lead pede para incluir outras pessoas no invite (continua sendo a reunião dele)
   | "product_qna"         // dúvida sobre produto/preço/processo
   | "objection"           // resistência / preocupação
   | "referral"            // indica outra pessoa
