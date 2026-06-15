@@ -179,7 +179,8 @@ function detectReferralContact(text: string): ReferralContact | null {
 // ── Guest emails (lead asks to invite additional people) ───────────────
 const EMAIL_GLOBAL_RE = /\b[\w.+-]+@[\w-]+\.[\w.-]+\b/gi;
 // Verbos / marcadores que indicam INCLUSÃO de convidados (não substituição).
-const INCLUDE_VERB_RE = /\b(inclu[ai]|incluir|adicion[ae]|adicionar|convid[ae]|convidar|coloca(?:r)?|chama(?:r)?|p[oõ]e|copia(?:r)?|copiar?|c\/c|cc\b|com\s+c[oó]pia|junto\s+(?:comigo|com\s+a\s+gente|no\s+convite)|tamb[ée]m\s+(?:vai|participa|estar[áa])|mais\s+(?:uma\s+pessoa|alguem|algu[ée]m)|trazer\s+(?:meu|minha|o|a))\b/i;
+// Mantenha estreito — "chama"/"coloca" são ambíguos (também aparecem ao introduzir nome).
+const INCLUDE_VERB_RE = /\b(inclu[ai]|incluir|adicion[ae]|adicionar|convid[ae]|convidar|copia(?:r)?|copiar?|c\/c|cc\b|com\s+c[oó]pia|junto\s+(?:comigo|com\s+a\s+gente|no\s+convite)|tamb[ée]m\s+(?:vai|participa|estar[áa])|mais\s+(?:uma\s+pessoa|alguem|algu[ée]m)|trazer\s+(?:meu|minha))\b/i;
 const INVITE_NOUN_RE = /\b(convite|reuni[ãa]o|call|meet|chamada|encontro)\b/i;
 
 function detectGuestEmails(text: string): string[] {
