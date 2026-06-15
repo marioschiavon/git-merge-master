@@ -26,6 +26,8 @@ export interface EntityResult {
   prefers_period: "morning" | "afternoon" | "evening" | null;
   /** Detected referral contact in the inbound (email/phone/name + mention permission). */
   referral_contact: ReferralContact | null;
+  /** Extra invitees the lead asked to include in the meeting invite (NOT a referral). */
+  guest_emails: string[];
 }
 
 export type SlotMatcher = (text: string, isos: string[]) => { iso: string | null; ambiguous: boolean };
