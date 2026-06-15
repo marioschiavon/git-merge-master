@@ -34,6 +34,7 @@ export type Stage =
   | "cancel_clarify"
   | "booking_confirmed"
   | "no_op_already_booked"
+  | "add_guests_request"
   | "referral_provided"
   | "closed_lost"
   | "general";
