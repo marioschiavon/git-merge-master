@@ -118,6 +118,8 @@ export function HumanCopilotPanel({
       toast.success("Reunião confirmada e mensagem enviada");
       onSentDirect?.();
       activeBooking.refetch();
+      holds.refetch();
+      setSlots((prev) => prev.filter((s) => s.hold_id !== hold.hold_id));
     } catch (e: any) {
       toast.error(e?.message || "Erro ao confirmar reunião");
     } finally {
@@ -261,9 +263,43 @@ export function HumanCopilotPanel({
 
             {/* Sugerir */}
             <TabsContent value="suggest" className="space-y-2 mt-2">
+              {activeHolds.length > 0 && (
+                <div className="space-y-1.5 rounded-md border bg-primary/5 p-2">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
+                    Horários já reservados
+                  </p>
+                  {activeHolds.map((h) => {
+                    const minsLeft = Math.max(
+                      0,
+                      Math.round((new Date(h.expires_at).getTime() - Date.now()) / 60000),
+                    );
+                    const holdSlot: Slot = {
+                      hold_id: h.id,
+                      slot_datetime: h.slot_datetime,
+                      label: formatSlotBRT(h.slot_datetime),
+                    };
+                    return (
+                      <div key={h.id} className="flex items-center justify-between gap-2 rounded border bg-background px-2 py-1.5 text-xs">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate">{holdSlot.label}</div>
+                          <div className="text-[10px] text-muted-foreground">expira em {minsLeft}min</div>
+                        </div>
+                        <Button
+                          size="sm"
+                          className="h-7 text-[11px]"
+                          disabled={busy === `book-${h.id}`}
+                          onClick={() => handleBookHold(holdSlot)}
+                        >
+                          {busy === `book-${h.id}` ? <Loader2 className="h-3 w-3 animate-spin" /> : "Agendar"}
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <Button variant="outline" size="sm" className="w-full justify-start" onClick={handleOfferSlots} disabled={loadingSlots}>
                 {loadingSlots ? <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" /> : <CalendarPlus className="h-3.5 w-3.5 mr-2" />}
-                Sugerir 2 horários
+                {activeHolds.length > 0 ? "Sugerir outros 2 horários" : "Sugerir 2 horários"}
               </Button>
               {slots.length > 0 && (
                 <div className="space-y-1.5">
