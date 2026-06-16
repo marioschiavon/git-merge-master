@@ -4,7 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Mail, Phone, Linkedin, Globe, MessageCircle, RotateCcw, ExternalLink, Bot, User } from "lucide-react";
+import { Mail, Phone, Linkedin, Globe, MessageCircle, RotateCcw, ExternalLink, Bot, User, NotebookPen } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useState } from "react";
+import { useAnnotateDecision } from "@/hooks/useAnnotations";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useLeadDrawerData } from "@/hooks/useCadenceLeadProgress";
@@ -197,6 +201,7 @@ export function LeadProgressDrawer({
                       {d.channel && <span>{d.channel}</span>}
                       {d.simulated && <Badge className="text-[10px] bg-amber-100 text-amber-800">🧪</Badge>}
                       <span className="ml-auto">{format(new Date(d.decided_at), "dd/MM HH:mm", { locale: ptBR })}</span>
+                      <AnnotateDecisionButton decisionId={d.id} />
                     </div>
                     {d.rationale && <p className="mt-1 text-foreground">{d.rationale}</p>}
                   </div>
