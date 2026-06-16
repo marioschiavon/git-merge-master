@@ -2000,7 +2000,7 @@ Deno.serve(async (req) => {
           finalDecision = {
             decision: "send_message",
             message:
-              "Tive uma instabilidade aqui pra confirmar nosso horário agora. Pode me mandar de novo o dia e a hora que funciona pra você? Vou garantir a reserva.",
+              "Tive um problema técnico aqui agora pra processar sua solicitação. Vou tentar de novo em alguns minutos e te confirmo em seguida.",
             rationale: "MAX_STEPS atingido sem finalize; tools falharam — evitando silêncio.",
           };
         } else {
