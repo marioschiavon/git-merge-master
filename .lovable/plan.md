@@ -1,59 +1,32 @@
-# Agendar e remarcar direto do painel do operador
+## Objetivo
+Quando uma conversa estiver em **human_takeover** (Inbox humana), **nenhuma** mensagem deve ser enviada para aprovação — o operador está no controle.
 
-Hoje o `HumanCopilotPanel` só tem "Sugerir 2 horários" + "Cancelar". Vamos transformar a seção **Agenda** em um mini-cockpit Cal.com embutido no chat, com 3 ações de primeira classe:
+## Diagnóstico
+Hoje, ao tomar conta da conversa:
+- `inbound-webhook`, `sdr-agent` e `sdr-debounce-tick` já pulam o pipeline de IA quando `conversations.human_takeover = true` ✓
+- **Mas** `cadence-executor`, `cadence-agent-decide` e `execute-action` ainda podem chamar `shouldGate()` → `createApprovalRequest()` para o mesmo lead, criando aprovações "fantasma" enquanto o humano conversa.
 
-1. **Sugerir horários** (já existe, refinado)
-2. **Agendar agora** — escolher data + horário disponível + convidados extras, sem deixar o /inbox
-3. **Remarcar reunião ativa** — mesma UX, pré-carregando a reunião atual
+## Mudança
+Adicionar um **gate de takeover** centralizado em `supabase/functions/_shared/hitl-gate.ts` e usá-lo nas funções acima.
 
-## UX (dentro do `HumanCopilotPanel`)
+### 1. `_shared/hitl-gate.ts`
+- Nova função `isLeadUnderHumanTakeover(supabase, { lead_id, conversation_id }): Promise<boolean>` que retorna `true` se:
+  - a `conversation_id` informada tem `human_takeover = true`, **ou**
+  - existe qualquer `conversations` do `lead_id` com `human_takeover = true`.
+- `createApprovalRequest()` chama esse helper logo no início e, se `true`, **não cria** a aprovação e retorna `null` (com log claro `[hitl-gate] skipped — human_takeover`).
+- `shouldGate()` ganha parâmetros opcionais `{ lead_id?, conversation_id? }`; se sob takeover, retorna `false` direto (assim o caller também não tenta enviar pela IA).
 
-Nova seção "Agenda" com 3 botões/abas: `Sugerir` · `Agendar` · `Remarcar`.
+### 2. Call sites — passar contexto para o gate
+- `supabase/functions/execute-action/index.ts` (3 chamadas de `shouldGate`): passar `lead_id` e `conversation_id` do contexto.
+- `supabase/functions/cadence-executor/index.ts` (2 chamadas): passar `lead_id` do enrollment; quando sob takeover, **pausar o enrollment** com `paused_reason: "human_takeover"` em vez de tentar enviar/aprovar.
+- `supabase/functions/cadence-agent-decide/index.ts` (1 chamada): mesma coisa — sob takeover, marcar a decisão como `skipped_human_takeover` e pausar o enrollment.
 
-### Agendar (novo)
-- DatePicker (shadcn Calendar em Popover, dia ≥ hoje+24h)
-- Ao escolher a data, chamamos `calcom-slots` para aquele dia e renderizamos chips com os horários reais disponíveis
-- Campo "Convidados (e-mails)" — input com chips, valida formato, opcional
-- Toggle "Avisar lead pelo chat" (default ligado)
-- Botão "Confirmar agendamento" → confirma e fecha a UI inline, mantendo o operador na conversa
-
-### Remarcar (novo)
-- Mostra a reunião ativa do lead (data atual + UID) buscada via `bookings`
-- Mesma UI de data + chips de horário do dia escolhido
-- Campo "Motivo" (opcional) e toggle de aviso ao lead
-- Botão "Remarcar" → chama `human-reschedule-booking`
-
-### Sugerir (mantido)
-- Continua oferecendo 2 holds prontos para o operador inserir no compositor
-
-## Backend (mudanças mínimas)
-
-- **`human-book-slot`**: aceitar `guests: string[]` e `notes?: string`; quando vier `start` (caminho 2), repassar para `calcom-booking-create` que já suporta `guests`. Quando vier `hold_id` + `guests`, após confirmar chamar `calcom-add-guests` com o `booking_uid` retornado.
-- **`human-reschedule-booking`**: já aceita `start`; adicionar passagem opcional de `guests` (chama `calcom-add-guests` após reschedule).
-- **Novo endpoint leve `human-day-slots`** (ou parâmetro `day` em `human-offer-slots` sem criar holds): recebe `conversation_id` + `date` (YYYY-MM-DD) e retorna a lista bruta de horários do Cal.com daquele dia, sem reservar holds (para preencher os chips). Usa o mesmo `calcom-slots` com `start_after`/`end_before` cobrindo o dia, mas com flag `no_hold: true`.
-  - Para não mexer no fluxo de holds existente, a opção mais segura é fazer o `human-day-slots` chamar a API do Cal.com diretamente (reusa `resolveEventTypeId`) e devolver apenas `[{ start, label }]`, sem persistir.
-- **Buscar reunião ativa**: novo endpoint `human-active-booking` que devolve `{ booking_uid, scheduled_at, attendees }` do lead da conversa — usado pela aba Remarcar.
-
-## Frontend (arquivos)
-
-- **Editar** `src/components/inbox/HumanCopilotPanel.tsx`:
-  - Substituir bloco "Agenda" por sub-componente `<ScheduleTabs />` com as 3 abas
-  - Adicionar estado de date, slots-do-dia, guests, notes, reason
-- **Novo** `src/components/inbox/GuestsInput.tsx` — input com chips de e-mail
-- **Novo** `src/components/inbox/DaySlotPicker.tsx` — DatePicker + grid de chips de horário (fetch via `human-day-slots`)
-- **Novo hook** `src/hooks/useActiveBooking.ts` — busca a reunião ativa via `human-active-booking`
-
-## Detalhes técnicos
-
-- DatePicker: shadcn `Calendar` em `Popover`, com `pointer-events-auto` (regra do projeto). `disabled={(d) => d < addHours(now,24)}`.
-- Chips de horário renderizados em grid de 3 colunas, formatados em pt-BR com `formatBRTLong`.
-- Validação de e-mail no `GuestsInput`: regex `/^[\w.+-]+@[\w-]+\.[\w.-]+$/`, dedupe com o e-mail do lead.
-- Toast de sucesso/erro mantém padrão `sonner` já usado no painel.
-- Estado controlado: ao confirmar, limpamos date/slots/guests; copilot continua aberto na conversa.
+### 3. Sem mudanças no frontend
+O painel humano (`HumanCopilotPanel`, `useSendMessage` → `send-outbound-message`) já envia diretamente sem passar por HITL — nada a ajustar lá.
 
 ## Fora de escopo
+- Recriar aprovações antigas que ficaram `pending` (ficam como estão; operador pode rejeitar via tela de Aprovações).
+- Mudar regras de HITL para conversas sem takeover.
 
-- Editar duração da reunião / event type (continua usando o default da company).
-- Conflitos de calendário do operador — confiamos no Cal.com.
-- Drag-and-drop de horários, calendário tipo timeline.
-- Histórico de tentativas de agendamento nesta tela (já existe na timeline do lead).
+## Resultado esperado
+Com a conversa em modo humano, qualquer tentativa de cadência/agent/execute-action de gerar `approval_request` é silenciosamente ignorada e logada; a fila de aprovações não cresce enquanto o operador está conduzindo.
