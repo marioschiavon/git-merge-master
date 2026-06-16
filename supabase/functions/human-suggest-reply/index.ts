@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     // Verify the caller belongs to the same company (or is master_admin).
     const { data: conv, error: convErr } = await admin
       .from("conversations")
-      .select("id, channel, company_id, leads(id, name, company_name, segment)")
+      .select("id, channel, company_id, leads(id, name, company_name)")
       .eq("id", conversation_id)
       .maybeSingle();
     if (convErr || !conv) {
