@@ -753,27 +753,47 @@ async function execBookingTool(
         cancellation_requested_at: new Date().toISOString(),
       }).eq("calcom_booking_uid", bookingUid);
     } catch (_) {}
-    // One immediate retry on transient invoke errors before reporting failure.
+    // Call edge function via direct fetch so we can read the body even on 4xx/5xx.
+    const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/calcom-booking-cancel`;
+    const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     let data: any = null;
-    let error: any = null;
+    let httpStatus = 0;
+    let networkErr: any = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
-      const res = await supabase.functions.invoke("calcom-booking-cancel", {
-        body: { booking_uid: bookingUid, reason, idempotency_key, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id },
-      });
-      data = res.data;
-      error = res.error;
-      if (!error && !(data as any)?.error) break;
+      try {
+        const res = await fetch(fnUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${srk}`, apikey: srk },
+          body: JSON.stringify({ booking_uid: bookingUid, reason, idempotency_key, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id }),
+        });
+        httpStatus = res.status;
+        const txt = await res.text();
+        try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
+        networkErr = null;
+      } catch (e) {
+        networkErr = e;
+        data = null;
+      }
+      const failed = networkErr || (data && data.success === false) || (httpStatus && httpStatus >= 400);
+      if (!failed) break;
       if (attempt < 2) {
-        console.log(`[sdr-agent] cancel_booking invoke failed (attempt ${attempt}), retrying:`, error || (data as any)?.error);
+        console.log(`[sdr-agent] cancel_booking attempt ${attempt} failed (http=${httpStatus}):`, data?.error || data?.cal_message || networkErr);
         await new Promise((r) => setTimeout(r, 600));
       }
     }
-    if (error || (data as any)?.error) {
-      const errStr = error ? String(error) : String((data as any)?.error);
+    if (networkErr || (data && data.success === false) || (httpStatus >= 400)) {
+      const calStatus = data?.cal_status ?? null;
+      const calBody = data?.cal_body ?? null;
+      const calMessage = data?.cal_message || data?.error || (networkErr ? String(networkErr) : `HTTP ${httpStatus}`);
+      const errStr = `cancel_failed http=${httpStatus} cal_status=${calStatus} msg=${calMessage}`;
+      console.error("[sdr-agent] cancel_booking real failure:", JSON.stringify({ httpStatus, calStatus, calBody, calMessage }));
       await markCalendarActionFailed(supabase, claim.row.id, errStr);
       return {
         ok: false,
         error: errStr,
+        cal_status: calStatus,
+        cal_body: calBody,
+        cal_message: calMessage,
         suggested_message: "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?",
       };
     }

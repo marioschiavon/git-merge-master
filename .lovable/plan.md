@@ -1,53 +1,42 @@
-# Mensagens honestas quando uma ação do agente falha
+# Diagnosticar e corrigir a falha real do cancelamento Cal.com
 
-## O que aconteceu (diagnóstico)
-1. Lead pediu **"Cancele a reuniao. Nao poderei mais participar"**.
-2. O Policy Engine classificou intent como `cancel_booking` e forçou a ferramenta `cancel_booking` no SDR agent. ✅ correto
-3. A ferramenta chamou `calcom-booking-cancel`, que **retornou erro não-2xx** (`FunctionsHttpError`). A linha em `calendar_actions` ficou com `status=failed`. ✅ detectado
-4. O agente entrou no fallback genérico do `sdr-agent` (linha 1762-1764) — que **é hardcoded para falha de book/reschedule** — e mandou para aprovação a mensagem:
-   > "Tive uma instabilidade aqui pra confirmar esse horário. Pode me mandar outro dia/horário que funcione pra você? Vou garantir a reserva."
-   - **Mente** ("instabilidade pra confirmar"): a falha foi ao **cancelar**, não ao confirmar.
-   - **Pivota para o oposto do pedido**: pede novo horário em vez de reconhecer o cancelamento solicitado.
-5. Você corretamente rejeitou no HITL. A reserva no Cal.com **continua ativa** (booking ainda `confirmed`).
+## Por que precisamos diagnosticar
+A reserva `6z91Ph9FCRkYzJjLADy2Yu` continua `confirmed`. A linha de `calendar_actions` registrou apenas `error_message: "FunctionsHttpError: Edge Function returned a non-2xx status code"` — esse texto é do `supabase.functions.invoke` no chamador, **não** é o erro real do Cal.com. O `calcom-booking-cancel` engoliu a resposta do Cal.com no log do edge runtime e devolveu apenas um 500 genérico. Sem o corpo real, não dá pra saber se é versão de API, permissão, janela fechada, payload inválido, etc.
 
-## Correções
+## Passos
 
-### 1. Fallback honesto por tipo de ferramenta — `supabase/functions/sdr-agent/index.ts`
-Substituir o fallback único (linhas ~1759-1769) por mensagens específicas por `forcedToolName`:
+### 1. Instrumentar `calcom-booking-cancel` para expor o erro real
+- Trocar o `try { calcomFetch } catch { throw err }` por captura do `CalcomError` e devolver um JSON estruturado com `status`, `cal_status`, `cal_body`, `cal_message`.
+- Persistir esse mesmo objeto em `calendar_actions.response_payload` mesmo no caminho de falha (hoje só grava em sucesso).
+- Continuar respondendo com HTTP 502 (não 500 opaco) quando o Cal.com recusar — assim `supabase.functions.invoke` ainda dá erro, mas o body chega ao caller via `data` quando preferirmos `fetch` direto.
 
-- `cancel_booking` →
-  > "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?"
-- `reschedule_booking` →
-  > "Tive um problema pra remarcar agora. Sua reunião segue no horário atual. Vou tentar de novo e te confirmo em seguida."
-- `book_slot` (mantém o atual, sem afirmar que confirmou):
-  > "Não consegui confirmar esse horário agora. Pode me mandar outro dia/horário que funcione pra você? Vou tentar de novo."
-- default → mensagem genérica honesta, sem dizer "instabilidade pra confirmar" quando não houve confirmação.
+### 2. Capturar o body do Cal.com no caller (sdr-agent `cancel_booking`)
+- Substituir o `supabase.functions.invoke("calcom-booking-cancel", ...)` por `fetch` direto para o endpoint da função (já temos `SUPABASE_URL` + service role). Isso permite ler o JSON mesmo em 4xx/5xx.
+- Registrar `result.cal_status`, `result.cal_body`, `result.cal_message` no `steps` do `sdr_agent_runs` para futuras inspeções e propagar como `error_code` no fallback.
 
-Aplicar o mesmo princípio nas mensagens hardcoded das linhas 1978 e 2034 (loops de book/add_guests): trocar "garantir a reserva" por algo que não pressuponha a ação seguinte do lead, e nunca usar a frase para casos de cancel.
+### 3. Re-executar o cancelamento e ler o erro real
+Após o deploy, chamar `calcom-booking-cancel` diretamente (curl) para `booking_uid=6z91Ph9FCRkYzJjLADy2Yu`. Três cenários:
+- **Sucesso** → a instabilidade era transitória; cancelar resolve e a reunião sai. Ainda assim a instrumentação fica como rede de segurança.
+- **400/422 do Cal.com** → ler `cal_body` (payload inválido, versão de API errada, falta de campo). Corrigir o `calcomFetch` (versão da API ou body) e re-executar.
+- **403/404** → permissão/UID inválido. Verificar se o booking pertence ao mesmo `CALCOM_API_KEY` configurado e ajustar.
 
-### 2. Não pivotar — manter o intent original
-Quando `forcedToolName === "cancel_booking"` falha:
-- **Não** sugerir novo horário.
-- **Não** marcar `decision: send_message` que altere o tópico — manter a intenção de cancelar.
-- Idealmente agendar um retry curto da própria operação de cancel (ver item 4).
+### 4. Aplicar a correção pontual
+Dependendo do que o passo 3 revelar:
+- **API version mismatch**: testar `cal-api-version: 2024-08-13` vs `2024-09-04` no endpoint de cancel; padronizar o header certo no `calcomHeaders`.
+- **Campo obrigatório faltando**: incluir `cancellationReason` non-empty (hoje já enviamos "Cliente cancelou", mas pode ser que o Cal.com exija `cancellation_reason` snake_case ou outro campo).
+- **Permissão**: usar a chave correta / event type correto.
 
-### 3. Sinalizar a falha na fila de aprovações
-No card de `/approvals` da `sdr_reply` resultante, mostrar um **alerta de aviso** quando o run associado contém `rationale` começando com `Forced … failed:` — isso ajuda o humano a perceber rápido que a IA tentou mascarar uma falha.
+### 5. Reaprovar a fila e confirmar
+Com a causa raiz corrigida, reabrir o card pendente em `/approvals`, aprovar o cancel (ou apenas reprovar e deixar o próximo turno do agente acionar `cancel_booking` de novo), confirmar:
+- `bookings.status='cancelled'`,
+- `calendar_actions` mais recente com `status='ok'`,
+- evento `BOOKING_CANCELLED` no `calcom_webhook_log` (ou ausência confirmada via Cal.com UI).
 
-Adicionar bandeira `tool_failure` no `context` do `approval_request` (preenchida em `sdr-agent` quando entra no fallback), e renderizá-la em `src/pages/Approvals.tsx` como banner vermelho: "⚠️ Ferramenta `cancel_booking` falhou — revise com cuidado".
+## Fora de escopo
+- Mudar o fluxo HITL (já foi feito no turno anterior).
+- Alterar regras de aprovação automática para cancelamento — segue exigindo aprovação humana.
 
-### 4. Retry leve + diagnóstico de `calcom-booking-cancel`
-- Em `supabase/functions/_shared/idempotency.ts` (ou no caller `cancel_booking` dentro de `sdr-agent`): se o `calcom-booking-cancel` falhar com erro de rede/5xx, **uma** retentativa imediata com pequeno backoff antes de cair no fallback.
-- Em `supabase/functions/calcom-booking-cancel/index.ts`: garantir que o erro do Cal.com chegue na resposta JSON (status 502 com `error_message` legível) em vez de propagar `FunctionsHttpError` opaco — isso já beneficia logs e a UX.
-
-## Fora de escopo (agora)
-- Cancelar automaticamente pela UI sem aprovação (você optou por HITL universal).
-- Reabrir a reserva atual: como o cancelamento real falhou, a reunião **ainda está confirmada** — nada a desfazer no Cal.com. Basta tentar cancelar de novo.
-
-## Arquivos afetados
-- `supabase/functions/sdr-agent/index.ts` — fallbacks por tipo de tool + flag `tool_failure` no approval
-- `supabase/functions/calcom-booking-cancel/index.ts` — propagar mensagem de erro útil
-- `src/pages/Approvals.tsx` — banner de aviso quando `context.tool_failure` presente
-
-## Próximo passo manual (após o deploy)
-Na conversa atual, basta aprovar uma nova tentativa de cancel (ou rejeitar de novo se preferir cancelar pelo Cal.com manualmente). A reunião continua marcada até lá.
+## Arquivos
+- `supabase/functions/calcom-booking-cancel/index.ts` — captura + persistência do erro real, resposta 502 estruturada
+- `supabase/functions/sdr-agent/index.ts` — `cancel_booking` via `fetch` direto, propagação do erro real
+- Possível ajuste em `supabase/functions/_shared/calcom.ts` se o passo 3 indicar mudança de versão/headers
