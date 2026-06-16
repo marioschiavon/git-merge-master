@@ -86,6 +86,7 @@ export function useApprovalExecute() {
       action: "approve" | "reject";
       edited_payload?: Record<string, any>;
       rejection_reason?: string;
+      note?: string;
     }) => {
       const { data, error } = await supabase.functions.invoke("approval-execute", { body: input });
       if (error) throw error;
