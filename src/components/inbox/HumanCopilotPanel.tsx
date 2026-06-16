@@ -17,6 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useTakeoverToggle } from "@/hooks/useHumanInbox";
 import { useActiveBooking } from "@/hooks/useActiveBooking";
+import { useSlotHolds, formatSlotBRT } from "@/hooks/useSlotHolds";
 import { GuestsInput } from "./GuestsInput";
 import { DaySlotPicker } from "./DaySlotPicker";
 import {
@@ -46,6 +47,10 @@ export function HumanCopilotPanel({
 }) {
   const takeover = useTakeoverToggle();
   const activeBooking = useActiveBooking(conversationId);
+  const holds = useSlotHolds(leadId);
+  const activeHolds = (holds.data || []).filter(
+    (h) => h.status === "held" && new Date(h.expires_at).getTime() > Date.now(),
+  );
 
   const [loadingSuggest, setLoadingSuggest] = useState(false);
   const [suggest, setSuggest] = useState<{ sentiment: string; reasoning: string; suggested_reply: string } | null>(null);
