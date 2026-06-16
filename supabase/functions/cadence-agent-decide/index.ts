@@ -292,7 +292,17 @@ serve(async (req) => {
 
     let decision: Decision;
 
-    if (isFirstAttempt) {
+    if (override_decision && override_decision.action) {
+      // Approved/edited via HITL → skip first-message engine and LLM, use provided decision.
+      decision = {
+        action: override_decision.action,
+        channel: override_decision.channel,
+        hook: override_decision.hook,
+        subject: override_decision.subject,
+        message: override_decision.message,
+        rationale: override_decision.rationale || "Decisão aprovada por humano via HITL.",
+      } as Decision;
+    } else if (isFirstAttempt) {
       try {
         const first = await buildFirstMessage({
           supabase,
