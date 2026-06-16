@@ -489,6 +489,12 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       subject = subject ?? reply.subject ?? "Continuando nossa conversa";
     }
 
+    // Human takeover: skip entirely — operator owns the thread.
+    if (await isLeadUnderHumanTakeover(ctx.supabase, { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
+      await logActivity(ctx, "system", `⏸️ send_email ignorado — operador no controle (human_takeover)`);
+      return { sent: false, reason: "human_takeover" };
+    }
+
     // HITL gate
     if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply", { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
       await createApprovalRequest(ctx.supabase, {
