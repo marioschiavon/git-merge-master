@@ -348,6 +348,34 @@ serve(async (req) => {
       });
     }
 
+    // Atualiza last_inbound_at na conversa (usado pelo SLA da Inbox humana)
+    if (convId) {
+      await supabase
+        .from("conversations")
+        .update({ last_inbound_at: new Date().toISOString() })
+        .eq("id", convId);
+    }
+
+    // Se a conversa está em modo humano, o pipeline da IA NÃO deve responder.
+    // Apenas registra a mensagem e a atividade; o operador cuida do resto via Inbox.
+    if (humanTakeover) {
+      console.log(`inbound-webhook: human_takeover ON — skipping AI pipeline conv=${convId}`);
+      if (companyId && leadData?.id) {
+        await supabase.from("lead_activities").insert({
+          company_id: companyId,
+          lead_id: leadData.id,
+          type: "note",
+          description: "📨 Nova mensagem do lead — aguardando resposta humana",
+          metadata: { conversation_id: convId, channel: convChannel, human_takeover: true },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, human_takeover: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+
     // === FAST-PATH: lead respondeu o email pendente após hold ===
     // Se há um slot_holds em hold aguardando o email do lead, e a mensagem inbound contém
     // um endereço de email válido, confirmamos o booking imediatamente sem passar pela IA.
