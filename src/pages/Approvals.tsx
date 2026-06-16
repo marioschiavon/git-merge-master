@@ -29,6 +29,7 @@ const channelIcon = (ch: string | null) => {
 };
 
 export default function ApprovalsPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<"pending" | "all">("pending");
   const { data: approvals = [], isLoading } = useApprovals(tab);
   const execute = useApprovalExecute();
@@ -41,6 +42,7 @@ export default function ApprovalsPage() {
   useEffect(() => {
     if (!selectedId && approvals.length > 0) setSelectedId(approvals[0].id);
   }, [approvals, selectedId]);
+
 
   return (
     <div className="space-y-4">
