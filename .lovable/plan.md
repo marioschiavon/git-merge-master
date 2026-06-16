@@ -1,46 +1,70 @@
-# Por que o agendamento falhou (e não é HITL)
+Diagnóstico objetivo
 
-Você tem razão: HITL deveria só aprovar mensagens. Os erros que você está vendo são **dois bugs antigos no fluxo de scheduling** que só apareceram agora porque um lead executou pela primeira vez a sequência completa "agenda → cancela → reagenda" — algo que não foi testado antes.
+O erro atual não vem do Cal.com e não é causado pelo Human in the Loop.
 
-## Diagnóstico (com evidência do banco)
+O 409 está sendo criado internamente pelo nosso próprio controle de idempotência:
 
-Estado real do lead `e989eeb3...`:
-- `lead_memory`: **0 linhas no banco inteiro** (nunca foi salvo). Logo `offered_slots_pending` está vazio.
-- `slot_holds` ativos: 3 — o `2026-06-17 19:15Z` (16:15 BRT, o da reunião **já cancelada**) continua com status `confirmed`, e mais os 2 novos (`15:30 qua`, `16:45 sex`).
+```text
+sdr-agent cria calendar_actions com status=pending
+       ↓
+sdr-agent chama calcom-booking-cancel com a mesma idempotency_key
+       ↓
+calcom-booking-cancel tenta criar/claimar a mesma ação
+       ↓
+como já existe pending, responde 409 in_flight
+       ↓
+sdr-agent interpreta como falha real: cancel_failed http=409 cal_status=null
+```
 
-Fluxo do erro:
-1. Lead pediu "Preciso marcar de novo" → agente ofereceu 2 slots (15:30 qua / 16:45 sex).
-2. Persistir `offered_slots_pending` no `lead_memory` **falhou silenciosamente** (try/catch engole) — porque o upsert manda só `{ lead_id, facts }` e a coluna `company_id` é `NOT NULL`.
-3. Lead respondeu "Quarta". Guard de booking caiu no fallback: `candidates = heldIsos` (todos os holds com status `held` OU `confirmed`).
-4. Esse fallback puxou também o hold antigo `16:15 quarta` (status ainda `confirmed` porque o cancel do Cal.com **não libera o slot_hold**).
-5. Agora a lista tem duas "quarta" → "Quarta" vira ambíguo → guard retorna `no_confirmation` → mensagem de re-pergunta lista 3 horários (incluindo o cancelado), assustando o lead.
+Evidência no banco:
 
-Nada disso passa por `hitl-gate`, `approval-execute` ou pela camada de aprovação. O HITL está correto.
+- `calendar_actions` tem cancelamento do booking `6eaKUU3RBht1Z38WyYQUn4` com `status=failed`
+- `error_message = cancel_failed http=409 cal_status=null msg=HTTP 409`
+- `cal_status=null`, ou seja: não chegou como erro real do Cal.com
+- a reunião ainda está `status=confirmed`
 
-## Correções
+Por que isso voltou a quebrar
 
-### 1. `sdr-agent`: incluir `company_id` no upsert de `lead_memory`
-Arquivo: `supabase/functions/sdr-agent/index.ts` (linha ~2284, branch `offer_slots`).
-Trocar `{ lead_id, facts }` por `{ lead_id, company_id: ctx.lead.company_id, facts }`. Varrer o arquivo (`rg "lead_memory"`) e aplicar o mesmo em qualquer outro `upsert`/`update`/`insert` que esteja faltando.
+O fluxo de remarcação já tinha sido ajustado para não fazer dupla trava: o `sdr-agent` deixa a função de remarcação cuidar da idempotência.
 
-Também: trocar o `try { } catch(_) {}` mudo por `console.error` quando o upsert retornar erro, pra esse tipo de regressão aparecer nos logs em vez de sumir.
+O fluxo de cancelamento ficou inconsistente: o `sdr-agent` ainda faz o claim antes e depois chama `calcom-booking-cancel`, que também faz claim. Isso gera o 409 sempre que o cancelamento usa essa rota.
 
-### 2. `calcom-booking-cancel`: liberar `slot_holds` associados
-Arquivo: `supabase/functions/calcom-booking-cancel/index.ts`.
-Depois do cancel confirmado no Cal.com, marcar `slot_holds.status='released'` para a(s) linha(s) cujo `slot_datetime` bate (±5min) com `bookings.scheduled_at` desse `booking_uid` e `lead_id`. Isso elimina o lixo que polui `candidates` no próximo turno.
+Plano de correção
 
-### 3. `booking-guards`: deixar de aceitar `status='confirmed'` como candidato implícito
-Arquivo: `supabase/functions/sdr-agent/index.ts` linha 685 — a query passada para os guards inclui `status in ('held','confirmed')`. Restringir para `['held']`. Holds `confirmed` representam reservas já efetivadas — não devem reabrir a janela de oferta. (Se o caminho `reschedule_booking` precisar do hold confirmado, ele já tem o `bookings` row pra trabalhar.)
+1. Ajustar `sdr-agent/index.ts`
+   - Remover o `claimCalendarAction` interno do bloco `cancel_booking`.
+   - Fazer o cancelamento seguir a mesma lógica da remarcação: a função `calcom-booking-cancel` será a única dona da idempotência.
+   - Manter a geração da `idempotency_key`, mas apenas passar para a função de cancelamento.
+   - Remover `markCalendarActionOk/Failed` desse bloco, porque quem deve marcar sucesso/falha é `calcom-booking-cancel`.
 
-### 4. Validação manual após deploy
-- Reabrir o card pendente em `/approvals` (id `f0ba77fd…`) — rejeitar a mensagem com a lista de 3 horários (que está errada).
-- Mandar um turno simulado: confirmar que `lead_memory` cria a linha com `offered_slots_pending`, e que o próximo "Quarta" do lead resolve para `15:30` sem cair em `no_confirmation`.
-- Aprovar `book_slot` e verificar `bookings.status='confirmed'` + `slot_holds` do 15:30 → `confirmed`, dos outros → `released`/`cancelled`.
+2. Melhorar o tratamento de 409 real em `sdr-agent/index.ts`
+   - Se `calcom-booking-cancel` retornar `in_flight: true`, tratar como trava temporária interna, não como “Cal.com falhou”.
+   - Fazer retry curto e, se persistir, devolver mensagem técnica controlada sem marcar como erro de Cal.com.
+   - Registrar no log o body completo quando `http=409`, para não aparecer mais `null`.
 
-## Fora de escopo
-- Mudanças no fluxo HITL — está correto, não precisa de ajuste.
-- Refator da máquina de estado de scheduling — só ajustes pontuais nos 3 bugs acima.
+3. Reforçar `calcom-booking-cancel/index.ts`
+   - Manter essa função como fonte única de verdade para:
+     - claim de idempotência
+     - chamada real ao Cal.com
+     - atualização de `bookings` para `cancelled`
+     - liberação do `slot_holds`
+     - gravação de `calendar_actions`
+   - Ajustar a resposta de `pending/in_flight` para incluir `error_code: "in_flight"` e uma mensagem clara.
 
-## Arquivos
-- `supabase/functions/sdr-agent/index.ts` — upsert de lead_memory com `company_id` + restringir query de holds a `status='held'`
-- `supabase/functions/calcom-booking-cancel/index.ts` — liberar `slot_holds` ao cancelar
+4. Validar com o lead afetado
+   - Reexecutar o cancelamento do booking `6eaKUU3RBht1Z38WyYQUn4`.
+   - Confirmar no banco que:
+     - `bookings.status = cancelled`
+     - `slot_holds.status = released` para o horário da reunião
+     - `calendar_actions.status = ok`
+   - Verificar que o SDR responde ao lead com confirmação de cancelamento, não com “instabilidade”.
+
+5. Verificação HITL
+   - Confirmar que o Human in the Loop continua apenas aprovando a mensagem final.
+   - A lógica de agenda continua sendo executada pelo mesmo SDR automático; o HITL não deve criar uma segunda rota nem repetir cancelamento/agendamento.
+
+Resultado esperado
+
+- Pedido do lead “cancele/desmarque” cancela a reunião automaticamente.
+- Não haverá mais `Forced cancel_booking failed: ... http=409` por dupla idempotência.
+- Erros reais do Cal.com continuarão aparecendo com `cal_status` e `cal_body`, separados de travas internas.

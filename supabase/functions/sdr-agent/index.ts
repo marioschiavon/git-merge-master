@@ -731,6 +731,8 @@ async function execBookingTool(
   }
 
   // ── CANCEL ────────────────────────────────────────────────────
+  // Idempotency is owned entirely by calcom-booking-cancel — claiming here too
+  // caused a double-claim and a spurious 409 (in_flight).
   if (name === "cancel_booking") {
     const bookingUid = (typeof args.booking_uid === "string" && args.booking_uid) || guard.activeBookingUid;
     if (!bookingUid) return { ok: false, error: "no active booking" };
@@ -739,27 +741,20 @@ async function execBookingTool(
       conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
       action_type: "cancel", provider_booking_uid: bookingUid,
     });
-    const claim = await claimCalendarAction(supabase, {
-      idempotency_key, conversation_id: ctx.conversation_id, lead_id: ctx.lead_id, company_id: ctx.company_id,
-      action_type: "cancel", provider_booking_uid: bookingUid,
-      request_payload: { booking_uid: bookingUid, reason },
-    });
-    if (claim.kind === "existing") {
-      return { ok: true, replayed: true, booking_uid: bookingUid, message_suggestion: "Cancelamento já confirmado anteriormente." };
-    }
     try {
       await supabase.from("bookings").update({
         cancellation_source: "sdr",
         cancellation_requested_at: new Date().toISOString(),
       }).eq("calcom_booking_uid", bookingUid);
     } catch (_) {}
-    // Call edge function via direct fetch so we can read the body even on 4xx/5xx.
+
     const fnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/calcom-booking-cancel`;
     const srk = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    let data: any = null;
-    let httpStatus = 0;
-    let networkErr: any = null;
-    for (let attempt = 1; attempt <= 2; attempt++) {
+
+    const callCancel = async () => {
+      let data: any = null;
+      let httpStatus = 0;
+      let networkErr: any = null;
       try {
         const res = await fetch(fnUrl, {
           method: "POST",
@@ -769,38 +764,56 @@ async function execBookingTool(
         httpStatus = res.status;
         const txt = await res.text();
         try { data = txt ? JSON.parse(txt) : null; } catch { data = { raw: txt }; }
-        networkErr = null;
       } catch (e) {
         networkErr = e;
-        data = null;
       }
-      const failed = networkErr || (data && data.success === false) || (httpStatus && httpStatus >= 400);
-      if (!failed) break;
-      if (attempt < 2) {
-        console.log(`[sdr-agent] cancel_booking attempt ${attempt} failed (http=${httpStatus}):`, data?.error || data?.cal_message || networkErr);
-        await new Promise((r) => setTimeout(r, 600));
-      }
+      return { data, httpStatus, networkErr };
+    };
+
+    // Up to 3 attempts; if we get in_flight (409 with success=false from our own
+    // claim), back off and retry — the previous run is finishing.
+    let last = await callCancel();
+    for (let attempt = 2; attempt <= 3; attempt++) {
+      const inFlight = last.httpStatus === 409 && last.data && last.data.in_flight === true;
+      const hardFail = !inFlight && (last.networkErr || (last.data && last.data.success === false) || (last.httpStatus >= 500));
+      if (!inFlight && !hardFail) break;
+      console.log(`[sdr-agent] cancel_booking attempt ${attempt - 1} (http=${last.httpStatus}, in_flight=${!!inFlight}):`, JSON.stringify({ body: last.data, err: last.networkErr ? String(last.networkErr) : null }));
+      await new Promise((r) => setTimeout(r, 800 * attempt));
+      last = await callCancel();
     }
-    if (networkErr || (data && data.success === false) || (httpStatus >= 400)) {
-      const calStatus = data?.cal_status ?? null;
-      const calBody = data?.cal_body ?? null;
-      const calMessage = data?.cal_message || data?.error || (networkErr ? String(networkErr) : `HTTP ${httpStatus}`);
-      const errStr = `cancel_failed http=${httpStatus} cal_status=${calStatus} msg=${calMessage}`;
-      console.error("[sdr-agent] cancel_booking real failure:", JSON.stringify({ httpStatus, calStatus, calBody, calMessage }));
-      await markCalendarActionFailed(supabase, claim.row.id, errStr);
+
+    const { data, httpStatus, networkErr } = last;
+    const ok = !networkErr && httpStatus >= 200 && httpStatus < 300 && data && data.success !== false;
+    if (ok) {
       return {
-        ok: false,
-        error: errStr,
-        cal_status: calStatus,
-        cal_body: calBody,
-        cal_message: calMessage,
-        suggested_message: "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?",
+        ok: true, booking_uid: bookingUid,
+        message_suggestion: "Tudo bem, cancelei nossa reunião. Se quiser remarcar mais pra frente, é só me chamar.",
       };
     }
-    await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: bookingUid, response_payload: (data as any) ?? {} });
+
+    // Still in_flight after retries → internal lock, NOT a Cal.com failure.
+    if (httpStatus === 409 && data && data.in_flight === true) {
+      console.error("[sdr-agent] cancel_booking still in_flight after retries:", JSON.stringify(data));
+      return {
+        ok: false,
+        error: "cancel_in_flight",
+        error_code: "in_flight",
+        suggested_message: "Recebi seu pedido de cancelamento e estou processando. Te confirmo em instantes.",
+      };
+    }
+
+    const calStatus = data?.cal_status ?? null;
+    const calBody = data?.cal_body ?? null;
+    const calMessage = data?.cal_message || data?.error || (networkErr ? String(networkErr) : `HTTP ${httpStatus}`);
+    const errStr = `cancel_failed http=${httpStatus} cal_status=${calStatus} msg=${calMessage}`;
+    console.error("[sdr-agent] cancel_booking real failure:", JSON.stringify({ httpStatus, calStatus, calBody, calMessage, raw: data }));
     return {
-      ok: true, booking_uid: bookingUid,
-      message_suggestion: "Tudo bem, cancelei nossa reunião. Se quiser remarcar mais pra frente, é só me chamar.",
+      ok: false,
+      error: errStr,
+      cal_status: calStatus,
+      cal_body: calBody,
+      cal_message: calMessage,
+      suggested_message: "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?",
     };
   }
 
