@@ -62,6 +62,38 @@ Deno.serve(async (req) => {
         continue;
       }
 
+      // Guarda: se a conversa-alvo (ou alguma conversa do lead) está em human_takeover,
+      // marca o run como cancelado e não dispara o agente.
+      {
+        let humanOn = false;
+        if (row.conversation_id) {
+          const { data: c } = await supabase
+            .from("conversations")
+            .select("human_takeover")
+            .eq("id", row.conversation_id)
+            .maybeSingle();
+          humanOn = !!c?.human_takeover;
+        } else {
+          const { data: cs } = await supabase
+            .from("conversations")
+            .select("id")
+            .eq("lead_id", row.lead_id)
+            .eq("human_takeover", true)
+            .limit(1);
+          humanOn = !!(cs && cs.length > 0);
+        }
+        if (humanOn) {
+          await supabase
+            .from("pending_inbound_runs")
+            .update({ status: "cancelled", last_error: "human_takeover" })
+            .eq("lead_id", row.lead_id);
+          results.push({ lead_id: row.lead_id, skipped: true, reason: "human_takeover" });
+          continue;
+        }
+      }
+
+
+
       // 3. Dispara o agente em modo live (trigger=inbound_batch indica coalescência)
       try {
         const { error: invErr } = await supabase.functions.invoke("sdr-agent", {
