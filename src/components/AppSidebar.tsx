@@ -57,6 +57,8 @@ const companyItems = [
   { title: "Scripts IA", url: "/scripts", icon: FileText },
   { title: "Base de Conhecimento", url: "/knowledge", icon: BookOpen },
   { title: "Conversas", url: "/conversations", icon: Inbox },
+  { title: "Inbox humana", url: "/inbox", icon: Inbox, showInboxBadge: true },
+
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
   { title: "Reuniões", url: "/bookings", icon: Calendar },
   { title: "Runs do Agente", url: "/agent-runs", icon: Bot },
