@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare
 import { useApprovals, useApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
 
 const kindLabel: Record<string, string> = {
   first_message: "Primeira mensagem",
