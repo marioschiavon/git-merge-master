@@ -947,7 +947,12 @@ export type Database = {
           channel: Database["public"]["Enums"]["cadence_type"]
           company_id: string
           created_at: string
+          human_taken_at: string | null
+          human_taken_by: string | null
+          human_takeover: boolean
+          human_takeover_reason: string | null
           id: string
+          last_inbound_at: string | null
           lead_id: string
           summary: string | null
           summary_message_count: number
@@ -958,7 +963,12 @@ export type Database = {
           channel?: Database["public"]["Enums"]["cadence_type"]
           company_id: string
           created_at?: string
+          human_taken_at?: string | null
+          human_taken_by?: string | null
+          human_takeover?: boolean
+          human_takeover_reason?: string | null
           id?: string
+          last_inbound_at?: string | null
           lead_id: string
           summary?: string | null
           summary_message_count?: number
@@ -969,7 +979,12 @@ export type Database = {
           channel?: Database["public"]["Enums"]["cadence_type"]
           company_id?: string
           created_at?: string
+          human_taken_at?: string | null
+          human_taken_by?: string | null
+          human_takeover?: boolean
+          human_takeover_reason?: string | null
           id?: string
+          last_inbound_at?: string | null
           lead_id?: string
           summary?: string | null
           summary_message_count?: number

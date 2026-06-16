@@ -71,12 +71,13 @@ serve(async (req) => {
           company_id: approval.company_id,
           lead_id: approval.lead_id,
           type: "system",
-          description: `❌ Aprovação rejeitada${rejection_reason ? ": " + rejection_reason : ""}`,
-          metadata: { approval_id, kind: approval.kind },
+          description: `❌ Aprovação rejeitada — operador assumiu a conversa${rejection_reason ? ": " + rejection_reason : ""}`,
+          metadata: { approval_id, kind: approval.kind, human_takeover: true },
         });
       }
 
-      // For cadence steps: pause the enrollment so it doesn't keep re-firing.
+      // Pausa o enrollment ligado e ATIVA o human_takeover na conversa para que
+      // a IA não tente responder nem disparar o próximo passo. O operador assume.
       if (approval.enrollment_id && (approval.kind === "first_message" || approval.kind === "cadence_step")) {
         await supabase.from("cadence_enrollments").update({
           status: "paused",
@@ -84,11 +85,27 @@ serve(async (req) => {
           next_execution_at: null,
         }).eq("id", approval.enrollment_id);
       }
+      if (approval.conversation_id) {
+        await supabase.from("conversations").update({
+          human_takeover: true,
+          human_taken_at: new Date().toISOString(),
+          human_taken_by: userId,
+          human_takeover_reason: "rejected_approval",
+        }).eq("id", approval.conversation_id);
+      }
+      if (approval.lead_id) {
+        await supabase
+          .from("pending_inbound_runs")
+          .update({ status: "cancelled", last_error: "human_takeover" })
+          .eq("lead_id", approval.lead_id)
+          .in("status", ["pending", "running"]);
+      }
 
-      return new Response(JSON.stringify({ ok: true }), {
+      return new Response(JSON.stringify({ ok: true, takeover: true, conversation_id: approval.conversation_id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
 
     // === Approve (with optional edits) ===
     const finalPayload = { ...(approval.payload || {}), ...(edited_payload || {}) };

@@ -1433,7 +1433,38 @@ Deno.serve(async (req) => {
 
   let runId: string | null = null;
   try {
+    // Guard: respeita Humano-no-loop. Se a conversa-alvo (ou qualquer conversa
+    // do lead, quando conversation_id não veio) está em human_takeover, não rode.
+    {
+      let humanOn = false;
+      if (conversation_id) {
+        const { data: c } = await supabase
+          .from("conversations")
+          .select("human_takeover")
+          .eq("id", conversation_id)
+          .maybeSingle();
+        humanOn = !!c?.human_takeover;
+      } else {
+        const { data: cs } = await supabase
+          .from("conversations")
+          .select("id")
+          .eq("lead_id", lead_id)
+          .eq("human_takeover", true)
+          .limit(1);
+        humanOn = !!(cs && cs.length > 0);
+      }
+      if (humanOn) {
+        console.log(`sdr-agent: skip (human_takeover) lead=${lead_id} conv=${conversation_id || "any"}`);
+        return new Response(JSON.stringify({ ok: true, skipped: "human_takeover" }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
+
     const ctx = await loadContext(lead_id);
+
 
     // Lock por lead em modo live: se já existe um sdr_agent_runs status='running'
     // para este lead nos últimos 90s, pula esta execução (evita 2 respostas paralelas

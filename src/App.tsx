@@ -13,6 +13,8 @@ import Cadences from "@/pages/Cadences";
 import CadencesDashboard from "@/pages/CadencesDashboard";
 import Scripts from "@/pages/Scripts";
 import Conversations from "@/pages/Conversations";
+import Inbox from "@/pages/Inbox";
+
 import Reports from "@/pages/Reports";
 import Knowledge from "@/pages/Knowledge";
 import AgentRuns from "@/pages/AgentRuns";
@@ -51,6 +53,8 @@ const App = () => (
               <Route path="/cadences/dashboard" element={<CadencesDashboard />} />
               <Route path="/scripts" element={<Scripts />} />
               <Route path="/conversations" element={<Conversations />} />
+              <Route path="/inbox" element={<Inbox />} />
+
               <Route path="/reports" element={<Reports />} />
               <Route path="/knowledge" element={<Knowledge />} />
               <Route path="/agent-runs" element={<AgentRuns />} />

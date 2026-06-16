@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
+import { useInboxQueue } from "@/hooks/useHumanInbox";
+
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -55,6 +57,8 @@ const companyItems = [
   { title: "Scripts IA", url: "/scripts", icon: FileText },
   { title: "Base de Conhecimento", url: "/knowledge", icon: BookOpen },
   { title: "Conversas", url: "/conversations", icon: Inbox },
+  { title: "Inbox humana", url: "/inbox", icon: Inbox, showInboxBadge: true },
+
   { title: "Relatórios", url: "/reports", icon: BarChart3 },
   { title: "Reuniões", url: "/bookings", icon: Calendar },
   { title: "Runs do Agente", url: "/agent-runs", icon: Bot },
@@ -74,6 +78,9 @@ export function AppSidebar() {
   const location = useLocation();
   const { isMasterAdmin, signOut, profile } = useAuth();
   const { data: pendingCount = 0 } = usePendingApprovalsCount();
+  const { data: inboxQueue = [] } = useInboxQueue();
+  const inboxCount = inboxQueue.length;
+
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -126,7 +133,13 @@ export function AppSidebar() {
                           {pendingCount}
                         </Badge>
                       )}
+                      {(item as any).showInboxBadge && inboxCount > 0 && (
+                        <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-[10px] bg-blue-100 text-blue-800">
+                          {inboxCount}
+                        </Badge>
+                      )}
                     </NavLink>
+
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}

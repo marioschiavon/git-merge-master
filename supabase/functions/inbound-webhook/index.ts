@@ -210,11 +210,12 @@ serve(async (req) => {
     let leadData: any = null;
     let companyId: string | null = null;
     let convChannel: string | null = channel || null;
+    let humanTakeover = false;
 
     if (!convId && lead_id) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url, pipeline_mode)")
+        .select("id, company_id, channel, human_takeover, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url, pipeline_mode)")
         .eq("lead_id", lead_id)
         .order("created_at", { ascending: false })
         .limit(1)
@@ -223,20 +224,23 @@ serve(async (req) => {
         convId = conv.id;
         companyId = conv.company_id;
         convChannel = conv.channel;
+        humanTakeover = !!(conv as any).human_takeover;
         leadData = (conv as any).leads;
       }
     } else if (convId) {
       const { data: conv } = await supabase
         .from("conversations")
-        .select("id, company_id, channel, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url, pipeline_mode)")
+        .select("id, company_id, channel, human_takeover, leads(id, name, email, company_name, phone, whatsapp, pending_email_slot_hold_id, website, address, linkedin_company_url, pipeline_mode)")
         .eq("id", convId)
         .maybeSingle();
       if (conv) {
         companyId = conv.company_id;
         convChannel = conv.channel;
+        humanTakeover = !!(conv as any).human_takeover;
         leadData = (conv as any).leads;
       }
     }
+
 
 
     if (!convId) {
@@ -343,6 +347,34 @@ serve(async (req) => {
         ai_suggested: false,
       });
     }
+
+    // Atualiza last_inbound_at na conversa (usado pelo SLA da Inbox humana)
+    if (convId) {
+      await supabase
+        .from("conversations")
+        .update({ last_inbound_at: new Date().toISOString() })
+        .eq("id", convId);
+    }
+
+    // Se a conversa está em modo humano, o pipeline da IA NÃO deve responder.
+    // Apenas registra a mensagem e a atividade; o operador cuida do resto via Inbox.
+    if (humanTakeover) {
+      console.log(`inbound-webhook: human_takeover ON — skipping AI pipeline conv=${convId}`);
+      if (companyId && leadData?.id) {
+        await supabase.from("lead_activities").insert({
+          company_id: companyId,
+          lead_id: leadData.id,
+          type: "note",
+          description: "📨 Nova mensagem do lead — aguardando resposta humana",
+          metadata: { conversation_id: convId, channel: convChannel, human_takeover: true },
+        });
+      }
+      return new Response(JSON.stringify({ ok: true, human_takeover: true }), {
+        status: 200,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
 
     // === FAST-PATH: lead respondeu o email pendente após hold ===
     // Se há um slot_holds em hold aguardando o email do lead, e a mensagem inbound contém

@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,6 +12,7 @@ import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare
 import { useApprovals, useApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
+
 
 const kindLabel: Record<string, string> = {
   first_message: "Primeira mensagem",
@@ -27,6 +29,7 @@ const channelIcon = (ch: string | null) => {
 };
 
 export default function ApprovalsPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<"pending" | "all">("pending");
   const { data: approvals = [], isLoading } = useApprovals(tab);
   const execute = useApprovalExecute();
@@ -39,6 +42,7 @@ export default function ApprovalsPage() {
   useEffect(() => {
     if (!selectedId && approvals.length > 0) setSelectedId(approvals[0].id);
   }, [approvals, selectedId]);
+
 
   return (
     <div className="space-y-4">
@@ -119,13 +123,22 @@ export default function ApprovalsPage() {
               })
             }
             onReject={(reason, note) =>
-              execute.mutate({
-                approval_id: selected.id,
-                action: "reject",
-                rejection_reason: reason,
-                note,
-              })
+              execute.mutate(
+                {
+                  approval_id: selected.id,
+                  action: "reject",
+                  rejection_reason: reason,
+                  note,
+                },
+                {
+                  onSuccess: (data: any) => {
+                    const convId = data?.conversation_id || selected.conversation_id;
+                    if (convId) navigate(`/inbox?conversation=${convId}`);
+                  },
+                },
+              )
             }
+
             pending={execute.isPending}
           />
         ) : (
