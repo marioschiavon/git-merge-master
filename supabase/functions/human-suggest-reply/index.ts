@@ -12,6 +12,7 @@ Deno.serve(async (req) => {
   try {
     const url = Deno.env.get("SUPABASE_URL")!;
     const anon = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const auth = req.headers.get("Authorization") || "";
     const userClient = createClient(url, anon, { global: { headers: { Authorization: auth } } });
     const { data: userData } = await userClient.auth.getUser();
@@ -24,15 +25,33 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "conversation_id é obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { data: conv } = await userClient
+    // Use service role to fetch (auth already validated above; RLS on conversations
+    // with joined leads can return null even when the user has access).
+    const admin = createClient(url, serviceKey);
+
+    // Verify the caller belongs to the same company (or is master_admin).
+    const { data: conv, error: convErr } = await admin
       .from("conversations")
-      .select("id, channel, leads(id, name, company_name, segment)")
+      .select("id, channel, company_id, leads(id, name, company_name, segment)")
       .eq("id", conversation_id)
       .maybeSingle();
-    if (!conv) {
+    if (convErr || !conv) {
+      console.error("human-suggest-reply: conversation not found", { conversation_id, convErr });
       return new Response(JSON.stringify({ error: "Conversa não encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
-    const { data: msgs } = await userClient
+
+    const { data: membership } = await admin
+      .from("company_members")
+      .select("company_id")
+      .eq("user_id", userData.user.id)
+      .eq("company_id", (conv as any).company_id)
+      .maybeSingle();
+    const { data: isMaster } = await admin.rpc("has_role", { _user_id: userData.user.id, _role: "master_admin" });
+    if (!membership && !isMaster) {
+      return new Response(JSON.stringify({ error: "Sem acesso a esta conversa" }), { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const { data: msgs } = await admin
       .from("messages")
       .select("direction, content, sent_at")
       .eq("conversation_id", conversation_id)
