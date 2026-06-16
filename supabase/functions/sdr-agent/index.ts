@@ -209,7 +209,7 @@ const TOOLS: ToolDef[] = [
     function: {
       name: "cancel_booking",
       description:
-        "Cancela uma reserva ativa quando o lead pede para desmarcar SEM pedir novo horário. Não exige slot.",
+        "Cancela uma reserva ativa quando o lead pede para desmarcar SEM pedir novo horário. Não exige slot. Após ok:true, o retorno traz `next_action` (`offer_slots` | `ask_reschedule` | `none`) — siga-o no mesmo turno para manter o controle da conversa (reoferecer 2 horários ou perguntar quando reagendar).",
       parameters: {
         type: "object",
         additionalProperties: false,
