@@ -4,7 +4,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { buildFirstMessage } from "../_shared/build-first-message.ts";
-import { shouldGate, createApprovalRequest } from "../_shared/hitl-gate.ts";
+import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 
 async function findOrCreateConversation(
   supabase: any,
@@ -543,9 +543,28 @@ Decida a próxima ação.`;
       const channel = decision.channel;
       const isSimulation = !!cadence.simulation_mode;
 
+      // === Human takeover: operator owns the thread — pause & skip ===
+      if (!isSimulation && !bypass_hitl && await isLeadUnderHumanTakeover(supabase, { lead_id: lead.id })) {
+        await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+        await supabase
+          .from("cadence_enrollments")
+          .update({ status: "paused", paused_reason: "human_takeover", next_execution_at: null })
+          .eq("id", enrollment_id);
+        await supabase.from("lead_activities").insert({
+          company_id: cadence.company_id,
+          lead_id: lead.id,
+          type: "system",
+          description: `⏸️ Cadência pausada — operador no controle (human_takeover)`,
+          metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, human_takeover: true, channel },
+        });
+        return new Response(JSON.stringify({ action: "skipped_human_takeover", channel }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       // === HITL gate (only for real sends, not simulation, not when bypassed) ===
       const scope = isFirstAttempt ? "first_message" : "cadence_step";
-      if (!isSimulation && !bypass_hitl && await shouldGate(supabase, cadence.company_id, scope as any)) {
+      if (!isSimulation && !bypass_hitl && await shouldGate(supabase, cadence.company_id, scope as any, { lead_id: lead.id })) {
         // Persist the decision so it shows up in the cadence timeline
         await persistDecision(decision, { model: "google/gemini-2.5-flash" });
         // Create approval request for the operator
