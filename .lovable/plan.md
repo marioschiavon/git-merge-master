@@ -1,70 +1,53 @@
-# Anotações do SDR para treino e correção
+# Mensagens honestas quando uma ação do agente falha
 
-## Objetivo
-Permitir que o humano escreva uma observação livre em itens de `/approvals` e em decisões do agente. Apenas itens **com anotação** ficam catalogados — junto de um snapshot do contexto — para depois consultar, treinar e corrigir o sistema em `/annotations`.
+## O que aconteceu (diagnóstico)
+1. Lead pediu **"Cancele a reuniao. Nao poderei mais participar"**.
+2. O Policy Engine classificou intent como `cancel_booking` e forçou a ferramenta `cancel_booking` no SDR agent. ✅ correto
+3. A ferramenta chamou `calcom-booking-cancel`, que **retornou erro não-2xx** (`FunctionsHttpError`). A linha em `calendar_actions` ficou com `status=failed`. ✅ detectado
+4. O agente entrou no fallback genérico do `sdr-agent` (linha 1762-1764) — que **é hardcoded para falha de book/reschedule** — e mandou para aprovação a mensagem:
+   > "Tive uma instabilidade aqui pra confirmar esse horário. Pode me mandar outro dia/horário que funcione pra você? Vou garantir a reserva."
+   - **Mente** ("instabilidade pra confirmar"): a falha foi ao **cancelar**, não ao confirmar.
+   - **Pivota para o oposto do pedido**: pede novo horário em vez de reconhecer o cancelamento solicitado.
+5. Você corretamente rejeitou no HITL. A reserva no Cal.com **continua ativa** (booking ainda `confirmed`).
 
-## Como vai funcionar (visão do usuário)
+## Correções
 
-1. **Em `/approvals`** — cada card de aprovação ganha um campo "Anotação (opcional)". Se preenchido ao Aprovar / Editar+Aprovar / Rejeitar, a nota é salva junto com um snapshot do que a IA tinha em mãos.
-2. **Em decisões do agente** (drawer do lead em cadências, onde aparece o raciocínio) — botão "Anotar" abre textarea. Salva mesmo sem aprovação envolvida.
-3. **Nova página `/annotations`** — lista cronológica filtrável por lead, autor, fonte (aprovação vs decisão), data; busca por texto; ver detalhe completo (mensagem + contexto + nota); exportar CSV/JSON para usar em ajustes de prompt, knowledge base ou fine-tuning futuro.
+### 1. Fallback honesto por tipo de ferramenta — `supabase/functions/sdr-agent/index.ts`
+Substituir o fallback único (linhas ~1759-1769) por mensagens específicas por `forcedToolName`:
 
-## O que é salvo (snapshot do contexto)
+- `cancel_booking` →
+  > "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?"
+- `reschedule_booking` →
+  > "Tive um problema pra remarcar agora. Sua reunião segue no horário atual. Vou tentar de novo e te confirmo em seguida."
+- `book_slot` (mantém o atual, sem afirmar que confirmou):
+  > "Não consegui confirmar esse horário agora. Pode me mandar outro dia/horário que funcione pra você? Vou tentar de novo."
+- default → mensagem genérica honesta, sem dizer "instabilidade pra confirmar" quando não houve confirmação.
 
-Para cada anotação, persistimos um pacote autocontido — assim a nota continua útil mesmo se o lead/conversa mudar depois:
+Aplicar o mesmo princípio nas mensagens hardcoded das linhas 1978 e 2034 (loops de book/add_guests): trocar "garantir a reserva" por algo que não pressuponha a ação seguinte do lead, e nunca usar a frase para casos de cancel.
 
-- **Nota**: texto livre, autor (`user_id`), `created_at`
-- **Fonte**: `approval_request` ou `cadence_agent_decision` (+ id)
-- **Ação tomada pelo humano** (quando vier de aprovação): approved / edited / rejected, conteúdo final enviado, edits aplicados vs proposta original
-- **Snapshot da proposta da IA**: canal, subject, body, hook, rationale, intent, confidence
-- **Snapshot do lead**: nome, empresa, email, estágio, metadata relevante
-- **Snapshot da conversa**: últimas N mensagens (in/out) no momento da anotação
-- **Snapshot do contexto agente**: cadence_id/step, knowledge chunks usados (ids + similaridade), prompt resumido se disponível
+### 2. Não pivotar — manter o intent original
+Quando `forcedToolName === "cancel_booking"` falha:
+- **Não** sugerir novo horário.
+- **Não** marcar `decision: send_message` que altere o tópico — manter a intenção de cancelar.
+- Idealmente agendar um retry curto da própria operação de cancel (ver item 4).
 
-Tudo em uma coluna `jsonb context_snapshot` para ficar flexível sem migração nova a cada ajuste.
+### 3. Sinalizar a falha na fila de aprovações
+No card de `/approvals` da `sdr_reply` resultante, mostrar um **alerta de aviso** quando o run associado contém `rationale` começando com `Forced … failed:` — isso ajuda o humano a perceber rápido que a IA tentou mascarar uma falha.
 
-## Detalhes técnicos
+Adicionar bandeira `tool_failure` no `context` do `approval_request` (preenchida em `sdr-agent` quando entra no fallback), e renderizá-la em `src/pages/Approvals.tsx` como banner vermelho: "⚠️ Ferramenta `cancel_booking` falhou — revise com cuidado".
 
-### Nova tabela `public.message_annotations`
-- `id uuid pk`
-- `company_id uuid` (multi-tenant)
-- `author_user_id uuid`
-- `source_kind text` check in (`approval_request`, `cadence_agent_decision`)
-- `source_id uuid` (id do approval ou da decisão)
-- `lead_id uuid` nullable
-- `conversation_id uuid` nullable
-- `note text not null` (>= 1 char — sem nota, nada é salvo)
-- `human_action text` nullable (`approved` | `edited` | `rejected` | `none`)
-- `final_content text` nullable (o que foi efetivamente enviado, quando aplicável)
-- `context_snapshot jsonb not null default '{}'`
-- `tags text[]` reservado para uso futuro (categorização vem depois conforme padrões emergirem)
-- `created_at`, `updated_at`
+### 4. Retry leve + diagnóstico de `calcom-booking-cancel`
+- Em `supabase/functions/_shared/idempotency.ts` (ou no caller `cancel_booking` dentro de `sdr-agent`): se o `calcom-booking-cancel` falhar com erro de rede/5xx, **uma** retentativa imediata com pequeno backoff antes de cair no fallback.
+- Em `supabase/functions/calcom-booking-cancel/index.ts`: garantir que o erro do Cal.com chegue na resposta JSON (status 502 com `error_message` legível) em vez de propagar `FunctionsHttpError` opaco — isso já beneficia logs e a UX.
 
-GRANTs para `authenticated` e `service_role`. RLS por `company_id` via `get_user_company_id(auth.uid())`. Índices em `(company_id, created_at desc)`, `lead_id`, `source_kind, source_id`.
-
-### Backend
-- **`approval-execute`**: aceita `note?: string` no body. Se presente, monta o snapshot (lê approval_request + lead + últimas mensagens da conversa + decisão agente referenciada) e insere em `message_annotations` antes/depois da execução, registrando `human_action` e `final_content`.
-- **Nova edge `annotate-decision`**: para anotar uma `cadence_agent_decisions` sem aprovação. Body `{ decision_id, note }`. Monta snapshot equivalente (decisão + lead + conversa + knowledge usado) e insere. Validação Zod, CORS, JWT em código.
-- **Hook `useAnnotations`**: list (com filtros), get-by-id, create (para o caso de decisão).
-
-### Frontend
-- **`/approvals` (Approvals.tsx)**: textarea "Anotação" em cada card; passa `note` ao chamar `approval-execute`. Toast confirma "Anotação salva" quando preenchida.
-- **Drawer/timeline do agente** (`LeadProgressDrawer` ou `LeadTimeline`): botão "Anotar" nas decisões → dialog com textarea → chama `annotate-decision`.
-- **Nova `/annotations`** (`src/pages/Annotations.tsx`):
-  - Lista: data, autor, lead, fonte, trecho da nota, ação humana
-  - Filtros: período, autor, fonte, lead, busca texto
-  - Detalhe (drawer ou rota `/annotations/:id`): nota + proposta IA + edits + final enviado + histórico de mensagens + knowledge usado
-  - Botão "Exportar" → CSV e JSON
-- **Sidebar**: novo item "Anotações" (visível para `company_admin` e `user`). Rota em `App.tsx`.
-
-### Fora de escopo (deixar para depois)
-- Categorização estruturada / taxonomia automática (texto livre primeiro, padrões viram tags depois)
-- Treinamento automático / re-injeção das notas no prompt do agente
-- Anotar mensagens já enviadas em `/conversations` (foco agora é o loop de aprovação)
-- Permissões finas (qualquer membro da empresa pode anotar e ler anotações da própria empresa)
+## Fora de escopo (agora)
+- Cancelar automaticamente pela UI sem aprovação (você optou por HITL universal).
+- Reabrir a reserva atual: como o cancelamento real falhou, a reunião **ainda está confirmada** — nada a desfazer no Cal.com. Basta tentar cancelar de novo.
 
 ## Arquivos afetados
-- **Migração**: cria `message_annotations` com GRANTs + RLS + índices
-- **Edge**: `approval-execute/index.ts` (estende com `note`), nova `annotate-decision/index.ts`
-- **Frontend novo**: `src/pages/Annotations.tsx`, `src/hooks/useAnnotations.ts`
-- **Frontend editado**: `src/pages/Approvals.tsx`, `src/components/cadence/LeadProgressDrawer.tsx` (ou `LeadTimeline.tsx`), `src/components/AppSidebar.tsx`, `src/App.tsx`
+- `supabase/functions/sdr-agent/index.ts` — fallbacks por tipo de tool + flag `tool_failure` no approval
+- `supabase/functions/calcom-booking-cancel/index.ts` — propagar mensagem de erro útil
+- `src/pages/Approvals.tsx` — banner de aviso quando `context.tool_failure` presente
+
+## Próximo passo manual (após o deploy)
+Na conversa atual, basta aprovar uma nova tentativa de cancel (ou rejeitar de novo se preferir cancelar pelo Cal.com manualmente). A reunião continua marcada até lá.
