@@ -16,7 +16,10 @@ import {
   Workflow,
   Calendar,
   Bot,
+  ShieldCheck,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { usePendingApprovalsCount } from "@/hooks/useApprovals";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -46,6 +49,7 @@ const companyItems = [
   { title: "Leads", url: "/leads", icon: Target },
   { title: "Cadências", url: "/cadences", icon: MessageSquare },
   { title: "Acompanhamento", url: "/cadences/dashboard", icon: Activity },
+  { title: "Aprovações", url: "/approvals", icon: ShieldCheck, showApprovalsBadge: true },
   { title: "Scripts IA", url: "/scripts", icon: FileText },
   { title: "Base de Conhecimento", url: "/knowledge", icon: BookOpen },
   { title: "Conversas", url: "/conversations", icon: Inbox },
@@ -67,6 +71,7 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const location = useLocation();
   const { isMasterAdmin, signOut, profile } = useAuth();
+  const { data: pendingCount = 0 } = usePendingApprovalsCount();
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -113,7 +118,12 @@ export function AppSidebar() {
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <NavLink to={item.url} end activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium">
                       <item.icon className="h-4 w-4" />
-                      {!collapsed && <span>{item.title}</span>}
+                      {!collapsed && <span className="flex-1">{item.title}</span>}
+                      {(item as any).showApprovalsBadge && pendingCount > 0 && (
+                        <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-[10px] bg-amber-100 text-amber-800">
+                          {pendingCount}
+                        </Badge>
+                      )}
                     </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

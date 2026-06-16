@@ -1,93 +1,83 @@
-# Leads sem nome (canal corporativo) — cadastro e abordagem
+# Plano — Human-in-the-Loop (HITL)
 
-Hoje `leads.name` é obrigatório e a primeira mensagem usa `Olá ${lead.name}`. Listas que trazem só WhatsApp/site/Instagram de empresa forçam o operador a inventar um nome, gerando saudações erradas para a recepcionista.
+Objetivo: permitir que um humano aprove, edite ou rejeite cada mensagem/ação da IA antes de sair, durante a fase de testes. Quando se sentir confiante, basta desligar a chave global.
 
-## Objetivos
+## 1. Configuração global por empresa
 
-1. Permitir cadastrar lead sem nome de pessoa (apenas dados da empresa).
-2. Abertura **personalizada com dados da empresa/redes**, mas neutra quanto ao destinatário, pedindo direcionamento ao decisor.
-3. Quando alguém responde se identificando, criar **um novo lead-pessoa vinculado à empresa** (sem perder o registro original do canal).
+- Adicionar coluna `hitl_enabled boolean default false` em `companies`.
+- Adicionar coluna `hitl_scopes jsonb default '{"first_message":true,"sdr_reply":true,"cadence_step":true,"sensitive_action":true}'` para granularidade futura (UI mostra 4 switches).
+- Tela: `Settings → Operação` com toggle "Revisão humana antes de enviar" + 4 sub-switches por escopo.
 
-## Mudanças
+## 2. Tabela `approval_requests`
 
-### 1. Schema (`leads`)
-- `name`: continua presente, mas vira **opcional** no app. Para satisfazer o `NOT NULL` legado, gravamos um display gerado: `company_name` → host do `website` → handle do Instagram → `"Contato sem nome"`.
-- Novas colunas:
-  - `lead_kind text default 'person' check in ('person','company')` — `company` quando o cadastro veio sem nome.
-  - `contact_identified boolean default false` — vira `true` quando capturamos o decisor.
-  - `parent_company_lead_id uuid references leads(id) on delete set null` — usado nos leads-pessoa criados a partir de um lead-empresa.
-- Index parcial em `parent_company_lead_id`.
-
-### 2. Cadastro manual (`LeadFormDialog.tsx`)
-- Tornar `name` opcional no schema Zod.
-- Validar: precisa de **pelo menos um** entre `name`, `company_name`, `website`, `whatsapp`, `phone`, `instagram_url`, `linkedin_company_url`.
-- Ao salvar sem `name`: setar `lead_kind='company'` e calcular `display_name` no submit (envia para o campo `name`).
-- Badge "Empresa" na listagem (`Leads.tsx`) quando `lead_kind='company'`.
-
-### 3. Import CSV (`LeadImportDialog.tsx`)
-- Remover `if (!out.name) return null` — aceita linha sem nome desde que tenha empresa/site/whatsapp/insta.
-- Mesma lógica de `display_name` + `lead_kind='company'`.
-- Mostrar contagem "X leads sem nome (modo empresa)" no resumo de import.
-
-### 4. Enriquecimento da empresa (reutilizar pipeline existente)
-- Pipeline atual (`enrich-lead`, `analyze-lead-website`, `lead_social_profiles`, `lead_insights`) já roda quando há site/redes. Garantir que dispara também para `lead_kind='company'`.
-- O resultado (resumo do site, posts recentes do Instagram, "diferenciais", segmento) fica em `lead_insights` e é o insumo da abertura personalizada.
-
-### 5. Primeira mensagem personalizada (`build-first-message.ts`)
-Quando `lead_kind='company'`:
-- **Não** usar `${lead.name}` no `userPrompt`. Passar `display_name`, `company_name`, `website`, `instagram_url`, `linkedin_company_url` e o bloco `lead_insights` (resumo + diferenciais detectados).
-- Trocar o bloco de regras gerais por instrução específica:
-
-  > *"Você está iniciando contato em um canal corporativo (WhatsApp/Instagram/email da empresa, provavelmente atendido por recepção ou social media). Regras:*
-  > *1. NÃO use nome próprio do destinatário (não há nome).*
-  > *2. Abra com um gancho personalizado usando 1 observação concreta sobre a EMPRESA — extraída do site, Instagram ou LinkedIn da empresa (ex.: posts recentes, diferencial, segmento, prêmios).*
-  > *3. Em 1 frase, conecte esse gancho ao motivo do contato (produto/serviço da nossa empresa).*
-  > *4. Encerre pedindo direcionamento para o responsável pela área X (não nome — área/cargo).*
-  > *5. Tom cordial, curto (WhatsApp ≤ 70 palavras, email ≤ 80), sem saudação a uma pessoa específica. Use 'vocês' no plural.*
-  > *6. Proibido inventar nome de pessoa ou fingir conhecer alguém da empresa."*
-
-- Exemplo de saída esperada (referência para o prompt):
-  > *"Olá! Vi no Instagram de vocês o cuidado com o pós-operatório dos pets — chamou atenção. Somos uma rede americana selecionando clínicas parceiras no Brasil para [benefício]. Poderia me direcionar para o responsável por parcerias?"*
-
-- Se `lead_insights` ainda não estiver pronto no momento do envio: fallback para gancho genérico sobre o segmento + pedido de direcionamento (sem inventar fato).
-
-### 6. Captura do decisor (`sdr-agent/index.ts`)
-- Após classificação de intent, se `lead.lead_kind='company'` e `lead.contact_identified=false`, rodar extrator que detecta auto-identificação ("Sou o João, gerente…", "Aqui é a Ana do RH", "Pode falar comigo, Maria").
-- Quando detectar nome (+ cargo opcional):
-  1. `INSERT` em `leads` um novo registro `lead_kind='person'`, `parent_company_lead_id = <empresa>`, herdando `company_id`, `company_name`, `website`, redes, `lead_insights`, `source='referral_from_reception'`.
-  2. Marcar empresa: `contact_identified=true`; criar `lead_activities` "decisor identificado: {nome}".
-  3. Mover a `conversation` ativa para o novo lead-pessoa (`update conversations.lead_id`) e seguir o diálogo usando o nome real.
-  4. Próxima mensagem do agente usa o nome capturado naturalmente ("Prazer, João! …") e reaproveita os mesmos insights da empresa.
-- Se a recepcionista só diz "passo o recado / mande por email", agente registra `lead_activities` e mantém follow-up neutro no lead-empresa.
-
-### 7. UI complementar
-- `LeadDetail`: quando `parent_company_lead_id` presente, mostrar link "Veio de: {empresa}". No lead-empresa, listar "Pessoas identificadas: …".
-- Filtro extra em `/leads`: tipo (Pessoa / Empresa).
-
-## Estrutura técnica
+Centraliza tudo o que está pendente de revisão.
 
 ```text
-CSV / Form sem nome
-        │
-        ▼
-leads (lead_kind='company', name=display)
-        │  enrich-lead → lead_insights (site + redes)
-        ▼
-cadence step 1 → build-first-message
-   (gancho com insight da empresa + pedido de direcionamento)
-        │
-        ▼
-WhatsApp recepção responde "Sou o João, comercial"
-        │
-        ▼
-sdr-agent extrai → cria lead-pessoa (parent=empresa)
-        │   move conversation.lead_id, herda lead_insights
-        ▼
-diálogo segue personalizado com "João" + mesmos insights
+id uuid pk
+company_id uuid
+lead_id uuid
+conversation_id uuid null
+enrollment_id uuid null
+kind text       -- 'first_message' | 'sdr_reply' | 'cadence_step' | 'sensitive_action'
+channel text    -- email | whatsapp | linkedin | system
+action text     -- send | reschedule | cancel | remove_participant | stop | handoff
+payload jsonb   -- { subject, body, to, scheduled_at, ... } editável
+context jsonb   -- rationale da IA, intent detectado, histórico curto
+status text     -- pending | approved | rejected | edited_sent | expired
+reviewed_by uuid null
+reviewed_at timestamptz null
+edited_payload jsonb null
+created_at, updated_at
 ```
 
-## Não incluso (fica para depois)
+RLS por `company_id` + GRANTs padrão. Sem auto-expiração — fica pendente indefinidamente conforme escolha do usuário.
 
-- Detecção automática "número de empresa vs celular pessoal" via Twilio lookup — por ora usamos só presença/ausência do nome.
-- Múltiplos decisores simultâneos: primeiro identificado vira lead-pessoa principal; outros viram `lead_activities`.
-- Backfill retroativo: leads antigos continuam `lead_kind='person'` (default).
+## 3. Ponto de interceptação (gate único)
+
+Criar `_shared/hitl-gate.ts` com `requireApprovalOrSend(params)`:
+
+- Se `hitl_enabled=false` para a `company` → envia normalmente (comportamento atual).
+- Se `true` → cria `approval_request` com `status=pending`, registra `lead_activity` "Aguardando aprovação humana", e **não envia**.
+
+Chamar o gate em:
+- `cadence-executor` (envio da primeira mensagem e steps determinísticos).
+- `cadence-agent-decide` (decisões agentic: send/stop/handoff vira pending).
+- `sdr-agent` (resposta a inbound antes do `send-outbound-message`).
+- `execute-action` (reschedule/cancel/remove participante do Cal.com).
+
+## 4. Página `/approvals`
+
+Nova rota + item no `AppSidebar` com badge de contagem pendente.
+
+Layout (estilo inbox):
+- Lista esquerda: cards com lead, canal, tipo, tempo aguardando, preview.
+- Painel direito: detalhe do lead resumido, contexto da IA (rationale, intent, histórico recente), editor da mensagem (subject + body) ou dos parâmetros da ação, botões **Aprovar e enviar**, **Editar e enviar**, **Rejeitar** (com motivo opcional).
+- Filtros: tipo (first_message/sdr_reply/cadence_step/sensitive_action), canal, cadência.
+
+Realtime via Supabase channel para atualizar a fila ao vivo.
+
+## 5. Execução pós-aprovação
+
+Edge function `approval-execute`:
+- Recebe `approval_request_id` + payload final.
+- Marca `status=approved` (ou `edited_sent`) e chama o caminho de envio real (`send-outbound-message`, Cal.com, etc.) com o payload aprovado.
+- Em rejeição: marca `status=rejected`, registra activity e — conforme `kind` — pausa enrollment ou apenas descarta a resposta.
+
+## 6. UI extras
+
+- Badge "🕓 Aguardando aprovação" no `LeadDetail` e no card de enrollment em `CadenceDetail`.
+- Em `Conversations`, mensagens pending aparecem com estilo tracejado + tag "Pendente de aprovação".
+
+## Detalhes técnicos
+
+- Migração: 1 ALTER em `companies` + CREATE TABLE `approval_requests` + GRANTs + RLS (`has_role admin/company_admin` ou `get_user_company_id`).
+- Hooks novos: `useApprovals`, `useApprovalMutations` (approve/edit/reject).
+- Tipos AI SDK: nada novo; payloads são `jsonb`.
+- Sem timeout/auto-aprovação — explicitamente fora de escopo.
+- Indicadores de simulação atuais (dry-run da cadência agentic) permanecem; HITL é camada acima e prioritária: se HITL ligado, mesmo em modo "real" nada sai sem aprovação.
+
+## Fora de escopo desta entrega
+
+- Aprovação por email/WhatsApp (link mágico). Hoje só dentro do app.
+- Auto-aprovação por timeout / regras condicionais (ex: "auto-aprovar se confiança > 0.9").
+- Múltiplos revisores / workflow de 2 níveis.

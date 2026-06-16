@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { shouldGate, createApprovalRequest } from "../_shared/hitl-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -112,6 +113,27 @@ async function generateReply(ctx: ActionContext, opts: { tone?: string; category
 
 async function sendOutbound(ctx: ActionContext, content: string, subject: string | null, channel: string, metadata: Record<string, any> = {}) {
   if (!ctx.conversation_id) return { sent: false, reason: "no conversation_id" };
+
+  // HITL gate: if enabled for this company + scope, create approval and skip send
+  if (!metadata.hitl_bypass) {
+    const action = String(metadata.action || "send_reply");
+    const sensitive = /cancel|reschedule|remove|booking_confirmation/i.test(action);
+    const scope: "sdr_reply" | "sensitive_action" = sensitive ? "sensitive_action" : "sdr_reply";
+    if (await shouldGate(ctx.supabase, ctx.company_id, scope)) {
+      await createApprovalRequest(ctx.supabase, {
+        company_id: ctx.company_id,
+        lead_id: ctx.lead_id,
+        conversation_id: ctx.conversation_id,
+        kind: scope,
+        channel,
+        action,
+        payload: { subject, message: content, ...metadata },
+        context: { intent_log_id: ctx.intent_log_id, ...((metadata as any)._ctx || {}) },
+      });
+      return { sent: false, reason: "hitl_pending", pending_approval: true };
+    }
+  }
+
 
   let deliveryStatus: string = "sent";
   const deliveryMeta: Record<string, any> = {};

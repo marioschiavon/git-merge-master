@@ -1,0 +1,294 @@
+import { useMemo, useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin } from "lucide-react";
+import { useApprovals, useApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
+import { formatDistanceToNow } from "date-fns";
+import { ptBR } from "date-fns/locale";
+
+const kindLabel: Record<string, string> = {
+  first_message: "Primeira mensagem",
+  sdr_reply: "Resposta SDR",
+  cadence_step: "Passo de cadência",
+  sensitive_action: "Ação sensível",
+};
+
+const channelIcon = (ch: string | null) => {
+  if (ch === "email") return <Mail className="h-3 w-3" />;
+  if (ch === "whatsapp") return <MessageSquare className="h-3 w-3" />;
+  if (ch === "linkedin") return <Linkedin className="h-3 w-3" />;
+  return null;
+};
+
+export default function ApprovalsPage() {
+  const [tab, setTab] = useState<"pending" | "all">("pending");
+  const { data: approvals = [], isLoading } = useApprovals(tab);
+  const execute = useApprovalExecute();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = useMemo(
+    () => approvals.find((a: any) => a.id === selectedId) as any | undefined,
+    [approvals, selectedId],
+  );
+
+  useEffect(() => {
+    if (!selectedId && approvals.length > 0) setSelectedId(approvals[0].id);
+  }, [approvals, selectedId]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold flex items-center gap-2">
+            <Inbox className="h-6 w-6" />
+            Aprovações
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Revise, edite e aprove cada ação da IA antes que ela seja executada.
+          </p>
+        </div>
+        <Tabs value={tab} onValueChange={(v) => setTab(v as any)}>
+          <TabsList>
+            <TabsTrigger value="pending">Pendentes</TabsTrigger>
+            <TabsTrigger value="all">Histórico</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4">
+        <Card className="overflow-hidden">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm">
+              {tab === "pending" ? "Fila" : "Todos"} ({approvals.length})
+            </CardTitle>
+          </CardHeader>
+          <ScrollArea className="h-[calc(100vh-280px)]">
+            <div className="divide-y">
+              {isLoading && <p className="p-4 text-sm text-muted-foreground">Carregando...</p>}
+              {!isLoading && approvals.length === 0 && (
+                <p className="p-6 text-center text-sm text-muted-foreground">
+                  Nenhuma aprovação {tab === "pending" ? "pendente" : "no histórico"}.
+                </p>
+              )}
+              {approvals.map((a: any) => {
+                const leadName = a.leads?.name || a.leads?.company_name || "Lead sem nome";
+                const preview = (a.payload?.subject || a.payload?.message || a.payload?.body || "").toString().slice(0, 80);
+                const isActive = selectedId === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => setSelectedId(a.id)}
+                    className={`w-full text-left p-3 hover:bg-muted/50 transition ${isActive ? "bg-muted" : ""}`}
+                  >
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-sm font-medium truncate">{leadName}</span>
+                      <StatusBadge status={a.status} />
+                    </div>
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <Badge variant="outline" className="text-[10px] gap-1">
+                        {channelIcon(a.channel)}
+                        {kindLabel[a.kind] || a.kind}
+                      </Badge>
+                      <span className="text-[10px] text-muted-foreground">
+                        {formatDistanceToNow(new Date(a.created_at), { locale: ptBR, addSuffix: true })}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{preview}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </Card>
+
+        {selected ? (
+          <ApprovalDetail
+            approval={selected}
+            disabled={execute.isPending || selected.status !== "pending"}
+            onApprove={(edited) =>
+              execute.mutate({
+                approval_id: selected.id,
+                action: "approve",
+                edited_payload: edited,
+              })
+            }
+            onReject={(reason) =>
+              execute.mutate({
+                approval_id: selected.id,
+                action: "reject",
+                rejection_reason: reason,
+              })
+            }
+            pending={execute.isPending}
+          />
+        ) : (
+          <Card>
+            <CardContent className="flex items-center justify-center py-20 text-sm text-muted-foreground">
+              Selecione uma aprovação na lista.
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    pending: { label: "Pendente", cls: "bg-amber-100 text-amber-800" },
+    approved: { label: "Enviado", cls: "bg-green-100 text-green-800" },
+    edited_sent: { label: "Editado", cls: "bg-blue-100 text-blue-800" },
+    rejected: { label: "Rejeitado", cls: "bg-red-100 text-red-800" },
+    failed: { label: "Falhou", cls: "bg-red-100 text-red-800" },
+    expired: { label: "Expirado", cls: "bg-gray-100 text-gray-700" },
+  };
+  const m = map[status] || { label: status, cls: "bg-muted" };
+  return <Badge className={`text-[10px] ${m.cls}`} variant="secondary">{m.label}</Badge>;
+}
+
+function ApprovalDetail({
+  approval,
+  disabled,
+  pending,
+  onApprove,
+  onReject,
+}: {
+  approval: ApprovalRow & { leads?: any; cadences?: any };
+  disabled: boolean;
+  pending: boolean;
+  onApprove: (edited?: Record<string, any>) => void;
+  onReject: (reason: string) => void;
+}) {
+  const initial = (approval.edited_payload as any) || approval.payload || {};
+  const [subject, setSubject] = useState<string>(initial.subject ?? "");
+  const [message, setMessage] = useState<string>(initial.message ?? initial.body ?? "");
+  const [rejectReason, setRejectReason] = useState("");
+
+  useEffect(() => {
+    const p: any = approval.edited_payload || approval.payload || {};
+    setSubject(p.subject ?? "");
+    setMessage(p.message ?? p.body ?? "");
+    setRejectReason("");
+  }, [approval.id]);
+
+  const edited =
+    subject !== (initial.subject ?? "") ||
+    message !== (initial.message ?? initial.body ?? "");
+
+  const leadName = approval.leads?.name || approval.leads?.company_name || "Lead";
+  const ctx = approval.context || {};
+
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-lg">{leadName}</CardTitle>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <Badge variant="outline" className="gap-1">
+                {channelIcon(approval.channel)}
+                {kindLabel[approval.kind] || approval.kind}
+              </Badge>
+              {approval.cadences?.name && (
+                <Badge variant="outline">Cadência: {approval.cadences.name}</Badge>
+              )}
+              <span className="text-xs text-muted-foreground">
+                {approval.leads?.email}
+              </span>
+            </div>
+          </div>
+          <StatusBadge status={approval.status} />
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4 pt-4">
+        {ctx.rationale && (
+          <div className="rounded-md border border-dashed border-amber-200 bg-amber-50 p-3 text-xs">
+            <div className="font-medium text-amber-900 mb-1">Justificativa da IA</div>
+            <p className="text-amber-900/80 italic">"{ctx.rationale}"</p>
+            {ctx.intent && <p className="mt-1 text-amber-900/70">Intent: {ctx.intent}</p>}
+          </div>
+        )}
+
+        {approval.channel === "email" && (
+          <div>
+            <Label className="text-xs">Assunto</Label>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              disabled={disabled}
+              className="mt-1"
+            />
+          </div>
+        )}
+
+        <div>
+          <Label className="text-xs">Mensagem</Label>
+          <Textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            disabled={disabled}
+            rows={Math.min(20, Math.max(6, message.split("\n").length + 2))}
+            className="mt-1 font-mono text-sm"
+          />
+        </div>
+
+        {approval.status === "pending" && (
+          <>
+            <div className="flex gap-2 pt-2">
+              <Button
+                onClick={() =>
+                  onApprove(edited ? { subject, message } : undefined)
+                }
+                disabled={pending || !message.trim()}
+              >
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                {edited ? "Editar e enviar" : "Aprovar e enviar"}
+              </Button>
+            </div>
+            <div className="pt-3 border-t space-y-2">
+              <Label className="text-xs flex items-center gap-1">
+                <XCircle className="h-3 w-3" />
+                Rejeitar (motivo opcional)
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  placeholder="Ex: tom inadequado, dados errados..."
+                />
+                <Button
+                  variant="destructive"
+                  onClick={() => onReject(rejectReason)}
+                  disabled={pending}
+                >
+                  Rejeitar
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {approval.status !== "pending" && approval.execution_error && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 text-red-700 mt-0.5" />
+            <div>
+              <div className="font-medium text-red-900">Erro de execução</div>
+              <p className="text-red-900/80">{approval.execution_error}</p>
+            </div>
+          </div>
+        )}
+        {approval.status === "rejected" && approval.rejection_reason && (
+          <div className="text-xs text-muted-foreground">
+            Motivo: <span className="italic">{approval.rejection_reason}</span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

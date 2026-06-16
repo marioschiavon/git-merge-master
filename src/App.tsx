@@ -16,6 +16,7 @@ import Conversations from "@/pages/Conversations";
 import Reports from "@/pages/Reports";
 import Knowledge from "@/pages/Knowledge";
 import AgentRuns from "@/pages/AgentRuns";
+import Approvals from "@/pages/Approvals";
 import MasterDashboard from "@/pages/master/MasterDashboard";
 import Companies from "@/pages/master/Companies";
 import Team from "@/pages/settings/Team";
@@ -52,6 +53,7 @@ const App = () => (
               <Route path="/reports" element={<Reports />} />
               <Route path="/knowledge" element={<Knowledge />} />
               <Route path="/agent-runs" element={<AgentRuns />} />
+              <Route path="/approvals" element={<Approvals />} />
               <Route element={<RequireMasterAdmin />}>
                 <Route path="/master" element={<MasterDashboard />} />
                 <Route path="/master/companies" element={<Companies />} />
