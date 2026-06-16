@@ -24,17 +24,27 @@ export async function shouldGate(
   companyId: string,
   scope: HitlScope,
 ): Promise<boolean> {
-  if (!companyId) return false;
+  if (!companyId) {
+    console.log("[hitl-gate] no company_id → bypass", { scope });
+    return false;
+  }
   const { data, error } = await supabase
     .from("companies")
     .select("hitl_enabled, hitl_scopes")
     .eq("id", companyId)
     .maybeSingle();
-  if (error || !data) return false;
-  if (!data.hitl_enabled) return false;
+  if (error || !data) {
+    console.log("[hitl-gate] company lookup failed → bypass", { scope, companyId, error });
+    return false;
+  }
+  if (!data.hitl_enabled) {
+    console.log("[hitl-gate] hitl_enabled=false → bypass", { scope, companyId });
+    return false;
+  }
   const scopes = (data.hitl_scopes || {}) as Record<string, boolean>;
-  // Default to true when the scope is missing in config
-  return scopes[scope] !== false;
+  const decision = scopes[scope] !== false;
+  console.log("[hitl-gate] decision", { companyId, scope, hitl_enabled: data.hitl_enabled, scopes, gate: decision });
+  return decision;
 }
 
 /**
