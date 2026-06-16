@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
-import { shouldGate, createApprovalRequest } from "../_shared/hitl-gate.ts";
+import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -227,10 +227,20 @@ serve(async (req) => {
           // Use saved custom message — skip AI generation
           const parsed = { subject: customMsg.subject, message: customMsg.message };
 
+          // Human takeover: pause enrollment and skip — operator owns the thread.
+          if (!bypassHitl && await isLeadUnderHumanTakeover(supabase, { lead_id: lead.id })) {
+            await supabase.from("cadence_enrollments").update({
+              status: "paused", paused_reason: "human_takeover", next_execution_at: null,
+            }).eq("id", enrollment.id);
+            console.log("[cadence-executor] paused — human_takeover", { enrollment_id: enrollment.id, lead_id: lead.id });
+            processed++;
+            continue;
+          }
+
           // HITL gate
           if (!bypassHitl) {
             const scope = enrollment.current_step === 1 ? "first_message" : "cadence_step";
-            if (await shouldGate(supabase, cadence.company_id, scope as any)) {
+            if (await shouldGate(supabase, cadence.company_id, scope as any, { lead_id: lead.id })) {
               await createApprovalRequest(supabase, {
                 company_id: cadence.company_id,
                 lead_id: lead.id,
@@ -486,10 +496,20 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           parsed = { subject: null, message: aiContent };
         }
 
+        // Human takeover: pause and skip.
+        if (!bypassHitl && await isLeadUnderHumanTakeover(supabase, { lead_id: lead.id })) {
+          await supabase.from("cadence_enrollments").update({
+            status: "paused", paused_reason: "human_takeover", next_execution_at: null,
+          }).eq("id", enrollment.id);
+          console.log("[cadence-executor] paused — human_takeover", { enrollment_id: enrollment.id, lead_id: lead.id });
+          processed++;
+          continue;
+        }
+
         // HITL gate (AI-generated message path)
         if (!bypassHitl) {
           const scope = enrollment.current_step === 1 ? "first_message" : "cadence_step";
-          if (await shouldGate(supabase, cadence.company_id, scope as any)) {
+          if (await shouldGate(supabase, cadence.company_id, scope as any, { lead_id: lead.id })) {
             await createApprovalRequest(supabase, {
               company_id: cadence.company_id,
               lead_id: lead.id,
