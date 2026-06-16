@@ -682,7 +682,7 @@ async function execBookingTool(
   // Recarrega estado fresco (memória, holds, última inbound/outbound).
   const [{ data: memRow }, { data: holdsRaw }, { data: bookingsRaw }, { data: convs }] = await Promise.all([
     supabase.from("lead_memory").select("facts").eq("lead_id", ctx.lead_id).maybeSingle(),
-    supabase.from("slot_holds").select("id, slot_datetime, status, expires_at").eq("lead_id", ctx.lead_id).in("status", ["held", "confirmed"]),
+    supabase.from("slot_holds").select("id, slot_datetime, status, expires_at").eq("lead_id", ctx.lead_id).eq("status", "held"),
     supabase.from("bookings").select("id, calcom_booking_uid, status, scheduled_at, updated_at").eq("lead_id", ctx.lead_id).in("status", ["confirmed", "pending", "rescheduled"]).order("updated_at", { ascending: false }).limit(5),
     supabase.from("conversations").select("id").eq("lead_id", ctx.lead_id),
   ]);
@@ -873,9 +873,13 @@ async function execBookingTool(
       const newFacts = { ...facts };
       if (newFacts.offered_slots_pending) {
         delete newFacts.offered_slots_pending;
-        await supabase.from("lead_memory").upsert({ lead_id: ctx.lead_id, facts: newFacts }, { onConflict: "lead_id" });
+        const { error: memErr } = await supabase.from("lead_memory").upsert(
+          { lead_id: ctx.lead_id, company_id: ctx.company_id, facts: newFacts, updated_at: new Date().toISOString() },
+          { onConflict: "lead_id" },
+        );
+        if (memErr) console.error("lead_memory upsert (clear offered_slots_pending) failed:", memErr);
       }
-    } catch (_) {}
+    } catch (e) { console.error("lead_memory upsert (clear offered_slots_pending) threw:", e); }
     const guestSuffix = guestEmails.length > 0
       ? ` Também incluí ${guestEmails.join(", ")} no convite — eles vão receber o invite por e-mail.`
       : "";
@@ -2281,10 +2285,11 @@ Deno.serve(async (req) => {
                 slots: offered,
                 offered_at: new Date().toISOString(),
               };
-              await supabase.from("lead_memory").upsert(
-                { lead_id, facts },
+              const { error: memErr } = await supabase.from("lead_memory").upsert(
+                { lead_id, company_id: ctx.lead.company_id, facts, updated_at: new Date().toISOString() },
                 { onConflict: "lead_id" },
               );
+              if (memErr) console.error("lead_memory upsert (offered_slots_pending) failed:", memErr);
               // Liberar holds antigos do lead que NÃO estejam nos novos `offered`.
               try {
                 const { data: oldHolds } = await supabase
@@ -2303,8 +2308,8 @@ Deno.serve(async (req) => {
                     .update({ status: "released" })
                     .in("id", stale.map((h: any) => h.id));
                 }
-              } catch (_) { /* best effort */ }
-            } catch (_) { /* best effort */ }
+              } catch (e) { console.error("stale slot_holds release failed:", e); }
+            } catch (e) { console.error("lead_memory upsert (offered_slots_pending) threw:", e); }
 
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
