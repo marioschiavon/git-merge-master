@@ -14,6 +14,111 @@ export type Database = {
   }
   public: {
     Tables: {
+      approval_requests: {
+        Row: {
+          action: string
+          cadence_id: string | null
+          channel: string | null
+          company_id: string
+          context: Json
+          conversation_id: string | null
+          created_at: string
+          edited_payload: Json | null
+          enrollment_id: string | null
+          executed_at: string | null
+          execution_error: string | null
+          id: string
+          kind: string
+          lead_id: string | null
+          payload: Json
+          rejection_reason: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          action?: string
+          cadence_id?: string | null
+          channel?: string | null
+          company_id: string
+          context?: Json
+          conversation_id?: string | null
+          created_at?: string
+          edited_payload?: Json | null
+          enrollment_id?: string | null
+          executed_at?: string | null
+          execution_error?: string | null
+          id?: string
+          kind: string
+          lead_id?: string | null
+          payload?: Json
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          cadence_id?: string | null
+          channel?: string | null
+          company_id?: string
+          context?: Json
+          conversation_id?: string | null
+          created_at?: string
+          edited_payload?: Json | null
+          enrollment_id?: string | null
+          executed_at?: string | null
+          execution_error?: string | null
+          id?: string
+          kind?: string
+          lead_id?: string | null
+          payload?: Json
+          rejection_reason?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "approval_requests_cadence_id_fkey"
+            columns: ["cadence_id"]
+            isOneToOne: false
+            referencedRelation: "cadences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "approval_requests_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           attendees: Json | null
@@ -707,6 +812,8 @@ export type Database = {
           calcom_team_id: number | null
           created_at: string
           enrichment_settings: Json
+          hitl_enabled: boolean
+          hitl_scopes: Json
           id: string
           logo_url: string | null
           max_leads: number
@@ -722,6 +829,8 @@ export type Database = {
           calcom_team_id?: number | null
           created_at?: string
           enrichment_settings?: Json
+          hitl_enabled?: boolean
+          hitl_scopes?: Json
           id?: string
           logo_url?: string | null
           max_leads?: number
@@ -737,6 +846,8 @@ export type Database = {
           calcom_team_id?: number | null
           created_at?: string
           enrichment_settings?: Json
+          hitl_enabled?: boolean
+          hitl_scopes?: Json
           id?: string
           logo_url?: string | null
           max_leads?: number
