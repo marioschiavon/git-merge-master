@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
-import { shouldGate, createApprovalRequest } from "../_shared/hitl-gate.ts";
+import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -113,6 +113,12 @@ async function generateReply(ctx: ActionContext, opts: { tone?: string; category
 
 async function sendOutbound(ctx: ActionContext, content: string, subject: string | null, channel: string, metadata: Record<string, any> = {}) {
   if (!ctx.conversation_id) return { sent: false, reason: "no conversation_id" };
+
+  // Human takeover: operator owns the thread — never send or create approvals.
+  if (await isLeadUnderHumanTakeover(ctx.supabase, { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
+    console.log("[execute-action] skip sendOutbound — human_takeover", { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id });
+    return { sent: false, reason: "human_takeover" };
+  }
 
   // HITL gate: if enabled for this company + scope, create approval and skip send
   if (!metadata.hitl_bypass) {
