@@ -2154,6 +2154,7 @@ Deno.serve(async (req) => {
                 params: {
                   message: msg,
                   channel: (finalDecision as any).channel || undefined,
+                  _ctx: (finalDecision as any).tool_failure ? { tool_failure: (finalDecision as any).tool_failure } : undefined,
                 },
               },
             });
