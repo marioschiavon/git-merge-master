@@ -327,7 +327,7 @@ serve(async (req) => {
       }
     }
 
-    if (!isFirstAttempt || !decision!) {
+    if (!override_decision && (!isFirstAttempt || !decision!)) {
 
     const [convsRes, prevDecisionsRes, kbRes, highlightsRes, aiInstrRes] = await Promise.all([
       supabase.from("conversations").select("id, channel").eq("lead_id", lead.id),
