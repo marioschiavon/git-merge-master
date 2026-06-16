@@ -133,7 +133,13 @@ export function AppSidebar() {
                           {pendingCount}
                         </Badge>
                       )}
+                      {(item as any).showInboxBadge && inboxCount > 0 && (
+                        <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-[10px] bg-blue-100 text-blue-800">
+                          {inboxCount}
+                        </Badge>
+                      )}
                     </NavLink>
+
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
