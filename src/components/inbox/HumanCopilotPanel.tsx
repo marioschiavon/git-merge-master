@@ -121,6 +121,7 @@ export function HumanCopilotPanel({
       activeBooking.refetch();
       holds.refetch();
       setSlots((prev) => prev.filter((s) => s.hold_id !== hold.hold_id));
+      setSuggestGuests([]);
     } catch (e: any) {
       toast.error(e?.message || "Erro ao confirmar reunião");
     } finally {
