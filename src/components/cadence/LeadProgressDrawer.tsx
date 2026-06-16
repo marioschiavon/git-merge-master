@@ -231,3 +231,49 @@ export function LeadProgressDrawer({
     </Sheet>
   );
 }
+
+function AnnotateDecisionButton({ decisionId }: { decisionId: string }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const annotate = useAnnotateDecision();
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 px-2 -my-1 text-xs"
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+      >
+        <NotebookPen className="h-3 w-3 mr-1" /> Anotar
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <NotebookPen className="h-4 w-4" /> Anotar decisão do agente
+            </DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="O que você observou? (ex: lógica errada, tom OK, faltou personalização...)"
+            rows={5}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={!note.trim() || annotate.isPending}
+              onClick={async () => {
+                await annotate.mutateAsync({ decision_id: decisionId, note: note.trim() });
+                setNote("");
+                setOpen(false);
+              }}
+            >
+              Salvar anotação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
