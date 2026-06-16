@@ -13,6 +13,10 @@ export interface ReferralContact {
   /** True when the inbound contains a "wrong person / redirect" signal
    *  ("não sou eu", "não é comigo", "quem cuida disso é", "fala com X"). */
   redirect_signal?: boolean;
+  /** Sinal interno (não persistido) — regex detectou contexto de nome
+   *  mas só capturou um título ("Dra", "Dr."), ou nada. Camada superior
+   *  deve chamar a LLM pra tentar extrair o nome completo. */
+  name_needs_llm?: boolean;
 }
 
 export interface EntityResult {
@@ -141,7 +145,34 @@ const NAME_STOPWORDS = new Set([
   "Email", "E-mail", "Whatsapp", "WhatsApp", "Telefone", "Contato",
   "Empresa", "Pessoa", "Responsável", "Responsavel",
 ]);
+// Títulos que sozinhos NÃO são nome — precisam vir com nome próprio.
+// Comparação é case-insensitive e ignora ponto final.
+const TITLE_ONLY = new Set([
+  "dr", "dra", "sr", "sra", "srta", "prof", "profa", "doutor", "doutora",
+]);
 const REDIRECT_SIGNAL_RE = /(n[aã]o\s+(?:sou\s+eu|seria\s+comigo|[ée]\s+comigo|sou\s+(?:o|a)\s+respons[aá]vel)|esse\s+assunto\s+n[aã]o\s+(?:[ée]|seria)\s+comigo|quem\s+(?:cuida|v[eê]|trata|cuidaria)\s+(?:disso|desse\s+assunto)|sou\s+s[óo]\s+(?:o|a)\s+(?:assistente|secret[aá]ri))/i;
+// Contextos em que o regex DETECTOU referência a um nome mas pode ter
+// falhado em extraí-lo (ex.: "Dra." com pontuação atípica, vírgulas no meio,
+// nome composto raro). Quando isso casa, marcamos name_needs_llm pra que a
+// camada superior chame a LLM como fallback.
+const NAME_CONTEXT_RE = /\b(fala\s+com|fale\s+com|falar?\s+com|procurar?|contatar?|quem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)|com\s+(?:o|a)\s+|chama(?:-se)?|nome\s+(?:dela|dele|d[aoe])|pessoa\s+(?:correta|certa|respons[aá]vel)|respons[aá]vel\s+[ée])\b/i;
+
+/** Normaliza nome capturado: remove pontos finais de cada token, colapsa
+ *  espaços, retorna nome ou null se ficou só um título / vazio. */
+function normalizeName(raw: string): string | null {
+  const clean = raw
+    .split(/\s+/)
+    .map((tok) => tok.replace(/\.+$/, "").trim())
+    .filter(Boolean)
+    .join(" ");
+  if (!clean) return null;
+  const tokens = clean.split(/\s+/);
+  // Só título? Descarta.
+  if (tokens.length === 1 && TITLE_ONLY.has(tokens[0].toLowerCase())) return null;
+  // Stopword? (Email, Telefone, etc.)
+  if (NAME_STOPWORDS.has(tokens[0])) return null;
+  return clean;
+}
 
 function detectReferralContact(text: string): ReferralContact | null {
   const email = text.match(EMAIL_RE)?.[0]?.toLowerCase();
@@ -150,29 +181,48 @@ function detectReferralContact(text: string): ReferralContact | null {
   const phone = phoneDigits.length >= 10 ? phoneDigits : undefined;
   const permission = PERMISSION_RE.test(text) ? true : undefined;
   let name: string | undefined;
+  // Quando algum padrão nominal casou (mesmo que tenhamos descartado por ser
+  // só título), marcamos para que a LLM tente recuperar o nome completo.
+  let nameContextMatched = false;
   for (const re of NAME_HINT_PATTERNS) {
     const m = text.match(re);
     const cand = m?.[1]?.trim();
-    if (cand && !NAME_STOPWORDS.has(cand)) {
-      name = cand;
+    if (!cand) continue;
+    nameContextMatched = true;
+    const normalized = normalizeName(cand);
+    if (normalized) {
+      name = normalized;
       break;
     }
+    // cand era só título ("Dra"); continua tentando outros padrões.
   }
   const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
   // Fallback: se há sinal de redirect mas nenhum padrão nominal casou, tenta "é o/a X".
   if (!name && redirect) {
     const m = text.match(NAME_REDIRECT_FALLBACK_RE);
     const cand = m?.[1]?.trim();
-    if (cand && !NAME_STOPWORDS.has(cand)) name = cand;
+    if (cand) {
+      nameContextMatched = true;
+      const normalized = normalizeName(cand);
+      if (normalized) name = normalized;
+    }
   }
 
-  if (!email && !phone && permission === undefined && !name && !redirect) return null;
+  // Contexto genérico de nome (sem captura ainda) — também aciona LLM.
+  if (!nameContextMatched && NAME_CONTEXT_RE.test(text)) {
+    nameContextMatched = true;
+  }
+
+  const needsLlm = !name && nameContextMatched;
+
+  if (!email && !phone && permission === undefined && !name && !redirect && !needsLlm) return null;
   const contact: ReferralContact = {};
   if (email) contact.email = email;
   if (phone) contact.phone = phone;
   if (name) contact.name = name;
   if (permission !== undefined) contact.permission_to_mention = permission;
   if (redirect) contact.redirect_signal = true;
+  if (needsLlm) contact.name_needs_llm = true;
   return contact;
 }
 
