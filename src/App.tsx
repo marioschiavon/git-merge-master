@@ -13,6 +13,8 @@ import Cadences from "@/pages/Cadences";
 import CadencesDashboard from "@/pages/CadencesDashboard";
 import Scripts from "@/pages/Scripts";
 import Conversations from "@/pages/Conversations";
+import Inbox from "@/pages/Inbox";
+
 import Reports from "@/pages/Reports";
 import Knowledge from "@/pages/Knowledge";
 import AgentRuns from "@/pages/AgentRuns";
