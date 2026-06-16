@@ -542,6 +542,55 @@ Decida a próxima ação.`;
       // Inline send: email via gmail-send, whatsapp via Z-API.
       const channel = decision.channel;
       const isSimulation = !!cadence.simulation_mode;
+
+      // === HITL gate (only for real sends, not simulation, not when bypassed) ===
+      const scope = isFirstAttempt ? "first_message" : "cadence_step";
+      if (!isSimulation && !bypass_hitl && await shouldGate(supabase, cadence.company_id, scope as any)) {
+        // Persist the decision so it shows up in the cadence timeline
+        await persistDecision(decision, { model: "google/gemini-2.5-flash", hitl_status: "pending_approval" });
+        // Create approval request for the operator
+        await createApprovalRequest(supabase, {
+          company_id: cadence.company_id,
+          lead_id: lead.id,
+          enrollment_id,
+          cadence_id: cadence.id,
+          kind: scope as any,
+          channel,
+          action: "agentic_send",
+          payload: {
+            subject: decision.subject || null,
+            message: decision.message,
+            hook: decision.hook || null,
+            attempt: attemptNumber,
+            agentic: true,
+          },
+          context: {
+            rationale: decision.rationale,
+            cadence_name: cadence.name,
+            attempt: attemptNumber,
+          },
+        });
+        // Pause enrollment so the executor doesn't keep re-firing
+        await supabase
+          .from("cadence_enrollments")
+          .update({
+            status: "paused",
+            paused_reason: "awaiting_approval",
+            next_execution_at: null,
+          })
+          .eq("id", enrollment_id);
+        await supabase.from("lead_activities").insert({
+          company_id: cadence.company_id,
+          lead_id: lead.id,
+          type: "system",
+          description: `🕓 IA propôs envio (${channel}/${decision.hook || "-"}) — aguardando aprovação humana`,
+          metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, hitl: true, channel },
+        });
+        return new Response(JSON.stringify({ action: "pending_approval", channel }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       let sendAction = isSimulation ? "simulated" : "sent";
       let deliveryMeta: Record<string, any> = isSimulation ? { delivery_status: "simulated" } : {};
       const conversation = isSimulation
@@ -549,6 +598,8 @@ Decida a próxima ação.`;
         : await findOrCreateConversation(
             supabase, lead.id, cadence.company_id, channel, enrollment_id
           );
+
+
 
       if (isSimulation) {
         // Dry-run: do NOT call gmail-send / Z-API and do NOT insert into messages.
