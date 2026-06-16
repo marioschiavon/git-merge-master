@@ -297,6 +297,21 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
           await logActivity(ctx, "note", "⚠️ Callback agendado por e-mail, mas lead sem e-mail cadastrado");
           return { skipped: "no email" };
         }
+        // HITL gate
+        if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply")) {
+          await createApprovalRequest(ctx.supabase, {
+            company_id: ctx.company_id,
+            lead_id: ctx.lead_id,
+            conversation_id: ctx.conversation_id,
+            kind: "sdr_reply",
+            channel: "email",
+            action: "schedule_followup_callback",
+            payload: { subject: reply.subject || "Continuando nossa conversa", message: reply.body, to: lead.email },
+            context: { intent_log_id: ctx.intent_log_id, lead_requested: true },
+          });
+          await logActivity(ctx, "system", `🕓 Callback por e-mail aguardando aprovação humana`);
+          return { sent: false, reason: "hitl_pending", pending_approval: true };
+        }
         await ctx.supabase.functions.invoke("gmail-send", {
           body: {
             to: lead.email,
@@ -461,6 +476,23 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       body = reply.body;
       subject = subject ?? reply.subject ?? "Continuando nossa conversa";
     }
+
+    // HITL gate
+    if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply")) {
+      await createApprovalRequest(ctx.supabase, {
+        company_id: ctx.company_id,
+        lead_id: ctx.lead_id,
+        conversation_id: ctx.conversation_id,
+        kind: "sdr_reply",
+        channel: "email",
+        action: "send_email",
+        payload: { subject, message: body, to: lead.email },
+        context: { intent_log_id: ctx.intent_log_id },
+      });
+      await logActivity(ctx, "system", `🕓 E-mail aguardando aprovação humana`);
+      return { sent: false, reason: "hitl_pending", pending_approval: true };
+    }
+
     const { error } = await ctx.supabase.functions.invoke("gmail-send", {
       body: {
         to: lead.email,
