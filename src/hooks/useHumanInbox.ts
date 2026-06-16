@@ -29,7 +29,7 @@ export function useInboxQueue() {
   useEffect(() => {
     if (!companyId) return;
     const channel = supabase
-      .channel(`inbox-realtime-${companyId}`)
+      .channel(`inbox-realtime-${companyId}-${Math.random().toString(36).slice(2)}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "conversations", filter: `company_id=eq.${companyId}` }, () => {
         qc.invalidateQueries({ queryKey: ["inbox-queue", companyId] });
       })
