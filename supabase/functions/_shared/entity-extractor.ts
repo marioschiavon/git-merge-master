@@ -157,21 +157,24 @@ const REDIRECT_SIGNAL_RE = /(n[aã]o\s+(?:sou\s+eu|seria\s+comigo|[ée]\s+comigo
 // camada superior chame a LLM como fallback.
 const NAME_CONTEXT_RE = /\b(fala\s+com|fale\s+com|falar?\s+com|procurar?|contatar?|quem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)|com\s+(?:o|a)\s+|chama(?:-se)?|nome\s+(?:dela|dele|d[aoe])|pessoa\s+(?:correta|certa|respons[aá]vel)|respons[aá]vel\s+[ée])\b/i;
 
-/** Normaliza nome capturado: remove pontos finais de cada token, colapsa
- *  espaços, retorna nome ou null se ficou só um título / vazio. */
+/** Normaliza nome capturado: remove pontos finais, descarta stopwords
+ *  (Email, Telefone, etc.) e títulos sozinhos. Retorna null se ficou vazio. */
 function normalizeName(raw: string): string | null {
-  const clean = raw
+  const tokens = raw
     .split(/\s+/)
     .map((tok) => tok.replace(/\.+$/, "").trim())
-    .filter(Boolean)
-    .join(" ");
-  if (!clean) return null;
-  const tokens = clean.split(/\s+/);
+    .filter(Boolean);
+  // Trunca no primeiro stopword (regex tende a "vazar" pra próxima frase:
+  // "Andreia. Email dela é..." → ["Andreia", "Email"] → fica "Andreia").
+  const cut: string[] = [];
+  for (const t of tokens) {
+    if (NAME_STOPWORDS.has(t)) break;
+    cut.push(t);
+  }
+  if (cut.length === 0) return null;
   // Só título? Descarta.
-  if (tokens.length === 1 && TITLE_ONLY.has(tokens[0].toLowerCase())) return null;
-  // Stopword? (Email, Telefone, etc.)
-  if (NAME_STOPWORDS.has(tokens[0])) return null;
-  return clean;
+  if (cut.length === 1 && TITLE_ONLY.has(cut[0].toLowerCase())) return null;
+  return cut.join(" ");
 }
 
 function detectReferralContact(text: string): ReferralContact | null {
