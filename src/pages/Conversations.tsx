@@ -138,6 +138,11 @@ export default function Conversations() {
     return match?.id || selectedGroup.conversations[0]?.id || null;
   }, [selectedGroup, replyChannel]);
 
+  const { data: takeoverState } = useConversationTakeover(replyConversationId);
+  const takeover = useTakeoverToggle();
+  const humanOn = !!takeoverState?.human_takeover;
+
+
   const handleReset = async () => {
     setResetting(true);
     try {
