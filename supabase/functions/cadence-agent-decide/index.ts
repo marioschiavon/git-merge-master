@@ -4,6 +4,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { buildFirstMessage } from "../_shared/build-first-message.ts";
+import { shouldGate, createApprovalRequest } from "../_shared/hitl-gate.ts";
 
 async function findOrCreateConversation(
   supabase: any,
@@ -85,7 +86,12 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const { enrollment_id } = await req.json();
+    const reqBody = await req.json();
+    const { enrollment_id, bypass_hitl, override_decision } = reqBody as {
+      enrollment_id?: string;
+      bypass_hitl?: boolean;
+      override_decision?: Partial<Decision>;
+    };
     if (!enrollment_id) {
       return new Response(JSON.stringify({ error: "enrollment_id required" }), {
         status: 400,
