@@ -92,8 +92,34 @@ serve(async (req) => {
 
       return jsonResponse({ success: true, already_cancelled: alreadyCancelled, idempotency_key });
     } catch (err) {
-      await markCalendarActionFailed(supabase, claim.row.id, err);
-      throw err;
+      const calStatus = err instanceof CalcomError ? err.status : null;
+      const calBody = err instanceof CalcomError ? err.body : null;
+      const calMessage = err instanceof Error ? err.message : String(err);
+      const failurePayload = {
+        cal_status: calStatus,
+        cal_body: calBody,
+        cal_message: calMessage,
+        booking_uid,
+      };
+      console.error("calcom-booking-cancel: cal.com rejected", JSON.stringify(failurePayload));
+      try {
+        await markCalendarActionFailed(supabase, claim.row.id, err);
+        await supabase
+          .from("calendar_actions")
+          .update({ response_payload: failurePayload })
+          .eq("id", claim.row.id);
+      } catch (_) { /* swallow */ }
+      const httpStatus = calStatus && calStatus >= 400 && calStatus < 600 ? 502 : 500;
+      return jsonResponse(
+        {
+          success: false,
+          error: calMessage,
+          cal_status: calStatus,
+          cal_body: calBody,
+          idempotency_key,
+        },
+        httpStatus,
+      );
     }
   } catch (e) {
     console.error("calcom-booking-cancel error:", e);
