@@ -50,7 +50,7 @@ serve(async (req) => {
       });
     }
     if (claim.kind === "pending") {
-      return jsonResponse({ success: false, in_flight: true, idempotency_key }, 409);
+      return jsonResponse({ success: false, in_flight: true, error_code: "in_flight", idempotency_key }, 409);
     }
 
     try {
