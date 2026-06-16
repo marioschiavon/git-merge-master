@@ -226,8 +226,32 @@ serve(async (req) => {
         if (customMsg) {
           // Use saved custom message — skip AI generation
           const parsed = { subject: customMsg.subject, message: customMsg.message };
+
+          // HITL gate
+          if (!bypassHitl) {
+            const scope = enrollment.current_step === 1 ? "first_message" : "cadence_step";
+            if (await shouldGate(supabase, cadence.company_id, scope as any)) {
+              await createApprovalRequest(supabase, {
+                company_id: cadence.company_id,
+                lead_id: lead.id,
+                enrollment_id: enrollment.id,
+                cadence_id: cadence.id,
+                kind: scope as any,
+                channel: currentStep.channel,
+                payload: { subject: parsed.subject, message: parsed.message, step_id: currentStep.id, step_order: currentStep.step_order },
+                context: { source: "custom_message", cadence_name: cadence.name },
+              });
+              await supabase.from("cadence_enrollments").update({
+                status: "paused", paused_reason: "hitl_pending", next_execution_at: null,
+              }).eq("id", enrollment.id);
+              processed++;
+              continue;
+            }
+          }
+
           let sendAction = "sent";
           let deliveryMeta: Record<string, any> = {};
+
 
           // === CHANNEL-SPECIFIC SENDING (same logic as below) ===
           // Pre-resolve conversation so gmail-send can attach the persisted email to it
@@ -462,8 +486,31 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           parsed = { subject: null, message: aiContent };
         }
 
+        // HITL gate (AI-generated message path)
+        if (!bypassHitl) {
+          const scope = enrollment.current_step === 1 ? "first_message" : "cadence_step";
+          if (await shouldGate(supabase, cadence.company_id, scope as any)) {
+            await createApprovalRequest(supabase, {
+              company_id: cadence.company_id,
+              lead_id: lead.id,
+              enrollment_id: enrollment.id,
+              cadence_id: cadence.id,
+              kind: scope as any,
+              channel: currentStep.channel,
+              payload: { subject: parsed.subject, message: parsed.message, step_id: currentStep.id, step_order: currentStep.step_order },
+              context: { source: "ai_generated", cadence_name: cadence.name },
+            });
+            await supabase.from("cadence_enrollments").update({
+              status: "paused", paused_reason: "hitl_pending", next_execution_at: null,
+            }).eq("id", enrollment.id);
+            processed++;
+            continue;
+          }
+        }
+
         let sendAction = "sent";
         let deliveryMeta: Record<string, any> = {};
+
 
         // === CHANNEL-SPECIFIC SENDING ===
         // Pre-resolve conversation so gmail-send can attach the persisted email to it
