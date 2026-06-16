@@ -12,6 +12,7 @@ export type InboxConversation = {
   human_taken_at: string | null;
   human_taken_by: string | null;
   human_takeover_reason: string | null;
+  latest_activity_at: string | null;
   lead: {
     id: string;
     name: string | null;
@@ -49,8 +50,7 @@ export function useInboxQueue() {
         .from("conversations")
         .select("id, lead_id, channel, last_inbound_at, human_taken_at, human_taken_by, human_takeover_reason, leads(id, name, email, company_name)")
         .eq("company_id", companyId!)
-        .eq("human_takeover", true)
-        .order("last_inbound_at", { ascending: false, nullsFirst: false });
+        .eq("human_takeover", true);
       if (error) throw error;
       const convIds = (data || []).map((c) => c.id);
       let lastMap = new Map<string, any>();
@@ -65,20 +65,33 @@ export function useInboxQueue() {
           if (!lastMap.has(m.conversation_id)) lastMap.set(m.conversation_id, m);
         }
       }
-      return (data || []).map((c: any) => ({
-        id: c.id,
-        lead_id: c.lead_id,
-        channel: c.channel,
-        last_inbound_at: c.last_inbound_at,
-        human_taken_at: c.human_taken_at,
-        human_taken_by: c.human_taken_by,
-        human_takeover_reason: c.human_takeover_reason,
-        lead: c.leads || null,
-        last_message: lastMap.get(c.id) || null,
-      }));
+      const rows: InboxConversation[] = (data || []).map((c: any) => {
+        const lm = lastMap.get(c.id) || null;
+        const ts = [c.last_inbound_at, lm?.sent_at].filter(Boolean).map((t) => new Date(t).getTime());
+        const latest = ts.length ? new Date(Math.max(...ts)).toISOString() : null;
+        return {
+          id: c.id,
+          lead_id: c.lead_id,
+          channel: c.channel,
+          last_inbound_at: c.last_inbound_at,
+          human_taken_at: c.human_taken_at,
+          human_taken_by: c.human_taken_by,
+          human_takeover_reason: c.human_takeover_reason,
+          latest_activity_at: latest,
+          lead: c.leads || null,
+          last_message: lm,
+        };
+      });
+      rows.sort((a, b) => {
+        const ta = a.latest_activity_at ? new Date(a.latest_activity_at).getTime() : 0;
+        const tb = b.latest_activity_at ? new Date(b.latest_activity_at).getTime() : 0;
+        return tb - ta;
+      });
+      return rows;
     },
   });
 }
+
 
 export function useTakeoverToggle() {
   const qc = useQueryClient();

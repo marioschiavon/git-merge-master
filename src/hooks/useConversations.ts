@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
@@ -22,6 +23,23 @@ export function useConversations() {
 }
 
 export function useMessages(conversationId: string | null) {
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!conversationId) return;
+    const channel = supabase
+      .channel(`messages-realtime-${conversationId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "messages", filter: `conversation_id=eq.${conversationId}` },
+        () => {
+          qc.invalidateQueries({ queryKey: ["messages", conversationId] });
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [conversationId, qc]);
+
   return useQuery({
     queryKey: ["messages", conversationId],
     queryFn: async () => {
@@ -37,6 +55,7 @@ export function useMessages(conversationId: string | null) {
     enabled: !!conversationId,
   });
 }
+
 
 export function useLeadMessages(conversations: Array<{ id: string; channel: string }>) {
   const ids = conversations.map((c) => c.id).sort().join(",");
