@@ -53,6 +53,8 @@ const App = () => (
               <Route path="/cadences/dashboard" element={<CadencesDashboard />} />
               <Route path="/scripts" element={<Scripts />} />
               <Route path="/conversations" element={<Conversations />} />
+              <Route path="/inbox" element={<Inbox />} />
+
               <Route path="/reports" element={<Reports />} />
               <Route path="/knowledge" element={<Knowledge />} />
               <Route path="/agent-runs" element={<AgentRuns />} />
