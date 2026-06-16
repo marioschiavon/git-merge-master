@@ -112,7 +112,7 @@ export function HumanCopilotPanel({
     setBusy(`book-${hold.hold_id}`);
     try {
       const { data, error } = await supabase.functions.invoke("human-book-slot", {
-        body: { conversation_id: conversationId, hold_id: hold.hold_id, notify_lead: true },
+        body: { conversation_id: conversationId, hold_id: hold.hold_id, notify_lead: true, guests: suggestGuests },
       });
       if (error) throw new Error(error.message);
       if ((data as any)?.error) throw new Error((data as any).error);
