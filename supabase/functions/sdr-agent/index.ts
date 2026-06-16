@@ -1434,18 +1434,26 @@ Deno.serve(async (req) => {
   let runId: string | null = null;
   try {
     // Guard: respeita Humano-no-loop. Se a conversa-alvo (ou qualquer conversa
-    // do lead, se conversation_id não veio) está em human_takeover, não rode.
+    // do lead, quando conversation_id não veio) está em human_takeover, não rode.
     {
-      const q = supabase
-        .from("conversations")
-        .select("id, human_takeover")
-        .eq("lead_id", lead_id)
-        .eq("human_takeover", true)
-        .limit(1);
-      const { data: ht } = conversation_id
-        ? await supabase.from("conversations").select("id, human_takeover").eq("id", conversation_id).maybeSingle().then((r) => ({ data: r.data && r.data.human_takeover ? [r.data] : [] }))
-        : await q;
-      if (ht && ht.length > 0) {
+      let humanOn = false;
+      if (conversation_id) {
+        const { data: c } = await supabase
+          .from("conversations")
+          .select("human_takeover")
+          .eq("id", conversation_id)
+          .maybeSingle();
+        humanOn = !!c?.human_takeover;
+      } else {
+        const { data: cs } = await supabase
+          .from("conversations")
+          .select("id")
+          .eq("lead_id", lead_id)
+          .eq("human_takeover", true)
+          .limit(1);
+        humanOn = !!(cs && cs.length > 0);
+      }
+      if (humanOn) {
         console.log(`sdr-agent: skip (human_takeover) lead=${lead_id} conv=${conversation_id || "any"}`);
         return new Response(JSON.stringify({ ok: true, skipped: "human_takeover" }), {
           status: 200,
@@ -1453,6 +1461,7 @@ Deno.serve(async (req) => {
         });
       }
     }
+
 
     const ctx = await loadContext(lead_id);
 
