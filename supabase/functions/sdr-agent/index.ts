@@ -753,13 +753,29 @@ async function execBookingTool(
         cancellation_requested_at: new Date().toISOString(),
       }).eq("calcom_booking_uid", bookingUid);
     } catch (_) {}
-    const { data, error } = await supabase.functions.invoke("calcom-booking-cancel", {
-      body: { booking_uid: bookingUid, reason, idempotency_key, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id },
-    });
+    // One immediate retry on transient invoke errors before reporting failure.
+    let data: any = null;
+    let error: any = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const res = await supabase.functions.invoke("calcom-booking-cancel", {
+        body: { booking_uid: bookingUid, reason, idempotency_key, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id },
+      });
+      data = res.data;
+      error = res.error;
+      if (!error && !(data as any)?.error) break;
+      if (attempt < 2) {
+        console.log(`[sdr-agent] cancel_booking invoke failed (attempt ${attempt}), retrying:`, error || (data as any)?.error);
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    }
     if (error || (data as any)?.error) {
       const errStr = error ? String(error) : String((data as any)?.error);
       await markCalendarActionFailed(supabase, claim.row.id, errStr);
-      return { ok: false, error: errStr };
+      return {
+        ok: false,
+        error: errStr,
+        suggested_message: "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?",
+      };
     }
     await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: bookingUid, response_payload: (data as any) ?? {} });
     return {
