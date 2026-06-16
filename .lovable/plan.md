@@ -1,25 +1,25 @@
-## Problema
-Quando a IA (ou outro fluxo) já reservou 2 holds em `slot_holds` antes do operador assumir, o painel "Copiloto humano" não mostra esses horários — o operador precisa clicar em "Sugerir 2 horários" de novo para ver chips clicáveis, gerando novos holds e duplicando reservas no Cal.com.
+## Objetivo
 
-## Mudança (frontend, escopo mínimo)
-Na aba **Sugerir** do `HumanCopilotPanel.tsx`, mostrar automaticamente os holds **ativos e não expirados** do lead (`slot_holds.status = 'held'` e `expires_at > now()`), cada um com botão **"Agendar"** que chama o `human-book-slot` com `hold_id` (mesma rotina já usada).
+Permitir adicionar convidados (e-mails) no convite direto pela aba **Sugerir** do Copiloto humano, sem precisar trocar para a aba **Agendar**. Hoje, o botão "Agendar" em 1 clique nos horários já reservados não passa convidados — eles só existem na aba **Agendar**.
 
-### Implementação
-1. Em `HumanCopilotPanel.tsx`:
-   - Importar `useSlotHolds` (já existe em `src/hooks/useSlotHolds.ts`).
-   - `const holds = useSlotHolds(leadId);` filtrar `h.status === 'held' && new Date(h.expires_at) > new Date()`.
-   - Na aba `Sugerir`, **antes** do botão "Sugerir 2 horários", renderizar bloco "Horários já reservados" com chips no mesmo formato dos `slots` locais:
-     - label via `formatSlotBRT(h.slot_datetime)` (export já existe no hook).
-     - botão "Agendar" → `handleBookHold({ hold_id: h.id, slot_datetime, label })`.
-   - Mostrar pequena tag `expira em Xmin` (calculada a partir de `expires_at`).
-   - Após `handleBookHold` sucesso: `holds.refetch()` para somem da lista.
-2. O botão "Sugerir 2 horários" continua existindo para o caso de não haver holds ativos (ou o operador querer novos).
-3. `useSlotHolds` já tem `refetchInterval: 30000`; mantém.
+## O que muda (somente frontend)
+
+Arquivo: `src/components/inbox/HumanCopilotPanel.tsx`
+
+1. Adicionar um estado compartilhado da aba Sugerir:
+   - `suggestGuests: string[]` (lista de e-mails).
+2. Renderizar um bloco compacto `GuestsInput` no topo da aba **Sugerir**, visível sempre que houver `activeHolds.length > 0` ou `slots.length > 0`. Label: "Convidados extras (opcional)". Texto auxiliar: "Vão receber o convite junto com o lead."
+3. Em `handleBookHold(hold)`, passar `guests: suggestGuests` no body do invoke `human-book-slot` (a função já trata `cleanGuests` e chama `calcom-add-guests` quando `hold_id` está presente).
+4. Após sucesso, limpar `suggestGuests` (`setSuggestGuests([])`).
+
+Tudo o mais permanece igual: a aba **Agendar** continua com seu próprio `GuestsInput` (`bookGuests`) para o fluxo de start ISO, e a aba **Remarcar** com `reGuests`.
 
 ## Fora de escopo
-- Realtime via postgres_changes (refetch a cada 30s já basta).
-- Mudar `human-offer-slots` para reaproveitar holds existentes.
-- Mudar backend.
+
+- Mudanças em `human-book-slot` ou `calcom-add-guests` (já suportam o caso).
+- Persistir convidados entre sessões ou pré-preencher com base no histórico.
+- Realtime para holds.
 
 ## Resultado
-Assim que o operador entra na Inbox de uma conversa que já tem 2 holds reservados, eles aparecem na aba **Sugerir** com botão **Agendar** de 1 clique — sem gerar reservas duplicadas.
+
+Operador, na aba **Sugerir**, pode digitar 1+ e-mails de convidados antes de clicar "Agendar" em qualquer hold ativo — o convite Cal.com sairá com todos os participantes em um único clique.

@@ -59,6 +59,7 @@ export function HumanCopilotPanel({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [suggestGuests, setSuggestGuests] = useState<string[]>([]);
 
   // Agendar
   const [bookStart, setBookStart] = useState<string | null>(null);
