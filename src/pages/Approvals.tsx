@@ -244,10 +244,23 @@ function ApprovalDetail({
 
         {approval.status === "pending" && (
           <>
+            <div className="pt-2 border-t">
+              <Label className="text-xs flex items-center gap-1">
+                <NotebookPen className="h-3 w-3" />
+                Anotação (opcional — fica salva em /annotations para treinar a IA)
+              </Label>
+              <Textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Ex: tom muito formal, faltou personalização, prospect já respondeu antes..."
+                rows={2}
+                className="mt-1 text-sm"
+              />
+            </div>
             <div className="flex gap-2 pt-2">
               <Button
                 onClick={() =>
-                  onApprove(edited ? { subject, message } : undefined)
+                  onApprove(edited ? { subject, message } : undefined, note.trim() || undefined)
                 }
                 disabled={pending || !message.trim()}
               >
@@ -268,7 +281,7 @@ function ApprovalDetail({
                 />
                 <Button
                   variant="destructive"
-                  onClick={() => onReject(rejectReason)}
+                  onClick={() => onReject(rejectReason, note.trim() || undefined)}
                   disabled={pending}
                 >
                   Rejeitar
