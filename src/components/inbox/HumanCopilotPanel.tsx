@@ -265,6 +265,13 @@ export function HumanCopilotPanel({
 
             {/* Sugerir */}
             <TabsContent value="suggest" className="space-y-2 mt-2">
+              {(activeHolds.length > 0 || slots.length > 0) && (
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Convidados extras (opcional)</Label>
+                  <GuestsInput value={suggestGuests} onChange={setSuggestGuests} />
+                  <p className="text-[10px] text-muted-foreground">Vão receber o convite junto com o lead.</p>
+                </div>
+              )}
               {activeHolds.length > 0 && (
                 <div className="space-y-1.5 rounded-md border bg-primary/5 p-2">
                   <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
