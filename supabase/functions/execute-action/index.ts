@@ -303,6 +303,11 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
           await logActivity(ctx, "note", "⚠️ Callback agendado por e-mail, mas lead sem e-mail cadastrado");
           return { skipped: "no email" };
         }
+        // Human takeover: skip entirely.
+        if (await isLeadUnderHumanTakeover(ctx.supabase, { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
+          await logActivity(ctx, "system", `⏸️ Callback ignorado — operador no controle (human_takeover)`);
+          return { sent: false, reason: "human_takeover" };
+        }
         // HITL gate
         if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply", { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
           await createApprovalRequest(ctx.supabase, {
