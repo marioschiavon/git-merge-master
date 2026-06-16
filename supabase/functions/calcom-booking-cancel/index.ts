@@ -19,7 +19,7 @@ serve(async (req) => {
 
     const { data: existing } = await supabase
       .from("bookings")
-      .select("id, company_id, lead_id, status, conversation_id")
+      .select("id, company_id, lead_id, status, conversation_id, scheduled_at")
       .eq("calcom_booking_uid", booking_uid)
       .maybeSingle();
 
@@ -82,6 +82,28 @@ serve(async (req) => {
             description: `❌ Reunião cancelada${reason ? `: ${reason}` : ""}`,
             metadata: { booking_uid, reason, idempotency_key },
           });
+        }
+        // Liberar slot_holds (±5min) associados a esse horário pro mesmo lead.
+        try {
+          if (existing.lead_id && existing.scheduled_at) {
+            const target = new Date(existing.scheduled_at).getTime();
+            const lo = new Date(target - 5 * 60_000).toISOString();
+            const hi = new Date(target + 5 * 60_000).toISOString();
+            const { data: relatedHolds } = await supabase
+              .from("slot_holds")
+              .select("id")
+              .eq("lead_id", existing.lead_id)
+              .in("status", ["held", "confirmed"])
+              .gte("slot_datetime", lo)
+              .lte("slot_datetime", hi);
+            if (relatedHolds && relatedHolds.length > 0) {
+              await supabase.from("slot_holds")
+                .update({ status: "released" })
+                .in("id", relatedHolds.map((h: any) => h.id));
+            }
+          }
+        } catch (e) {
+          console.error("calcom-booking-cancel: release slot_holds failed:", e);
         }
       }
 
