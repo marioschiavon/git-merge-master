@@ -98,6 +98,19 @@ export async function createApprovalRequest(
   params: ApprovalParams,
 ): Promise<{ id: string; created: boolean } | null> {
   try {
+    // Hard short-circuit: if a human is in control of this lead/conversation,
+    // do NOT create approvals — the operator drives the thread directly.
+    if (await isLeadUnderHumanTakeover(supabase, {
+      lead_id: params.lead_id,
+      conversation_id: params.conversation_id,
+    })) {
+      console.log("[hitl-gate] skipped createApprovalRequest — human_takeover", {
+        lead_id: params.lead_id,
+        conversation_id: params.conversation_id,
+        kind: params.kind,
+      });
+      return null;
+    }
     if (params.enrollment_id) {
       const { data: existing } = await supabase
         .from("approval_requests")
