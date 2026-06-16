@@ -547,7 +547,7 @@ Decida a próxima ação.`;
       const scope = isFirstAttempt ? "first_message" : "cadence_step";
       if (!isSimulation && !bypass_hitl && await shouldGate(supabase, cadence.company_id, scope as any)) {
         // Persist the decision so it shows up in the cadence timeline
-        await persistDecision(decision, { model: "google/gemini-2.5-flash", hitl_status: "pending_approval" });
+        await persistDecision(decision, { model: "google/gemini-2.5-flash" });
         // Create approval request for the operator
         await createApprovalRequest(supabase, {
           company_id: cadence.company_id,
