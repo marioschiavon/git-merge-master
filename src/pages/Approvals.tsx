@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin } from "lucide-react";
+import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin, NotebookPen } from "lucide-react";
 import { useApprovals, useApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -110,18 +110,20 @@ export default function ApprovalsPage() {
           <ApprovalDetail
             approval={selected}
             disabled={execute.isPending || selected.status !== "pending"}
-            onApprove={(edited) =>
+            onApprove={(edited, note) =>
               execute.mutate({
                 approval_id: selected.id,
                 action: "approve",
                 edited_payload: edited,
+                note,
               })
             }
-            onReject={(reason) =>
+            onReject={(reason, note) =>
               execute.mutate({
                 approval_id: selected.id,
                 action: "reject",
                 rejection_reason: reason,
+                note,
               })
             }
             pending={execute.isPending}
@@ -161,19 +163,21 @@ function ApprovalDetail({
   approval: ApprovalRow & { leads?: any; cadences?: any };
   disabled: boolean;
   pending: boolean;
-  onApprove: (edited?: Record<string, any>) => void;
-  onReject: (reason: string) => void;
+  onApprove: (edited?: Record<string, any>, note?: string) => void;
+  onReject: (reason: string, note?: string) => void;
 }) {
   const initial = (approval.edited_payload as any) || approval.payload || {};
   const [subject, setSubject] = useState<string>(initial.subject ?? "");
   const [message, setMessage] = useState<string>(initial.message ?? initial.body ?? "");
   const [rejectReason, setRejectReason] = useState("");
+  const [note, setNote] = useState("");
 
   useEffect(() => {
     const p: any = approval.edited_payload || approval.payload || {};
     setSubject(p.subject ?? "");
     setMessage(p.message ?? p.body ?? "");
     setRejectReason("");
+    setNote("");
   }, [approval.id]);
 
   const edited =
