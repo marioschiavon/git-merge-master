@@ -1,48 +1,140 @@
-## Objetivo
+## Visão geral
 
-Depois de cancelar a reunião com sucesso, o SDR deve manter o controle da conversa: ou já oferecer 2 novos horários, ou perguntar de forma direta quando o lead prefere reagendar. Nada de encerrar a conversa com "ok, cancelei" e ficar parado.
+Criar um modo **Human-in-the-Loop ativo**: cada conversa ganha um toggle "Humano on/off". Quando ligado (manual ou via rejeição em Aprovações), a IA para de enviar sozinha mas continua trabalhando como copiloto. O operador ganha um painel lateral com ferramentas rápidas (gerar resposta, ofertar slots, agendar, cancelar, reagendar) e uma inbox dedicada `/inbox` para gerenciar todos os chats em modo humano com SLA visual.
 
-## Comportamento esperado
+## 1. Modelo de dados
 
-Quando o lead pede para cancelar:
+Adicionar à tabela `conversations`:
+- `human_takeover` boolean default false
+- `human_taken_at` timestamptz
+- `human_taken_by` uuid (auth.users)
+- `human_takeover_reason` text ('manual' | 'rejected_approval' | 'sla_breach')
+- `last_inbound_at` timestamptz (índice — usado para SLA)
+- `sla_status` computed no frontend (verde <5min, amarelo 5-15, vermelho >15)
 
-1. SDR chama `cancel_booking` (já funciona).
-2. Após `ok: true`, a mensagem final do SDR deve sempre incluir 2 partes:
-   - Confirmação curta do cancelamento ("Pronto, desmarquei nosso horário.")
-   - Próximo passo proativo, em uma de duas formas:
-     a. **Padrão (oferecer slots)**: se o motivo do cancelamento não indica desistência, o SDR deve chamar `book_slot` (ou reaproveitar `calcom-slots`) na sequência para gerar 2 novos horários e oferecer no mesmo turno.
-     b. **Pergunta aberta**: se o lead disse algo como "cancela, depois te falo", "preciso ver minha agenda", "semana que vem te aviso" — o SDR confirma o cancelamento e faz uma pergunta direta de reagendamento ("Quer que eu já te mande 2 opções pra semana que vem ou prefere me dizer um dia melhor?").
+Em `approval_requests`: já existe rejeição — só adicionar hook que ao rejeitar marque `conversations.human_takeover = true` e registre o motivo.
 
-Em nenhum caso o SDR pode terminar com "qualquer coisa estou à disposição" sem perguntar sobre reagendamento.
+## 2. Backend — pausa da IA
 
-## Mudanças técnicas
+**`sdr-agent/index.ts`** (guarda no início do run):
+```ts
+if (conversation.human_takeover) {
+  await logEvent('sdr_skipped_human_takeover');
+  return { skipped: true };
+}
+```
 
-Arquivo: `supabase/functions/sdr-agent/index.ts`
+**`sdr-debounce-tick`** e **`cadence-executor`**: mesma guarda — não enviam outbound em conversa com `human_takeover=true`.
 
-1. **Tool `cancel_booking` — `message_suggestion` retornada**
-   - Hoje retorna só "Pronto, cancelei...". Mudar o `message_suggestion` para incluir um gancho de reagendamento por padrão: "Pronto, desmarquei. Quer que eu já te mande 2 novos horários ou prefere me dizer um dia melhor?"
-   - Adicionar no retorno um campo `next_action: "offer_reschedule"` para sinalizar ao loop do agente que ele deve seguir.
+**Webhooks de inbound** (twilio, zapi, gmail, inbound-email): continuam salvando mensagens normalmente e atualizando `last_inbound_at`, mas não disparam `sdr-agent` se takeover estiver ligado.
 
-2. **System prompt do SDR (seção de regras de cancelamento, ~linhas 1321-1330)**
-   - Acrescentar regra dura: "Após `cancel_booking` com `ok:true`, é OBRIGATÓRIO no mesmo turno (a) chamar `book_slot` para oferecer 2 novos horários OU (b) terminar a mensagem com pergunta explícita de reagendamento. Nunca finalize um cancelamento sem reabrir o agendamento."
-   - Adicionar exceção: se o lead disse explicitamente "não quero mais", "desisti", "não tenho interesse" → não reoferecer, apenas confirmar cancelamento e encaminhar como `escalate_to_human` ou marcar lost (seguindo a política já existente).
+## 3. Edge functions novas (reaproveitam lógica existente)
 
-3. **Safety-net no final do run (~linhas 2138-2182)**
-   - Quando o safety-net detectar que houve cancelamento (programático ou via tool) e a mensagem final não contém nem horários propostos nem pergunta de reagendamento, anexar automaticamente o gancho "Quer que eu já te mande 2 opções de novos horários?".
-   - Critério de detecção: regex simples por horários ("às HHh", "/dd/mm", dias da semana) ou por palavras "reagendar/remarcar/novo horário/quando".
+- **`human-suggest-reply`** — recebe `conversation_id`, monta histórico + knowledge + intent e devolve resposta sugerida (reusa `ai-reply` + `_shared/history-builder`).
+- **`human-offer-slots`** — wrapper de `calcom-slots` que devolve 2-3 horários formatados prontos para inserir no chat.
+- **`human-book-slot`** / **`human-cancel-booking`** / **`human-reschedule-booking`** — wrappers finos das funções `calcom-booking-*` já existentes, mas chamadas com `actor='human'` para logging.
+- **`human-return-to-ai`** — seta `human_takeover=false`, registra evento, e dispara `sdr-agent` se houver mensagem inbound pendente.
 
-4. **Heurística para escolher entre (a) oferecer slots vs (b) pergunta aberta**
-   - Reusar o classificador de intent já existente. Se a mensagem do lead que pediu cancelamento contém marcadores de adiamento indefinido ("depois te falo", "semana que vem te aviso", "preciso ver"), usar pergunta aberta. Caso contrário, default = oferecer 2 slots.
+Reutilizamos `send-outbound-message` para envio (já existe).
 
-## Validação
+## 4. UI — Toggle em cada conversa
 
-- Caso 1: lead diz "cancela essa reunião" → SDR cancela + envia 2 novos horários no mesmo turno.
-- Caso 2: lead diz "cancela, depois te aviso quando posso" → SDR cancela + pergunta "quer que eu mande 2 opções pra semana que vem ou prefere me dizer um dia?".
-- Caso 3: lead diz "cancela, não tenho mais interesse" → SDR cancela + encerra/encaminha (sem reoferecer).
-- Verificar nos logs do `sdr-agent` que `steps` contém o `cancel_booking` seguido de `book_slot` (caso 1) ou da mensagem com gancho (caso 2).
-- Confirmar no banco: `bookings.status='cancelled'`, `slot_holds` do horário antigo `released`, novos `slot_holds` `held` (caso 1).
+Em `src/pages/Conversations.tsx` (header do chat selecionado):
+- Switch "🤖 Auto / 👤 Humano" com badge do operador que assumiu
+- Tooltip: "IA pausada — você está no controle"
+- Botão "Devolver para IA" quando ligado
+
+## 5. UI — Painel do operador (novo componente)
+
+`src/components/inbox/HumanCopilotPanel.tsx` — drawer/coluna direita no chat quando `human_takeover=true`:
+
+```text
+┌─────────────────────────────┐
+│ 🧠 Copiloto IA              │
+├─────────────────────────────┤
+│ [Gerar resposta com IA]     │ → preenche composer
+│ [Sugerir 3 horários]        │ → insere texto + cria slot_holds
+│ [Agendar agora ▾]           │ → modal com slots
+│ [Cancelar reunião]          │ → confirma e chama cancel
+│ [Reagendar]                 │
+├─────────────────────────────┤
+│ Snippets rápidos            │
+│ • Apresentação              │
+│ • Materiais                 │
+│ • Follow-up                 │
+├─────────────────────────────┤
+│ Última intenção: agendar    │
+│ Lead: João — Empresa X      │
+│ Booking ativo: 18/06 14h    │
+└─────────────────────────────┘
+```
+
+Todas as ações executam direto e logam em `lead_activities` com `actor='human'`.
+
+## 6. UI — Inbox dedicada `/inbox`
+
+Nova rota `src/pages/Inbox.tsx`:
+- Lista de conversas com `human_takeover=true`, ordenadas por `last_inbound_at` desc
+- Cada item: avatar do lead, prévia da última msg, timer "há Xmin", badge SLA (🟢🟡🔴), canal, motivo do takeover
+- Filtros: "Meus" (assumidos por mim) / "Time" (todos) / "Não atribuídos"
+- Layout 3 colunas: lista | chat | copiloto
+- Header com contadores: "12 aguardando · 3 SLA estourado"
+- Realtime via Supabase subscription em `messages` e `conversations`
+
+Adicionar em `AppSidebar` com badge de contagem de não respondidos.
+
+## 7. Integração com Aprovações
+
+Em `src/pages/Approvals.tsx` — ao rejeitar:
+- Modal: "Assumir conversa manualmente?" (default sim)
+- Se sim: marca `human_takeover=true` + `reason='rejected_approval'` + `human_taken_by=user.id` e navega para `/inbox?conversation=<id>`
+
+## 8. SLA e timers
+
+Componente `<SLABadge lastInboundAt={...} />`:
+- <5min: verde "respondendo"
+- 5-15min: amarelo "atenção"
+- >15min: vermelho "urgente"
+- Tick a cada 30s via `useEffect`
+
+## Detalhes técnicos
+
+- **RLS**: políticas em `conversations` já filtram por `company_id`; adicionar coluna não muda. Edge functions `human-*` validam JWT e checam `company_id` do user vs conversation.
+- **Race condition**: ao ligar takeover, cancelar `pending_inbound_runs` da conversa para evitar IA respondendo no meio.
+- **Devolver para IA**: limpa `human_taken_by/at`, e se houver inbound não respondido nas últimas 24h, enfileira `sdr-agent` para retomar.
+- **Logging**: toda ação humana grava em `lead_activities` (type='human_action') e `cadence_agent_decisions` (actor='human') para manter histórico unificado.
+- **Realtime**: usar `supabase.channel()` em `/inbox` para `messages` insert e `conversations` update.
+
+## Arquivos a criar/editar
+
+**Novos:**
+- `src/pages/Inbox.tsx`
+- `src/components/inbox/HumanCopilotPanel.tsx`
+- `src/components/inbox/InboxList.tsx`
+- `src/components/inbox/SLABadge.tsx`
+- `src/hooks/useHumanTakeover.ts`
+- `src/hooks/useInboxQueue.ts`
+- `supabase/functions/human-suggest-reply/index.ts`
+- `supabase/functions/human-offer-slots/index.ts`
+- `supabase/functions/human-book-slot/index.ts`
+- `supabase/functions/human-cancel-booking/index.ts`
+- `supabase/functions/human-reschedule-booking/index.ts`
+- `supabase/functions/human-return-to-ai/index.ts`
+- Migration: colunas em `conversations`
+
+**Editados:**
+- `src/App.tsx` (rota `/inbox`)
+- `src/components/AppSidebar.tsx` (item Inbox com badge)
+- `src/pages/Conversations.tsx` (toggle humano + painel)
+- `src/pages/Approvals.tsx` (hook ao rejeitar)
+- `supabase/functions/sdr-agent/index.ts` (guarda takeover)
+- `supabase/functions/sdr-debounce-tick/index.ts` (guarda)
+- `supabase/functions/cadence-executor/index.ts` (guarda)
+- Webhooks inbound (não disparar SDR se takeover)
 
 ## Fora de escopo
 
-- HITL continua igual: aprova apenas a mensagem final consolidada (com confirmação + reoferta).
-- Sem mudança em `calcom-booking-cancel`, `calcom-slots`, `calcom-booking-create`.
+- Atribuição automática a operadores (fica em "Todos" por enquanto)
+- Notificações push/email de SLA estourado
+- Métricas/relatório de tempo de resposta humano
+- Templates/snippets editáveis (versão 1 usa snippets hardcoded; gestão fica para depois)
