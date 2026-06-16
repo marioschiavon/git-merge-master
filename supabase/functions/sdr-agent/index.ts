@@ -785,9 +785,30 @@ async function execBookingTool(
     const { data, httpStatus, networkErr } = last;
     const ok = !networkErr && httpStatus >= 200 && httpStatus < 300 && data && data.success !== false;
     if (ok) {
+      // Heurística: o lead desistiu de vez? Então não reoferecer.
+      const GIVEUP = /\b(n[ãa]o\s+(quero|tenho\s+interesse|vou\s+(?:querer|seguir))|desisti|perdi\s+o\s+interesse|n[ãa]o\s+faz\s+sentido|cancela\s+tudo|n[ãa]o\s+precisa\s+remarcar)\b/i;
+      // Heurística: lead pediu adiamento indefinido? Pergunta aberta.
+      const DEFER = /\b(depois\s+te\s+(aviso|falo|chamo|retorno)|semana\s+que\s+vem\s+te\s+(aviso|falo)|preciso\s+ver\s+(minha\s+)?agenda|te\s+retorno|qualquer\s+coisa\s+(eu\s+)?(te\s+)?aviso|mais\s+pra\s+frente)\b/i;
+      const inb = String(lastInbound || "");
+      let nextAction: "none" | "ask_reschedule" | "offer_slots" = "offer_slots";
+      let suggestion = "Pronto, desmarquei nossa reunião. Quer que eu já te envie 2 novos horários ou prefere me dizer qual dia fica melhor pra você?";
+      if (GIVEUP.test(inb)) {
+        nextAction = "none";
+        suggestion = "Tudo bem, cancelei nossa reunião. Se mudar de ideia ou quiser retomar mais pra frente, é só me chamar.";
+      } else if (DEFER.test(inb)) {
+        nextAction = "ask_reschedule";
+        suggestion = "Tranquilo, desmarquei. Quando puder, me diz um dia que fique bom pra você — ou se preferir, eu já te mando 2 opções pra semana que vem.";
+      }
       return {
-        ok: true, booking_uid: bookingUid,
-        message_suggestion: "Tudo bem, cancelei nossa reunião. Se quiser remarcar mais pra frente, é só me chamar.",
+        ok: true,
+        booking_uid: bookingUid,
+        next_action: nextAction,
+        message_suggestion: suggestion,
+        followup_hint: nextAction === "offer_slots"
+          ? "Você DEVE no mesmo turno chamar `check_calendar` para gerar 2 novos horários e oferecê-los via finalize(offer_slots), OU enviar a `message_suggestion` que já contém pergunta de reagendamento. Nunca encerre sem reabrir o agendamento."
+          : nextAction === "ask_reschedule"
+            ? "Use a `message_suggestion` no finalize(send_message). NÃO ofereça slots agora — o lead pediu pra avisar depois."
+            : "Lead desistiu — confirme o cancelamento sem reoferecer e considere escalate_to_human/mark_lost se a política exigir.",
       };
     }
 
