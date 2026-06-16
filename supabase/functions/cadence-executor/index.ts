@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { shouldGate, createApprovalRequest } from "../_shared/hitl-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -58,18 +59,34 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    // Find enrollments ready to execute
-    const { data: enrollments, error: enrollError } = await supabase
+    // Optional single-enrollment mode for HITL re-execution after approval
+    let singleEnrollmentId: string | null = null;
+    let bypassHitl = false;
+    try {
+      if (req.method === "POST") {
+        const body = await req.json().catch(() => ({}));
+        if (body?.enrollment_id) singleEnrollmentId = body.enrollment_id;
+        if (body?.bypass_hitl) bypassHitl = true;
+      }
+    } catch { /* ignore */ }
+
+    let enrollmentsQuery = supabase
       .from("cadence_enrollments")
       .select(`
         *,
         leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status, source, referral_source_lead_id, referral_role, referral_context),
         cadences(id, name, type, company_id, status, mode, kind)
-      `)
-      .eq("status", "active")
-      .eq("meeting_scheduled", false)
-      .lte("next_execution_at", new Date().toISOString())
-      .not("next_execution_at", "is", null);
+      `);
+    if (singleEnrollmentId) {
+      enrollmentsQuery = enrollmentsQuery.eq("id", singleEnrollmentId);
+    } else {
+      enrollmentsQuery = enrollmentsQuery
+        .eq("status", "active")
+        .eq("meeting_scheduled", false)
+        .lte("next_execution_at", new Date().toISOString())
+        .not("next_execution_at", "is", null);
+    }
+    const { data: enrollments, error: enrollError } = await enrollmentsQuery;
 
     if (enrollError) throw enrollError;
     if (!enrollments || enrollments.length === 0) {
