@@ -119,7 +119,7 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
     const action = String(metadata.action || "send_reply");
     const sensitive = /cancel|reschedule|remove|booking_confirmation/i.test(action);
     const scope: "sdr_reply" | "sensitive_action" = sensitive ? "sensitive_action" : "sdr_reply";
-    if (await shouldGate(ctx.supabase, ctx.company_id, scope)) {
+    if (await shouldGate(ctx.supabase, ctx.company_id, scope, { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
       await createApprovalRequest(ctx.supabase, {
         company_id: ctx.company_id,
         lead_id: ctx.lead_id,
@@ -298,7 +298,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
           return { skipped: "no email" };
         }
         // HITL gate
-        if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply")) {
+        if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply", { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
           await createApprovalRequest(ctx.supabase, {
             company_id: ctx.company_id,
             lead_id: ctx.lead_id,
@@ -479,7 +479,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
     }
 
     // HITL gate
-    if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply")) {
+    if (await shouldGate(ctx.supabase, ctx.company_id, "sdr_reply", { lead_id: ctx.lead_id, conversation_id: ctx.conversation_id })) {
       await createApprovalRequest(ctx.supabase, {
         company_id: ctx.company_id,
         lead_id: ctx.lead_id,
