@@ -2203,6 +2203,55 @@ Deno.serve(async (req) => {
             console.error("[sdr-agent] safety-net cancel failed:", e);
             steps.push({ event: "safety_net_cancel_booking_error", error: String(e) });
           }
+
+          // ── SAFETY NET: depois de qualquer cancelamento bem-sucedido (tool ou safety-net),
+          // garantir que a mensagem final reabre o agendamento. Se não cita novo horário
+          // nem pergunta sobre reagendamento, anexar gancho proativo.
+          try {
+            const cancelOk = steps.some(
+              (s: any) =>
+                (s.event === "tool_call" && s.tool === "cancel_booking" && s.result?.ok === true) ||
+                (s.event === "safety_net_cancel_booking" && s.ok === true),
+            );
+            if (cancelOk && msg) {
+              const HAS_RESCHEDULE_HOOK =
+                /(reagend|remarc|novo\s+hor[áa]rio|outra\s+data|outro\s+dia|quando\s+(?:fica|seria|melhor|puder)|qual\s+(?:dia|hor[áa]rio)|me\s+diz(?:er)?|prefere|2\s+op(?:ç[ãa]o|ções)|duas\s+op(?:ç[ãa]o|ções))/i;
+              const HAS_TIME_OFFER = /\b\d{1,2}h\d{0,2}\b|\b\d{1,2}:\d{2}\b|\b\d{1,2}\/\d{1,2}\b|\b(segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo)\b/i;
+              const GIVEUP = /\b(n[ãa]o\s+(quero|tenho\s+interesse|vou\s+(?:querer|seguir))|desisti|perdi\s+o\s+interesse|n[ãa]o\s+faz\s+sentido|cancela\s+tudo|n[ãa]o\s+precisa\s+remarcar)\b/i;
+              let inb = "";
+              try {
+                const { data: convs2 } = await supabase
+                  .from("conversations")
+                  .select("id")
+                  .eq("lead_id", lead_id);
+                const convIds2 = (convs2 ?? []).map((c: any) => c.id);
+                if (convIds2.length > 0) {
+                  const { data: m2 } = await supabase
+                    .from("messages")
+                    .select("direction, content, sent_at")
+                    .in("conversation_id", convIds2)
+                    .eq("direction", "inbound")
+                    .order("sent_at", { ascending: false })
+                    .limit(1);
+                  inb = String(m2?.[0]?.content || "");
+                }
+              } catch (_) { /* ignore */ }
+
+              if (!GIVEUP.test(inb) && !HAS_RESCHEDULE_HOOK.test(msg) && !HAS_TIME_OFFER.test(msg)) {
+                const hook = " Quer que eu já te envie 2 novos horários ou prefere me dizer qual dia fica melhor pra você?";
+                const trimmed = msg.trimEnd();
+                const sep = (trimmed.endsWith(".") || trimmed.endsWith("!") || trimmed.endsWith("?")) ? "" : ".";
+                msg = trimmed + sep + hook;
+                (finalDecision as any).message = msg;
+                (finalDecision as any).rationale = ((finalDecision as any).rationale || "") + " | safety_net: post_cancel_reschedule_hook_appended";
+                steps.push({ event: "safety_net_post_cancel_hook", appended: true });
+                console.log("[sdr-agent] safety-net: anexei gancho de reagendamento pós-cancelamento.");
+              }
+            }
+          } catch (e) {
+            console.error("[sdr-agent] safety-net post-cancel hook failed:", e);
+          }
+
           if (msg) {
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
