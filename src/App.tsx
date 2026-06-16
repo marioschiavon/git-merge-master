@@ -17,6 +17,7 @@ import Reports from "@/pages/Reports";
 import Knowledge from "@/pages/Knowledge";
 import AgentRuns from "@/pages/AgentRuns";
 import Approvals from "@/pages/Approvals";
+import Annotations from "@/pages/Annotations";
 import MasterDashboard from "@/pages/master/MasterDashboard";
 import Companies from "@/pages/master/Companies";
 import Team from "@/pages/settings/Team";
@@ -54,6 +55,7 @@ const App = () => (
               <Route path="/knowledge" element={<Knowledge />} />
               <Route path="/agent-runs" element={<AgentRuns />} />
               <Route path="/approvals" element={<Approvals />} />
+              <Route path="/annotations" element={<Annotations />} />
               <Route element={<RequireMasterAdmin />}>
                 <Route path="/master" element={<MasterDashboard />} />
                 <Route path="/master/companies" element={<Companies />} />

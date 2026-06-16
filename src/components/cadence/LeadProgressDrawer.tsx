@@ -4,7 +4,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Mail, Phone, Linkedin, Globe, MessageCircle, RotateCcw, ExternalLink, Bot, User } from "lucide-react";
+import { Mail, Phone, Linkedin, Globe, MessageCircle, RotateCcw, ExternalLink, Bot, User, NotebookPen } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useState } from "react";
+import { useAnnotateDecision } from "@/hooks/useAnnotations";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { useLeadDrawerData } from "@/hooks/useCadenceLeadProgress";
@@ -197,6 +201,7 @@ export function LeadProgressDrawer({
                       {d.channel && <span>{d.channel}</span>}
                       {d.simulated && <Badge className="text-[10px] bg-amber-100 text-amber-800">🧪</Badge>}
                       <span className="ml-auto">{format(new Date(d.decided_at), "dd/MM HH:mm", { locale: ptBR })}</span>
+                      <AnnotateDecisionButton decisionId={d.id} />
                     </div>
                     {d.rationale && <p className="mt-1 text-foreground">{d.rationale}</p>}
                   </div>
@@ -224,5 +229,51 @@ export function LeadProgressDrawer({
         </Tabs>
       </SheetContent>
     </Sheet>
+  );
+}
+
+function AnnotateDecisionButton({ decisionId }: { decisionId: string }) {
+  const [open, setOpen] = useState(false);
+  const [note, setNote] = useState("");
+  const annotate = useAnnotateDecision();
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-6 px-2 -my-1 text-xs"
+        onClick={(e) => { e.stopPropagation(); setOpen(true); }}
+      >
+        <NotebookPen className="h-3 w-3 mr-1" /> Anotar
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <NotebookPen className="h-4 w-4" /> Anotar decisão do agente
+            </DialogTitle>
+          </DialogHeader>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="O que você observou? (ex: lógica errada, tom OK, faltou personalização...)"
+            rows={5}
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
+            <Button
+              disabled={!note.trim() || annotate.isPending}
+              onClick={async () => {
+                await annotate.mutateAsync({ decision_id: decisionId, note: note.trim() });
+                setNote("");
+                setOpen(false);
+              }}
+            >
+              Salvar anotação
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

@@ -1,61 +1,70 @@
-## Problema
+# Anotações do SDR para treino e correção
 
-A cadência **inteligente (agentic)** envia mensagem direto de dentro de `cadence-agent-decide` (linhas 525–590) — chama `gmail-send` / Z-API e insere em `messages` **sem passar pelo `sendOutbound`** que tem o gate HITL. Por isso o teste passou pela frente das aprovações.
+## Objetivo
+Permitir que o humano escreva uma observação livre em itens de `/approvals` e em decisões do agente. Apenas itens **com anotação** ficam catalogados — junto de um snapshot do contexto — para depois consultar, treinar e corrigir o sistema em `/annotations`.
 
-Existem ainda outros caminhos paralelos que também precisam ser fechados.
+## Como vai funcionar (visão do usuário)
 
-## Caminhos que ainda burlam o HITL
+1. **Em `/approvals`** — cada card de aprovação ganha um campo "Anotação (opcional)". Se preenchido ao Aprovar / Editar+Aprovar / Rejeitar, a nota é salva junto com um snapshot do que a IA tinha em mãos.
+2. **Em decisões do agente** (drawer do lead em cadências, onde aparece o raciocínio) — botão "Anotar" abre textarea. Salva mesmo sem aprovação envolvida.
+3. **Nova página `/annotations`** — lista cronológica filtrável por lead, autor, fonte (aprovação vs decisão), data; busca por texto; ver detalhe completo (mensagem + contexto + nota); exportar CSV/JSON para usar em ajustes de prompt, knowledge base ou fine-tuning futuro.
 
-| # | Função | Linha | Tipo |
-|---|---|---|---|
-| 1 | `cadence-agent-decide` | 540–571 | Envia gmail-send + Z-API + insere `messages` direto (**raiz do bug atual**) |
-| 2 | `execute-action` → `schedule_followup` (lead_request) | 300 | Invoca `gmail-send` direto |
-| 3 | `execute-action` → `send_email` handler | 464 | Invoca `gmail-send` + insere `messages` direto |
-| 4 | Conversations UI — botão "Responder com IA" (se existir) | — | Verificar e gatear |
+## O que é salvo (snapshot do contexto)
 
-## Plano (cirúrgico, por handler)
+Para cada anotação, persistimos um pacote autocontido — assim a nota continua útil mesmo se o lead/conversa mudar depois:
 
-### 1. `cadence-agent-decide` — gatear envio agentic
-Antes do bloco `decision.action === "send"` real (não na simulação), chamar `shouldGate("cadence_step", company_id)`. Se `true`:
-- Criar `approval_request` (`kind: "cadence_step"`, `channel`, `payload: {subject, body, message, hook, attempt}`, `context: {rationale, intent, cadence_id, enrollment_id, lead_id}`)
-- **Persistir a `cadence_agent_decisions` mesmo assim** com `status: "pending_approval"` (campo já existente ou usar metadata)
-- Pausar enrollment com `paused_reason: "awaiting_approval"` e `next_execution_at = null`
-- Registrar `lead_activity` "🕓 Aguardando aprovação humana — IA propôs (canal/hook)"
-- **Não chamar gmail-send / Z-API, não inserir `messages`**
-- Aceitar parâmetro `bypass_hitl: true` no body para re-execução pós-aprovação
+- **Nota**: texto livre, autor (`user_id`), `created_at`
+- **Fonte**: `approval_request` ou `cadence_agent_decision` (+ id)
+- **Ação tomada pelo humano** (quando vier de aprovação): approved / edited / rejected, conteúdo final enviado, edits aplicados vs proposta original
+- **Snapshot da proposta da IA**: canal, subject, body, hook, rationale, intent, confidence
+- **Snapshot do lead**: nome, empresa, email, estágio, metadata relevante
+- **Snapshot da conversa**: últimas N mensagens (in/out) no momento da anotação
+- **Snapshot do contexto agente**: cadence_id/step, knowledge chunks usados (ids + similaridade), prompt resumido se disponível
 
-### 2. `execute-action` — fechar bypasses
-- **`schedule_followup` (lead_request branch)**: substituir o `functions.invoke("gmail-send")` direto por uma chamada a um helper `sendEmailGated()` que faz o mesmo gate do `sendOutbound`. Mesmo padrão p/ WhatsApp branch (já usa sendOutbound, OK).
-- **`send_email` handler**: idem — passar pelo gate antes do `gmail-send` direto.
-
-Refatoração mínima: extrair um helper `sendEmailDirect(ctx, {to, subject, html, body})` que internamente chama `shouldGate("sensitive_action" ou "sdr_reply" conforme contexto)`, cria approval_request se gate ON, ou envia se OFF.
-
-### 3. `approval-execute` — suportar `kind: "cadence_step"` do agentic
-Atualizar para, quando aprovado/editado:
-- Reativar `cadence_enrollment` (`status: "active"`, `paused_reason: null`)
-- Reinvocar `cadence-agent-decide` com `{ enrollment_id, bypass_hitl: true, override_decision: {...payload editado} }`
-- Em `cadence-agent-decide`, se receber `bypass_hitl=true` + `override_decision`, pular o LLM e usar a decisão fornecida, indo direto ao bloco de envio.
-
-### 4. UI Conversations
-Verificar se há ação "Gerar resposta IA" no `src/pages/Conversations.tsx`. Se sim, garantir que o fluxo chame `sdr-agent` / `execute-action` (que estará gatado). Se chama `generate-reply` direto e envia, plugar o gate também.
-
-### 5. Diagnóstico — log defensivo
-Em `_shared/hitl-gate.ts`, adicionar `console.log("[hitl-gate]", { company_id, scope, hitl_enabled, hitl_scopes, decision })` para ficar fácil ver nos logs por que um gate dispara ou não.
+Tudo em uma coluna `jsonb context_snapshot` para ficar flexível sem migração nova a cada ajuste.
 
 ## Detalhes técnicos
 
-**Arquivos a editar:**
-- `supabase/functions/cadence-agent-decide/index.ts` (principal)
-- `supabase/functions/execute-action/index.ts` (2 handlers + helper)
-- `supabase/functions/approval-execute/index.ts` (suporte cadence_step agentic)
-- `supabase/functions/_shared/hitl-gate.ts` (logs + helper email)
-- `src/pages/Conversations.tsx` (verificar/ajustar)
+### Nova tabela `public.message_annotations`
+- `id uuid pk`
+- `company_id uuid` (multi-tenant)
+- `author_user_id uuid`
+- `source_kind text` check in (`approval_request`, `cadence_agent_decision`)
+- `source_id uuid` (id do approval ou da decisão)
+- `lead_id uuid` nullable
+- `conversation_id uuid` nullable
+- `note text not null` (>= 1 char — sem nota, nada é salvo)
+- `human_action text` nullable (`approved` | `edited` | `rejected` | `none`)
+- `final_content text` nullable (o que foi efetivamente enviado, quando aplicável)
+- `context_snapshot jsonb not null default '{}'`
+- `tags text[]` reservado para uso futuro (categorização vem depois conforme padrões emergirem)
+- `created_at`, `updated_at`
 
-**Sem nova migração** — a `approval_requests` já existe e suporta `kind: "cadence_step"`.
+GRANTs para `authenticated` e `service_role`. RLS por `company_id` via `get_user_company_id(auth.uid())`. Índices em `(company_id, created_at desc)`, `lead_id`, `source_kind, source_id`.
 
-**Compat:** com HITL OFF, comportamento idêntico ao atual.
+### Backend
+- **`approval-execute`**: aceita `note?: string` no body. Se presente, monta o snapshot (lê approval_request + lead + últimas mensagens da conversa + decisão agente referenciada) e insere em `message_annotations` antes/depois da execução, registrando `human_action` e `final_content`.
+- **Nova edge `annotate-decision`**: para anotar uma `cadence_agent_decisions` sem aprovação. Body `{ decision_id, note }`. Monta snapshot equivalente (decisão + lead + conversa + knowledge usado) e insere. Validação Zod, CORS, JWT em código.
+- **Hook `useAnnotations`**: list (com filtros), get-by-id, create (para o caso de decisão).
 
-## Fora de escopo
-- Reescrever cadence-agent-decide pra usar sendOutbound centralizado (refactor maior, fica pra depois)
-- Magic links de aprovação por email/WhatsApp
-- Aprovação por confiança automática
+### Frontend
+- **`/approvals` (Approvals.tsx)**: textarea "Anotação" em cada card; passa `note` ao chamar `approval-execute`. Toast confirma "Anotação salva" quando preenchida.
+- **Drawer/timeline do agente** (`LeadProgressDrawer` ou `LeadTimeline`): botão "Anotar" nas decisões → dialog com textarea → chama `annotate-decision`.
+- **Nova `/annotations`** (`src/pages/Annotations.tsx`):
+  - Lista: data, autor, lead, fonte, trecho da nota, ação humana
+  - Filtros: período, autor, fonte, lead, busca texto
+  - Detalhe (drawer ou rota `/annotations/:id`): nota + proposta IA + edits + final enviado + histórico de mensagens + knowledge usado
+  - Botão "Exportar" → CSV e JSON
+- **Sidebar**: novo item "Anotações" (visível para `company_admin` e `user`). Rota em `App.tsx`.
+
+### Fora de escopo (deixar para depois)
+- Categorização estruturada / taxonomia automática (texto livre primeiro, padrões viram tags depois)
+- Treinamento automático / re-injeção das notas no prompt do agente
+- Anotar mensagens já enviadas em `/conversations` (foco agora é o loop de aprovação)
+- Permissões finas (qualquer membro da empresa pode anotar e ler anotações da própria empresa)
+
+## Arquivos afetados
+- **Migração**: cria `message_annotations` com GRANTs + RLS + índices
+- **Edge**: `approval-execute/index.ts` (estende com `note`), nova `annotate-decision/index.ts`
+- **Frontend novo**: `src/pages/Annotations.tsx`, `src/hooks/useAnnotations.ts`
+- **Frontend editado**: `src/pages/Approvals.tsx`, `src/components/cadence/LeadProgressDrawer.tsx` (ou `LeadTimeline.tsx`), `src/components/AppSidebar.tsx`, `src/App.tsx`

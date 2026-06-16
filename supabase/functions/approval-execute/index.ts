@@ -35,17 +35,19 @@ serve(async (req) => {
     const userId = userData.user.id;
 
     const body = await req.json();
-    const { approval_id, action, edited_payload, rejection_reason } = body as {
+    const { approval_id, action, edited_payload, rejection_reason, note } = body as {
       approval_id: string;
       action: "approve" | "reject";
       edited_payload?: Record<string, any>;
       rejection_reason?: string;
+      note?: string;
     };
     if (!approval_id || !action) {
       return new Response(JSON.stringify({ error: "missing fields" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const trimmedNote = (note || "").toString().trim();
 
     const { data: approval } = await supabase
       .from("approval_requests").select("*").eq("id", approval_id).maybeSingle();
@@ -221,6 +223,64 @@ serve(async (req) => {
           : (isEdited ? "✅ Aprovação enviada (com edições)" : "✅ Aprovação enviada"),
         metadata: { approval_id, kind: approval.kind, channel: approval.channel },
       });
+    }
+
+    // Save annotation if user provided a note
+    if (trimmedNote) {
+      try {
+        let recent_messages: any[] = [];
+        if (approval.conversation_id) {
+          const { data: msgs } = await supabase
+            .from("messages")
+            .select("id, conversation_id, direction, content, sent_at, metadata")
+            .eq("conversation_id", approval.conversation_id)
+            .order("sent_at", { ascending: false })
+            .limit(20);
+          recent_messages = (msgs || []).reverse();
+        }
+        let lead: any = null;
+        if (approval.lead_id) {
+          const { data } = await supabase.from("leads")
+            .select("id, name, email, company_name, stage, metadata")
+            .eq("id", approval.lead_id).maybeSingle();
+          lead = data || null;
+        }
+        const human_action =
+          action === "reject" ? "rejected" : (isEdited ? "edited" : "approved");
+        const finalMsg =
+          action === "reject" ? null : (finalPayload.message ?? finalPayload.body ?? null);
+
+        await supabase.from("message_annotations").insert({
+          company_id: approval.company_id,
+          author_user_id: userId,
+          source_kind: "approval_request",
+          source_id: approval.id,
+          lead_id: approval.lead_id,
+          conversation_id: approval.conversation_id,
+          note: trimmedNote,
+          human_action,
+          final_content: finalMsg,
+          context_snapshot: {
+            approval: {
+              id: approval.id,
+              kind: approval.kind,
+              channel: approval.channel,
+              action: approval.action,
+              original_payload: approval.payload,
+              edited_payload: edited_payload || null,
+              context: approval.context || {},
+              cadence_id: approval.cadence_id,
+              enrollment_id: approval.enrollment_id,
+            },
+            rejection_reason: action === "reject" ? (rejection_reason || null) : null,
+            execution_error: executionError,
+            lead,
+            recent_messages,
+          },
+        });
+      } catch (annotErr: any) {
+        console.error("annotation save failed:", annotErr?.message || annotErr);
+      }
     }
 
     return new Response(JSON.stringify({ ok: !executionError, error: executionError }), {

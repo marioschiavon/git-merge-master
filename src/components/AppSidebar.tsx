@@ -17,6 +17,7 @@ import {
   Calendar,
   Bot,
   ShieldCheck,
+  NotebookPen,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
@@ -50,6 +51,7 @@ const companyItems = [
   { title: "Cadências", url: "/cadences", icon: MessageSquare },
   { title: "Acompanhamento", url: "/cadences/dashboard", icon: Activity },
   { title: "Aprovações", url: "/approvals", icon: ShieldCheck, showApprovalsBadge: true },
+  { title: "Anotações", url: "/annotations", icon: NotebookPen },
   { title: "Scripts IA", url: "/scripts", icon: FileText },
   { title: "Base de Conhecimento", url: "/knowledge", icon: BookOpen },
   { title: "Conversas", url: "/conversations", icon: Inbox },

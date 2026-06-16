@@ -1928,6 +1928,57 @@ export type Database = {
           },
         ]
       }
+      message_annotations: {
+        Row: {
+          author_user_id: string
+          company_id: string
+          context_snapshot: Json
+          conversation_id: string | null
+          created_at: string
+          final_content: string | null
+          human_action: string | null
+          id: string
+          lead_id: string | null
+          note: string
+          source_id: string
+          source_kind: string
+          tags: string[]
+          updated_at: string
+        }
+        Insert: {
+          author_user_id: string
+          company_id: string
+          context_snapshot?: Json
+          conversation_id?: string | null
+          created_at?: string
+          final_content?: string | null
+          human_action?: string | null
+          id?: string
+          lead_id?: string | null
+          note: string
+          source_id: string
+          source_kind: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Update: {
+          author_user_id?: string
+          company_id?: string
+          context_snapshot?: Json
+          conversation_id?: string | null
+          created_at?: string
+          final_content?: string | null
+          human_action?: string | null
+          id?: string
+          lead_id?: string | null
+          note?: string
+          source_id?: string
+          source_kind?: string
+          tags?: string[]
+          updated_at?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
           ai_suggested: boolean
