@@ -123,13 +123,22 @@ export default function ApprovalsPage() {
               })
             }
             onReject={(reason, note) =>
-              execute.mutate({
-                approval_id: selected.id,
-                action: "reject",
-                rejection_reason: reason,
-                note,
-              })
+              execute.mutate(
+                {
+                  approval_id: selected.id,
+                  action: "reject",
+                  rejection_reason: reason,
+                  note,
+                },
+                {
+                  onSuccess: (data: any) => {
+                    const convId = data?.conversation_id || selected.conversation_id;
+                    if (convId) navigate(`/inbox?conversation=${convId}`);
+                  },
+                },
+              )
             }
+
             pending={execute.isPending}
           />
         ) : (
