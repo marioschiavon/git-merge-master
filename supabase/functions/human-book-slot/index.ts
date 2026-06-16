@@ -22,10 +22,18 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { conversation_id, hold_id, start, notify_lead } = await req.json();
+    const { conversation_id, hold_id, start, notify_lead, guests, notes } = await req.json();
     if (!conversation_id) {
       return new Response(JSON.stringify({ error: "conversation_id é obrigatório" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    const cleanGuests: string[] = Array.isArray(guests)
+      ? Array.from(new Set(
+          guests
+            .map((g: unknown) => String(g || "").trim().toLowerCase())
+            .filter((g: string) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g)),
+        ))
+      : [];
 
     const { data: conv } = await userClient
       .from("conversations")
@@ -39,13 +47,23 @@ Deno.serve(async (req) => {
     // Caminho 1: confirmar a partir de um hold existente
     if (hold_id) {
       const r = await admin.functions.invoke("calcom-confirm-booking", {
-        body: { lead_id: conv.lead_id, selected_slot_hold_id: hold_id },
+        body: { lead_id: conv.lead_id, selected_slot_hold_id: hold_id, notes },
       });
       if (r.error || r.data?.error) {
         return new Response(JSON.stringify({ error: r.error?.message || r.data?.error || "Falha ao confirmar" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
       }
       const { data: hold } = await admin.from("slot_holds").select("slot_datetime").eq("id", hold_id).maybeSingle();
       const label = hold?.slot_datetime ? formatBRTLong(hold.slot_datetime) : "";
+
+      if (cleanGuests.length > 0) {
+        const bookingUid = r.data?.booking?.uid || r.data?.booking_uid;
+        if (bookingUid) {
+          await admin.functions.invoke("calcom-add-guests", {
+            body: { booking_uid: bookingUid, guests: cleanGuests, lead_id: conv.lead_id, conversation_id },
+          }).catch((e) => console.error("add-guests failed", e));
+        }
+      }
+
       const confirmMessage = `Reunião confirmada para ${label}. Você receberá o convite por e-mail. 🚀`;
       if (notify_lead) {
         await admin.functions.invoke("send-outbound-message", {
@@ -67,6 +85,8 @@ Deno.serve(async (req) => {
         start,
         attendee_name: (conv as any).leads?.name,
         attendee_email: (conv as any).leads?.email,
+        guests: cleanGuests,
+        notes,
       },
     });
     if (r.error || r.data?.error) {

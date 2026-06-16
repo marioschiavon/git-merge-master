@@ -22,10 +22,18 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
-    const { conversation_id, booking_uid, start, reason, notify_lead } = await req.json();
+    const { conversation_id, booking_uid, start, reason, notify_lead, guests } = await req.json();
     if (!conversation_id || !start) {
       return new Response(JSON.stringify({ error: "conversation_id e start são obrigatórios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+
+    const cleanGuests: string[] = Array.isArray(guests)
+      ? Array.from(new Set(
+          guests
+            .map((g: unknown) => String(g || "").trim().toLowerCase())
+            .filter((g: string) => /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(g)),
+        ))
+      : [];
 
     const { data: conv } = await userClient
       .from("conversations")
@@ -59,15 +67,23 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: r.error?.message || r.data?.error || "Falha ao remarcar" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
+    const newUid = r.data?.booking?.uid || r.data?.booking_uid || uid;
+
+    if (cleanGuests.length > 0) {
+      await admin.functions.invoke("calcom-add-guests", {
+        body: { booking_uid: newUid, guests: cleanGuests, lead_id: conv.lead_id, conversation_id },
+      }).catch((e) => console.error("add-guests failed", e));
+    }
+
     if (notify_lead) {
       const text = `Remarquei nossa reunião para ${formatBRTLong(start)}. Você receberá um novo convite por e-mail. 🚀`;
       await admin.functions.invoke("send-outbound-message", {
         headers: { Authorization: auth },
-        body: { conversation_id, content: text, ai_suggested: false, metadata: { actor: "human", action: "reschedule_booking", booking_uid: uid } },
+        body: { conversation_id, content: text, ai_suggested: false, metadata: { actor: "human", action: "reschedule_booking", booking_uid: newUid } },
       });
     }
 
-    return new Response(JSON.stringify({ ok: true, rescheduled: true, booking_uid: uid }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ ok: true, rescheduled: true, booking_uid: newUid }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     console.error("human-reschedule-booking error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
