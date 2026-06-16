@@ -753,13 +753,29 @@ async function execBookingTool(
         cancellation_requested_at: new Date().toISOString(),
       }).eq("calcom_booking_uid", bookingUid);
     } catch (_) {}
-    const { data, error } = await supabase.functions.invoke("calcom-booking-cancel", {
-      body: { booking_uid: bookingUid, reason, idempotency_key, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id },
-    });
+    // One immediate retry on transient invoke errors before reporting failure.
+    let data: any = null;
+    let error: any = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const res = await supabase.functions.invoke("calcom-booking-cancel", {
+        body: { booking_uid: bookingUid, reason, idempotency_key, lead_id: ctx.lead_id, conversation_id: ctx.conversation_id },
+      });
+      data = res.data;
+      error = res.error;
+      if (!error && !(data as any)?.error) break;
+      if (attempt < 2) {
+        console.log(`[sdr-agent] cancel_booking invoke failed (attempt ${attempt}), retrying:`, error || (data as any)?.error);
+        await new Promise((r) => setTimeout(r, 600));
+      }
+    }
     if (error || (data as any)?.error) {
       const errStr = error ? String(error) : String((data as any)?.error);
       await markCalendarActionFailed(supabase, claim.row.id, errStr);
-      return { ok: false, error: errStr };
+      return {
+        ok: false,
+        error: errStr,
+        suggested_message: "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?",
+      };
     }
     await markCalendarActionOk(supabase, claim.row.id, { provider_booking_uid: bookingUid, response_payload: (data as any) ?? {} });
     return {
@@ -1759,14 +1775,23 @@ Deno.serve(async (req) => {
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.
       const r = result as any;
       if (r && r.ok === false) {
+        const honestByTool: Record<string, string> = {
+          cancel_booking: "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?",
+          reschedule_booking: "Tive um problema técnico pra remarcar agora. Sua reunião segue no horário atual. Vou tentar de novo e te confirmo em seguida.",
+          book_slot: "Não consegui confirmar esse horário agora. Pode me mandar outro dia/horário que funcione pra você? Vou tentar de novo.",
+        };
         const fallbackMsg = typeof r.suggested_message === "string" && r.suggested_message
           ? r.suggested_message
-          : "Tive uma instabilidade aqui pra confirmar esse horário. Pode me mandar outro dia/horário que funcione pra você? Vou garantir a reserva.";
+          : (honestByTool[forcedToolName] || "Tive um problema técnico aqui agora. Vou tentar de novo em alguns minutos.");
         finalDecision = {
           decision: "send_message",
           message: fallbackMsg,
           rationale: `Forced ${forcedToolName} failed: ${r.error_code ?? r.downgrade ?? r.error ?? "unknown"}.`,
-        };
+          tool_failure: {
+            tool: forcedToolName,
+            error: String(r.error_code ?? r.downgrade ?? r.error ?? "unknown"),
+          },
+        } as any;
       } else if (r && r.ok && typeof r.message_suggestion === "string") {
         // Happy path: ask LLM ONE turn to either echo or refine the suggestion.
         messages.push({
@@ -1975,7 +2000,7 @@ Deno.serve(async (req) => {
           finalDecision = {
             decision: "send_message",
             message:
-              "Tive uma instabilidade aqui pra confirmar nosso horário agora. Pode me mandar de novo o dia e a hora que funciona pra você? Vou garantir a reserva.",
+              "Tive um problema técnico aqui agora pra processar sua solicitação. Vou tentar de novo em alguns minutos e te confirmo em seguida.",
             rationale: "MAX_STEPS atingido sem finalize; tools falharam — evitando silêncio.",
           };
         } else {
@@ -2129,6 +2154,7 @@ Deno.serve(async (req) => {
                 params: {
                   message: msg,
                   channel: (finalDecision as any).channel || undefined,
+                  _ctx: (finalDecision as any).tool_failure ? { tool_failure: (finalDecision as any).tool_failure } : undefined,
                 },
               },
             });

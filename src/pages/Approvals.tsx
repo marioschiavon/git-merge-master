@@ -211,6 +211,18 @@ function ApprovalDetail({
       </CardHeader>
 
       <CardContent className="space-y-4 pt-4">
+        {ctx.tool_failure && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs">
+            <div className="font-semibold text-destructive mb-1">
+              ⚠️ Falha na ferramenta `{ctx.tool_failure.tool}` — revise com cuidado
+            </div>
+            <p className="text-destructive/90">
+              A IA tentou executar <strong>{ctx.tool_failure.tool}</strong> mas a ação falhou
+              ({String(ctx.tool_failure.error || "erro desconhecido")}). A mensagem abaixo é apenas uma resposta de contingência —
+              confirme se ela representa fielmente o que aconteceu antes de aprovar.
+            </p>
+          </div>
+        )}
         {ctx.rationale && (
           <div className="rounded-md border border-dashed border-amber-200 bg-amber-50 p-3 text-xs">
             <div className="font-medium text-amber-900 mb-1">Justificativa da IA</div>

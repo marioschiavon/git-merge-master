@@ -369,7 +369,8 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       subject = subject ?? reply.subject ?? null;
     }
     const channel = await loadConversationChannel(ctx);
-    const result = await sendOutbound(ctx, message!, subject ?? null, channel, { action: "send_reply" });
+    const _ctx = (ctx.params as any)._ctx;
+    const result = await sendOutbound(ctx, message!, subject ?? null, channel, { action: "send_reply", ...(_ctx ? { _ctx } : {}) });
     await logActivity(ctx, channel === "whatsapp" ? "whatsapp" : channel === "linkedin" ? "linkedin" : "email",
       `📤 Resposta enviada: ${message!.substring(0, 120)}`, { direction: "outbound", channel });
     return result;
