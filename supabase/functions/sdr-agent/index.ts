@@ -1775,14 +1775,23 @@ Deno.serve(async (req) => {
       // If the forced tool failed gracefully with a suggested_message, finalize immediately.
       const r = result as any;
       if (r && r.ok === false) {
+        const honestByTool: Record<string, string> = {
+          cancel_booking: "Tive um problema técnico aqui pra processar o cancelamento agora. Anotei seu pedido e vou tentar de novo em alguns minutos — confirmo assim que conseguir. Tudo bem?",
+          reschedule_booking: "Tive um problema técnico pra remarcar agora. Sua reunião segue no horário atual. Vou tentar de novo e te confirmo em seguida.",
+          book_slot: "Não consegui confirmar esse horário agora. Pode me mandar outro dia/horário que funcione pra você? Vou tentar de novo.",
+        };
         const fallbackMsg = typeof r.suggested_message === "string" && r.suggested_message
           ? r.suggested_message
-          : "Tive uma instabilidade aqui pra confirmar esse horário. Pode me mandar outro dia/horário que funcione pra você? Vou garantir a reserva.";
+          : (honestByTool[forcedToolName] || "Tive um problema técnico aqui agora. Vou tentar de novo em alguns minutos.");
         finalDecision = {
           decision: "send_message",
           message: fallbackMsg,
           rationale: `Forced ${forcedToolName} failed: ${r.error_code ?? r.downgrade ?? r.error ?? "unknown"}.`,
-        };
+          tool_failure: {
+            tool: forcedToolName,
+            error: String(r.error_code ?? r.downgrade ?? r.error ?? "unknown"),
+          },
+        } as any;
       } else if (r && r.ok && typeof r.message_suggestion === "string") {
         // Happy path: ask LLM ONE turn to either echo or refine the suggestion.
         messages.push({
