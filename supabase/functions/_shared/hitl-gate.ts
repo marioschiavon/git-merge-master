@@ -17,16 +17,58 @@ export interface ApprovalParams {
 }
 
 /**
+ * Returns true if any conversation for the given lead/conversation is in human_takeover.
+ * When true, callers must not send via AI nor create approval requests.
+ */
+export async function isLeadUnderHumanTakeover(
+  supabase: any,
+  opts: { lead_id?: string | null; conversation_id?: string | null },
+): Promise<boolean> {
+  try {
+    if (opts.conversation_id) {
+      const { data } = await supabase
+        .from("conversations")
+        .select("human_takeover")
+        .eq("id", opts.conversation_id)
+        .maybeSingle();
+      if (data?.human_takeover) return true;
+    }
+    if (opts.lead_id) {
+      const { data } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("lead_id", opts.lead_id)
+        .eq("human_takeover", true)
+        .limit(1)
+        .maybeSingle();
+      if (data) return true;
+    }
+  } catch (e) {
+    console.error("[hitl-gate] isLeadUnderHumanTakeover error:", e);
+  }
+  return false;
+}
+
+/**
  * Returns true if a new outbound for the given scope should be intercepted.
+ * When the lead/conversation is under human_takeover, returns false (no gate)
+ * — callers should also skip the send entirely.
  */
 export async function shouldGate(
   supabase: any,
   companyId: string,
   scope: HitlScope,
+  ctx?: { lead_id?: string | null; conversation_id?: string | null },
 ): Promise<boolean> {
   if (!companyId) {
     console.log("[hitl-gate] no company_id → bypass", { scope });
     return false;
+  }
+  if (ctx && (ctx.lead_id || ctx.conversation_id)) {
+    if (await isLeadUnderHumanTakeover(supabase, ctx)) {
+      console.log("[hitl-gate] human_takeover ON → bypass gate", { scope, ctx });
+      return false;
+    }
   }
   const { data, error } = await supabase
     .from("companies")
