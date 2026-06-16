@@ -97,8 +97,32 @@ serve(async (req) => {
 
     try {
       if (approval.kind === "first_message" || approval.kind === "cadence_step") {
-        // Save edited message as cadence_custom_messages and re-trigger executor with bypass.
-        if (approval.enrollment_id && finalPayload.step_id) {
+        const isAgentic = !!(approval.payload?.agentic) || !finalPayload.step_id;
+
+        if (isAgentic && approval.enrollment_id) {
+          // Agentic cadence: reactivate enrollment and re-invoke decider with override.
+          await supabase.from("cadence_enrollments").update({
+            status: "active",
+            paused_reason: null,
+            next_execution_at: new Date().toISOString(),
+          }).eq("id", approval.enrollment_id);
+
+          await supabase.functions.invoke("cadence-agent-decide", {
+            body: {
+              enrollment_id: approval.enrollment_id,
+              bypass_hitl: true,
+              override_decision: {
+                action: "send",
+                channel: approval.channel,
+                hook: finalPayload.hook || null,
+                subject: finalPayload.subject ?? null,
+                message: finalPayload.message ?? finalPayload.body ?? "",
+                rationale: "Aprovado por humano via HITL.",
+              },
+            },
+          });
+        } else if (approval.enrollment_id && finalPayload.step_id) {
+          // Step-based cadence: save custom message and trigger executor with bypass.
           await supabase.from("cadence_custom_messages").upsert({
             enrollment_id: approval.enrollment_id,
             step_id: finalPayload.step_id,
@@ -108,14 +132,12 @@ serve(async (req) => {
             message: finalPayload.message ?? finalPayload.body ?? "",
           }, { onConflict: "enrollment_id,step_id" });
 
-          // Unblock executor: set next_execution_at to now and clear pause
           await supabase.from("cadence_enrollments").update({
             next_execution_at: new Date().toISOString(),
             status: "active",
             paused_reason: null,
           }).eq("id", approval.enrollment_id);
 
-          // Trigger executor in bypass mode for this enrollment
           await supabase.functions.invoke("cadence-executor", {
             body: { enrollment_id: approval.enrollment_id, bypass_hitl: true },
           });

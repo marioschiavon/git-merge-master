@@ -1,83 +1,61 @@
-# Plano — Human-in-the-Loop (HITL)
+## Problema
 
-Objetivo: permitir que um humano aprove, edite ou rejeite cada mensagem/ação da IA antes de sair, durante a fase de testes. Quando se sentir confiante, basta desligar a chave global.
+A cadência **inteligente (agentic)** envia mensagem direto de dentro de `cadence-agent-decide` (linhas 525–590) — chama `gmail-send` / Z-API e insere em `messages` **sem passar pelo `sendOutbound`** que tem o gate HITL. Por isso o teste passou pela frente das aprovações.
 
-## 1. Configuração global por empresa
+Existem ainda outros caminhos paralelos que também precisam ser fechados.
 
-- Adicionar coluna `hitl_enabled boolean default false` em `companies`.
-- Adicionar coluna `hitl_scopes jsonb default '{"first_message":true,"sdr_reply":true,"cadence_step":true,"sensitive_action":true}'` para granularidade futura (UI mostra 4 switches).
-- Tela: `Settings → Operação` com toggle "Revisão humana antes de enviar" + 4 sub-switches por escopo.
+## Caminhos que ainda burlam o HITL
 
-## 2. Tabela `approval_requests`
+| # | Função | Linha | Tipo |
+|---|---|---|---|
+| 1 | `cadence-agent-decide` | 540–571 | Envia gmail-send + Z-API + insere `messages` direto (**raiz do bug atual**) |
+| 2 | `execute-action` → `schedule_followup` (lead_request) | 300 | Invoca `gmail-send` direto |
+| 3 | `execute-action` → `send_email` handler | 464 | Invoca `gmail-send` + insere `messages` direto |
+| 4 | Conversations UI — botão "Responder com IA" (se existir) | — | Verificar e gatear |
 
-Centraliza tudo o que está pendente de revisão.
+## Plano (cirúrgico, por handler)
 
-```text
-id uuid pk
-company_id uuid
-lead_id uuid
-conversation_id uuid null
-enrollment_id uuid null
-kind text       -- 'first_message' | 'sdr_reply' | 'cadence_step' | 'sensitive_action'
-channel text    -- email | whatsapp | linkedin | system
-action text     -- send | reschedule | cancel | remove_participant | stop | handoff
-payload jsonb   -- { subject, body, to, scheduled_at, ... } editável
-context jsonb   -- rationale da IA, intent detectado, histórico curto
-status text     -- pending | approved | rejected | edited_sent | expired
-reviewed_by uuid null
-reviewed_at timestamptz null
-edited_payload jsonb null
-created_at, updated_at
-```
+### 1. `cadence-agent-decide` — gatear envio agentic
+Antes do bloco `decision.action === "send"` real (não na simulação), chamar `shouldGate("cadence_step", company_id)`. Se `true`:
+- Criar `approval_request` (`kind: "cadence_step"`, `channel`, `payload: {subject, body, message, hook, attempt}`, `context: {rationale, intent, cadence_id, enrollment_id, lead_id}`)
+- **Persistir a `cadence_agent_decisions` mesmo assim** com `status: "pending_approval"` (campo já existente ou usar metadata)
+- Pausar enrollment com `paused_reason: "awaiting_approval"` e `next_execution_at = null`
+- Registrar `lead_activity` "🕓 Aguardando aprovação humana — IA propôs (canal/hook)"
+- **Não chamar gmail-send / Z-API, não inserir `messages`**
+- Aceitar parâmetro `bypass_hitl: true` no body para re-execução pós-aprovação
 
-RLS por `company_id` + GRANTs padrão. Sem auto-expiração — fica pendente indefinidamente conforme escolha do usuário.
+### 2. `execute-action` — fechar bypasses
+- **`schedule_followup` (lead_request branch)**: substituir o `functions.invoke("gmail-send")` direto por uma chamada a um helper `sendEmailGated()` que faz o mesmo gate do `sendOutbound`. Mesmo padrão p/ WhatsApp branch (já usa sendOutbound, OK).
+- **`send_email` handler**: idem — passar pelo gate antes do `gmail-send` direto.
 
-## 3. Ponto de interceptação (gate único)
+Refatoração mínima: extrair um helper `sendEmailDirect(ctx, {to, subject, html, body})` que internamente chama `shouldGate("sensitive_action" ou "sdr_reply" conforme contexto)`, cria approval_request se gate ON, ou envia se OFF.
 
-Criar `_shared/hitl-gate.ts` com `requireApprovalOrSend(params)`:
+### 3. `approval-execute` — suportar `kind: "cadence_step"` do agentic
+Atualizar para, quando aprovado/editado:
+- Reativar `cadence_enrollment` (`status: "active"`, `paused_reason: null`)
+- Reinvocar `cadence-agent-decide` com `{ enrollment_id, bypass_hitl: true, override_decision: {...payload editado} }`
+- Em `cadence-agent-decide`, se receber `bypass_hitl=true` + `override_decision`, pular o LLM e usar a decisão fornecida, indo direto ao bloco de envio.
 
-- Se `hitl_enabled=false` para a `company` → envia normalmente (comportamento atual).
-- Se `true` → cria `approval_request` com `status=pending`, registra `lead_activity` "Aguardando aprovação humana", e **não envia**.
+### 4. UI Conversations
+Verificar se há ação "Gerar resposta IA" no `src/pages/Conversations.tsx`. Se sim, garantir que o fluxo chame `sdr-agent` / `execute-action` (que estará gatado). Se chama `generate-reply` direto e envia, plugar o gate também.
 
-Chamar o gate em:
-- `cadence-executor` (envio da primeira mensagem e steps determinísticos).
-- `cadence-agent-decide` (decisões agentic: send/stop/handoff vira pending).
-- `sdr-agent` (resposta a inbound antes do `send-outbound-message`).
-- `execute-action` (reschedule/cancel/remove participante do Cal.com).
-
-## 4. Página `/approvals`
-
-Nova rota + item no `AppSidebar` com badge de contagem pendente.
-
-Layout (estilo inbox):
-- Lista esquerda: cards com lead, canal, tipo, tempo aguardando, preview.
-- Painel direito: detalhe do lead resumido, contexto da IA (rationale, intent, histórico recente), editor da mensagem (subject + body) ou dos parâmetros da ação, botões **Aprovar e enviar**, **Editar e enviar**, **Rejeitar** (com motivo opcional).
-- Filtros: tipo (first_message/sdr_reply/cadence_step/sensitive_action), canal, cadência.
-
-Realtime via Supabase channel para atualizar a fila ao vivo.
-
-## 5. Execução pós-aprovação
-
-Edge function `approval-execute`:
-- Recebe `approval_request_id` + payload final.
-- Marca `status=approved` (ou `edited_sent`) e chama o caminho de envio real (`send-outbound-message`, Cal.com, etc.) com o payload aprovado.
-- Em rejeição: marca `status=rejected`, registra activity e — conforme `kind` — pausa enrollment ou apenas descarta a resposta.
-
-## 6. UI extras
-
-- Badge "🕓 Aguardando aprovação" no `LeadDetail` e no card de enrollment em `CadenceDetail`.
-- Em `Conversations`, mensagens pending aparecem com estilo tracejado + tag "Pendente de aprovação".
+### 5. Diagnóstico — log defensivo
+Em `_shared/hitl-gate.ts`, adicionar `console.log("[hitl-gate]", { company_id, scope, hitl_enabled, hitl_scopes, decision })` para ficar fácil ver nos logs por que um gate dispara ou não.
 
 ## Detalhes técnicos
 
-- Migração: 1 ALTER em `companies` + CREATE TABLE `approval_requests` + GRANTs + RLS (`has_role admin/company_admin` ou `get_user_company_id`).
-- Hooks novos: `useApprovals`, `useApprovalMutations` (approve/edit/reject).
-- Tipos AI SDK: nada novo; payloads são `jsonb`.
-- Sem timeout/auto-aprovação — explicitamente fora de escopo.
-- Indicadores de simulação atuais (dry-run da cadência agentic) permanecem; HITL é camada acima e prioritária: se HITL ligado, mesmo em modo "real" nada sai sem aprovação.
+**Arquivos a editar:**
+- `supabase/functions/cadence-agent-decide/index.ts` (principal)
+- `supabase/functions/execute-action/index.ts` (2 handlers + helper)
+- `supabase/functions/approval-execute/index.ts` (suporte cadence_step agentic)
+- `supabase/functions/_shared/hitl-gate.ts` (logs + helper email)
+- `src/pages/Conversations.tsx` (verificar/ajustar)
 
-## Fora de escopo desta entrega
+**Sem nova migração** — a `approval_requests` já existe e suporta `kind: "cadence_step"`.
 
-- Aprovação por email/WhatsApp (link mágico). Hoje só dentro do app.
-- Auto-aprovação por timeout / regras condicionais (ex: "auto-aprovar se confiança > 0.9").
-- Múltiplos revisores / workflow de 2 níveis.
+**Compat:** com HITL OFF, comportamento idêntico ao atual.
+
+## Fora de escopo
+- Reescrever cadence-agent-decide pra usar sendOutbound centralizado (refactor maior, fica pra depois)
+- Magic links de aprovação por email/WhatsApp
+- Aprovação por confiança automática

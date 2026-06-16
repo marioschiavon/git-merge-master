@@ -4,6 +4,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { buildFirstMessage } from "../_shared/build-first-message.ts";
+import { shouldGate, createApprovalRequest } from "../_shared/hitl-gate.ts";
 
 async function findOrCreateConversation(
   supabase: any,
@@ -85,7 +86,12 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    const { enrollment_id } = await req.json();
+    const reqBody = await req.json();
+    const { enrollment_id, bypass_hitl, override_decision } = reqBody as {
+      enrollment_id?: string;
+      bypass_hitl?: boolean;
+      override_decision?: Partial<Decision>;
+    };
     if (!enrollment_id) {
       return new Response(JSON.stringify({ error: "enrollment_id required" }), {
         status: 400,
@@ -286,7 +292,17 @@ serve(async (req) => {
 
     let decision: Decision;
 
-    if (isFirstAttempt) {
+    if (override_decision && override_decision.action) {
+      // Approved/edited via HITL → skip first-message engine and LLM, use provided decision.
+      decision = {
+        action: override_decision.action,
+        channel: override_decision.channel,
+        hook: override_decision.hook,
+        subject: override_decision.subject,
+        message: override_decision.message,
+        rationale: override_decision.rationale || "Decisão aprovada por humano via HITL.",
+      } as Decision;
+    } else if (isFirstAttempt) {
       try {
         const first = await buildFirstMessage({
           supabase,
@@ -311,7 +327,7 @@ serve(async (req) => {
       }
     }
 
-    if (!isFirstAttempt || !decision!) {
+    if (!override_decision && (!isFirstAttempt || !decision!)) {
 
     const [convsRes, prevDecisionsRes, kbRes, highlightsRes, aiInstrRes] = await Promise.all([
       supabase.from("conversations").select("id, channel").eq("lead_id", lead.id),
@@ -526,6 +542,55 @@ Decida a próxima ação.`;
       // Inline send: email via gmail-send, whatsapp via Z-API.
       const channel = decision.channel;
       const isSimulation = !!cadence.simulation_mode;
+
+      // === HITL gate (only for real sends, not simulation, not when bypassed) ===
+      const scope = isFirstAttempt ? "first_message" : "cadence_step";
+      if (!isSimulation && !bypass_hitl && await shouldGate(supabase, cadence.company_id, scope as any)) {
+        // Persist the decision so it shows up in the cadence timeline
+        await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+        // Create approval request for the operator
+        await createApprovalRequest(supabase, {
+          company_id: cadence.company_id,
+          lead_id: lead.id,
+          enrollment_id,
+          cadence_id: cadence.id,
+          kind: scope as any,
+          channel,
+          action: "agentic_send",
+          payload: {
+            subject: decision.subject || null,
+            message: decision.message,
+            hook: decision.hook || null,
+            attempt: attemptNumber,
+            agentic: true,
+          },
+          context: {
+            rationale: decision.rationale,
+            cadence_name: cadence.name,
+            attempt: attemptNumber,
+          },
+        });
+        // Pause enrollment so the executor doesn't keep re-firing
+        await supabase
+          .from("cadence_enrollments")
+          .update({
+            status: "paused",
+            paused_reason: "awaiting_approval",
+            next_execution_at: null,
+          })
+          .eq("id", enrollment_id);
+        await supabase.from("lead_activities").insert({
+          company_id: cadence.company_id,
+          lead_id: lead.id,
+          type: "system",
+          description: `🕓 IA propôs envio (${channel}/${decision.hook || "-"}) — aguardando aprovação humana`,
+          metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, hitl: true, channel },
+        });
+        return new Response(JSON.stringify({ action: "pending_approval", channel }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       let sendAction = isSimulation ? "simulated" : "sent";
       let deliveryMeta: Record<string, any> = isSimulation ? { delivery_status: "simulated" } : {};
       const conversation = isSimulation
@@ -533,6 +598,8 @@ Decida a próxima ação.`;
         : await findOrCreateConversation(
             supabase, lead.id, cadence.company_id, channel, enrollment_id
           );
+
+
 
       if (isSimulation) {
         // Dry-run: do NOT call gmail-send / Z-API and do NOT insert into messages.
