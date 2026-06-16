@@ -13,6 +13,10 @@ export interface ReferralContact {
   /** True when the inbound contains a "wrong person / redirect" signal
    *  ("não sou eu", "não é comigo", "quem cuida disso é", "fala com X"). */
   redirect_signal?: boolean;
+  /** Sinal interno (não persistido) — regex detectou contexto de nome
+   *  mas só capturou um título ("Dra", "Dr."), ou nada. Camada superior
+   *  deve chamar a LLM pra tentar extrair o nome completo. */
+  name_needs_llm?: boolean;
 }
 
 export interface EntityResult {
@@ -117,31 +121,61 @@ const PERMISSION_RE = /\b(pode\s+(?:dizer|falar|mencionar|usar)|use\s+meu\s+nome
 // padrões mais específicos primeiro. O grupo capturador é sempre o nome.
 const NAME_HINT_PATTERNS: RegExp[] = [
   // "quem cuida disso é o Carlos", "quem trata desse assunto seria a Andreia"
-  /\bquem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)\s+(?:disso|desse\s+assunto|isso)?\s*(?:[ée]|seria)\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/i,
+  /\bquem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)\s+(?:disso|desse\s+assunto|isso)?\s*(?:[ée]|seria)\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/i,
   // "não sou eu, é o Carlos Vilagran" / "nao sou eu é a Andreia"
-  /\b(?:n[aã]o\s+sou\s+eu|n[aã]o\s+(?:[ée]|seria)\s+comigo)[\s,.;:!?-]+(?:[ée]\s+)?(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/i,
+  /\b(?:n[aã]o\s+sou\s+eu|n[aã]o\s+(?:[ée]|seria)\s+comigo)[\s,.;:!?-]+(?:[ée]\s+)?(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/i,
   // "com o Carlos", "sim com a Andreia", "comigo e sim com o Carlos"
-  /\bcom\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/,
+  /\bcom\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/,
   // "se chama Andreia", "chama-se Andreia", "chama Andreia"
-  /\b(?:se\s+)?chama(?:-se)?\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/,
+  /\b(?:se\s+)?chama(?:-se)?\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/,
   // "nome dela/dele é Andreia", "o nome é Andreia"
-  /\bnome\s+(?:dela|dele|d[aoe]\s+\w+)?\s*(?:[ée])\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/,
+  /\bnome\s+(?:dela|dele|d[aoe]\s+\w+)?\s*(?:[ée])\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/,
   // "a pessoa correta é Andreia", "pessoa certa é Carlos"
-  /\bpessoa\s+(?:correta|certa|respons[aá]vel)\s+(?:[ée]|chama(?:-se)?)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/,
+  /\bpessoa\s+(?:correta|certa|respons[aá]vel)\s+(?:[ée]|chama(?:-se)?)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/,
   // "responsável é Carlos"
-  /\brespons[aá]vel\s+[ée]\s+(?:o|a)?\s*([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/,
+  /\brespons[aá]vel\s+[ée]\s+(?:o|a)?\s*([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/,
   // "falar com X", "fale com X", "procurar (o|a|pelo|pela) X", "contatar (o|a) X"
-  /\b(?:fala\s+com|fale\s+com|falar?\s+com|procurar?\s+(?:o\s+|a\s+|pelo\s+|pela\s+)?|contatar?\s+(?:o\s+|a\s+)?)([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})/,
+  /\b(?:fala\s+com|fale\s+com|falar?\s+com|procurar?\s+(?:o\s+|a\s+|pelo\s+|pela\s+)?|contatar?\s+(?:o\s+|a\s+)?)([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})/,
 ];
 // Fallback aplicado APENAS quando há sinal de redirect no texto: pega
 // "é o/a Carlos Vilagran" curto ("...é o Carlos.").
-const NAME_REDIRECT_FALLBACK_RE = /\b[ée]\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+){0,2})\b/;
+const NAME_REDIRECT_FALLBACK_RE = /\b[ée]\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/;
 // Palavras que NÃO são nomes próprios (filtro pós-match).
 const NAME_STOPWORDS = new Set([
   "Email", "E-mail", "Whatsapp", "WhatsApp", "Telefone", "Contato",
   "Empresa", "Pessoa", "Responsável", "Responsavel",
 ]);
+// Títulos que sozinhos NÃO são nome — precisam vir com nome próprio.
+// Comparação é case-insensitive e ignora ponto final.
+const TITLE_ONLY = new Set([
+  "dr", "dra", "sr", "sra", "srta", "prof", "profa", "doutor", "doutora",
+]);
 const REDIRECT_SIGNAL_RE = /(n[aã]o\s+(?:sou\s+eu|seria\s+comigo|[ée]\s+comigo|sou\s+(?:o|a)\s+respons[aá]vel)|esse\s+assunto\s+n[aã]o\s+(?:[ée]|seria)\s+comigo|quem\s+(?:cuida|v[eê]|trata|cuidaria)\s+(?:disso|desse\s+assunto)|sou\s+s[óo]\s+(?:o|a)\s+(?:assistente|secret[aá]ri))/i;
+// Contextos em que o regex DETECTOU referência a um nome mas pode ter
+// falhado em extraí-lo (ex.: "Dra." com pontuação atípica, vírgulas no meio,
+// nome composto raro). Quando isso casa, marcamos name_needs_llm pra que a
+// camada superior chame a LLM como fallback.
+const NAME_CONTEXT_RE = /\b(fala\s+com|fale\s+com|falar?\s+com|procurar?|contatar?|quem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)|com\s+(?:o|a)\s+|chama(?:-se)?|nome\s+(?:dela|dele|d[aoe])|pessoa\s+(?:correta|certa|respons[aá]vel)|respons[aá]vel\s+[ée])\b/i;
+
+/** Normaliza nome capturado: remove pontos finais, descarta stopwords
+ *  (Email, Telefone, etc.) e títulos sozinhos. Retorna null se ficou vazio. */
+function normalizeName(raw: string): string | null {
+  const tokens = raw
+    .split(/\s+/)
+    .map((tok) => tok.replace(/\.+$/, "").trim())
+    .filter(Boolean);
+  // Trunca no primeiro stopword (regex tende a "vazar" pra próxima frase:
+  // "Andreia. Email dela é..." → ["Andreia", "Email"] → fica "Andreia").
+  const cut: string[] = [];
+  for (const t of tokens) {
+    if (NAME_STOPWORDS.has(t)) break;
+    cut.push(t);
+  }
+  if (cut.length === 0) return null;
+  // Só título? Descarta.
+  if (cut.length === 1 && TITLE_ONLY.has(cut[0].toLowerCase())) return null;
+  return cut.join(" ");
+}
 
 function detectReferralContact(text: string): ReferralContact | null {
   const email = text.match(EMAIL_RE)?.[0]?.toLowerCase();
@@ -150,29 +184,48 @@ function detectReferralContact(text: string): ReferralContact | null {
   const phone = phoneDigits.length >= 10 ? phoneDigits : undefined;
   const permission = PERMISSION_RE.test(text) ? true : undefined;
   let name: string | undefined;
+  // Quando algum padrão nominal casou (mesmo que tenhamos descartado por ser
+  // só título), marcamos para que a LLM tente recuperar o nome completo.
+  let nameContextMatched = false;
   for (const re of NAME_HINT_PATTERNS) {
     const m = text.match(re);
     const cand = m?.[1]?.trim();
-    if (cand && !NAME_STOPWORDS.has(cand)) {
-      name = cand;
+    if (!cand) continue;
+    nameContextMatched = true;
+    const normalized = normalizeName(cand);
+    if (normalized) {
+      name = normalized;
       break;
     }
+    // cand era só título ("Dra"); continua tentando outros padrões.
   }
   const redirect = REDIRECT_SIGNAL_RE.test(text) ? true : undefined;
   // Fallback: se há sinal de redirect mas nenhum padrão nominal casou, tenta "é o/a X".
   if (!name && redirect) {
     const m = text.match(NAME_REDIRECT_FALLBACK_RE);
     const cand = m?.[1]?.trim();
-    if (cand && !NAME_STOPWORDS.has(cand)) name = cand;
+    if (cand) {
+      nameContextMatched = true;
+      const normalized = normalizeName(cand);
+      if (normalized) name = normalized;
+    }
   }
 
-  if (!email && !phone && permission === undefined && !name && !redirect) return null;
+  // Contexto genérico de nome (sem captura ainda) — também aciona LLM.
+  if (!nameContextMatched && NAME_CONTEXT_RE.test(text)) {
+    nameContextMatched = true;
+  }
+
+  const needsLlm = !name && nameContextMatched;
+
+  if (!email && !phone && permission === undefined && !name && !redirect && !needsLlm) return null;
   const contact: ReferralContact = {};
   if (email) contact.email = email;
   if (phone) contact.phone = phone;
   if (name) contact.name = name;
   if (permission !== undefined) contact.permission_to_mention = permission;
   if (redirect) contact.redirect_signal = true;
+  if (needsLlm) contact.name_needs_llm = true;
   return contact;
 }
 

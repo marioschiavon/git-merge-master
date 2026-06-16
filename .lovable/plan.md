@@ -1,47 +1,45 @@
-## Como funciona a fila hoje
+## Abordagem híbrida (regex + IA só quando precisa)
 
-`src/hooks/useHumanInbox.ts` busca `conversations` com `human_takeover=true` da empresa e ordena por **`last_inbound_at desc`** (data da última mensagem recebida do lead). Já existe Realtime na fila (canal `inbox-realtime-*` escutando `conversations` e `INSERT` em `messages`) com fallback de `refetchInterval: 30s`.
+Regex continua sendo a primeira camada — é determinístico, grátis e roda em todo inbound. A IA entra **só** quando há sinal de referral mas o regex não conseguiu um nome confiável. Isso mantém custo/latência baixos e resolve casos como "Dra. Claudia", "dr joão silva", "a Cláudia, que cuida disso".
 
-Problemas atuais:
-1. **A janela do chat aberto não atualiza em tempo real** — `useMessages` (em `useConversations.ts`) não tem subscription, então mensagens novas só aparecem ao trocar de conversa ou recarregar.
-2. **`last_inbound_at` ignora mensagens outbound**, então a conversa não volta ao topo quando o operador responde — fica diferente do comportamento WhatsApp.
-3. **Sem indicador de "não lido"** — não dá pra distinguir conversas que têm resposta nova do lead esperando.
-4. **Sem aviso quando chega mensagem em outra conversa** que não está aberta.
-5. **Sem auto-scroll** ao receber mensagem nova no chat aberto.
+## Mudanças
 
-## Mudanças propostas
+### 1. `supabase/functions/_shared/entity-extractor.ts`
 
-### 1. Realtime no chat aberto (`src/hooks/useConversations.ts`)
-Adicionar dentro de `useMessages` um `useEffect` que assina `postgres_changes` em `messages` com `filter: conversation_id=eq.<id>` e invalida `["messages", conversationId]` em INSERT/UPDATE. Limpar o canal no unmount. (Tabela já está em `supabase_realtime`.)
+- **Marcar nome como "fraco"** quando o regex só capturou um título (`Dr`, `Dra`, `Sr`, `Sra`, `Srta`, `Prof`, `Profa`) sem nome próprio à frente. Nesses casos `name` fica `undefined` e adicionamos um campo interno `name_needs_llm: true` no `ReferralContact` (não persistido, só sinal pra camada de cima).
+- **Pequena melhoria no regex** (barata): aceitar ponto opcional após cada token (`[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?`) pra pegar "Dra. Claudia" sem precisar de LLM no caso simples. Normalizar removendo o ponto final antes de retornar.
+- Manter detecção de email/telefone/`redirect_signal`/`permission_to_mention` 100% determinística.
 
-### 2. Ordenação estilo WhatsApp (`useHumanInbox.ts`)
-Trocar a chave de ordenação para **último timestamp de atividade** = `max(last_inbound_at, last_message.sent_at)`. Como a query já busca `last_message`, basta reordenar no client após o mapeamento. Resultado: ao responder, a conversa sobe ao topo.
+### 2. Nova edge function `supabase/functions/extract-referral-name/index.ts`
 
-### 3. Indicador de não-lido (`useHumanInbox.ts` + `Inbox.tsx`)
-- Considerar **não-lida** uma conversa cujo `last_message.direction === "inbound"` e `sent_at > lastViewedAt[conversationId]` (armazenado em `localStorage` por usuário).
-- Ao selecionar a conversa, marcar `lastViewedAt[id] = now()`.
-- Na lista: nome em **bold**, ponto azul à direita e contagem no header (`X não lidas`).
-- Adicionar terceiro filtro: **Todos / Meus / Não lidas**.
+- Entrada: `{ text: string }` (último inbound do lead, truncado a ~500 chars).
+- Usa AI SDK + Lovable AI Gateway com `google/gemini-3-flash-preview` (rápido/barato) e `Output.object` com schema mínimo: `{ name: string | null, confidence: "high" | "low" }`.
+- Prompt curto e específico: "Extraia APENAS o nome próprio da pessoa indicada (não o remetente). Inclua título se citado (Dr./Dra.). Retorne null se não houver nome claro."
+- CORS + `verify_jwt = false` (chamada server-to-server da função consumidora).
+- Validação Zod do body, timeout curto, fallback `name: null` em erro.
 
-### 4. Aviso de mensagem nova em outra conversa (`Inbox.tsx`)
-Quando um INSERT em `messages` de outra conversa da fila chegar (já capturado pelo canal da queue), disparar um `toast` discreto: "Nova mensagem de {nome}" com ação "Abrir" que troca o `selectedId`. Sem som por padrão (evita ser invasivo); pode ser adicionado depois se pedido.
+### 3. Consumidor (`supabase/functions/sdr-agent/index.ts` ou onde o `extractEntities` é chamado hoje)
 
-### 5. Auto-scroll no chat (`Inbox.tsx > ChatPanel`)
-Ref no fim da lista de mensagens; em `useEffect([messages.length])` chamar `scrollIntoView({ behavior: "smooth" })` — só rola se o usuário já estava perto do fim (evita pular enquanto lê histórico).
+- Após `extractEntities(...)`, se `referral_contact?.name_needs_llm === true` **e** (`redirect_signal` for true OU `email`/`phone` foram detectados), chamar `extract-referral-name` com o `lastInbound`.
+- Se vier `name` com `confidence: "high"`, popular `referral_contact.name`. Senão, deixa `undefined` (lead segue sem nome, igual hoje).
+- Logar a decisão pra observabilidade.
 
-### 6. Pequenas melhorias visuais na lista
-- Mostrar `formatDistanceToNow(latestActivityAt)` à direita do nome (substitui só onde fizer sentido junto do SLABadge).
-- "SLA estourado" continua badge; conversas com SLA > 15min ganham um sutil destaque (borda esquerda âmbar) sem mudar a ordem (a ordem segue cronológica).
+### 4. Testes (`entity-extractor_test.ts`)
+
+- "fala com a Dra. Claudia" → regex resolve direto, `name === "Dra Claudia"`, `name_needs_llm` falso.
+- "fala com a Dra" (só título) → `name` undefined, `name_needs_llm: true`.
+- "é o Carlos Vilagran" / "fala com Andreia" → regressão, segue funcionando.
+- Sem sinal de referral → `referral_contact === null` (não dispara LLM).
+
+## Por que esse desenho
+
+- **Custo**: LLM só roda em mensagens com sinal de referral E nome ambíguo — fração pequena do tráfego.
+- **Latência**: o caminho comum (regex resolve) não muda; só o caso ambíguo paga ~500ms extras.
+- **Auditável**: regex continua testável; resposta da IA é estruturada (schema) e logada.
+- **Sem regressão**: se a edge function falhar ou retornar `null`, o comportamento volta a ser exatamente o atual.
 
 ## Fora de escopo
 
-- Persistir `last_read_at` em coluna de `conversations` (usar localStorage por enquanto é suficiente e não exige migração).
-- Notificações do browser (`Notification` API) ou som.
-- Atribuição / roteamento automático (round-robin entre operadores).
-- Paginação da fila (volume atual cabe sem virtualização).
-
-## Resultado
-
-- O chat aberto recebe mensagens em tempo real (1ª prioridade).
-- A fila se comporta como WhatsApp: última atividade no topo, não-lidas em negrito com contagem.
-- Operador vê toast quando outro lead responde em uma conversa não aberta.
+- Não trocar todo o `entity-extractor` por LLM.
+- Não usar IA pra email/telefone/datas/slots — regex e parsers já cobrem bem.
+- Não mudar o frontend nem o schema do banco.

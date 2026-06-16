@@ -159,3 +159,42 @@ Deno.test("referral_contact: fallback 'é o X' só com redirect signal", () => {
   assertEquals(r2.referral_contact?.name, "Andreia");
   assertEquals(r2.referral_contact?.redirect_signal, true);
 });
+
+Deno.test("referral_contact: captura nome com título e ponto 'Dra. Claudia'", () => {
+  const r = extractEntities({
+    lastInbound: "pode falar com a Dra. Claudia",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.name, "Dra Claudia");
+  assertEquals(r.referral_contact?.name_needs_llm, undefined);
+});
+
+Deno.test("referral_contact: captura 'Dr. João Silva' com sobrenome", () => {
+  const r = extractEntities({
+    lastInbound: "quem cuida disso é o Dr. João Silva",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.name, "Dr João Silva");
+});
+
+Deno.test("referral_contact: só título 'Dra' marca name_needs_llm", () => {
+  const r = extractEntities({
+    lastInbound: "fala com a Dra",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact?.name, undefined);
+  assertEquals(r.referral_contact?.name_needs_llm, true);
+});
+
+Deno.test("referral_contact: sem contexto nominal NÃO marca name_needs_llm", () => {
+  const r = extractEntities({
+    lastInbound: "ok, obrigado",
+    offeredSlots: [], heldSlots: [], activeBookingAt: null,
+    matchesSlotRef: makeMatcher(),
+  });
+  assertEquals(r.referral_contact, null);
+});
+

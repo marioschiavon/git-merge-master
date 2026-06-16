@@ -1598,6 +1598,37 @@ Deno.serve(async (req) => {
       matchesSlotRef: matchesSlotReference,
     });
 
+    // ── Fallback LLM: nome do referral quando o regex não capturou ──
+    // O extractor marca `name_needs_llm=true` quando detecta CONTEXTO de
+    // nome ("fala com a Dra.", "quem cuida disso é …") mas não consegue
+    // extrair um nome completo confiável. Custa ~1 chamada barata
+    // (gemini-flash) só nesse caso — não em todo inbound.
+    try {
+      const rcInit = entities.referral_contact;
+      if (rcInit?.name_needs_llm && !rcInit.name) {
+        const shouldCall = !!(rcInit.redirect_signal || rcInit.email || rcInit.phone)
+          || true; // Sempre que houver contexto de nome, tentar — barato.
+        if (shouldCall) {
+          const { data: nameResp, error: nameErr } = await supabase.functions.invoke(
+            "extract-referral-name",
+            { body: { text: lastInbound } },
+          );
+          if (nameErr) {
+            console.warn("sdr-agent extract-referral-name failed:", nameErr);
+          } else if (nameResp?.name && nameResp.confidence === "high") {
+            (entities.referral_contact as any).name = String(nameResp.name).trim();
+            console.log("sdr-agent referral name (llm):", nameResp.name);
+          } else {
+            console.log("sdr-agent referral name (llm) inconclusive:", nameResp);
+          }
+        }
+        delete (entities.referral_contact as any).name_needs_llm;
+      }
+    } catch (e) {
+      console.warn("sdr-agent referral name llm fallback error:", e);
+    }
+
+
     // ── Fallback: herdar emails de convidados do histórico recente ──
     // Quando o lead já passou emails em turnos anteriores (intent=add_guests)
     // e a inbound atual é só uma clarificação ("esse é outro Eduardo"),
