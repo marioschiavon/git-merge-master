@@ -5,12 +5,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useConversations, useLeadMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
+import { useConversationTakeover, useTakeoverToggle } from "@/hooks/useHumanInbox";
+import { HumanCopilotPanel } from "@/components/inbox/HumanCopilotPanel";
+import { Switch } from "@/components/ui/switch";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw, CalendarCheck, CalendarClock, CalendarX, AlertTriangle, CheckCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
 import {
   AlertDialog,
   AlertDialogAction,
