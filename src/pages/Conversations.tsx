@@ -329,9 +329,20 @@ export default function Conversations() {
             </Button>
           </div>
         </div>
+        </div>
+        {humanOn && replyConversationId && (
+          <div className="w-80 shrink-0 overflow-y-auto">
+            <HumanCopilotPanel
+              conversationId={replyConversationId}
+              leadId={selectedGroup.lead_id}
+              onInsertText={(t) => setNewMessage((prev) => (prev ? prev + "\n\n" + t : t))}
+            />
+          </div>
+        )}
       </div>
     );
   }
+
 
   return (
     <div className="p-6 space-y-6">
