@@ -59,6 +59,7 @@ export function HumanCopilotPanel({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  const [suggestGuests, setSuggestGuests] = useState<string[]>([]);
 
   // Agendar
   const [bookStart, setBookStart] = useState<string | null>(null);
@@ -111,7 +112,7 @@ export function HumanCopilotPanel({
     setBusy(`book-${hold.hold_id}`);
     try {
       const { data, error } = await supabase.functions.invoke("human-book-slot", {
-        body: { conversation_id: conversationId, hold_id: hold.hold_id, notify_lead: true },
+        body: { conversation_id: conversationId, hold_id: hold.hold_id, notify_lead: true, guests: suggestGuests },
       });
       if (error) throw new Error(error.message);
       if ((data as any)?.error) throw new Error((data as any).error);
@@ -120,6 +121,7 @@ export function HumanCopilotPanel({
       activeBooking.refetch();
       holds.refetch();
       setSlots((prev) => prev.filter((s) => s.hold_id !== hold.hold_id));
+      setSuggestGuests([]);
     } catch (e: any) {
       toast.error(e?.message || "Erro ao confirmar reunião");
     } finally {
@@ -263,6 +265,13 @@ export function HumanCopilotPanel({
 
             {/* Sugerir */}
             <TabsContent value="suggest" className="space-y-2 mt-2">
+              {(activeHolds.length > 0 || slots.length > 0) && (
+                <div className="space-y-1">
+                  <Label className="text-[11px] text-muted-foreground">Convidados extras (opcional)</Label>
+                  <GuestsInput value={suggestGuests} onChange={setSuggestGuests} />
+                  <p className="text-[10px] text-muted-foreground">Vão receber o convite junto com o lead.</p>
+                </div>
+              )}
               {activeHolds.length > 0 && (
                 <div className="space-y-1.5 rounded-md border bg-primary/5 p-2">
                   <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wide">
