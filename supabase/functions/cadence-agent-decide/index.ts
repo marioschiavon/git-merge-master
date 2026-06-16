@@ -99,17 +99,19 @@ serve(async (req) => {
       });
     }
 
-    // Idempotency
-    const { data: recent } = await supabase
-      .from("cadence_agent_decisions")
-      .select("id, decided_at")
-      .eq("enrollment_id", enrollment_id)
-      .gte("decided_at", new Date(Date.now() - 30_000).toISOString())
-      .limit(1);
-    if (recent && recent.length > 0) {
-      return new Response(JSON.stringify({ skipped: "recent_decision" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    // Idempotency — não aplicar quando é re-invocação via aprovação humana (bypass_hitl/override_decision).
+    if (!bypass_hitl && !override_decision) {
+      const { data: recent } = await supabase
+        .from("cadence_agent_decisions")
+        .select("id, decided_at")
+        .eq("enrollment_id", enrollment_id)
+        .gte("decided_at", new Date(Date.now() - 30_000).toISOString())
+        .limit(1);
+      if (recent && recent.length > 0) {
+        return new Response(JSON.stringify({ skipped: "recent_decision" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
     }
 
     // Load enrollment + cadence + policy + lead
