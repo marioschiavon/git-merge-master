@@ -78,6 +78,9 @@ export function AppSidebar() {
   const location = useLocation();
   const { isMasterAdmin, signOut, profile } = useAuth();
   const { data: pendingCount = 0 } = usePendingApprovalsCount();
+  const { data: inboxQueue = [] } = useInboxQueue();
+  const inboxCount = inboxQueue.length;
+
 
   const isActive = (path: string) => location.pathname === path;
 
