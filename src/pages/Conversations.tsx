@@ -193,7 +193,8 @@ export default function Conversations() {
   if (selectedGroup) {
     const channels = Array.from(new Set(selectedGroup.conversations.map((c) => c.channel)));
     return (
-      <div className="p-6 h-full flex flex-col">
+      <div className="p-6 h-full flex gap-4 min-h-0">
+        <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center gap-3 mb-4">
           <Button variant="ghost" size="icon" onClick={() => { setSelectedLeadId(null); setAiSuggestion(null); }}>
             <ArrowLeft className="h-4 w-4" />
@@ -210,9 +211,35 @@ export default function Conversations() {
               </div>
             </div>
           </div>
+          {replyConversationId && (
+            <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-1.5">
+              <Bot className={`h-3.5 w-3.5 ${humanOn ? "opacity-30" : "text-primary"}`} />
+              <Switch
+                checked={humanOn}
+                disabled={takeover.isPending}
+                onCheckedChange={(checked) =>
+                  takeover.mutate({
+                    conversation_id: replyConversationId,
+                    enable: checked,
+                    reason: "manual",
+                    resume_agent: !checked,
+                  })
+                }
+              />
+              <User className={`h-3.5 w-3.5 ${humanOn ? "text-primary" : "opacity-30"}`} />
+              <span className="text-xs font-medium">{humanOn ? "Humano" : "IA"}</span>
+            </div>
+          )}
         </div>
 
+        {humanOn && (
+          <div className="mb-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+            👤 Você está no controle desta conversa. A IA não responderá automaticamente até você devolver.
+          </div>
+        )}
+
         <BookingCard leadId={selectedGroup.lead_id} />
+
         <SlotHoldsCard leadId={selectedGroup.lead_id} compact />
 
         <div className="flex-1 overflow-y-auto space-y-3 mb-4 min-h-0">
