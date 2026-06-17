@@ -306,6 +306,23 @@ serve(async (req) => {
       } as Decision;
     } else if (isFirstAttempt) {
       try {
+        // Build referral hint (safe label) if this is a referral cadence.
+        let referralHint: { label: string; context?: string | null; referrerCompany?: string | null; hasRealName?: boolean } | null = null;
+        if (cadence.kind === "referral" && lead.referral_source_lead_id) {
+          const { buildReferrerLabel } = await import("../_shared/referrer-label.ts");
+          const { data: referrer } = await supabase
+            .from("leads")
+            .select("name, company_name")
+            .eq("id", lead.referral_source_lead_id)
+            .maybeSingle();
+          const lbl = buildReferrerLabel(referrer);
+          referralHint = {
+            label: lbl.label,
+            context: lead.referral_context || null,
+            referrerCompany: lbl.companyClean || null,
+            hasRealName: !!lbl.nameClean,
+          };
+        }
         const first = await buildFirstMessage({
           supabase,
           lovableApiKey: LOVABLE_API_KEY,
@@ -313,6 +330,7 @@ serve(async (req) => {
           lead,
           channel: effectivePrimary as "whatsapp" | "email",
           goal: policy.goal,
+          referralHint,
         });
         decision = {
           action: "send",
