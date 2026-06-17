@@ -120,7 +120,7 @@ serve(async (req) => {
       .select(`
         *,
         leads(*),
-        cadences(id, name, company_id, mode, status, simulation_mode)
+        cadences(id, name, company_id, mode, status, simulation_mode, kind)
       `)
       .eq("id", enrollment_id)
       .maybeSingle();
