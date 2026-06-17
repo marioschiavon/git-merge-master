@@ -437,8 +437,8 @@ ${mentalTriggersContext}
 
 === TEMPLATE BASE DO STEP ===
 ${(currentStep.template || "Sem template definido.")
-  .replaceAll("{{referrer_name}}", referrerName || "")
-  .replaceAll("{{referrer_company}}", referrerCompany || "")
+  .replaceAll("{{referrer_name}}", referrerLabel || "um contato em comum")
+  .replaceAll("{{referrer_company}}", referrerCompanyClean || "")
   .replaceAll("{{referral_context}}", lead.referral_context || "")}
 
 CANAL: ${currentStep.channel}
