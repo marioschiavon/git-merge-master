@@ -103,6 +103,17 @@ export async function buildFirstMessage(input: FirstMessageInput): Promise<First
 
   const goalLine = goal ? `\nOBJETIVO DA CADÊNCIA: ${goal}` : "";
 
+  const referralBlock = referralHint?.label
+    ? `\n\n=== INDICAÇÃO (PRIORIDADE MÁXIMA) ===
+Este lead foi indicado. Refira-se a quem indicou EXATAMENTE como "${referralHint.label}".
+${referralHint.context ? `Contexto da indicação: ${referralHint.context}` : "Sem contexto adicional sobre a indicação."}
+REGRAS OBRIGATÓRIAS:
+- Abra reconhecendo a indicação (ex.: "Oi {nome}, ${referralHint.label} me passou seu contato...").
+- NUNCA escreva "Contato sem nome", "Indicação sem nome", "[indicante]", "[nome do indicante]" ou qualquer placeholder. Se não houver nome próprio do indicante, use exatamente "${referralHint.label}".
+- Tom quente e direto — você foi indicado, não é desconhecido.
+- NÃO finja que descobriu o lead sozinho.`
+    : "";
+
   const systemPrompt = `Você é um SDR especialista em vendas B2B no Brasil. Seu objetivo PRINCIPAL é agendar uma reunião com o prospect.
 ${goalLine}
 
