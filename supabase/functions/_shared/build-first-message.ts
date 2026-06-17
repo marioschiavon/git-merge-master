@@ -35,7 +35,10 @@ export async function buildFirstMessage(input: FirstMessageInput): Promise<First
     useHighlights = true,
     useMentalTriggers = false,
     mentalTriggers = [],
+    referralHint = null,
   } = input;
+
+  const { sanitizeReferrerMentions } = await import("./referrer-label.ts");
 
   const { getMeetingDurationMinutes, meetingDurationPromptBlock } = await import("./meeting-duration.ts");
 
