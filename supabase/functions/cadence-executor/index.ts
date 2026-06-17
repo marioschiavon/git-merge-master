@@ -384,24 +384,29 @@ serve(async (req) => {
           }
         }
 
-        // Contexto de indicação (apenas para cadências kind='referral')
         let referralContextBlock = "";
-        let referrerName = "";
-        let referrerCompany = "";
+        let referrerLabel = "";
+        let referrerNameClean = "";
+        let referrerCompanyClean = "";
         if (cadence.kind === "referral" && lead.referral_source_lead_id) {
           const { data: referrer } = await supabase
             .from("leads")
             .select("name, company_name, title")
             .eq("id", lead.referral_source_lead_id)
             .maybeSingle();
-          referrerName = referrer?.name || "";
-          referrerCompany = referrer?.company_name || "";
+          const lbl = buildReferrerLabel(referrer);
+          referrerLabel = lbl.label;
+          referrerNameClean = lbl.nameClean;
+          referrerCompanyClean = lbl.companyClean;
           const ctxTxt = lead.referral_context || "";
+          const companySuffix =
+            referrerNameClean && referrerCompanyClean ? ` (${referrerCompanyClean})` : "";
           referralContextBlock = `\n\n=== INDICAÇÃO (PRIORIDADE MÁXIMA) ===
-Este lead foi indicado por ${referrerName || "um contato nosso"}${referrerCompany ? ` (${referrerCompany})` : ""}${referrer?.title ? `, ${referrer.title}` : ""}.
+Este lead foi indicado por ${referrerLabel}${companySuffix}${referrer?.title ? `, ${referrer.title}` : ""}.
 Contexto da indicação: ${ctxTxt || "não detalhado"}
 REGRAS OBRIGATÓRIAS PARA REFERRAL:
-- ABRA mencionando que ${referrerName || "um contato em comum"} passou o contato (ex.: "Oi {nome}, o ${referrerName || "[indicante]"} me passou seu contato...").
+- Abra reconhecendo a indicação, usando EXATAMENTE a expressão "${referrerLabel}" para se referir a quem indicou (ex.: "Oi {nome}, ${referrerLabel} me passou seu contato...").
+- NUNCA escreva "Contato sem nome", "Indicação sem nome", "[indicante]", "[nome do indicante]" ou qualquer placeholder. Se não houver nome próprio do indicante, use exatamente "${referrerLabel}" — não invente nome.
 - Se houver contexto da indicação, cite-o em 1 frase para dar legitimidade.
 - Tom mais quente e direto — você NÃO é desconhecido, foi indicado.
 - NÃO finja que descobriu o lead sozinho. NÃO ignore o indicante.`;
