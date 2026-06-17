@@ -1,45 +1,67 @@
-## Abordagem híbrida (regex + IA só quando precisa)
+## Causa raiz
 
-Regex continua sendo a primeira camada — é determinístico, grátis e roda em todo inbound. A IA entra **só** quando há sinal de referral mas o regex não conseguiu um nome confiável. Isso mantém custo/latência baixos e resolve casos como "Dra. Claudia", "dr joão silva", "a Cláudia, que cuida disso".
+Investigando o lead recém-criado (`Familiarochacarneiro`, vindo da indicação da Dra. Claudia), os logs do `sdr_agent_runs` mostram exatamente o que aconteceu:
 
-## Mudanças
+**Turn 1** — inbound "Seria com a Dra. Claudia":
+- O regex extraiu corretamente `referral_contact.name = "Dra Claudia"`.
+- O bloco determinístico em `sdr-agent` persistiu `referral_pending_name = "Dra Claudia"` em `lead_memory.facts`.
+- **Logo depois**, a LLM chamou por conta própria `update_lead_facts({ facts: { referral_contact_asked: true, referral_pending_name: null } })` — sobrescrevendo o nome que acabamos de salvar com `null`.
 
-### 1. `supabase/functions/_shared/entity-extractor.ts`
+**Turn 2** — inbound "Tenho o email Familiarochacarneiro@gmail.com":
+- Entities tem só `email` (sem nome — esperado).
+- Hidratação tentou ler `referral_pending_name` → encontrou `null` → não hidratou.
+- Policy montou `forced_args.name = rc.email` (fallback `?? rc.email`) → passou o e-mail como nome para `create_new_contact`.
+- `execute-action` detectou que `name === email` e caiu no `deriveNameFromEmail` → "Familiarochacarneiro".
 
-- **Marcar nome como "fraco"** quando o regex só capturou um título (`Dr`, `Dra`, `Sr`, `Sra`, `Srta`, `Prof`, `Profa`) sem nome próprio à frente. Nesses casos `name` fica `undefined` e adicionamos um campo interno `name_needs_llm: true` no `ReferralContact` (não persistido, só sinal pra camada de cima).
-- **Pequena melhoria no regex** (barata): aceitar ponto opcional após cada token (`[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?`) pra pegar "Dra. Claudia" sem precisar de LLM no caso simples. Normalizar removendo o ponto final antes de retornar.
-- Manter detecção de email/telefone/`redirect_signal`/`permission_to_mention` 100% determinística.
+Resumo: o nome estava certo no regex E na mensagem que a LLM escreveu ("Vou entrar em contato com a Dra. Claudia"), mas o cadastro do lead saiu errado porque a LLM apagou nosso estado interno.
 
-### 2. Nova edge function `supabase/functions/extract-referral-name/index.ts`
+## Correção
 
-- Entrada: `{ text: string }` (último inbound do lead, truncado a ~500 chars).
-- Usa AI SDK + Lovable AI Gateway com `google/gemini-3-flash-preview` (rápido/barato) e `Output.object` com schema mínimo: `{ name: string | null, confidence: "high" | "low" }`.
-- Prompt curto e específico: "Extraia APENAS o nome próprio da pessoa indicada (não o remetente). Inclua título se citado (Dr./Dra.). Retorne null se não houver nome claro."
-- CORS + `verify_jwt = false` (chamada server-to-server da função consumidora).
-- Validação Zod do body, timeout curto, fallback `name: null` em erro.
+Mudanças cirúrgicas, sem mexer em schema, frontend ou design.
 
-### 3. Consumidor (`supabase/functions/sdr-agent/index.ts` ou onde o `extractEntities` é chamado hoje)
+### 1. `supabase/functions/sdr-agent/index.ts` — proteger chaves internas
 
-- Após `extractEntities(...)`, se `referral_contact?.name_needs_llm === true` **e** (`redirect_signal` for true OU `email`/`phone` foram detectados), chamar `extract-referral-name` com o `lastInbound`.
-- Se vier `name` com `confidence: "high"`, popular `referral_contact.name`. Senão, deixa `undefined` (lead segue sem nome, igual hoje).
-- Logar a decisão pra observabilidade.
+No handler do tool `update_lead_facts` (linha ~418), filtrar um conjunto de chaves "managed-by-system" antes do merge:
 
-### 4. Testes (`entity-extractor_test.ts`)
+```ts
+const PROTECTED_FACT_KEYS = new Set([
+  "referral_pending_name",
+  // espaço pra outras chaves internas se aparecerem
+]);
+const incoming = (args.facts ?? {}) as Record<string, unknown>;
+const facts: Record<string, unknown> = {};
+for (const [k, v] of Object.entries(incoming)) {
+  if (PROTECTED_FACT_KEYS.has(k)) continue; // ignora silenciosamente
+  facts[k] = v;
+}
+```
 
-- "fala com a Dra. Claudia" → regex resolve direto, `name === "Dra Claudia"`, `name_needs_llm` falso.
-- "fala com a Dra" (só título) → `name` undefined, `name_needs_llm: true`.
-- "é o Carlos Vilagran" / "fala com Andreia" → regressão, segue funcionando.
-- Sem sinal de referral → `referral_contact === null` (não dispara LLM).
+Isso impede a LLM de mexer (zerar, sobrescrever, "limpar") em campos que o pipeline determinístico controla. As demais chaves (`whatsapp_asked`, `whatsapp`, `phone`, `referral_contact_asked`, etc.) continuam funcionando exatamente como hoje.
 
-## Por que esse desenho
+### 2. `supabase/functions/_shared/policy-engine.ts` — não usar e-mail como nome
 
-- **Custo**: LLM só roda em mensagens com sinal de referral E nome ambíguo — fração pequena do tráfego.
-- **Latência**: o caminho comum (regex resolve) não muda; só o caso ambíguo paga ~500ms extras.
-- **Auditável**: regex continua testável; resposta da IA é estruturada (schema) e logada.
-- **Sem regressão**: se a edge function falhar ou retornar `null`, o comportamento volta a ser exatamente o atual.
+No branch `referral` com `hasContact === true` (linhas ~370-393), só passar `name` em `forced_args` quando ele realmente for um nome (não cair em e-mail/telefone como fallback):
+
+```ts
+const args: Record<string, unknown> = {};
+if (rc!.name) args.name = rc!.name;
+if (rc!.email) args.email = rc!.email;
+if (rc!.phone) args.phone = rc!.phone;
+```
+
+Assim, se o nome não estiver disponível, `execute-action.create_new_contact` já faz o tratamento certo (deriva do e-mail, ou "Indicação sem nome" como último recurso) — sem nunca receber um e-mail "disfarçado de nome".
+
+### 3. Teste
+
+Adicionar caso em `entity-extractor_test.ts` (ou um teste novo bem curto pro handler) que documenta o contrato: `update_lead_facts({ referral_pending_name: null })` NÃO deve sobrescrever o valor persistido. Suficiente um teste de unidade do filtro.
+
+## Por que não usar a LLM pra extrair o nome aqui
+
+O fallback LLM (`extract-referral-name`) já existe, mas no Turn 2 ele não roda porque o regex não detectou contexto de nome ("Tenho o email …" só tem e-mail, sem sinal de "Dra"/"fala com"/etc.) — e a LLM sozinha não tem o histórico aqui. O caminho correto é o que já existia: persistir o nome do Turn 1 e hidratar no Turn 2. O bug era simplesmente a LLM sobrescrevendo o estado.
 
 ## Fora de escopo
 
-- Não trocar todo o `entity-extractor` por LLM.
-- Não usar IA pra email/telefone/datas/slots — regex e parsers já cobrem bem.
-- Não mudar o frontend nem o schema do banco.
+- Não muda o regex/extractor.
+- Não muda o `extract-referral-name`.
+- Não muda nada de UI, schema, cadência ou aprovações.
+- Não toca em outros campos de `facts` que a LLM legitimamente atualiza.

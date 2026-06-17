@@ -416,13 +416,24 @@ async function execTool(
   }
 
   if (name === "update_lead_facts") {
-    const facts = (args.facts ?? {}) as Record<string, unknown>;
+    // Chaves "managed-by-system" — a LLM NÃO pode escrever/zerar. O pipeline
+    // determinístico em sdr-agent é o dono. Se a LLM tentar, ignoramos.
+    const PROTECTED_FACT_KEYS = new Set([
+      "referral_pending_name",
+    ]);
+    const incoming = (args.facts ?? {}) as Record<string, unknown>;
+    const facts: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(incoming)) {
+      if (PROTECTED_FACT_KEYS.has(k)) continue;
+      facts[k] = v;
+    }
     const { data: existing } = await supabase
       .from("lead_memory")
       .select("facts")
       .eq("lead_id", ctx.lead_id)
       .maybeSingle();
     const merged = { ...(existing?.facts ?? {}), ...facts };
+
     await supabase.from("lead_memory").upsert(
       {
         lead_id: ctx.lead_id,
