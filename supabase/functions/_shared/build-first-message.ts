@@ -131,7 +131,7 @@ ${insightsContext || "Sem diferenciais disponíveis do prospect."}
 
 === SINAIS DE REDES SOCIAIS DO PROSPECT (Instagram, LinkedIn, etc.) ===
 ${socialContext || "(sem dados de redes sociais)"}
-${triggersBlock}${toneBlock}
+${triggersBlock}${toneBlock}${referralBlock}
 ${durationBlock}
 
 CANAL: ${channel}
