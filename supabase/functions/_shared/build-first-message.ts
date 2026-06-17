@@ -15,6 +15,12 @@ export type FirstMessageInput = {
   useHighlights?: boolean;     // default true
   useMentalTriggers?: boolean; // default false
   mentalTriggers?: string[];
+  referralHint?: {             // for referral cadences
+    label: string;             // safe label: name OR "alguém da X" OR "um contato em comum"
+    context?: string | null;
+    referrerCompany?: string | null;
+    hasRealName?: boolean;
+  } | null;
 };
 
 export type FirstMessageOutput = {
