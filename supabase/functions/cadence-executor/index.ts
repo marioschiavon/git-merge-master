@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
+import { buildReferrerLabel, sanitizeReferrerMentions } from "../_shared/referrer-label.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -383,24 +384,29 @@ serve(async (req) => {
           }
         }
 
-        // Contexto de indicação (apenas para cadências kind='referral')
         let referralContextBlock = "";
-        let referrerName = "";
-        let referrerCompany = "";
+        let referrerLabel = "";
+        let referrerNameClean = "";
+        let referrerCompanyClean = "";
         if (cadence.kind === "referral" && lead.referral_source_lead_id) {
           const { data: referrer } = await supabase
             .from("leads")
             .select("name, company_name, title")
             .eq("id", lead.referral_source_lead_id)
             .maybeSingle();
-          referrerName = referrer?.name || "";
-          referrerCompany = referrer?.company_name || "";
+          const lbl = buildReferrerLabel(referrer);
+          referrerLabel = lbl.label;
+          referrerNameClean = lbl.nameClean;
+          referrerCompanyClean = lbl.companyClean;
           const ctxTxt = lead.referral_context || "";
+          const companySuffix =
+            referrerNameClean && referrerCompanyClean ? ` (${referrerCompanyClean})` : "";
           referralContextBlock = `\n\n=== INDICAÇÃO (PRIORIDADE MÁXIMA) ===
-Este lead foi indicado por ${referrerName || "um contato nosso"}${referrerCompany ? ` (${referrerCompany})` : ""}${referrer?.title ? `, ${referrer.title}` : ""}.
+Este lead foi indicado por ${referrerLabel}${companySuffix}${referrer?.title ? `, ${referrer.title}` : ""}.
 Contexto da indicação: ${ctxTxt || "não detalhado"}
 REGRAS OBRIGATÓRIAS PARA REFERRAL:
-- ABRA mencionando que ${referrerName || "um contato em comum"} passou o contato (ex.: "Oi {nome}, o ${referrerName || "[indicante]"} me passou seu contato...").
+- Abra reconhecendo a indicação, usando EXATAMENTE a expressão "${referrerLabel}" para se referir a quem indicou (ex.: "Oi {nome}, ${referrerLabel} me passou seu contato...").
+- NUNCA escreva "Contato sem nome", "Indicação sem nome", "[indicante]", "[nome do indicante]" ou qualquer placeholder. Se não houver nome próprio do indicante, use exatamente "${referrerLabel}" — não invente nome.
 - Se houver contexto da indicação, cite-o em 1 frase para dar legitimidade.
 - Tom mais quente e direto — você NÃO é desconhecido, foi indicado.
 - NÃO finja que descobriu o lead sozinho. NÃO ignore o indicante.`;
@@ -431,8 +437,8 @@ ${mentalTriggersContext}
 
 === TEMPLATE BASE DO STEP ===
 ${(currentStep.template || "Sem template definido.")
-  .replaceAll("{{referrer_name}}", referrerName || "")
-  .replaceAll("{{referrer_company}}", referrerCompany || "")
+  .replaceAll("{{referrer_name}}", referrerLabel || "um contato em comum")
+  .replaceAll("{{referrer_company}}", referrerCompanyClean || "")
   .replaceAll("{{referral_context}}", lead.referral_context || "")}
 
 CANAL: ${currentStep.channel}
@@ -494,6 +500,12 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           parsed = JSON.parse(jsonMatch[1].trim());
         } catch {
           parsed = { subject: null, message: aiContent };
+        }
+
+        // Safety net: scrub any leftover referrer placeholder before send.
+        if (referrerLabel) {
+          if (parsed?.message) parsed.message = sanitizeReferrerMentions(parsed.message, referrerLabel);
+          if (parsed?.subject) parsed.subject = sanitizeReferrerMentions(parsed.subject, referrerLabel);
         }
 
         // Human takeover: pause and skip.

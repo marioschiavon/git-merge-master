@@ -15,6 +15,12 @@ export type FirstMessageInput = {
   useHighlights?: boolean;     // default true
   useMentalTriggers?: boolean; // default false
   mentalTriggers?: string[];
+  referralHint?: {             // for referral cadences
+    label: string;             // safe label: name OR "alguém da X" OR "um contato em comum"
+    context?: string | null;
+    referrerCompany?: string | null;
+    hasRealName?: boolean;
+  } | null;
 };
 
 export type FirstMessageOutput = {
@@ -29,7 +35,10 @@ export async function buildFirstMessage(input: FirstMessageInput): Promise<First
     useHighlights = true,
     useMentalTriggers = false,
     mentalTriggers = [],
+    referralHint = null,
   } = input;
+
+  const { sanitizeReferrerMentions } = await import("./referrer-label.ts");
 
   const { getMeetingDurationMinutes, meetingDurationPromptBlock } = await import("./meeting-duration.ts");
 
@@ -94,6 +103,17 @@ export async function buildFirstMessage(input: FirstMessageInput): Promise<First
 
   const goalLine = goal ? `\nOBJETIVO DA CADÊNCIA: ${goal}` : "";
 
+  const referralBlock = referralHint?.label
+    ? `\n\n=== INDICAÇÃO (PRIORIDADE MÁXIMA) ===
+Este lead foi indicado. Refira-se a quem indicou EXATAMENTE como "${referralHint.label}".
+${referralHint.context ? `Contexto da indicação: ${referralHint.context}` : "Sem contexto adicional sobre a indicação."}
+REGRAS OBRIGATÓRIAS:
+- Abra reconhecendo a indicação (ex.: "Oi {nome}, ${referralHint.label} me passou seu contato...").
+- NUNCA escreva "Contato sem nome", "Indicação sem nome", "[indicante]", "[nome do indicante]" ou qualquer placeholder. Se não houver nome próprio do indicante, use exatamente "${referralHint.label}".
+- Tom quente e direto — você foi indicado, não é desconhecido.
+- NÃO finja que descobriu o lead sozinho.`
+    : "";
+
   const systemPrompt = `Você é um SDR especialista em vendas B2B no Brasil. Seu objetivo PRINCIPAL é agendar uma reunião com o prospect.
 ${goalLine}
 
@@ -111,7 +131,7 @@ ${insightsContext || "Sem diferenciais disponíveis do prospect."}
 
 === SINAIS DE REDES SOCIAIS DO PROSPECT (Instagram, LinkedIn, etc.) ===
 ${socialContext || "(sem dados de redes sociais)"}
-${triggersBlock}${toneBlock}
+${triggersBlock}${toneBlock}${referralBlock}
 ${durationBlock}
 
 CANAL: ${channel}
@@ -208,5 +228,9 @@ Gere a PRIMEIRA mensagem (abertura da cadência).`;
   }
 
   if (channel !== "email") subject = null;
+  if (referralHint?.label) {
+    message = sanitizeReferrerMentions(message, referralHint.label);
+    if (subject) subject = sanitizeReferrerMentions(subject, referralHint.label);
+  }
   return { subject, message };
 }
