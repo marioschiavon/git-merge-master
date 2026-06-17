@@ -371,11 +371,11 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
         // O lead já passou contato (e tipicamente permissão). Criamos o novo
         // lead AGORA via create_new_contact e marcamos o atual como indicante.
         // O LLM só escreve a mensagem curta de agradecimento — NÃO oferece agenda.
-        const args: Record<string, unknown> = {
-          name: rc!.name ?? rc!.email ?? rc!.phone,
-        };
+        const args: Record<string, unknown> = {};
+        if (rc!.name) args.name = rc!.name;
         if (rc!.email) args.email = rc!.email;
         if (rc!.phone) args.phone = rc!.phone;
+
         return {
           stage: "referral_provided",
           allowed_tools: ["create_new_contact", "mark_referrer", "update_lead_facts", "finalize"],
