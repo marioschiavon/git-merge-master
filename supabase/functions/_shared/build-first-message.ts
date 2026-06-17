@@ -228,5 +228,9 @@ Gere a PRIMEIRA mensagem (abertura da cadência).`;
   }
 
   if (channel !== "email") subject = null;
+  if (referralHint?.label) {
+    message = sanitizeReferrerMentions(message, referralHint.label);
+    if (subject) subject = sanitizeReferrerMentions(subject, referralHint.label);
+  }
   return { subject, message };
 }
