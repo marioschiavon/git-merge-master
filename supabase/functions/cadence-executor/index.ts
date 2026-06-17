@@ -502,6 +502,12 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           parsed = { subject: null, message: aiContent };
         }
 
+        // Safety net: scrub any leftover referrer placeholder before send.
+        if (referrerLabel) {
+          if (parsed?.message) parsed.message = sanitizeReferrerMentions(parsed.message, referrerLabel);
+          if (parsed?.subject) parsed.subject = sanitizeReferrerMentions(parsed.subject, referrerLabel);
+        }
+
         // Human takeover: pause and skip.
         if (!bypassHitl && await isLeadUnderHumanTakeover(supabase, { lead_id: lead.id })) {
           await supabase.from("cadence_enrollments").update({
