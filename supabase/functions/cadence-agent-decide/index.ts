@@ -152,6 +152,7 @@ serve(async (req) => {
       d: Decision,
       extras: Record<string, any> = {},
     ) => {
+      if (dryRun) return;
       await supabase.from("cadence_agent_decisions").insert({
         enrollment_id,
         company_id: cadence.company_id,
@@ -167,6 +168,11 @@ serve(async (req) => {
         simulated: !!cadence.simulation_mode,
         ...extras,
       });
+    };
+    // Helper to update enrollment, skipped in dry_run
+    const updateEnrollment = async (patch: Record<string, any>) => {
+      if (dryRun) return;
+      await supabase.from("cadence_enrollments").update(patch).eq("id", enrollment_id);
     };
 
     // === DETERMINISTIC STOP CHECKS (sempre ativos) ===
