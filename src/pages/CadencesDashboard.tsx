@@ -128,6 +128,38 @@ export default function CadencesDashboard() {
   const { data: steps } = useCadenceSteps(cadenceId);
   const { data: rows, isLoading } = useCadenceLeadProgress(cadenceId);
   const selectedHasNoEnrollments = !!cadenceId && (enrollmentCounts?.[cadenceId] ?? 0) === 0;
+  const qc = useQueryClient();
+
+  const handleTestReengage = async (enrollmentId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("cadence-reengage-cron", {
+        body: { enrollment_id: enrollmentId, force: true },
+      });
+      if (error) throw error;
+      const detail = (data?.details || [])[0];
+      if (!detail) {
+        toast.warning("Nenhuma ação — verifique se o enrollment está pausado por 'lead_replied'");
+      } else if (detail.result === "reengaged") {
+        toast.success(`Reengajado (${detail.attempts}/${detail.max}) — próximo step em até 5 min`);
+      } else if (detail.result === "exhausted") {
+        toast.warning(`Esgotado — cadência encerrada após ${detail.attempts} tentativas`);
+      } else if (detail.result === "skipped") {
+        const labels: Record<string, string> = {
+          reengage_disabled: "Reengajamento desativado nesta cadência",
+          active_slot_hold: "Há um horário reservado em andamento",
+          recent_booking: "Lead tem reunião agendada recente",
+          no_next_step: "Cadência não tem próximo step",
+          cadence_inactive: "Cadência não está ativa",
+        };
+        toast.info(`Pulado: ${labels[detail.reason] || detail.reason}`);
+      } else if (detail.result === "error") {
+        toast.error(`Erro: ${detail.error}`);
+      }
+      qc.invalidateQueries({ queryKey: ["cadence_lead_progress"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Falha ao invocar reengajamento");
+    }
+  };
 
   const stats = useMemo(() => {
     const r = rows || [];
