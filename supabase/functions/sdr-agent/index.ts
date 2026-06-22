@@ -1452,6 +1452,9 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     activeBooking && cancelQuestionAsked
       ? `⚠️ AÇÃO OBRIGATÓRIA: no turn anterior você perguntou se deveria cancelar a reunião. ${leadAffirmed ? "O lead JÁ CONFIRMOU. " : ""}Se for prosseguir com o cancelamento, chame \`cancel_booking({ booking_uid: "${activeBooking.calcom_booking_uid}", reason })\` AGORA antes do finalize.`
       : "",
+    (ctx as any).pending_email_resolved
+      ? `⚠️ AÇÃO OBRIGATÓRIA: o lead acabou de informar o e-mail (${(ctx as any).pending_email_resolved.email}) que pedimos no turno anterior pra agendar a reunião. Já salvei em \`leads.email\`. Chame \`book_slot({ slot_start: "${(ctx as any).pending_email_resolved.slot_iso}" })\` AGORA e depois \`finalize({ decision: "send_message", message: message_suggestion })\` confirmando a reserva. NÃO peça o e-mail de novo.`
+      : "",
     heldSlots.length
       ? `Slots já oferecidos/segurados: ${heldSlots.map((s) => `${fmtBrt(s.slot_datetime)} (${s.status})`).join(", ")}. NÃO ofereça esses mesmos slots novamente — passe-os em exclude_datetimes se for buscar novos.`
       : "Nenhum slot ativo segurado.",
