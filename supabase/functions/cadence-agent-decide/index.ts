@@ -218,12 +218,15 @@ serve(async (req) => {
     const hasEmail = !!lead.email;
     let effectivePrimary: string = policy.primary_channel;
     let channelNote = "";
-    if (hasWhatsapp && allowed.includes("whatsapp")) {
+    if (hasWhatsapp && hasEmail && allowed.includes("whatsapp")) {
       effectivePrimary = "whatsapp";
-      channelNote = "O lead tem WhatsApp disponível — prefira WhatsApp. Só use e-mail como apoio se já tentou WhatsApp nas últimas 2 tentativas sem resposta, ou se o envio por WhatsApp falhou.";
+      channelNote = "O lead tem WhatsApp E e-mail disponíveis — prefira WhatsApp. Só use e-mail como apoio se já tentou WhatsApp nas últimas 2 tentativas sem resposta, ou se o envio por WhatsApp falhou.";
+    } else if (hasWhatsapp && !hasEmail && allowed.includes("whatsapp")) {
+      effectivePrimary = "whatsapp";
+      channelNote = "O lead tem APENAS WhatsApp (sem e-mail cadastrado). PROIBIDO escolher channel=email — NUNCA, independente de quantas tentativas no WhatsApp não responderam. Use SEMPRE whatsapp.";
     } else if (!hasWhatsapp && hasEmail && allowed.includes("email")) {
       effectivePrimary = "email";
-      channelNote = "O lead NÃO tem WhatsApp cadastrado — use e-mail.";
+      channelNote = "O lead tem APENAS e-mail (sem WhatsApp cadastrado). PROIBIDO escolher channel=whatsapp. Use SEMPRE email.";
     } else if (!hasWhatsapp && !hasEmail) {
       return await earlyStop("Lead sem WhatsApp e sem e-mail — sem canal disponível.", "no_contact");
     }
@@ -430,7 +433,7 @@ Responda APENAS JSON com este shape:
 }`;
 
     const userPrompt = `Lead: ${lead.name} — ${lead.company_name || "(sem empresa)"} — ${lead.title || ""}
-Email: ${lead.email || "N/A"} | WhatsApp: ${lead.whatsapp || lead.phone || "N/A"}
+Email: ${lead.email || "N/A"} (cadastrado: ${hasEmail ? "sim" : "NÃO"}) | WhatsApp: ${lead.whatsapp || lead.phone || "N/A"} (cadastrado: ${hasWhatsapp ? "sim" : "NÃO"})
 Fit score: ${lead.score ?? "?"}
 
 === INTENTS RECENTES DO LEAD ===
@@ -486,6 +489,35 @@ Decida a próxima ação.`;
     // Normalize channel against allowed
     if (decision.channel && !(policy.allowed_channels || []).includes(decision.channel)) {
       decision.channel = effectivePrimary as any;
+    }
+
+    // === DETERMINISTIC CONTACT GUARDRAIL ===
+    // Authoritative override: ignore the LLM if it picked a channel the lead can't receive.
+    if (decision.action === "send") {
+      const originalChannel = decision.channel;
+      if (decision.channel === "email" && !hasEmail) {
+        if (hasWhatsapp) {
+          decision.channel = "whatsapp" as any;
+          decision.subject = null;
+          decision.rationale = `[override] canal trocado de email→whatsapp porque lead sem e-mail cadastrado. ${decision.rationale || ""}`.trim();
+        } else {
+          decision.action = "stop" as any;
+          (decision as any).stop_reason = "no_contact";
+          decision.rationale = `[override] stop: lead sem e-mail e sem WhatsApp. ${decision.rationale || ""}`.trim();
+        }
+      } else if (decision.channel === "whatsapp" && !hasWhatsapp) {
+        if (hasEmail) {
+          decision.channel = "email" as any;
+          decision.rationale = `[override] canal trocado de whatsapp→email porque lead sem WhatsApp cadastrado. ${decision.rationale || ""}`.trim();
+        } else {
+          decision.action = "stop" as any;
+          (decision as any).stop_reason = "no_contact";
+          decision.rationale = `[override] stop: lead sem WhatsApp e sem e-mail. ${decision.rationale || ""}`.trim();
+        }
+      }
+      if (originalChannel !== decision.channel) {
+        console.log(`[cadence-agent-decide] channel override: ${originalChannel} → ${decision.channel} (enrollment=${enrollment_id})`);
+      }
     }
 
     // Compute scheduled_for respecting business hours when sending
@@ -653,36 +685,71 @@ Decida a próxima ação.`;
         }
       } else {
         sendAction = "failed";
-        deliveryMeta = { delivery_error: `Lead sem contato para canal ${channel}` };
+        deliveryMeta = { delivery_status: "failed", delivery_error: `Lead sem contato para canal ${channel}` };
       }
 
-      // Activity log
-      const actDesc = isSimulation
-        ? `🧪 [SIMULAÇÃO] IA geraria (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${(decision.subject || decision.message || "").substring(0, 100)}`
-        : `🤖 IA enviou (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${(decision.subject || decision.message || "").substring(0, 100)}`;
+      const noContactFailure = sendAction === "failed"
+        && typeof (deliveryMeta as any).delivery_error === "string"
+        && (deliveryMeta as any).delivery_error.startsWith("Lead sem contato");
+
+      // Activity log — honest about what actually happened
+      const previewText = (decision.subject || decision.message || "").substring(0, 100);
+      let actDesc: string;
+      let actType: string = channel;
+      if (isSimulation) {
+        actDesc = `🧪 [SIMULAÇÃO] IA geraria (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${previewText}`;
+      } else if (sendAction === "failed") {
+        const errMsg = (deliveryMeta as any).delivery_error || (deliveryMeta as any).zapi_error || "erro desconhecido";
+        actDesc = `⚠️ IA tentou enviar (${channel}/${decision.hook || "-"}) - falhou: ${errMsg}`;
+        actType = "system";
+      } else if (sendAction === "pending_manual") {
+        actDesc = `📝 IA gerou (${channel}/${decision.hook || "-"}) — pendente de envio manual: ${previewText}`;
+        actType = "system";
+      } else {
+        actDesc = `🤖 IA enviou (${channel}/${decision.hook || "-"}) - tentativa ${attemptNumber}: ${previewText}`;
+      }
       await supabase.from("lead_activities").insert({
         company_id: cadence.company_id,
         lead_id: lead.id,
-        type: channel,
+        type: actType,
         description: actDesc,
         metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, action: sendAction, hook: decision.hook, simulated: isSimulation, ...deliveryMeta },
       });
 
       await persistDecision(decision, { model: "google/gemini-2.5-flash" });
 
-      const nextDelayHours = attemptNumber <= 1 ? 48 : 72;
-      const nextTick = nextAllowedSlot(
-        new Date(Date.now() + nextDelayHours * 3600 * 1000),
-        policy.business_hours,
-      );
-      await supabase
-        .from("cadence_enrollments")
-        .update({
-          current_step: attemptNumber + 1,
-          last_executed_at: new Date().toISOString(),
-          next_execution_at: nextTick,
-        })
-        .eq("id", enrollment_id);
+      if (noContactFailure && !isSimulation) {
+        // Don't burn the attempt — close the enrollment and stop.
+        await supabase
+          .from("cadence_enrollments")
+          .update({
+            status: "completed",
+            paused_reason: "no_contact_channel",
+            completed_at: new Date().toISOString(),
+            next_execution_at: null,
+          } as any)
+          .eq("id", enrollment_id);
+        await supabase.from("lead_intents_log").insert({
+          company_id: cadence.company_id,
+          lead_id: lead.id,
+          category: "no_response",
+          metadata: { source: "cadence-agent-decide", enrollment_id, reason: "no_contact_channel", channel },
+        } as any).then(() => null, () => null);
+      } else {
+        const nextDelayHours = attemptNumber <= 1 ? 48 : 72;
+        const nextTick = nextAllowedSlot(
+          new Date(Date.now() + nextDelayHours * 3600 * 1000),
+          policy.business_hours,
+        );
+        await supabase
+          .from("cadence_enrollments")
+          .update({
+            current_step: attemptNumber + 1,
+            last_executed_at: new Date().toISOString(),
+            next_execution_at: nextTick,
+          })
+          .eq("id", enrollment_id);
+      }
     } else {
       // wait
       await persistDecision(decision, { model: "google/gemini-2.5-flash" });
