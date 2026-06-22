@@ -1851,7 +1851,6 @@ Deno.serve(async (req) => {
             email: stash.email ?? "",
           };
         }
-        }
       }
     } catch (e) {
       console.error("pending_email_for_slot capture failed:", e);
