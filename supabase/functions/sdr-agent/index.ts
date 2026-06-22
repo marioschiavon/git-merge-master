@@ -853,6 +853,62 @@ async function execBookingTool(
 
   // ── BOOK ──────────────────────────────────────────────────────
   if (name === "book_slot") {
+    // ── E-mail real obrigatório antes de confirmar ────────────────
+    // Sem e-mail válido o Cal.com não consegue enviar o convite. Em vez
+    // de agendar com placeholder (noreply+…@…), interrompemos o fluxo,
+    // persistimos o slot pretendido em lead_memory.facts e pedimos o
+    // e-mail ao lead. No próximo turno o e-mail é capturado, persistido
+    // em leads.email, e o LLM é instruído a chamar book_slot de novo.
+    {
+      const { data: leadRow } = await supabase
+        .from("leads")
+        .select("email")
+        .eq("id", ctx.lead_id)
+        .maybeSingle();
+      let convChannel: string | null = null;
+      if (ctx.conversation_id) {
+        const { data: cv } = await supabase
+          .from("conversations")
+          .select("channel")
+          .eq("id", ctx.conversation_id)
+          .maybeSingle();
+        convChannel = (cv?.channel ?? null) as string | null;
+      }
+      const currentEmail = String(leadRow?.email || "").trim().toLowerCase();
+      const isPlaceholder = /^noreply\+[a-f0-9-]+@/i.test(currentEmail);
+      const isValidEmail = /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(currentEmail) && !isPlaceholder;
+      if (!isValidEmail && convChannel !== "email") {
+        try {
+          const newFacts = {
+            ...facts,
+            pending_email_for_slot: {
+              slot_iso: slotStart,
+              hold_id: guard.matchedHold?.id ?? null,
+            },
+          };
+          await supabase.from("lead_memory").upsert(
+            {
+              lead_id: ctx.lead_id,
+              company_id: ctx.company_id,
+              facts: newFacts,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "lead_id" },
+          );
+        } catch (e) {
+          console.error("pending_email_for_slot upsert failed:", e);
+        }
+        return {
+          ok: false,
+          downgrade: "request_email",
+          reason: "lead sem e-mail cadastrado — peça o e-mail antes de confirmar",
+          suggested_message:
+            "Pra eu confirmar e te mandar o convite da reunião, qual é o melhor e-mail pra te marcar?",
+          next_action: "Chame finalize com decision=send_message e message=suggested_message.",
+        };
+      }
+    }
+
     const idempotency_key = await buildIdempotencyKey({
       conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
       action_type: "book", requested_start: slotStart,
