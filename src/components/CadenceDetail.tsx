@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,7 @@ import { useToggleSimulation, useRunNextStep, useSimulateReply } from "@/hooks/u
 import { useAgentNextPreview, useRegenerateAgentPreview } from "@/hooks/useAgentPreview";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -429,15 +430,62 @@ function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
   );
 }
 
-function AgentNextPreview({ enrollmentId }: { enrollmentId: string }) {
+interface EditableDraft {
+  action: "send" | "wait" | "stop" | "handoff_human";
+  channel?: string | null;
+  hook?: string | null;
+  subject: string;
+  message: string;
+  rationale: string;
+  originalMessage: string;
+  originalSubject: string;
+}
+
+function AgentNextPreview({
+  enrollmentId,
+  draft,
+  onDraftChange,
+}: {
+  enrollmentId: string;
+  draft: EditableDraft | null;
+  onDraftChange: (d: EditableDraft | null) => void;
+}) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const { data, isLoading, isError, refetch } = useAgentNextPreview(enrollmentId, open);
   const regen = useRegenerateAgentPreview();
 
-  const channelIcon = data?.channel === "whatsapp"
+  // Sync incoming AI decision into editable draft when a new preview arrives.
+  useEffect(() => {
+    if (data && (!draft || draft.originalMessage !== (data.message || ""))) {
+      onDraftChange({
+        action: data.action,
+        channel: data.channel ?? null,
+        hook: data.hook ?? null,
+        subject: data.subject ?? "",
+        message: data.message ?? "",
+        rationale: data.rationale,
+        originalMessage: data.message ?? "",
+        originalSubject: data.subject ?? "",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const channel = draft?.channel ?? data?.channel;
+  const channelIcon = channel === "whatsapp"
     ? <MessageSquare className="h-3 w-3" />
     : <Mail className="h-3 w-3" />;
+
+  const isEdited = !!draft && (
+    draft.message !== draft.originalMessage ||
+    draft.subject !== draft.originalSubject
+  );
+
+  const restoreOriginal = () => {
+    if (!draft) return;
+    onDraftChange({ ...draft, message: draft.originalMessage, subject: draft.originalSubject });
+  };
 
   return (
     <div className="rounded-md border border-dashed bg-muted/20 p-2 space-y-1.5">
@@ -446,7 +494,12 @@ function AgentNextPreview({ enrollmentId }: { enrollmentId: string }) {
         className="flex items-center gap-1.5 text-xs font-medium text-foreground/80 hover:text-foreground w-full"
       >
         <Eye className="h-3 w-3" />
-        Prévia da próxima abordagem (IA)
+        Prévia da próxima abordagem (IA) — editável
+        {isEdited && (
+          <Badge variant="outline" className="h-4 px-1.5 text-[9px] bg-blue-50 text-blue-700 border-blue-200">
+            editado
+          </Badge>
+        )}
         {open ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
       </button>
       {open && (
@@ -462,58 +515,81 @@ function AgentNextPreview({ enrollmentId }: { enrollmentId: string }) {
                 Tentar de novo
               </Button>
             </div>
-          ) : data ? (
+          ) : draft ? (
             <div className="space-y-1.5">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1">
                   {channelIcon}
-                  <span className="capitalize">{data.channel || "—"}</span>
+                  <span className="capitalize">{channel || "—"}</span>
                 </Badge>
-                {data.hook && (
-                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{data.hook}</Badge>
+                {draft.hook && (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{draft.hook}</Badge>
                 )}
                 <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-purple-100 text-purple-800 hover:bg-purple-100">
-                  <Sparkles className="h-2.5 w-2.5" /> {data.action}
+                  <Sparkles className="h-2.5 w-2.5" /> {draft.action}
                 </Badge>
+                {isEdited && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-6 px-1.5 text-[11px] ml-auto"
+                    onClick={restoreOriginal}
+                    title="Restaurar texto original da IA"
+                  >
+                    <RotateCcw className="h-3 w-3 mr-1" /> Restaurar
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-6 px-1.5 ml-auto"
-                  onClick={() => regen.mutate(enrollmentId)}
+                  className={`h-6 px-1.5 ${isEdited ? "" : "ml-auto"}`}
+                  onClick={() => {
+                    onDraftChange(null);
+                    regen.mutate(enrollmentId);
+                  }}
                   disabled={regen.isPending}
-                  title="Regenerar prévia"
+                  title="Regenerar prévia (descarta edições)"
                 >
                   <RefreshCw className={`h-3 w-3 ${regen.isPending ? "animate-spin" : ""}`} />
                 </Button>
               </div>
-              {data.action === "send" && data.message ? (
+              {draft.action === "send" ? (
                 <>
-                  {data.channel === "email" && data.subject && (
-                    <div className="text-xs">
-                      <span className="text-muted-foreground">Assunto: </span>
-                      <span className="font-medium">{data.subject}</span>
+                  {channel === "email" && (
+                    <div className="space-y-1">
+                      <label className="text-[10px] text-muted-foreground">Assunto</label>
+                      <Input
+                        value={draft.subject}
+                        onChange={(e) => onDraftChange({ ...draft, subject: e.target.value })}
+                        className="h-7 text-xs"
+                      />
                     </div>
                   )}
-                  <div className="text-xs whitespace-pre-wrap leading-relaxed text-foreground/90">
-                    {expanded || data.message.length <= 220 ? data.message : data.message.slice(0, 220) + "…"}
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground">Mensagem</label>
+                    <Textarea
+                      value={draft.message}
+                      onChange={(e) => onDraftChange({ ...draft, message: e.target.value })}
+                      rows={expanded || draft.message.length > 220 ? 8 : 5}
+                      className="text-xs leading-relaxed"
+                    />
+                    {draft.message.length > 220 && (
+                      <button
+                        onClick={() => setExpanded((v) => !v)}
+                        className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                      >
+                        {expanded ? <><ChevronUp className="h-3 w-3" /> Recolher</> : <><ChevronDown className="h-3 w-3" /> Expandir</>}
+                      </button>
+                    )}
                   </div>
-                  {data.message.length > 220 && (
-                    <button
-                      onClick={() => setExpanded((v) => !v)}
-                      className="flex items-center gap-1 text-[11px] text-primary hover:underline"
-                    >
-                      {expanded ? <><ChevronUp className="h-3 w-3" /> Recolher</> : <><ChevronDown className="h-3 w-3" /> Ver completa</>}
-                    </button>
-                  )}
                 </>
               ) : (
                 <div className="text-xs text-muted-foreground">
-                  <span className="font-medium">Motivo:</span> {data.rationale}
-                  {data.stop_reason && <> · <span className="italic">{data.stop_reason}</span></>}
+                  <span className="font-medium">Motivo:</span> {draft.rationale}
                 </div>
               )}
               <p className="text-[10px] text-muted-foreground italic">
-                Prévia estimada. A mensagem final pode variar levemente (IA não é determinística).
+                Este texto será exatamente o enviado ao clicar em "Executar próximo passo".
               </p>
             </div>
           ) : (
@@ -534,17 +610,46 @@ function AgenticSimulationControls({
   const qc = useQueryClient();
   const [reply, setReply] = useState("");
   const [lastAiReply, setLastAiReply] = useState<{ text: string; intent?: string } | null>(null);
+  const [draft, setDraft] = useState<EditableDraft | null>(null);
+
+  const handleRun = () => {
+    const override = draft && draft.action === "send"
+      ? {
+          action: draft.action,
+          channel: draft.channel ?? undefined,
+          hook: draft.hook ?? undefined,
+          subject: draft.subject || undefined,
+          message: draft.message,
+          rationale: draft.rationale,
+          edited_by_human:
+            draft.message !== draft.originalMessage ||
+            draft.subject !== draft.originalSubject,
+          original_message: draft.originalMessage,
+        }
+      : undefined;
+    runNext.mutate(
+      { enrollmentId, override },
+      {
+        onSuccess: () => {
+          setDraft(null);
+          qc.invalidateQueries({ queryKey: ["agent_next_preview", enrollmentId] });
+        },
+      },
+    );
+  };
 
   return (
     <div className="space-y-2 border-t border-dashed pt-2 mt-1">
-      <AgentNextPreview enrollmentId={enrollmentId} />
+      <AgentNextPreview
+        enrollmentId={enrollmentId}
+        draft={draft}
+        onDraftChange={setDraft}
+      />
       <div className="flex gap-2 flex-wrap">
         <Button
           size="sm"
           variant="default"
-          onClick={() => runNext.mutate(enrollmentId, {
-            onSuccess: () => qc.invalidateQueries({ queryKey: ["agent_next_preview", enrollmentId] }),
-          })}
+          onClick={handleRun}
           disabled={runNext.isPending}
           className="h-7 text-xs"
         >
@@ -605,4 +710,5 @@ function AgenticSimulationControls({
     </div>
   );
 }
+
 
