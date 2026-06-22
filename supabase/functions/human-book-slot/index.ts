@@ -90,7 +90,9 @@ Deno.serve(async (req) => {
       },
     });
     if (r.error || r.data?.error) {
-      return new Response(JSON.stringify({ error: r.error?.message || r.data?.error || "Falha ao agendar" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      const detail = r.data?.error || (await (r.error as any)?.context?.text?.().catch(() => null)) || r.error?.message || "Falha ao agendar";
+      console.error("human-book-slot: calcom-booking-create failed:", detail, r.data);
+      return new Response(JSON.stringify({ error: detail }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const label = formatBRTLong(start);
     const confirmMessage = `Reunião agendada para ${label}. Você receberá o convite por e-mail. 🚀`;
