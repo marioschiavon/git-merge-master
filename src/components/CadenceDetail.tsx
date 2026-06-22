@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,10 +10,11 @@ import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
 import { LeadMessagePreview } from "@/components/LeadMessagePreview";
 import { CadenceFirstMessageInline } from "@/components/CadenceFirstMessageInline";
-import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain, FlaskConical, Send } from "lucide-react";
+import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain, FlaskConical, Send, RefreshCw, ChevronDown, ChevronUp, Mail, MessageSquare, Eye } from "lucide-react";
 import { AgenticPolicyForm } from "@/components/AgenticPolicyForm";
 import { useAllAgentDecisions } from "@/hooks/useAgenticCadence";
 import { useToggleSimulation, useRunNextStep, useSimulateReply } from "@/hooks/useSimulateCadence";
+import { useAgentNextPreview, useRegenerateAgentPreview } from "@/hooks/useAgentPreview";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -427,22 +429,122 @@ function AgentDecisionsList({ cadenceId }: { cadenceId: string }) {
   );
 }
 
+function AgentNextPreview({ enrollmentId }: { enrollmentId: string }) {
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const { data, isLoading, isError, refetch } = useAgentNextPreview(enrollmentId, open);
+  const regen = useRegenerateAgentPreview();
+
+  const channelIcon = data?.channel === "whatsapp"
+    ? <MessageSquare className="h-3 w-3" />
+    : <Mail className="h-3 w-3" />;
+
+  return (
+    <div className="rounded-md border border-dashed bg-muted/20 p-2 space-y-1.5">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-xs font-medium text-foreground/80 hover:text-foreground w-full"
+      >
+        <Eye className="h-3 w-3" />
+        Prévia da próxima abordagem (IA)
+        {open ? <ChevronUp className="h-3 w-3 ml-auto" /> : <ChevronDown className="h-3 w-3 ml-auto" />}
+      </button>
+      {open && (
+        <>
+          {isLoading || regen.isPending ? (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" /> Gerando prévia...
+            </div>
+          ) : isError ? (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-destructive">Falha ao gerar prévia.</span>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => refetch()}>
+                Tentar de novo
+              </Button>
+            </div>
+          ) : data ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Badge variant="outline" className="h-5 px-1.5 text-[10px] gap-1">
+                  {channelIcon}
+                  <span className="capitalize">{data.channel || "—"}</span>
+                </Badge>
+                {data.hook && (
+                  <Badge variant="outline" className="h-5 px-1.5 text-[10px]">{data.hook}</Badge>
+                )}
+                <Badge className="h-5 px-1.5 text-[10px] gap-1 bg-purple-100 text-purple-800 hover:bg-purple-100">
+                  <Sparkles className="h-2.5 w-2.5" /> {data.action}
+                </Badge>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-6 px-1.5 ml-auto"
+                  onClick={() => regen.mutate(enrollmentId)}
+                  disabled={regen.isPending}
+                  title="Regenerar prévia"
+                >
+                  <RefreshCw className={`h-3 w-3 ${regen.isPending ? "animate-spin" : ""}`} />
+                </Button>
+              </div>
+              {data.action === "send" && data.message ? (
+                <>
+                  {data.channel === "email" && data.subject && (
+                    <div className="text-xs">
+                      <span className="text-muted-foreground">Assunto: </span>
+                      <span className="font-medium">{data.subject}</span>
+                    </div>
+                  )}
+                  <div className="text-xs whitespace-pre-wrap leading-relaxed text-foreground/90">
+                    {expanded || data.message.length <= 220 ? data.message : data.message.slice(0, 220) + "…"}
+                  </div>
+                  {data.message.length > 220 && (
+                    <button
+                      onClick={() => setExpanded((v) => !v)}
+                      className="flex items-center gap-1 text-[11px] text-primary hover:underline"
+                    >
+                      {expanded ? <><ChevronUp className="h-3 w-3" /> Recolher</> : <><ChevronDown className="h-3 w-3" /> Ver completa</>}
+                    </button>
+                  )}
+                </>
+              ) : (
+                <div className="text-xs text-muted-foreground">
+                  <span className="font-medium">Motivo:</span> {data.rationale}
+                  {data.stop_reason && <> · <span className="italic">{data.stop_reason}</span></>}
+                </div>
+              )}
+              <p className="text-[10px] text-muted-foreground italic">
+                Prévia estimada. A mensagem final pode variar levemente (IA não é determinística).
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Sem prévia disponível.</p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function AgenticSimulationControls({
   enrollmentId,
   simulationEnabled,
 }: { enrollmentId: string; simulationEnabled: boolean }) {
   const runNext = useRunNextStep();
   const simulateReply = useSimulateReply();
+  const qc = useQueryClient();
   const [reply, setReply] = useState("");
   const [lastAiReply, setLastAiReply] = useState<{ text: string; intent?: string } | null>(null);
 
   return (
     <div className="space-y-2 border-t border-dashed pt-2 mt-1">
+      <AgentNextPreview enrollmentId={enrollmentId} />
       <div className="flex gap-2 flex-wrap">
         <Button
           size="sm"
           variant="default"
-          onClick={() => runNext.mutate(enrollmentId)}
+          onClick={() => runNext.mutate(enrollmentId, {
+            onSuccess: () => qc.invalidateQueries({ queryKey: ["agent_next_preview", enrollmentId] }),
+          })}
           disabled={runNext.isPending}
           className="h-7 text-xs"
         >
@@ -474,6 +576,7 @@ function AgenticSimulationControls({
                   onSuccess: (data: any) => {
                     setReply("");
                     if (data?.reply_text) setLastAiReply({ text: data.reply_text, intent: data.intent });
+                    qc.invalidateQueries({ queryKey: ["agent_next_preview", enrollmentId] });
                   },
                 },
               );
@@ -502,3 +605,4 @@ function AgenticSimulationControls({
     </div>
   );
 }
+

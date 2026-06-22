@@ -87,10 +87,11 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const reqBody = await req.json();
-    const { enrollment_id, bypass_hitl, override_decision } = reqBody as {
+    const { enrollment_id, bypass_hitl, override_decision, dry_run } = reqBody as {
       enrollment_id?: string;
       bypass_hitl?: boolean;
       override_decision?: Partial<Decision>;
+      dry_run?: boolean;
     };
     if (!enrollment_id) {
       return new Response(JSON.stringify({ error: "enrollment_id required" }), {
@@ -98,9 +99,10 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const dryRun = !!dry_run;
 
-    // Idempotency — não aplicar quando é re-invocação via aprovação humana (bypass_hitl/override_decision).
-    if (!bypass_hitl && !override_decision) {
+    // Idempotency — skip in dry_run; preview is read-only and re-requestable.
+    if (!dryRun && !bypass_hitl && !override_decision) {
       const { data: recent } = await supabase
         .from("cadence_agent_decisions")
         .select("id, decided_at")
@@ -150,6 +152,7 @@ serve(async (req) => {
       d: Decision,
       extras: Record<string, any> = {},
     ) => {
+      if (dryRun) return;
       await supabase.from("cadence_agent_decisions").insert({
         enrollment_id,
         company_id: cadence.company_id,
@@ -166,49 +169,30 @@ serve(async (req) => {
         ...extras,
       });
     };
+    // Helper to update enrollment, skipped in dry_run
+    const updateEnrollment = async (patch: Record<string, any>) => {
+      if (dryRun) return;
+      await supabase.from("cadence_enrollments").update(patch).eq("id", enrollment_id);
+    };
+
+    const earlyStop = async (rationale: string, stop_reason: string) => {
+      const d: Decision = { action: "stop", rationale, stop_reason };
+      await persistDecision(d);
+      await updateEnrollment({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null });
+      return new Response(JSON.stringify({ action: "stop", reason: stop_reason, decision: d }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    };
 
     // === DETERMINISTIC STOP CHECKS (sempre ativos) ===
     if (attemptNumber > policy.max_attempts) {
-      await persistDecision({
-        action: "stop",
-        rationale: `Atingiu máximo de ${policy.max_attempts} tentativas.`,
-        stop_reason: "max_attempts",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "max_attempts" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop(`Atingiu máximo de ${policy.max_attempts} tentativas.`, "max_attempts");
     }
     if (daysSinceEnroll > policy.max_days) {
-      await persistDecision({
-        action: "stop",
-        rationale: `Passou do prazo de ${policy.max_days} dias.`,
-        stop_reason: "max_days",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "max_days" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop(`Passou do prazo de ${policy.max_days} dias.`, "max_days");
     }
     if (enrollment.meeting_scheduled) {
-      await persistDecision({
-        action: "stop",
-        rationale: "Reunião já agendada.",
-        stop_reason: "meeting_booked",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "meeting_booked" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Reunião já agendada.", "meeting_booked");
     }
 
     // Recent intents
@@ -221,32 +205,10 @@ serve(async (req) => {
 
     const lastIntent = intents?.[0];
     if (lastIntent?.category === "rejection") {
-      await persistDecision({
-        action: "stop",
-        rationale: "Lead manifestou rejeição/sem interesse.",
-        stop_reason: "no_interest",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "no_interest" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Lead manifestou rejeição/sem interesse.", "no_interest");
     }
     if (lastIntent?.category === "compliance") {
-      await persistDecision({
-        action: "stop",
-        rationale: "Lead pediu opt-out / remoção.",
-        stop_reason: "opt_out",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "opt_out" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Lead pediu opt-out / remoção.", "opt_out");
     }
 
 
@@ -263,20 +225,10 @@ serve(async (req) => {
       effectivePrimary = "email";
       channelNote = "O lead NÃO tem WhatsApp cadastrado — use e-mail.";
     } else if (!hasWhatsapp && !hasEmail) {
-      // No contact at all — stop
-      await persistDecision({
-        action: "stop",
-        rationale: "Lead sem WhatsApp e sem e-mail — sem canal disponível.",
-        stop_reason: "no_contact",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "no_contact" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Lead sem WhatsApp e sem e-mail — sem canal disponível.", "no_contact");
     }
+
+
 
 
     // === FIRST-ATTEMPT SHORTCUT ===
@@ -524,6 +476,13 @@ Decida a próxima ação.`;
     if (decision.action === "send") {
       scheduledFor = nextAllowedSlot(new Date(), policy.business_hours);
       decision.scheduled_for = scheduledFor;
+    }
+
+    // === DRY-RUN: return decision without any side effect ===
+    if (dryRun) {
+      return new Response(JSON.stringify({ decision, dry_run: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
     // === EXECUTE ===
