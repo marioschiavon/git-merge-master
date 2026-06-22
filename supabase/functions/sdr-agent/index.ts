@@ -984,18 +984,21 @@ async function execBookingTool(
       provider_booking_uid: bookingUid,
       response_payload: (booking as any) ?? {},
     });
-    // Limpa offered_slots_pending da memória.
+    // Limpa offered_slots_pending, email_just_resolved_slot e pending_email_for_slot da memória.
     try {
       const newFacts = { ...facts };
-      if (newFacts.offered_slots_pending) {
-        delete newFacts.offered_slots_pending;
+      let changed = false;
+      if ((newFacts as any).offered_slots_pending) { delete (newFacts as any).offered_slots_pending; changed = true; }
+      if ((newFacts as any).email_just_resolved_slot) { delete (newFacts as any).email_just_resolved_slot; changed = true; }
+      if ((newFacts as any).pending_email_for_slot) { delete (newFacts as any).pending_email_for_slot; changed = true; }
+      if (changed) {
         const { error: memErr } = await supabase.from("lead_memory").upsert(
           { lead_id: ctx.lead_id, company_id: ctx.company_id, facts: newFacts, updated_at: new Date().toISOString() },
           { onConflict: "lead_id" },
         );
-        if (memErr) console.error("lead_memory upsert (clear offered_slots_pending) failed:", memErr);
+        if (memErr) console.error("lead_memory upsert (clear post-book flags) failed:", memErr);
       }
-    } catch (e) { console.error("lead_memory upsert (clear offered_slots_pending) threw:", e); }
+    } catch (e) { console.error("lead_memory upsert (clear post-book flags) threw:", e); }
     const guestSuffix = guestEmails.length > 0
       ? ` Também incluí ${guestEmails.join(", ")} no convite — eles vão receber o invite por e-mail.`
       : "";
