@@ -159,6 +159,7 @@ serve(async (req) => {
           } as any).then(() => null, () => null);
 
           stats.exhausted++;
+          details.push({ id: e.id, result: "exhausted", attempts: e.reengage_attempts, max: maxAttempts });
           continue;
         }
 
@@ -170,7 +171,11 @@ serve(async (req) => {
           .gt("step_order", e.current_step ?? 0)
           .order("step_order", { ascending: true })
           .limit(1);
-        if (!nextSteps || nextSteps.length === 0) { stats.skipped_no_step++; continue; }
+        if (!nextSteps || nextSteps.length === 0) {
+          stats.skipped_no_step++;
+          details.push({ id: e.id, result: "skipped", reason: "no_next_step" });
+          continue;
+        }
 
         const newAttempts = (e.reengage_attempts ?? 0) + 1;
         const { error: updErr } = await supabase
@@ -191,17 +196,21 @@ serve(async (req) => {
           company_id: e.company_id,
           lead_id: e.lead_id,
           type: "note",
-          description: `🔄 Reengajamento ${newAttempts}/${maxAttempts} — retomando cadência (lead silencioso há ${Math.floor(silenceMs / 86400000)}d)`,
+          description: forceMode
+            ? `🔄 Reengajamento ${newAttempts}/${maxAttempts} — disparo manual (teste)`
+            : `🔄 Reengajamento ${newAttempts}/${maxAttempts} — retomando cadência (lead silencioso há ${Math.floor(silenceMs / 86400000)}d)`,
         } as any).then(() => null, () => null);
 
         stats.reengaged++;
+        details.push({ id: e.id, result: "reengaged", attempts: newAttempts, max: maxAttempts });
       } catch (innerErr) {
         console.error("[cadence-reengage-cron] enrollment error", e.id, innerErr);
         stats.errors++;
+        details.push({ id: e.id, result: "error", error: String(innerErr) });
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, stats }), {
+    return new Response(JSON.stringify({ ok: true, stats, details }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {
