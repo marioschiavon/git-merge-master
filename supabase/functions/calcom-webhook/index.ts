@@ -209,8 +209,16 @@ serve(async (req) => {
         }
       };
 
-      // Detect who initiated this webhook event (lead vs. organizer/SDR/app)
-      const leadEmailLower = (bookingPayload.attendees?.[0]?.email || "").toLowerCase();
+      // Detect who initiated this webhook event (lead vs. organizer/SDR/app).
+      // The attendee email is often a placeholder (noreply+<uuid>@...), so we
+      // resolve the real lead email from the leads table when possible.
+      let realLeadEmailLower = "";
+      if (lead_id) {
+        const { data: leadRow } = await supabase
+          .from("leads").select("email").eq("id", lead_id).maybeSingle();
+        realLeadEmailLower = (leadRow?.email || "").toLowerCase();
+      }
+      const attendeeEmailLower = (bookingPayload.attendees?.[0]?.email || "").toLowerCase();
       const organizerEmailLower = (bookingPayload.organizer?.email || bookingPayload.user?.email || "").toLowerCase();
       const cancelledByEmail = (
         bookingPayload.cancellation?.cancelledByEmail ||
@@ -218,11 +226,19 @@ serve(async (req) => {
         bookingPayload.cancelledBy ||
         ""
       ).toString().toLowerCase();
+      // Only treat as "organizer cancelled" when the email matches the organizer
+      // AND is clearly NOT the lead. This avoids a false positive when the lead's
+      // own email happens to match the organizer's (e.g. internal testing).
+      const sameEmailAsLead =
+        !!cancelledByEmail &&
+        (cancelledByEmail === realLeadEmailLower || cancelledByEmail === attendeeEmailLower);
       const cancelledByOrganizer =
         !!cancelledByEmail &&
         !!organizerEmailLower &&
-        cancelledByEmail === organizerEmailLower;
+        cancelledByEmail === organizerEmailLower &&
+        !sameEmailAsLead;
       const cancelledByLead = !cancelledByOrganizer;
+
 
       switch (eventType) {
         case "BOOKING_CREATED":
