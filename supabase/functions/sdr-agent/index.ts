@@ -853,6 +853,62 @@ async function execBookingTool(
 
   // ── BOOK ──────────────────────────────────────────────────────
   if (name === "book_slot") {
+    // ── E-mail real obrigatório antes de confirmar ────────────────
+    // Sem e-mail válido o Cal.com não consegue enviar o convite. Em vez
+    // de agendar com placeholder (noreply+…@…), interrompemos o fluxo,
+    // persistimos o slot pretendido em lead_memory.facts e pedimos o
+    // e-mail ao lead. No próximo turno o e-mail é capturado, persistido
+    // em leads.email, e o LLM é instruído a chamar book_slot de novo.
+    {
+      const { data: leadRow } = await supabase
+        .from("leads")
+        .select("email")
+        .eq("id", ctx.lead_id)
+        .maybeSingle();
+      let convChannel: string | null = null;
+      if (ctx.conversation_id) {
+        const { data: cv } = await supabase
+          .from("conversations")
+          .select("channel")
+          .eq("id", ctx.conversation_id)
+          .maybeSingle();
+        convChannel = (cv?.channel ?? null) as string | null;
+      }
+      const currentEmail = String(leadRow?.email || "").trim().toLowerCase();
+      const isPlaceholder = /^noreply\+[a-f0-9-]+@/i.test(currentEmail);
+      const isValidEmail = /^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(currentEmail) && !isPlaceholder;
+      if (!isValidEmail && convChannel !== "email") {
+        try {
+          const newFacts = {
+            ...facts,
+            pending_email_for_slot: {
+              slot_iso: slotStart,
+              hold_id: guard.matchedHold?.id ?? null,
+            },
+          };
+          await supabase.from("lead_memory").upsert(
+            {
+              lead_id: ctx.lead_id,
+              company_id: ctx.company_id,
+              facts: newFacts,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "lead_id" },
+          );
+        } catch (e) {
+          console.error("pending_email_for_slot upsert failed:", e);
+        }
+        return {
+          ok: false,
+          downgrade: "request_email",
+          reason: "lead sem e-mail cadastrado — peça o e-mail antes de confirmar",
+          suggested_message:
+            "Pra eu confirmar e te mandar o convite da reunião, qual é o melhor e-mail pra te marcar?",
+          next_action: "Chame finalize com decision=send_message e message=suggested_message.",
+        };
+      }
+    }
+
     const idempotency_key = await buildIdempotencyKey({
       conversation_id: ctx.conversation_id, lead_id: ctx.lead_id,
       action_type: "book", requested_start: slotStart,
@@ -896,7 +952,7 @@ async function execBookingTool(
       } catch (_) { /* best effort */ }
     }
     const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-confirm-booking", {
-      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: true, guest_emails: guestEmails },
+      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: false, guest_emails: guestEmails },
     });
     if (bookErr || (booking as any)?.error) {
       const errStr = bookErr ? String(bookErr) : String((booking as any)?.error);
@@ -1396,6 +1452,9 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     activeBooking && cancelQuestionAsked
       ? `⚠️ AÇÃO OBRIGATÓRIA: no turn anterior você perguntou se deveria cancelar a reunião. ${leadAffirmed ? "O lead JÁ CONFIRMOU. " : ""}Se for prosseguir com o cancelamento, chame \`cancel_booking({ booking_uid: "${activeBooking.calcom_booking_uid}", reason })\` AGORA antes do finalize.`
       : "",
+    (ctx as any).pending_email_resolved
+      ? `⚠️ AÇÃO OBRIGATÓRIA: o lead acabou de informar o e-mail (${(ctx as any).pending_email_resolved.email}) que pedimos no turno anterior pra agendar a reunião. Já salvei em \`leads.email\`. Chame \`book_slot({ slot_start: "${(ctx as any).pending_email_resolved.slot_iso}" })\` AGORA e depois \`finalize({ decision: "send_message", message: message_suggestion })\` confirmando a reserva. NÃO peça o e-mail de novo.`
+      : "",
     heldSlots.length
       ? `Slots já oferecidos/segurados: ${heldSlots.map((s) => `${fmtBrt(s.slot_datetime)} (${s.status})`).join(", ")}. NÃO ofereça esses mesmos slots novamente — passe-os em exclude_datetimes se for buscar novos.`
       : "Nenhum slot ativo segurado.",
@@ -1710,6 +1769,44 @@ Deno.serve(async (req) => {
     } catch (e) {
       console.error("referral_pending_name hydration failed:", e);
     }
+
+    // ── Captura: lead acabou de enviar o e-mail que pedimos ──────────
+    // Se em turno anterior o SDR pediu o e-mail (pending_email_for_slot
+    // em lead_memory.facts) e a inbound atual contém um e-mail válido,
+    // persistimos em leads.email, limpamos a flag e injetamos um hint
+    // pra o LLM disparar book_slot de novo no MESMO turno.
+    try {
+      const factsRef = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
+      const pending = factsRef.pending_email_for_slot as
+        | { slot_iso?: string; hold_id?: string | null }
+        | undefined;
+      if (pending && typeof pending === "object") {
+        const m = String(lastInbound || "").match(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i);
+        const found = m?.[0]?.toLowerCase() ?? "";
+        if (found && !/^noreply\+/i.test(found)) {
+          await supabase.from("leads").update({ email: found }).eq("id", lead_id);
+          (ctx.lead as any).email = found;
+          const merged = { ...factsRef };
+          delete (merged as any).pending_email_for_slot;
+          await supabase.from("lead_memory").upsert(
+            { lead_id, company_id: ctx.lead.company_id, facts: merged, updated_at: new Date().toISOString() },
+            { onConflict: "lead_id" },
+          );
+          ctx.memory = { ...(ctx.memory ?? { summary: null }), facts: merged } as typeof ctx.memory;
+          (ctx as any).pending_email_resolved = {
+            slot_iso: pending.slot_iso ?? null,
+            hold_id: pending.hold_id ?? null,
+            email: found,
+          };
+          console.log("sdr-agent: captured lead email and cleared pending_email_for_slot:", found);
+        }
+      }
+    } catch (e) {
+      console.error("pending_email_for_slot capture failed:", e);
+    }
+
+
+
 
 
     // Heurística leve para a Policy: o lead tem pergunta pendente?
