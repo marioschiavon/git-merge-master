@@ -35,12 +35,24 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // Optional body: { enrollment_id?: string, force?: boolean }
+  let body: { enrollment_id?: string; force?: boolean } = {};
+  try {
+    if (req.method === "POST") {
+      const txt = await req.text();
+      if (txt) body = JSON.parse(txt);
+    }
+  } catch (_) { /* ignore */ }
+  const forceMode = !!body.force;
+  const targetEnrollmentId = body.enrollment_id || null;
+
   const stats = { scanned: 0, reengaged: 0, exhausted: 0, skipped_meeting: 0, skipped_hold: 0, skipped_booking: 0, skipped_recent: 0, skipped_disabled: 0, skipped_no_step: 0, errors: 0 };
+  const details: any[] = [];
 
   try {
     const nowIso = new Date().toISOString();
 
-    const { data: enrollments, error } = await supabase
+    let query = supabase
       .from("cadence_enrollments")
       .select(`
         id, lead_id, company_id, cadence_id, current_step, meeting_scheduled,
@@ -51,6 +63,8 @@ serve(async (req) => {
       .eq("paused_reason", "lead_replied")
       .eq("meeting_scheduled", false)
       .limit(500);
+    if (targetEnrollmentId) query = query.eq("id", targetEnrollmentId);
+    const { data: enrollments, error } = await query;
 
     if (error) throw error;
 
@@ -58,8 +72,8 @@ serve(async (req) => {
       stats.scanned++;
       try {
         const cad: any = (e as any).cadences;
-        if (!cad || cad.status !== "active") continue;
-        if (cad.reengage_enabled === false) { stats.skipped_disabled++; continue; }
+        if (!cad || cad.status !== "active") { details.push({ id: e.id, result: "skipped", reason: "cadence_inactive" }); continue; }
+        if (cad.reengage_enabled === false) { stats.skipped_disabled++; details.push({ id: e.id, result: "skipped", reason: "reengage_disabled" }); continue; }
 
         const afterDays = Math.max(1, Number(cad.reengage_after_days ?? 2));
         const maxAttempts = Math.max(1, Number(cad.reengage_max_attempts ?? 3));
@@ -84,10 +98,13 @@ serve(async (req) => {
         }
         // Fallback: enrollment updated_at, last_reengage_at
         const candidates = [lastActivityAt, (e as any).last_reengage_at, (e as any).updated_at].filter(Boolean) as string[];
-        if (candidates.length === 0) continue;
-        const lastTs = Math.max(...candidates.map((t) => new Date(t).getTime()));
+        const lastTs = candidates.length ? Math.max(...candidates.map((t) => new Date(t).getTime())) : Date.now();
         const silenceMs = Date.now() - lastTs;
-        if (silenceMs < afterDays * 86400 * 1000) { stats.skipped_recent++; continue; }
+        if (!forceMode && silenceMs < afterDays * 86400 * 1000) {
+          stats.skipped_recent++;
+          details.push({ id: e.id, result: "skipped", reason: "too_recent", silence_hours: Math.round(silenceMs / 3600000) });
+          continue;
+        }
 
         // Protection: active slot_hold
         const { data: holds } = await supabase
@@ -96,7 +113,9 @@ serve(async (req) => {
           .eq("lead_id", e.lead_id)
           .eq("status", "held");
         if ((holds || []).some((h: any) => !h.expires_at || new Date(h.expires_at).getTime() > Date.now())) {
-          stats.skipped_hold++; continue;
+          stats.skipped_hold++;
+          details.push({ id: e.id, result: "skipped", reason: "active_slot_hold" });
+          continue;
         }
 
         // Protection: confirmed booking in last 90 days
@@ -107,7 +126,11 @@ serve(async (req) => {
           .eq("lead_id", e.lead_id)
           .gte("created_at", cutoff90)
           .limit(1);
-        if (bookings && bookings.length) { stats.skipped_booking++; continue; }
+        if (bookings && bookings.length) {
+          stats.skipped_booking++;
+          details.push({ id: e.id, result: "skipped", reason: "recent_booking" });
+          continue;
+        }
 
         // Exhausted?
         if ((e.reengage_attempts ?? 0) >= maxAttempts) {
@@ -136,6 +159,7 @@ serve(async (req) => {
           } as any).then(() => null, () => null);
 
           stats.exhausted++;
+          details.push({ id: e.id, result: "exhausted", attempts: e.reengage_attempts, max: maxAttempts });
           continue;
         }
 
@@ -147,7 +171,11 @@ serve(async (req) => {
           .gt("step_order", e.current_step ?? 0)
           .order("step_order", { ascending: true })
           .limit(1);
-        if (!nextSteps || nextSteps.length === 0) { stats.skipped_no_step++; continue; }
+        if (!nextSteps || nextSteps.length === 0) {
+          stats.skipped_no_step++;
+          details.push({ id: e.id, result: "skipped", reason: "no_next_step" });
+          continue;
+        }
 
         const newAttempts = (e.reengage_attempts ?? 0) + 1;
         const { error: updErr } = await supabase
@@ -168,17 +196,21 @@ serve(async (req) => {
           company_id: e.company_id,
           lead_id: e.lead_id,
           type: "note",
-          description: `🔄 Reengajamento ${newAttempts}/${maxAttempts} — retomando cadência (lead silencioso há ${Math.floor(silenceMs / 86400000)}d)`,
+          description: forceMode
+            ? `🔄 Reengajamento ${newAttempts}/${maxAttempts} — disparo manual (teste)`
+            : `🔄 Reengajamento ${newAttempts}/${maxAttempts} — retomando cadência (lead silencioso há ${Math.floor(silenceMs / 86400000)}d)`,
         } as any).then(() => null, () => null);
 
         stats.reengaged++;
+        details.push({ id: e.id, result: "reengaged", attempts: newAttempts, max: maxAttempts });
       } catch (innerErr) {
         console.error("[cadence-reengage-cron] enrollment error", e.id, innerErr);
         stats.errors++;
+        details.push({ id: e.id, result: "error", error: String(innerErr) });
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, stats }), {
+    return new Response(JSON.stringify({ ok: true, stats, details }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (err: any) {

@@ -44,7 +44,10 @@ import {
   Reply,
   XCircle,
   PauseCircle,
+  RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { LeadProgressDrawer } from "@/components/cadence/LeadProgressDrawer";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -125,6 +128,38 @@ export default function CadencesDashboard() {
   const { data: steps } = useCadenceSteps(cadenceId);
   const { data: rows, isLoading } = useCadenceLeadProgress(cadenceId);
   const selectedHasNoEnrollments = !!cadenceId && (enrollmentCounts?.[cadenceId] ?? 0) === 0;
+  const qc = useQueryClient();
+
+  const handleTestReengage = async (enrollmentId: string) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("cadence-reengage-cron", {
+        body: { enrollment_id: enrollmentId, force: true },
+      });
+      if (error) throw error;
+      const detail = (data?.details || [])[0];
+      if (!detail) {
+        toast.warning("Nenhuma ação — verifique se o enrollment está pausado por 'lead_replied'");
+      } else if (detail.result === "reengaged") {
+        toast.success(`Reengajado (${detail.attempts}/${detail.max}) — próximo step em até 5 min`);
+      } else if (detail.result === "exhausted") {
+        toast.warning(`Esgotado — cadência encerrada após ${detail.attempts} tentativas`);
+      } else if (detail.result === "skipped") {
+        const labels: Record<string, string> = {
+          reengage_disabled: "Reengajamento desativado nesta cadência",
+          active_slot_hold: "Há um horário reservado em andamento",
+          recent_booking: "Lead tem reunião agendada recente",
+          no_next_step: "Cadência não tem próximo step",
+          cadence_inactive: "Cadência não está ativa",
+        };
+        toast.info(`Pulado: ${labels[detail.reason] || detail.reason}`);
+      } else if (detail.result === "error") {
+        toast.error(`Erro: ${detail.error}`);
+      }
+      qc.invalidateQueries({ queryKey: ["cadence_lead_progress"] });
+    } catch (err: any) {
+      toast.error(err?.message || "Falha ao invocar reengajamento");
+    }
+  };
 
   const stats = useMemo(() => {
     const r = rows || [];
@@ -434,8 +469,25 @@ export default function CadencesDashboard() {
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        <TableCell onClick={(ev) => ev.stopPropagation()}>
+                          <div className="flex items-center gap-1">
+                            {r.enrollment.status === "paused" && r.enrollment.paused_reason === "lead_replied" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-7 w-7"
+                                    onClick={() => handleTestReengage(r.enrollment.id)}
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Testar reengajamento agora</TooltipContent>
+                              </Tooltip>
+                            )}
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
