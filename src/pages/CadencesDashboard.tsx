@@ -305,7 +305,9 @@ export default function CadencesDashboard() {
                   {!isLoading && !filtered.length && (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                        Nenhum lead encontrado.
+                        {selectedHasNoEnrollments
+                          ? "Esta cadência ainda não tem leads matriculados. Vá em Leads → Adicionar à cadência."
+                          : "Nenhum lead encontrado com os filtros atuais."}
                       </TableCell>
                     </TableRow>
                   )}
