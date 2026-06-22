@@ -150,8 +150,12 @@ export default function CadencesDashboard() {
           recent_booking: "Lead tem reunião agendada recente",
           no_next_step: "Cadência não tem próximo step",
           cadence_inactive: "Cadência não está ativa",
+          never_engaged: "Lead ainda não respondeu nenhuma vez",
+          too_recent: "Atividade muito recente (use force ou aguarde a janela)",
         };
-        toast.info(`Pulado: ${labels[detail.reason] || detail.reason}`);
+        const label = labels[detail.reason] || (detail.reason?.startsWith("paused_") ? `Pausado por outro motivo: ${detail.reason.replace("paused_","")}` : detail.reason);
+        toast.info(`Pulado: ${label}`);
+
       } else if (detail.result === "error") {
         toast.error(`Erro: ${detail.error}`);
       }
