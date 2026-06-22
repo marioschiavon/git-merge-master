@@ -46,18 +46,25 @@ export default function Cadences() {
   const upsertPolicy = useUpsertCadencePolicy();
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedCadenceId, setSelectedCadenceId] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", description: "", type: "email", agentic: false });
+  const [form, setForm] = useState({ name: "", description: "", type: "email", agentic: false, reengage_enabled: true, reengage_after_days: 2, reengage_max_attempts: 3 });
 
   const handleCreate = async () => {
     if (!form.name.trim()) return;
     const effectiveType = form.agentic ? "multi_channel" : form.type;
     const created = await createMutation.mutateAsync({ name: form.name, description: form.description, type: effectiveType });
-    if (form.agentic && created?.id && companyId) {
-      // Mark cadence as agentic + create default policy
-      await supabase.from("cadences").update({ mode: "agentic", status: "active" } as any).eq("id", created.id);
-      await upsertPolicy.mutateAsync({ cadence_id: created.id, company_id: companyId } as any);
+    if (created?.id) {
+      const baseUpdate: any = {
+        reengage_enabled: form.reengage_enabled,
+        reengage_after_days: form.reengage_after_days,
+        reengage_max_attempts: form.reengage_max_attempts,
+      };
+      if (form.agentic) Object.assign(baseUpdate, { mode: "agentic", status: "active" });
+      await supabase.from("cadences").update(baseUpdate).eq("id", created.id);
+      if (form.agentic && companyId) {
+        await upsertPolicy.mutateAsync({ cadence_id: created.id, company_id: companyId } as any);
+      }
     }
-    setForm({ name: "", description: "", type: "email", agentic: false });
+    setForm({ name: "", description: "", type: "email", agentic: false, reengage_enabled: true, reengage_after_days: 2, reengage_max_attempts: 3 });
     setCreateOpen(false);
   };
 
