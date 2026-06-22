@@ -175,48 +175,24 @@ serve(async (req) => {
       await supabase.from("cadence_enrollments").update(patch).eq("id", enrollment_id);
     };
 
+    const earlyStop = async (rationale: string, stop_reason: string) => {
+      const d: Decision = { action: "stop", rationale, stop_reason };
+      await persistDecision(d);
+      await updateEnrollment({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null });
+      return new Response(JSON.stringify({ action: "stop", reason: stop_reason, decision: d }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    };
+
     // === DETERMINISTIC STOP CHECKS (sempre ativos) ===
     if (attemptNumber > policy.max_attempts) {
-      await persistDecision({
-        action: "stop",
-        rationale: `Atingiu máximo de ${policy.max_attempts} tentativas.`,
-        stop_reason: "max_attempts",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "max_attempts" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop(`Atingiu máximo de ${policy.max_attempts} tentativas.`, "max_attempts");
     }
     if (daysSinceEnroll > policy.max_days) {
-      await persistDecision({
-        action: "stop",
-        rationale: `Passou do prazo de ${policy.max_days} dias.`,
-        stop_reason: "max_days",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "max_days" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop(`Passou do prazo de ${policy.max_days} dias.`, "max_days");
     }
     if (enrollment.meeting_scheduled) {
-      await persistDecision({
-        action: "stop",
-        rationale: "Reunião já agendada.",
-        stop_reason: "meeting_booked",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "meeting_booked" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Reunião já agendada.", "meeting_booked");
     }
 
     // Recent intents
@@ -229,32 +205,10 @@ serve(async (req) => {
 
     const lastIntent = intents?.[0];
     if (lastIntent?.category === "rejection") {
-      await persistDecision({
-        action: "stop",
-        rationale: "Lead manifestou rejeição/sem interesse.",
-        stop_reason: "no_interest",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "no_interest" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Lead manifestou rejeição/sem interesse.", "no_interest");
     }
     if (lastIntent?.category === "compliance") {
-      await persistDecision({
-        action: "stop",
-        rationale: "Lead pediu opt-out / remoção.",
-        stop_reason: "opt_out",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "opt_out" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Lead pediu opt-out / remoção.", "opt_out");
     }
 
 
@@ -271,20 +225,10 @@ serve(async (req) => {
       effectivePrimary = "email";
       channelNote = "O lead NÃO tem WhatsApp cadastrado — use e-mail.";
     } else if (!hasWhatsapp && !hasEmail) {
-      // No contact at all — stop
-      await persistDecision({
-        action: "stop",
-        rationale: "Lead sem WhatsApp e sem e-mail — sem canal disponível.",
-        stop_reason: "no_contact",
-      });
-      await supabase
-        .from("cadence_enrollments")
-        .update({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null })
-        .eq("id", enrollment_id);
-      return new Response(JSON.stringify({ action: "stop", reason: "no_contact" }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return await earlyStop("Lead sem WhatsApp e sem e-mail — sem canal disponível.", "no_contact");
     }
+
+
 
 
     // === FIRST-ATTEMPT SHORTCUT ===
