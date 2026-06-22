@@ -348,9 +348,16 @@ export default function CadencesDashboard() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={cn("text-xs border", sb.cls)}>
-                            {sb.label}
-                          </Badge>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className={cn("text-xs border w-fit", sb.cls)}>
+                              {sb.label}
+                            </Badge>
+                            {(r.enrollment.reengage_attempts ?? 0) > 0 && (
+                              <Badge variant="outline" className="text-[10px] border bg-blue-50 text-blue-800 border-blue-200 w-fit">
+                                Reengaj. {r.enrollment.reengage_attempts}
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell>
                           {r.lastIntent?.category ? (
