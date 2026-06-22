@@ -20,6 +20,16 @@ async function verifySignature(secret: string, signature: string | null, rawBody
   }
 }
 
+// SDR-initiated bookings use a placeholder attendee email of the form
+// `noreply+<lead_uuid>@<domain>` when the lead has no real email. Extract the
+// UUID so we can link the booking back to its lead even when the webhook
+// arrives before/without an explicit linkage in the bookings row.
+function extractLeadIdFromPlaceholder(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const m = String(email).toLowerCase().match(/^noreply\+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@/);
+  return m ? m[1] : null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
@@ -49,6 +59,29 @@ serve(async (req) => {
   if (!company_id && attendeeEmail) {
     const { data: lead } = await supabase.from("leads").select("id, company_id").eq("email", attendeeEmail).limit(1).maybeSingle();
     if (lead) { company_id = lead.company_id; lead_id = lead.id; }
+  }
+  // Fallback: SDR placeholder email `noreply+<lead_id>@...` → resolve lead via UUID.
+  if (!company_id) {
+    const placeholderLeadId = extractLeadIdFromPlaceholder(attendeeEmail);
+    if (placeholderLeadId) {
+      const { data: lead } = await supabase
+        .from("leads")
+        .select("id, company_id")
+        .eq("id", placeholderLeadId)
+        .maybeSingle();
+      if (lead) {
+        company_id = lead.company_id;
+        lead_id = lead.id;
+        // Re-link the existing booking row (if any) so future events stay linked.
+        if (bookingUid) {
+          await supabase
+            .from("bookings")
+            .update({ company_id, lead_id })
+            .eq("calcom_booking_uid", bookingUid)
+            .is("lead_id", null);
+        }
+      }
+    }
   }
 
   // Log webhook
