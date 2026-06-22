@@ -952,7 +952,7 @@ async function execBookingTool(
       } catch (_) { /* best effort */ }
     }
     const { data: booking, error: bookErr } = await supabase.functions.invoke("calcom-confirm-booking", {
-      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: true, guest_emails: guestEmails },
+      body: { lead_id: ctx.lead_id, selected_slot_hold_id: matchedHold.id, force_placeholder: false, guest_emails: guestEmails },
     });
     if (bookErr || (booking as any)?.error) {
       const errStr = bookErr ? String(bookErr) : String((booking as any)?.error);
