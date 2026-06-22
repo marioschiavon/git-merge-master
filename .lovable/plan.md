@@ -1,24 +1,26 @@
-## Diagnóstico
+## Problema
 
-O comportamento persistiu porque o `book_slot` agora está sendo forçado corretamente, mas a guarda central de agendamento (`assertCanBook`) ainda exige que a última mensagem inbound seja uma confirmação de horário. Neste caso, a última mensagem é apenas o e-mail do lead, então a guarda retorna `no_confirmation` e o SDR usa a mensagem de fallback oferecendo os mesmos horários novamente.
+A página `/cadences/dashboard` mostra "Nenhum lead encontrado" mesmo havendo lead em cadência.
 
-## Plano de correção
+Confirmei na base: existem 6 cadências, mas só a cadência **"Inteligente"** tem 1 enrollment. As outras 5 estão zeradas. O seletor da página faz default para `cadences[0]`, que é **"Inteligente 2"** (mais recente, sem enrollments). Por isso a tabela aparece vazia — a cadência selecionada por padrão não é a que tem o lead.
 
-1. Ajustar a guarda de agendamento em `supabase/functions/_shared/booking-guards.ts`
-   - Quando existir `lead_memory.facts.email_just_resolved_slot` válido, não exigir nova confirmação textual na última mensagem.
-   - Só liberar se o `slot_iso` salvo bater com o `slot_start` solicitado, dentro da tolerância já usada.
-   - Manter todas as outras proteções: slot precisa estar entre os holds/ofertas, precisa existir hold ativo ou refresh bem-sucedido, e não pode haver booking ativo conflitante.
+## Plano
 
-2. Reforçar o fallback no `sdr-agent`
-   - Se `book_slot` falhar por `no_confirmation` enquanto há `email_just_resolved_slot` para o mesmo horário, tratar como falha de guarda incorreta e tentar novamente com o caminho liberado pela nova regra.
-   - Evitar que esse caso volte a mandar “qual destes horários funciona melhor”.
+Ajustar somente o frontend (`src/pages/CadencesDashboard.tsx` + `src/hooks/useCadences.ts` se necessário) para:
 
-3. Validar com dados reais da conversa
-   - Confirmar que o lead está com e-mail salvo.
-   - Confirmar que o hold `2026-06-25T20:45:00+00:00` ainda está `held`.
-   - Após deploy, o próximo turno com esse estado deve executar `calcom-confirm-booking`, criar o booking e limpar `email_just_resolved_slot` / `offered_slots_pending`.
+1. **Mostrar contagem de leads no seletor de cadência**
+   - No dropdown, exibir o nome da cadência com um badge/contagem: `Inteligente (1)`, `Inteligente 2 (0)`, etc.
+   - Para isso, buscar a contagem de `cadence_enrollments` por cadência (uma única query agregada) e juntar ao `useCadences`.
 
-4. Deploy e verificação
-   - Deploy de `sdr-agent`.
-   - Ver logs: `forced_tool_call` com `result.ok=true` e chamada em `calcom-confirm-booking`.
-   - Ver banco: novo registro em `bookings` e hold marcado como `confirmed`.
+2. **Default inteligente**
+   - Em vez de selecionar `cadences[0]`, selecionar a primeira cadência com `enrollments > 0`. Se nenhuma tiver, manter `cadences[0]`.
+
+3. **Mensagem vazia mais clara**
+   - Quando a cadência selecionada tiver 0 enrollments, trocar "Nenhum lead encontrado." por algo como "Esta cadência ainda não tem leads matriculados. Use Leads → Adicionar à cadência."
+
+Sem mudanças no backend, RLS ou nas edge functions.
+
+## Validação
+
+- Abrir `/cadences/dashboard`: deve abrir já com **"Inteligente (1)"** selecionada e o lead visível.
+- Trocar para "Inteligente 2" deve mostrar a nova mensagem explicativa.

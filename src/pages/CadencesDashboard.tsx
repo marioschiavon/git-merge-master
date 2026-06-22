@@ -1,4 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { useCadences, useExecuteCadenceNow, useCadenceSteps } from "@/hooks/useCadences";
 import { useCadenceLeadProgress } from "@/hooks/useCadenceLeadProgress";
 import { Card, CardContent } from "@/components/ui/card";
@@ -92,10 +94,37 @@ export default function CadencesDashboard() {
   const [drawerRow, setDrawerRow] = useState<any | null>(null);
   const [showSteps, setShowSteps] = useState(false);
 
-  const cadenceId = selectedId || cadences?.[0]?.id || null;
+  const cadenceIds = useMemo(() => (cadences || []).map((c) => c.id), [cadences]);
+  const { data: enrollmentCounts } = useQuery({
+    queryKey: ["cadence_enrollment_counts", cadenceIds],
+    queryFn: async () => {
+      if (!cadenceIds.length) return {} as Record<string, number>;
+      const { data, error } = await supabase
+        .from("cadence_enrollments")
+        .select("cadence_id")
+        .in("cadence_id", cadenceIds);
+      if (error) throw error;
+      const counts: Record<string, number> = {};
+      (data || []).forEach((r: any) => {
+        counts[r.cadence_id] = (counts[r.cadence_id] || 0) + 1;
+      });
+      return counts;
+    },
+    enabled: cadenceIds.length > 0,
+  });
+
+  // Auto-select first cadence with enrollments (fallback to first)
+  useEffect(() => {
+    if (selectedId || !cadences?.length) return;
+    const firstWithLeads = cadences.find((c) => (enrollmentCounts?.[c.id] || 0) > 0);
+    setSelectedId((firstWithLeads || cadences[0]).id);
+  }, [cadences, enrollmentCounts, selectedId]);
+
+  const cadenceId = selectedId || null;
   const executeCadence = useExecuteCadenceNow();
   const { data: steps } = useCadenceSteps(cadenceId);
   const { data: rows, isLoading } = useCadenceLeadProgress(cadenceId);
+  const selectedHasNoEnrollments = !!cadenceId && (enrollmentCounts?.[cadenceId] ?? 0) === 0;
 
   const stats = useMemo(() => {
     const r = rows || [];
@@ -142,11 +171,14 @@ export default function CadencesDashboard() {
               <SelectValue placeholder="Selecione uma cadência" />
             </SelectTrigger>
             <SelectContent>
-              {cadences?.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
+              {cadences?.map((c) => {
+                const n = enrollmentCounts?.[c.id] ?? 0;
+                return (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} ({n})
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
           {cadenceId && (
@@ -273,7 +305,9 @@ export default function CadencesDashboard() {
                   {!isLoading && !filtered.length && (
                     <TableRow>
                       <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                        Nenhum lead encontrado.
+                        {selectedHasNoEnrollments
+                          ? "Esta cadência ainda não tem leads matriculados. Vá em Leads → Adicionar à cadência."
+                          : "Nenhum lead encontrado com os filtros atuais."}
                       </TableCell>
                     </TableRow>
                   )}
