@@ -60,6 +60,29 @@ serve(async (req) => {
     const { data: lead } = await supabase.from("leads").select("id, company_id").eq("email", attendeeEmail).limit(1).maybeSingle();
     if (lead) { company_id = lead.company_id; lead_id = lead.id; }
   }
+  // Fallback: SDR placeholder email `noreply+<lead_id>@...` → resolve lead via UUID.
+  if (!company_id) {
+    const placeholderLeadId = extractLeadIdFromPlaceholder(attendeeEmail);
+    if (placeholderLeadId) {
+      const { data: lead } = await supabase
+        .from("leads")
+        .select("id, company_id")
+        .eq("id", placeholderLeadId)
+        .maybeSingle();
+      if (lead) {
+        company_id = lead.company_id;
+        lead_id = lead.id;
+        // Re-link the existing booking row (if any) so future events stay linked.
+        if (bookingUid) {
+          await supabase
+            .from("bookings")
+            .update({ company_id, lead_id })
+            .eq("calcom_booking_uid", bookingUid)
+            .is("lead_id", null);
+        }
+      }
+    }
+  }
 
   // Log webhook
   const { data: logRow } = await supabase.from("calcom_webhook_log").insert({
