@@ -1,38 +1,47 @@
-## Como testar o reengajamento sem esperar
+## Problema
 
-Três caminhos, do mais rápido ao mais natural:
+O lead Juliano está numa cadência em **modo agentic** ("Inteligente"). Cadências agentic **não usam a tabela `cadence_steps`** — o próximo passo é decidido em tempo real pelo `cadence-agent-decide`. O `cadence-reengage-cron` faz uma verificação rígida procurando uma linha em `cadence_steps` com `step_order > current_step`, e como essa tabela está vazia para cadências agentic, o resultado é sempre "Pulado: Cadência não tem próximo step".
 
-### 1. Botão "Testar reengajamento agora" (recomendado)
-Adicionar um botão na coluna de ações de cada lead no `/cadences/dashboard` (visível só para enrollments `paused / lead_replied`). Ele chama o `cadence-reengage-cron` com `{ enrollment_id, force: true }`.
+Ou seja: a proteção está incorreta para o modo agentic e está bloqueando 100% dos reengajamentos nessas cadências.
 
-- `force=true` **pula apenas a checagem de tempo** (`reengage_after_days`).
-- Continua respeitando as proteções: reunião agendada, slot_hold ativo, booking recente, max_attempts.
-- Resultado aparece via toast: "Reengajado (tentativa N/M)" ou "Pulado: motivo X".
+## Correção
 
-### 2. Endpoint manual via curl (para teste técnico)
-O mesmo edge function aceitará `{ enrollment_id, force }` no body, então dá pra disparar pelo painel ou pelo cURL sem mexer na UI.
+**Arquivo:** `supabase/functions/cadence-reengage-cron/index.ts`
 
-### 3. Ajuste temporário de config
-Na aba **Config** da cadência, baixar "Dias de silêncio" para 1 — o cron de hora em hora vai pegar no próximo ciclo. Útil pra validar o fluxo end-to-end com o agendamento real.
+Tornar a verificação "tem próximo step?" condicional ao modo da cadência:
 
-### Mudanças técnicas
+1. Incluir `mode` no `select` de `cadences!inner(...)`.
+2. Pular completamente a query em `cadence_steps` quando `cad.mode === 'agentic'` — confiar que o executor + agent decidirão a próxima ação dinamicamente.
+3. Manter a verificação atual para cadências `mode='static'` (ou null/legacy), onde `cadence_steps` é a fonte da verdade.
 
-**`supabase/functions/cadence-reengage-cron/index.ts`**
-Aceitar POST body opcional:
+Nenhuma outra proteção muda (meeting_scheduled, slot_holds, bookings, max_attempts, time gate continuam iguais).
+
+## Resultado esperado
+
+Após a correção, ao clicar em "Testar reengajamento agora" no lead Juliano:
+- enrollment vira `status='active'`, `paused_reason=null`, `next_execution_at=now()`, `reengage_attempts=1`
+- toast: "Reengajado (1/3) — próximo step em até 5 min"
+- `cadence-executor` na próxima rodada chama `cadence-agent-decide` e dispara a próxima mensagem
+
+## Detalhes técnicos
+
+Mudança mínima no loop principal (~5 linhas), por volta da verificação atual `// Verify there's a next step`:
+
 ```ts
-{ enrollment_id?: string, force?: boolean }
+if (cad.mode !== "agentic") {
+  const { data: nextSteps } = await supabase
+    .from("cadence_steps")
+    .select("id, step_order")
+    .eq("cadence_id", e.cadence_id)
+    .gt("step_order", e.current_step ?? 0)
+    .order("step_order", { ascending: true })
+    .limit(1);
+  if (!nextSteps || nextSteps.length === 0) {
+    stats.skipped_no_step++;
+    details.push({ id: e.id, result: "skipped", reason: "no_next_step" });
+    continue;
+  }
+}
 ```
-- Se `enrollment_id` presente → processa só aquele enrollment.
-- Se `force=true` → pula o gate de "dias de silêncio" (mantém todas as outras proteções).
 
-**`src/pages/CadencesDashboard.tsx`**
-- Na coluna de ações da tabela, adicionar botão `RefreshCw` (tooltip "Testar reengajamento agora") visível quando `enrollment.status === 'paused' && enrollment.paused_reason === 'lead_replied'`.
-- Ao clicar: `supabase.functions.invoke("cadence-reengage-cron", { body: { enrollment_id, force: true } })`, mostra toast com o resultado, invalida queries.
-
-### Validação
-
-Para o lead Juliano (paused/lead_replied, current_step=2):
-1. Clica "Testar reengajamento agora".
-2. Toast: "Reengajado (1/3)". Enrollment vira `active`, `next_execution_at=now()`, `reengage_attempts=1`.
-3. No próximo tick do `cadence-executor` (≤ 5min) a mensagem do step 3 sai de verdade.
-4. Para testar o esgotamento, clicar 3x seguidas → na 4ª vez deve aparecer "Esgotado — cadência encerrada".
+Nenhuma migração de banco, nenhuma mudança de UI.
