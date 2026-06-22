@@ -52,15 +52,24 @@ serve(async (req) => {
   try {
     const nowIso = new Date().toISOString();
 
+    // Block reengage on these paused reasons (lead is in a different flow)
+    const BLOCKED_PAUSE_REASONS = new Set([
+      "awaiting_slot_confirmation",
+      "lead_rejected",
+      "meeting_cancelled_by_lead",
+      "handoff_required",
+      "call_requested",
+      "lead_requested_callback",
+    ]);
+
     let query = supabase
       .from("cadence_enrollments")
       .select(`
         id, lead_id, company_id, cadence_id, current_step, meeting_scheduled,
-        reengage_attempts, last_reengage_at, updated_at,
+        status, paused_reason, reengage_attempts, last_reengage_at, updated_at,
         cadences!inner(id, status, mode, reengage_enabled, reengage_after_days, reengage_max_attempts)
       `)
-      .eq("status", "paused")
-      .eq("paused_reason", "lead_replied")
+      .in("status", ["active", "paused"])
       .eq("meeting_scheduled", false)
       .limit(500);
     if (targetEnrollmentId) query = query.eq("id", targetEnrollmentId);
@@ -75,36 +84,69 @@ serve(async (req) => {
         if (!cad || cad.status !== "active") { details.push({ id: e.id, result: "skipped", reason: "cadence_inactive" }); continue; }
         if (cad.reengage_enabled === false) { stats.skipped_disabled++; details.push({ id: e.id, result: "skipped", reason: "reengage_disabled" }); continue; }
 
+        // Skip if paused for a non-reengageable reason (scheduling, rejection, handoff, etc.)
+        const pr = (e as any).paused_reason as string | null;
+        if ((e as any).status === "paused" && pr && pr.startsWith("referral_")) {
+          details.push({ id: e.id, result: "skipped", reason: `paused_${pr}` }); continue;
+        }
+        if ((e as any).status === "paused" && pr && BLOCKED_PAUSE_REASONS.has(pr)) {
+          details.push({ id: e.id, result: "skipped", reason: `paused_${pr}` }); continue;
+        }
+
         const afterDays = Math.max(1, Number(cad.reengage_after_days ?? 2));
         const maxAttempts = Math.max(1, Number(cad.reengage_max_attempts ?? 3));
 
-        // Find most recent message for this lead's conversation
+        // Find conversations + most recent INBOUND message for this lead
         const { data: convs } = await supabase
           .from("conversations")
           .select("id")
           .eq("lead_id", e.lead_id);
         const convIds = (convs || []).map((c: any) => c.id);
 
+        let lastInboundAt: string | null = null;
         let lastActivityAt: string | null = null;
         if (convIds.length) {
-          const { data: lastMsg } = await supabase
-            .from("messages")
-            .select("created_at")
-            .in("conversation_id", convIds)
-            .order("created_at", { ascending: false })
-            .limit(1)
-            .maybeSingle();
+          const [{ data: lastInbound }, { data: lastMsg }] = await Promise.all([
+            supabase
+              .from("messages")
+              .select("created_at")
+              .in("conversation_id", convIds)
+              .eq("direction", "inbound")
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+            supabase
+              .from("messages")
+              .select("created_at")
+              .in("conversation_id", convIds)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle(),
+          ]);
+          lastInboundAt = lastInbound?.created_at || null;
           lastActivityAt = lastMsg?.created_at || null;
         }
-        // Fallback: enrollment updated_at, last_reengage_at
-        const candidates = [lastActivityAt, (e as any).last_reengage_at, (e as any).updated_at].filter(Boolean) as string[];
+
+        // Active enrollments need to have engaged at least once (inbound exists) to qualify as "silent".
+        // Paused/lead_replied enrollments by definition already engaged.
+        if ((e as any).status === "active" && !lastInboundAt) {
+          details.push({ id: e.id, result: "skipped", reason: "never_engaged" });
+          continue;
+        }
+
+        // Silence window: time since last activity AND since last reengage attempt.
+        const candidates = [lastActivityAt, lastInboundAt, (e as any).last_reengage_at].filter(Boolean) as string[];
         const lastTs = candidates.length ? Math.max(...candidates.map((t) => new Date(t).getTime())) : Date.now();
         const silenceMs = Date.now() - lastTs;
-        if (!forceMode && silenceMs < afterDays * 86400 * 1000) {
+        const sinceLastReengageMs = (e as any).last_reengage_at
+          ? Date.now() - new Date((e as any).last_reengage_at).getTime()
+          : Infinity;
+        if (!forceMode && (silenceMs < afterDays * 86400 * 1000 || sinceLastReengageMs < afterDays * 86400 * 1000)) {
           stats.skipped_recent++;
           details.push({ id: e.id, result: "skipped", reason: "too_recent", silence_hours: Math.round(silenceMs / 3600000) });
           continue;
         }
+
 
         // Protection: active slot_hold
         const { data: holds } = await supabase
