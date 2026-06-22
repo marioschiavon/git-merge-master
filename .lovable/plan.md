@@ -1,35 +1,59 @@
+# Prévia da próxima abordagem no modo Inteligente
+
 ## Problema
 
-Reuniões canceladas pelo lead via link da Cal.com não geram resposta do SDR. O webhook recebe o evento, mas a tabela `bookings` está com `lead_id = NULL` em 51 de 53 registros — então o bloco que enfileira `acknowledge_cancellation` em `lead_action_queue` é pulado (exige `company_id && lead_id`).
+No modo Inteligente, a mensagem não vem de um template fixo — ela é gerada na hora pelo agente (`cadence-agent-decide`) com base no contexto do lead, histórico e política. Por isso o card só mostra "Executar próximo passo" às cegas: você só vê o conteúdo depois que ele é enviado/registrado.
 
-Causa: `calcom-confirm-booking` (que conhece o `lead_id`) não escreve na tabela `bookings`. Quem grava é o webhook `BOOKING_CREATED`, que tenta resolver o lead pelo email do attendee — mas o SDR usa email placeholder `noreply+<lead_id>@lovable.app`, então a resolução falha.
+Diferente do modo clássico (que tem `CadenceFirstMessageInline` + `preview-cadence-messages`), aqui não existe um endpoint de preview para o agente.
 
-## Correção (3 camadas, defesa em profundidade)
+## Solução
 
-### 1. `calcom-confirm-booking` passa a fazer upsert em `bookings` com o link correto
-Após `Booking created successfully`, antes do `lead_activities.insert`, chamar `upsertBookingFromCalcom(supabase, bookingData.data, { company_id, lead_id, conversation_id })`. Isso garante que toda reunião agendada pelo SDR já nasce com `lead_id` e `company_id` populados — o webhook depois só atualiza status.
+Adicionar um modo **dry-run** ao decisor agêntico e expor uma prévia inline por lead, ao lado de "Executar próximo passo".
 
-### 2. `calcom-webhook` aprende a extrair lead_id do email placeholder
-Adicionar fallback: se attendee_email casar com regex `^noreply\+([0-9a-f-]{36})@`, usar o UUID como `lead_id` e buscar `company_id` em `leads`. Cobre cancelamentos de bookings antigos que já estão sem link.
+### 1. Backend — `supabase/functions/cadence-agent-decide/index.ts`
 
-### 3. `calcom-webhook` aceita re-link no BOOKING_CANCELLED
-Hoje a resolução de `company_id`/`lead_id` ocorre antes do `upsertBookingFromCalcom`. Se a linha existir mas com `lead_id=NULL`, e a extração do placeholder (passo 2) resolver um lead, fazer `UPDATE bookings SET lead_id = ..., company_id = ... WHERE id = ...` antes de seguir.
+Aceitar `dry_run: true` no body. Quando ligado:
+- Executa toda a lógica de decisão (LLM, política, business hours, hooks, `buildFirstMessage` para 1ª abordagem).
+- **Pula** todos os efeitos colaterais: não envia WhatsApp/email, não insere em `cadence_agent_decisions`, não cria/atualiza `messages`, não atualiza `cadence_enrollments` (next_execution_at, attempt_number), não enfileira ações, não dispara HITL.
+- Retorna `{ decision: { action, channel, hook, subject, message, rationale, scheduled_for } }`.
+
+Implementação: um guard `if (dryRun) return jsonResponse({ decision })` logo após a decisão estar montada e antes do primeiro write.
+
+### 2. Hook — `src/hooks/useAgenticCadence.ts` (ou novo `useAgentPreview.ts`)
+
+```ts
+useAgentNextPreview(enrollmentId)  // useQuery, staleTime 5min
+useRegenerateAgentPreview()         // useMutation, invalida o query
+```
+
+Chama `supabase.functions.invoke("cadence-agent-decide", { body: { enrollment_id, dry_run: true } })`.
+
+### 3. UI — `src/components/CadenceDetail.tsx` (bloco `AgenticSimulationControls` / card do lead)
+
+Acima do botão "Executar próximo passo", inserir um bloco compacto inspirado em `CadenceFirstMessageInline`:
+
+- Badge do canal (whatsapp/email) + hook + "Prévia IA".
+- Linha de assunto (se email).
+- Corpo truncado em 180 chars com "Ver completa".
+- Botões: 🔄 Regenerar prévia, ✏️ (futuramente editar — fora de escopo).
+- Se `action !== "send"` (ex: wait/stop/handoff): mostrar o motivo (`rationale` / `stop_reason`) em vez de mensagem.
+- Loading skeleton enquanto busca; erro com "Tentar novamente".
+
+O botão "Executar próximo passo" continua chamando o decisor normal — a prévia é só visualização. Após executar, invalidar o query da prévia.
+
+### 4. Validação
+
+- Abrir cadência Inteligente, aba Leads, ver prévia carregando automaticamente para cada lead ativo.
+- Confirmar via `cadence_agent_decisions` que nenhuma linha nova foi criada ao abrir prévia.
+- Clicar Regenerar → nova mensagem aparece, ainda sem registros novos.
+- Clicar Executar próximo passo → mensagem real é enviada (pode diferir da prévia, já que o LLM não é determinístico — deixar nota visível "Prévia estimada; a mensagem final pode variar").
 
 ## Fora de escopo
 
-- Não vamos retroagir os 51 bookings históricos via migration (são dados de teste e o usuário pode resetar). A correção vale para todos os cancelamentos novos.
-- Sem mudança de schema, RLS, ou UI.
-- `cancel_reason` continua não sendo preenchido pelo webhook (assunto separado).
+- Editar e travar a prévia para garantir envio idêntico (precisaria persistir e bypassar o LLM no envio).
+- Mudanças no modo clássico.
+- Custos: cada prévia consome uma chamada de LLM; carregar sob demanda (expand) se quiser economizar — confirme se prefere auto-load ou on-demand.
 
-## Detalhes técnicos
+## Pergunta antes de implementar
 
-**Arquivos a editar:**
-- `supabase/functions/calcom-confirm-booking/index.ts` — importar `upsertBookingFromCalcom` de `../_shared/calcom.ts` e chamar logo após a criação na Cal.com, passando `company_id: selectedHold.company_id` e `lead_id`. Também resolver `conversation_id` da conversa mais recente do lead (mesmo padrão do webhook) e propagar.
-- `supabase/functions/calcom-webhook/index.ts` — adicionar helper `extractLeadIdFromPlaceholder(email)` e usar como 3º fallback (após lookup por booking_uid e por attendee email real). Se resolver, fazer update da linha em `bookings` para gravar o link.
-
-**Validação:**
-- Forçar um booking via SDR, cancelar pelo link da Cal.com, verificar:
-  - `bookings.lead_id` preenchido logo após criação.
-  - `lead_action_queue` recebe `acknowledge_cancellation` para o `booking_uid`.
-  - `execute-action` processa e envia mensagem ao lead.
-- Re-checar `SELECT count(*) FILTER (WHERE lead_id IS NULL) FROM bookings WHERE created_at > now()` após a mudança — deve ser zero para novos.
+Prefere a prévia **auto-carregada** ao abrir a aba Leads (mais cômodo, gasta 1 chamada LLM por lead listado) ou **on-demand** via botão "Ver prévia" (economiza créditos)?
