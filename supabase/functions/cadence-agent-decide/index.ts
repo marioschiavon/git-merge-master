@@ -247,7 +247,7 @@ serve(async (req) => {
     let decision: Decision;
 
     if (override_decision && override_decision.action) {
-      // Approved/edited via HITL → skip first-message engine and LLM, use provided decision.
+      // Approved/edited via HITL or SDR draft → skip first-message engine and LLM, use provided decision.
       decision = {
         action: override_decision.action,
         channel: override_decision.channel,
@@ -256,6 +256,23 @@ serve(async (req) => {
         message: override_decision.message,
         rationale: override_decision.rationale || "Decisão aprovada por humano via HITL.",
       } as Decision;
+      // Audit trail: SDR edited the AI draft inline before sending.
+      const editedByHuman = (override_decision as any).edited_by_human === true;
+      if (editedByHuman && !dryRun) {
+        await supabase.from("lead_activities").insert({
+          company_id: cadence.company_id,
+          lead_id: lead.id,
+          type: "system",
+          description: "✏️ SDR editou o rascunho da IA antes de enviar",
+          metadata: {
+            source: "cadence_agent",
+            cadence_id: cadence.id,
+            enrollment_id,
+            original_message: (override_decision as any).original_message || null,
+            final_message: decision.message || null,
+          },
+        });
+      }
     } else if (isFirstAttempt) {
       try {
         // Build referral hint (safe label) if this is a referral cadence.
