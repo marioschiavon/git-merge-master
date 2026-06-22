@@ -390,15 +390,42 @@ export default function CadencesDashboard() {
                             <span className="text-xs text-muted-foreground">Sem mensagens</span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-1.5 text-xs">
-                            {r.nextStep && channelIcon[r.nextStep.channel]}
-                            <span className="text-muted-foreground">
-                              {r.enrollment.next_execution_at
-                                ? format(new Date(r.enrollment.next_execution_at), "dd/MM HH:mm", { locale: ptBR })
-                                : "—"}
-                            </span>
-                          </div>
+                        <TableCell className="max-w-[280px]">
+                          {r.nextStep ? (
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <div className="text-xs space-y-0.5">
+                                  <div className="flex items-center gap-1.5 font-medium text-foreground">
+                                    {channelIcon[r.nextStep.channel]}
+                                    <span className="capitalize">{r.nextStep.channel}</span>
+                                    <span className="text-muted-foreground">· Step {r.nextStep.step_order}</span>
+                                  </div>
+                                  <div className="text-muted-foreground">
+                                    {r.enrollment.next_execution_at
+                                      ? format(new Date(r.enrollment.next_execution_at), "dd/MM HH:mm", { locale: ptBR })
+                                      : "—"}
+                                  </div>
+                                  <div className="truncate text-muted-foreground">
+                                    {r.nextStep.subject
+                                      ? `Assunto: ${r.nextStep.subject}`
+                                      : r.nextStep.template
+                                      ? r.nextStep.template.slice(0, 80)
+                                      : ""}
+                                  </div>
+                                </div>
+                              </TooltipTrigger>
+                              {(r.nextStep.subject || r.nextStep.template) && (
+                                <TooltipContent className="max-w-md whitespace-pre-wrap">
+                                  {r.nextStep.subject && (
+                                    <div className="font-medium mb-1">Assunto: {r.nextStep.subject}</div>
+                                  )}
+                                  {r.nextStep.template}
+                                </TooltipContent>
+                              )}
+                            </Tooltip>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           <ChevronRight className="h-4 w-4 text-muted-foreground" />
