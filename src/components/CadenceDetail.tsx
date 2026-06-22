@@ -9,10 +9,11 @@ import { useLeads } from "@/hooks/usePipedrive";
 import { CadenceStepCard } from "@/components/CadenceStepCard";
 import { LeadMessagePreview } from "@/components/LeadMessagePreview";
 import { CadenceFirstMessageInline } from "@/components/CadenceFirstMessageInline";
-import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain, FlaskConical, Send } from "lucide-react";
+import { Plus, Users, ListOrdered, Wand2, Play, Loader2, RotateCcw, Sparkles, Brain, FlaskConical, Send, RefreshCw, ChevronDown, ChevronUp, Mail, MessageSquare, Eye } from "lucide-react";
 import { AgenticPolicyForm } from "@/components/AgenticPolicyForm";
 import { useAllAgentDecisions } from "@/hooks/useAgenticCadence";
 import { useToggleSimulation, useRunNextStep, useSimulateReply } from "@/hooks/useSimulateCadence";
+import { useAgentNextPreview, useRegenerateAgentPreview } from "@/hooks/useAgentPreview";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
