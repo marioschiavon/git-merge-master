@@ -20,6 +20,16 @@ async function verifySignature(secret: string, signature: string | null, rawBody
   }
 }
 
+// SDR-initiated bookings use a placeholder attendee email of the form
+// `noreply+<lead_uuid>@<domain>` when the lead has no real email. Extract the
+// UUID so we can link the booking back to its lead even when the webhook
+// arrives before/without an explicit linkage in the bookings row.
+function extractLeadIdFromPlaceholder(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const m = String(email).toLowerCase().match(/^noreply\+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@/);
+  return m ? m[1] : null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
