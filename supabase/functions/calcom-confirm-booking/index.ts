@@ -167,6 +167,36 @@ serve(async (req) => {
       })
       .eq("id", selectedHold.id);
 
+    // Persist the booking row pre-linked to the lead/company so that any
+    // future Cal.com webhook (e.g. cancellation via the public link) can
+    // identify the lead and trigger the SDR follow-up. The webhook would
+    // otherwise create the row with lead_id=NULL because the SDR uses a
+    // placeholder attendee email.
+    if (bookingData?.data && selectedHold.company_id) {
+      const { data: convRow } = await supabase
+        .from("conversations")
+        .select("id")
+        .eq("lead_id", lead_id)
+        .eq("company_id", selectedHold.company_id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      try {
+        await upsertBookingFromCalcom(supabase, bookingData.data, {
+          company_id: selectedHold.company_id,
+          lead_id,
+          conversation_id: convRow?.id ?? null,
+        });
+        // Stamp source so the webhook BOOKING_CREATED echo doesn't override.
+        await supabase
+          .from("bookings")
+          .update({ source: "sdr_agent", status: "confirmed" })
+          .eq("calcom_booking_uid", bookingData.data.uid || bookingData.data.id);
+      } catch (e) {
+        console.error("Failed to upsert booking row with lead link:", e);
+      }
+    }
+
     // Update enrollment if exists — try from slot_holds first, then find by lead_id
     let enrollmentId = selectedHold.enrollment_id;
     if (!enrollmentId) {
