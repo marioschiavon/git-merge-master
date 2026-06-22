@@ -477,21 +477,30 @@ export default function CadencesDashboard() {
                         </TableCell>
                         <TableCell onClick={(ev) => ev.stopPropagation()}>
                           <div className="flex items-center gap-1">
-                            {r.enrollment.status === "paused" && r.enrollment.paused_reason === "lead_replied" && (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-7 w-7"
-                                    onClick={() => handleTestReengage(r.enrollment.id)}
-                                  >
-                                    <RefreshCw className="h-3.5 w-3.5" />
-                                  </Button>
-                                </TooltipTrigger>
-                                <TooltipContent>Testar reengajamento agora</TooltipContent>
-                              </Tooltip>
-                            )}
+                            {(() => {
+                              const st = r.enrollment.status;
+                              const attempts = r.enrollment.reengage_attempts ?? 0;
+                              const max = selectedCadence?.reengage_max_attempts ?? 3;
+                              const enabled = selectedCadence?.reengage_enabled !== false;
+                              const eligible = enabled && !r.enrollment.meeting_scheduled && attempts < max && (st === "active" || st === "paused");
+                              if (!eligible) return null;
+                              return (
+                                <Tooltip>
+                                  <TooltipTrigger asChild>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      onClick={() => handleTestReengage(r.enrollment.id)}
+                                    >
+                                      <RefreshCw className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </TooltipTrigger>
+                                  <TooltipContent>Testar reengajamento agora ({attempts}/{max})</TooltipContent>
+                                </Tooltip>
+                              );
+                            })()}
+
                             <ChevronRight className="h-4 w-4 text-muted-foreground" />
                           </div>
                         </TableCell>
