@@ -163,18 +163,21 @@ serve(async (req) => {
           continue;
         }
 
-        // Verify there's a next step
-        const { data: nextSteps } = await supabase
-          .from("cadence_steps")
-          .select("id, step_order")
-          .eq("cadence_id", e.cadence_id)
-          .gt("step_order", e.current_step ?? 0)
-          .order("step_order", { ascending: true })
-          .limit(1);
-        if (!nextSteps || nextSteps.length === 0) {
-          stats.skipped_no_step++;
-          details.push({ id: e.id, result: "skipped", reason: "no_next_step" });
-          continue;
+        // Verify there's a next step — only for static cadences.
+        // Agentic cadences don't use cadence_steps; cadence-agent-decide picks the next action at runtime.
+        if (cad.mode !== "agentic") {
+          const { data: nextSteps } = await supabase
+            .from("cadence_steps")
+            .select("id, step_order")
+            .eq("cadence_id", e.cadence_id)
+            .gt("step_order", e.current_step ?? 0)
+            .order("step_order", { ascending: true })
+            .limit(1);
+          if (!nextSteps || nextSteps.length === 0) {
+            stats.skipped_no_step++;
+            details.push({ id: e.id, result: "skipped", reason: "no_next_step" });
+            continue;
+          }
         }
 
         const newAttempts = (e.reengage_attempts ?? 0) + 1;
