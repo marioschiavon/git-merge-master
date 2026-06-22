@@ -17,6 +17,7 @@ import { useToggleSimulation, useRunNextStep, useSimulateReply } from "@/hooks/u
 import { useAgentNextPreview, useRegenerateAgentPreview } from "@/hooks/useAgentPreview";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
