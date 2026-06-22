@@ -98,10 +98,13 @@ serve(async (req) => {
         }
         // Fallback: enrollment updated_at, last_reengage_at
         const candidates = [lastActivityAt, (e as any).last_reengage_at, (e as any).updated_at].filter(Boolean) as string[];
-        if (candidates.length === 0) continue;
-        const lastTs = Math.max(...candidates.map((t) => new Date(t).getTime()));
+        const lastTs = candidates.length ? Math.max(...candidates.map((t) => new Date(t).getTime())) : Date.now();
         const silenceMs = Date.now() - lastTs;
-        if (silenceMs < afterDays * 86400 * 1000) { stats.skipped_recent++; continue; }
+        if (!forceMode && silenceMs < afterDays * 86400 * 1000) {
+          stats.skipped_recent++;
+          details.push({ id: e.id, result: "skipped", reason: "too_recent", silence_hours: Math.round(silenceMs / 3600000) });
+          continue;
+        }
 
         // Protection: active slot_hold
         const { data: holds } = await supabase
@@ -110,7 +113,9 @@ serve(async (req) => {
           .eq("lead_id", e.lead_id)
           .eq("status", "held");
         if ((holds || []).some((h: any) => !h.expires_at || new Date(h.expires_at).getTime() > Date.now())) {
-          stats.skipped_hold++; continue;
+          stats.skipped_hold++;
+          details.push({ id: e.id, result: "skipped", reason: "active_slot_hold" });
+          continue;
         }
 
         // Protection: confirmed booking in last 90 days
@@ -121,7 +126,11 @@ serve(async (req) => {
           .eq("lead_id", e.lead_id)
           .gte("created_at", cutoff90)
           .limit(1);
-        if (bookings && bookings.length) { stats.skipped_booking++; continue; }
+        if (bookings && bookings.length) {
+          stats.skipped_booking++;
+          details.push({ id: e.id, result: "skipped", reason: "recent_booking" });
+          continue;
+        }
 
         // Exhausted?
         if ((e.reengage_attempts ?? 0) >= maxAttempts) {
