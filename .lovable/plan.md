@@ -1,67 +1,38 @@
-## Reengajamento automático de leads silenciosos (configurável por cadência)
+## Como testar o reengajamento sem esperar
 
-Fechar a lacuna onde leads que respondem e depois somem ficam em limbo, com regras configuráveis no nível da cadência e respeitando reuniões agendadas.
+Três caminhos, do mais rápido ao mais natural:
 
-### Comportamento
+### 1. Botão "Testar reengajamento agora" (recomendado)
+Adicionar um botão na coluna de ações de cada lead no `/cadences/dashboard` (visível só para enrollments `paused / lead_replied`). Ele chama o `cadence-reengage-cron` com `{ enrollment_id, force: true }`.
 
-**Quando reengaja:**
-- Enrollment com `status='paused'` e `paused_reason='lead_replied'`
-- Última mensagem (de qualquer lado) há ≥ N dias (configurável, default 2)
-- Ainda existe próximo step na cadência
-- `reengage_attempts < máximo configurado` (default 3)
+- `force=true` **pula apenas a checagem de tempo** (`reengage_after_days`).
+- Continua respeitando as proteções: reunião agendada, slot_hold ativo, booking recente, max_attempts.
+- Resultado aparece via toast: "Reengajado (tentativa N/M)" ou "Pulado: motivo X".
 
-**Quando NÃO reengaja (proteções):**
-- `meeting_scheduled = true` ou `status='completed'` → reunião já marcada
-- Existe `slot_hold` ativo (`status='held'`) → agendamento em curso
-- Existe `booking` confirmado nos últimos 90 dias para o lead
-- `paused_reason` é qualquer outro motivo: `human_takeover`, `awaiting_approval`, `awaiting_slot_confirmation`, `lead_rejected`, `meeting_cancelled_by_lead`, `referral_*`, `call_requested`, `handoff_required`, `hitl_pending`, `lead_requested_callback`
-- Cadência tem `reengage_enabled = false`
+### 2. Endpoint manual via curl (para teste técnico)
+O mesmo edge function aceitará `{ enrollment_id, force }` no body, então dá pra disparar pelo painel ou pelo cURL sem mexer na UI.
 
-**Quando reengaja, o que faz:**
-- Retoma a cadência original: marca `status='active'`, limpa `paused_reason`, define `next_execution_at=now()`, incrementa `reengage_attempts`, grava `last_reengage_at`. O `cadence-executor` envia o próximo step no ciclo seguinte.
-
-**Quando lead responde novamente:**
-- `inbound-webhook` zera `reengage_attempts = 0` ao pausar com `lead_replied`. Contagem recomeça do zero.
-
-**Quando esgotam as tentativas:**
-- `status='completed'`, `paused_reason='no_response_after_reengage'`, registra `lead_intents_log(category='no_response')`.
-
-### Configurações por cadência (UI em `/cadences`)
-
-Novo bloco "Reengajamento" no diálogo de **criação** e em uma nova aba **"Configurações"** do `CadenceDetail`:
-
-- **Switch** "Reengajar leads silenciosos" (default ON)
-- **Slider/Input** "Dias de silêncio antes de reengajar" (1–14, default 2)
-- **Slider/Input** "Máximo de tentativas" (1–5, default 3)
-- Texto auxiliar explicando que reuniões agendadas pausam o reengajamento automaticamente
+### 3. Ajuste temporário de config
+Na aba **Config** da cadência, baixar "Dias de silêncio" para 1 — o cron de hora em hora vai pegar no próximo ciclo. Útil pra validar o fluxo end-to-end com o agendamento real.
 
 ### Mudanças técnicas
 
-**1. Migration**
-- `cadences`: `reengage_enabled BOOLEAN DEFAULT true`, `reengage_after_days INT DEFAULT 2`, `reengage_max_attempts INT DEFAULT 3`
-- `cadence_enrollments`: `reengage_attempts INT DEFAULT 0`, `last_reengage_at TIMESTAMPTZ`
+**`supabase/functions/cadence-reengage-cron/index.ts`**
+Aceitar POST body opcional:
+```ts
+{ enrollment_id?: string, force?: boolean }
+```
+- Se `enrollment_id` presente → processa só aquele enrollment.
+- Se `force=true` → pula o gate de "dias de silêncio" (mantém todas as outras proteções).
 
-**2. Novo edge function `cadence-reengage-cron`**
-Roda de hora em hora via `pg_cron`. Lê config da cadência, aplica filtros de silêncio + proteções (meeting/slot_hold/booking), retoma ou encerra.
-
-**3. `inbound-webhook`**
-No bloco que faz `update paused_reason='lead_replied'`, incluir `reengage_attempts: 0`.
-
-**4. UI**
-- `src/pages/Cadences.tsx` (`CreateCadenceDialog`): adicionar bloco "Reengajamento" com os 3 campos.
-- `src/components/CadenceDetail.tsx`: nova aba "Configurações" com mesmos campos (editáveis) + botão salvar.
-- `src/pages/CadencesDashboard.tsx`: badge `Reengajamento 1/3`, `2/3`, `3/3` na coluna de status quando `reengage_attempts > 0`.
-
-**5. Cron**
-`pg_cron` chamando `cadence-reengage-cron` a cada hora.
+**`src/pages/CadencesDashboard.tsx`**
+- Na coluna de ações da tabela, adicionar botão `RefreshCw` (tooltip "Testar reengajamento agora") visível quando `enrollment.status === 'paused' && enrollment.paused_reason === 'lead_replied'`.
+- Ao clicar: `supabase.functions.invoke("cadence-reengage-cron", { body: { enrollment_id, force: true } })`, mostra toast com o resultado, invalida queries.
 
 ### Validação
 
-- Lead Juliano (`paused / lead_replied`, current_step=2, sem reunião) → após 2 dias, cron reativa para step 3, `reengage_attempts=1`.
-- Se ele agendar reunião antes → enrollment vira `completed/meeting_scheduled=true` e o cron ignora.
-- Se ele responder de novo após o reengajamento → volta a `paused/lead_replied`, contador zera, ciclo recomeça.
-- Após 3 tentativas sem resposta → `completed / no_response_after_reengage`.
-
-### Fora do escopo
-- Não mexe na lógica de SDR durante conversa ativa.
-- Não corrige o bug visual de "Ativo" no dashboard quando enrollment está pausado (separado).
+Para o lead Juliano (paused/lead_replied, current_step=2):
+1. Clica "Testar reengajamento agora".
+2. Toast: "Reengajado (1/3)". Enrollment vira `active`, `next_execution_at=now()`, `reengage_attempts=1`.
+3. No próximo tick do `cadence-executor` (≤ 5min) a mensagem do step 3 sai de verdade.
+4. Para testar o esgotamento, clicar 3x seguidas → na 4ª vez deve aparecer "Esgotado — cadência encerrada".
