@@ -44,7 +44,10 @@ import {
   Reply,
   XCircle,
   PauseCircle,
+  RefreshCw,
 } from "lucide-react";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { LeadProgressDrawer } from "@/components/cadence/LeadProgressDrawer";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
