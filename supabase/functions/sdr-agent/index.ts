@@ -727,10 +727,25 @@ async function execBookingTool(
   }
 
   const facts = (memRow?.facts ?? {}) as Record<string, unknown>;
+  const pendingEmailResolved = (ctx as any).pending_email_resolved as
+    | { slot_iso?: string | null; hold_id?: string | null; email?: string | null }
+    | undefined;
+  const guardFacts = pendingEmailResolved?.slot_iso
+    ? {
+        ...facts,
+        email_just_resolved_slot: {
+          ...((facts as any).email_just_resolved_slot ?? {}),
+          slot_iso: pendingEmailResolved.slot_iso,
+          hold_id: pendingEmailResolved.hold_id ?? (facts as any).email_just_resolved_slot?.hold_id ?? null,
+          email: pendingEmailResolved.email ?? (facts as any).email_just_resolved_slot?.email ?? null,
+          expires_at: (facts as any).email_just_resolved_slot?.expires_at ?? new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        },
+      }
+    : facts;
 
   // ── Phase 4: centralized pre-flight guards ──────────────────────
   const guard = await assertCanBook(supabase, name, args, {
-    facts,
+    facts: guardFacts,
     holds: (holdsRaw ?? []) as any,
     bookings: (bookingsRaw ?? []) as any,
     lastInbound,
