@@ -35,12 +35,24 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // Optional body: { enrollment_id?: string, force?: boolean }
+  let body: { enrollment_id?: string; force?: boolean } = {};
+  try {
+    if (req.method === "POST") {
+      const txt = await req.text();
+      if (txt) body = JSON.parse(txt);
+    }
+  } catch (_) { /* ignore */ }
+  const forceMode = !!body.force;
+  const targetEnrollmentId = body.enrollment_id || null;
+
   const stats = { scanned: 0, reengaged: 0, exhausted: 0, skipped_meeting: 0, skipped_hold: 0, skipped_booking: 0, skipped_recent: 0, skipped_disabled: 0, skipped_no_step: 0, errors: 0 };
+  const details: any[] = [];
 
   try {
     const nowIso = new Date().toISOString();
 
-    const { data: enrollments, error } = await supabase
+    let query = supabase
       .from("cadence_enrollments")
       .select(`
         id, lead_id, company_id, cadence_id, current_step, meeting_scheduled,
@@ -51,6 +63,8 @@ serve(async (req) => {
       .eq("paused_reason", "lead_replied")
       .eq("meeting_scheduled", false)
       .limit(500);
+    if (targetEnrollmentId) query = query.eq("id", targetEnrollmentId);
+    const { data: enrollments, error } = await query;
 
     if (error) throw error;
 
@@ -58,8 +72,8 @@ serve(async (req) => {
       stats.scanned++;
       try {
         const cad: any = (e as any).cadences;
-        if (!cad || cad.status !== "active") continue;
-        if (cad.reengage_enabled === false) { stats.skipped_disabled++; continue; }
+        if (!cad || cad.status !== "active") { details.push({ id: e.id, result: "skipped", reason: "cadence_inactive" }); continue; }
+        if (cad.reengage_enabled === false) { stats.skipped_disabled++; details.push({ id: e.id, result: "skipped", reason: "reengage_disabled" }); continue; }
 
         const afterDays = Math.max(1, Number(cad.reengage_after_days ?? 2));
         const maxAttempts = Math.max(1, Number(cad.reengage_max_attempts ?? 3));
