@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
-import { cancelCalcomReservation } from "../_shared/calcom.ts";
+import { cancelCalcomReservation, upsertBookingFromCalcom } from "../_shared/calcom.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 
 const corsHeaders = {
