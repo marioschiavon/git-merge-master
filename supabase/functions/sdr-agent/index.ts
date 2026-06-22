@@ -1453,7 +1453,20 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
       ? `⚠️ AÇÃO OBRIGATÓRIA: no turn anterior você perguntou se deveria cancelar a reunião. ${leadAffirmed ? "O lead JÁ CONFIRMOU. " : ""}Se for prosseguir com o cancelamento, chame \`cancel_booking({ booking_uid: "${activeBooking.calcom_booking_uid}", reason })\` AGORA antes do finalize.`
       : "",
     (ctx as any).pending_email_resolved
-      ? `⚠️ AÇÃO OBRIGATÓRIA: o lead acabou de informar o e-mail (${(ctx as any).pending_email_resolved.email}) que pedimos no turno anterior pra agendar a reunião. Já salvei em \`leads.email\`. Chame \`book_slot({ slot_start: "${(ctx as any).pending_email_resolved.slot_iso}" })\` AGORA e depois \`finalize({ decision: "send_message", message: message_suggestion })\` confirmando a reserva. NÃO peça o e-mail de novo.`
+      ? [
+          `⚠️ AÇÃO OBRIGATÓRIA — RESERVAR JÁ:`,
+          `O lead acabou de informar o e-mail (${(ctx as any).pending_email_resolved.email}) que pedimos pra agendar. Já salvei em \`leads.email\`. O horário ${(ctx as any).pending_email_resolved.slot_iso} JÁ FOI ACORDADO antes — está apenas esperando a reserva sair.`,
+          ``,
+          `PROIBIDO neste turno:`,
+          `- NÃO chame \`check_calendar\` nem ofereça novos horários.`,
+          `- NÃO pergunte "podemos confirmar?", "tudo certo?", "fechado?" — o slot JÁ está acordado.`,
+          `- NÃO peça o e-mail de novo.`,
+          ``,
+          `OBRIGATÓRIO neste turno (nessa ordem):`,
+          `1. Chame \`book_slot({ slot_start: "${(ctx as any).pending_email_resolved.slot_iso}" })\`.`,
+          `2. Chame \`finalize({ decision: "send_message", message: <texto> })\`.`,
+          `   Texto deve apenas agradecer e confirmar (sem perguntas). Exemplo: "Perfeito! Reunião confirmada para <data/hora em pt-BR>. Você vai receber o convite por e-mail. Até lá!"`,
+        ].join("\n")
       : "",
     heldSlots.length
       ? `Slots já oferecidos/segurados: ${heldSlots.map((s) => `${fmtBrt(s.slot_datetime)} (${s.status})`).join(", ")}. NÃO ofereça esses mesmos slots novamente — passe-os em exclude_datetimes se for buscar novos.`
