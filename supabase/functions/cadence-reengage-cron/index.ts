@@ -232,10 +232,9 @@ serve(async (req) => {
             reengage_attempts: newAttempts,
             last_reengage_at: nowIso,
           } as any)
-          .eq("id", e.id)
-          .eq("status", "paused")
-          .eq("paused_reason", "lead_replied");
+          .eq("id", e.id);
         if (updErr) { stats.errors++; continue; }
+
 
         await supabase.from("lead_activities").insert({
           company_id: e.company_id,
