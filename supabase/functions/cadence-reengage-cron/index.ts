@@ -129,7 +129,7 @@ serve(async (req) => {
 
         // Active enrollments need to have engaged at least once (inbound exists) to qualify as "silent".
         // Paused/lead_replied enrollments by definition already engaged.
-        if ((e as any).status === "active" && !lastInboundAt) {
+        if (!forceMode && (e as any).status === "active" && !lastInboundAt) {
           details.push({ id: e.id, result: "skipped", reason: "never_engaged" });
           continue;
         }
