@@ -6,7 +6,7 @@ export type CadenceLeadProgressRow = {
   lead: any;
   lastMessage: { content: string | null; direction: string; channel: string | null; sent_at: string; metadata: any } | null;
   lastIntent: { category: string | null; sub_intent: string | null; confidence: number | null; created_at: string } | null;
-  nextStep: { step_order: number; channel: string; subject: string | null } | null;
+  nextStep: { step_order: number; channel: string; subject: string | null; template: string | null } | null;
   totalSteps: number;
 };
 
@@ -24,7 +24,7 @@ export function useCadenceLeadProgress(cadenceId: string | null) {
           .order("enrolled_at", { ascending: false }),
         supabase
           .from("cadence_steps")
-          .select("step_order, channel, subject")
+          .select("step_order, channel, subject, template")
           .eq("cadence_id", cadenceId)
           .order("step_order", { ascending: true }),
       ]);
