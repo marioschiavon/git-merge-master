@@ -1,40 +1,43 @@
-## Problema observado
+## Problema
 
-Quando o lead responde com o e-mail que tinha sido solicitado pelo SDR, o agente está fazendo **duas coisas erradas** no turno seguinte:
+No turno em que o lead envia o e-mail solicitado, o `book_slot` nunca é chamado e a reunião não vai pro Cal.com — apesar do SDR responder "Reunião confirmada".
 
-1. **Pede uma reconfirmação desnecessária** ("Recebi seu e-mail. Só para confirmar: podemos agendar para quarta, 24/06 às 15:30?"). O horário já estava acordado e segurado — basta agradecer e confirmar.
-2. Em alguns casos, **re-oferece slots** (chama `check_calendar` de novo) em vez de chamar `book_slot` no slot que já estava em hold.
+### Causa raiz (vista nos logs do run `6904ace1…`)
 
-Causa: o hint atual em `sdr-agent` (`⚠️ AÇÃO OBRIGATÓRIA…`) instrui o LLM a "chamar book_slot agora", mas não proíbe `check_calendar` nem proíbe redação tipo "podemos confirmar?". O LLM acaba seguindo o instinto conservador de pedir OK antes de reservar.
+1. Turno anterior: `book_slot` foi forçado → downgrade `request_email` → policy gravou `pending_email_for_slot = { slot_iso: 2026-06-24T12:00:00Z, hold_id }`. SDR pediu o e-mail. ✓
+2. Turno atual: lead respondeu `eu@julianocarneiro.com.br`. O `classify-intent` rotulou isso como `smalltalk` (conf 0.80) porque é só uma string de e-mail.
+3. Como o intent é `smalltalk`, a `decidePolicy` devolveu:
+   - `stage: general`
+   - `allowed_tools: [search_knowledge, update_lead_facts, finalize]` — **sem `book_slot`**
+   - `forced_tool: null`
+4. O bloco de captura de e-mail (linha 1804–1860) capturou o endereço, setou `ctx.pending_email_resolved` e injetou o "AÇÃO OBRIGATÓRIA: chame book_slot", mas o `book_slot` **não está em allowed_tools**, então o LLM seguiu pelo caminho `update_lead_facts` + `finalize(send_message)` e mandou "Reunião confirmada" sem reservar nada. O próprio `rationale` do LLM admite: *"A booking tool falhou, mas a instrução explícita do sistema é para seguir com a mensagem de confirmação"*.
 
-## Plano
+A causa não é o prompt — é a **policy** que está ignorando o `pending_email_resolved`.
 
-Editar **apenas** `supabase/functions/sdr-agent/index.ts` (sem mexer em Cal.com nem em outras funções).
+## Correção
 
-### 1. Reforçar o hint quando `pending_email_resolved` está setado (linha ~1455)
+Editar `supabase/functions/sdr-agent/index.ts`, logo após o bloco de decisão da policy (≈ linha 1890), com um **override** quando `ctx.pending_email_resolved?.slot_iso` está setado:
 
-Trocar o texto atual por uma instrução mais rígida que:
+```text
+if (ctx.pending_email_resolved?.slot_iso) {
+  policy.stage          = "scheduling_confirming_now";
+  policy.allowed_tools  = ["book_slot", "finalize"];
+  policy.forced_tool    = "book_slot";
+  policy.forced_args    = { slot_start: ctx.pending_email_resolved.slot_iso };
+  policy.reason         = "email_just_resolved_for_pending_slot";
+}
+```
 
-- **Proíbe** chamar `check_calendar`, `offer_two_slots` ou pedir reconfirmação.
-- **Obriga** chamar `book_slot({ slot_start: <slot_iso> })` direto.
-- **Define o tom da mensagem final**: agradecer recebimento e confirmar a reunião com data/hora formatada em pt-BR — sem perguntas, sem "podemos confirmar?".
-- Exemplo de mensagem desejada: *"Perfeito, Juliano! Reunião confirmada para quarta, 24/06 às 15:30. Você vai receber o convite por e-mail. Até lá!"*
+Isso garante que, no mesmo turno em que o e-mail chega (ou no turno seguinte, via hidratação de `email_just_resolved_slot`), o agente seja **forçado** a executar `book_slot` com o slot que já estava combinado — sem depender do LLM nem do classificador de intent.
 
-### 2. Guard defensivo no handler de `check_calendar`
+Comportamento esperado depois do fix:
+- Lead manda o e-mail → `book_slot` é executado de fato → `calcom-confirm-booking` cria o booking no Cal.com → cleanup limpa `email_just_resolved_slot`/`pending_email_for_slot`/`offered_slots_pending` → finalize manda a confirmação real.
+- Se o `book_slot` falhar por outro motivo (slot indisponível, etc.), o downgrade existente já cobre (ex.: `offer_two_slots`).
 
-No início do handler de `check_calendar` (e `offer_two_slots`), se `ctx.pending_email_resolved` estiver setado, **abortar** e retornar `{ ok:false, downgrade:"book_now", suggested_message:null, next_action:"chame book_slot com o slot_iso já acordado" }`. Isso protege contra o LLM ignorar o hint.
+## Validação
 
-### 3. Hint persistir até a reserva sair
+1. `supabase--edge_function_logs sdr-agent` após próxima conversa: linha `pipeline:` deve mostrar `forced: book_slot` no turno em que o e-mail chega.
+2. `supabase--edge_function_logs calcom-booking-create` deve registrar a chamada.
+3. `SELECT * FROM bookings WHERE lead_id = … ORDER BY created_at DESC LIMIT 1` deve trazer o registro confirmado.
 
-Hoje `pending_email_resolved` só vive na request (não é salvo). Se o LLM, mesmo assim, mandar mensagem sem reservar, no turno seguinte o flag some e perdemos contexto. Manter um flag em `lead_memory.facts.email_just_resolved_slot = { slot_iso, expires_at }` (TTL de 10 min) e limpá-lo só quando `book_slot` for confirmado com sucesso. Carregar esse flag no início do turno do mesmo jeito que `pending_email_for_slot`.
-
-### 4. Não mexer no caminho normal
-
-Nada muda quando o lead já tinha e-mail desde o início — fluxo continua igual.
-
-## Detalhes técnicos
-
-- Arquivo: `supabase/functions/sdr-agent/index.ts`.
-- Mudanças isoladas: bloco do hint (linha ~1455), handlers de `check_calendar`/`offer_two_slots`, e bloco de captura de e-mail (linha ~1774-1805) onde o flag passa a também ser persistido em `lead_memory.facts.email_just_resolved_slot`.
-- Limpeza do flag: dentro do handler de `book_slot`, após o `calcom-confirm-booking` retornar sucesso, fazer um upsert removendo `email_just_resolved_slot` e `pending_email_for_slot` de `facts`.
-- Não precisa migration nem novas tabelas.
+Sem mudanças em UI, schema ou outras edge functions.
