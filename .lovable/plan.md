@@ -1,59 +1,57 @@
-# Prévia da próxima abordagem no modo Inteligente
+# Diagnóstico: cancelamento via link Cal.com
 
-## Problema
+## O que aconteceu — booking `d8ERZG7aWC1ymNsYCMs2dh` (Juliano)
 
-No modo Inteligente, a mensagem não vem de um template fixo — ela é gerada na hora pelo agente (`cadence-agent-decide`) com base no contexto do lead, histórico e política. Por isso o card só mostra "Executar próximo passo" às cegas: você só vê o conteúdo depois que ele é enviado/registrado.
+✅ **Webhook recebeu e processou** (`signature_valid=true`, `processed=true`).
+✅ **`bookings.lead_id` foi populado** (`0928e5f1…`) — confirma que o fix anterior em `calcom-confirm-booking` está funcionando.
+✅ **Status atualizado para `cancelled`** com motivo `"Nao posso"`.
+❌ **`acknowledge_cancellation` NÃO foi enfileirado** — o SDR não vai responder.
 
-Diferente do modo clássico (que tem `CadenceFirstMessageInline` + `preview-cadence-messages`), aqui não existe um endpoint de preview para o agente.
+## Por que não respondeu
 
-## Solução
+Payload do `BOOKING_CANCELLED`:
+- `cancelledBy: "eu@julianocarneiro.com.br"` (lead que clicou no link)
+- `organizer.email`: também `eu@julianocarneiro.com.br` (você está testando com seu próprio email como lead)
 
-Adicionar um modo **dry-run** ao decisor agêntico e expor uma prévia inline por lead, ao lado de "Executar próximo passo".
+O guard `cancelledByOrganizer` (linha 221 de `calcom-webhook/index.ts`) compara `cancelledByEmail === organizerEmail`. Como ambos batem, ele entende que **você (organizador) cancelou** e pula o follow-up por desenho — para não responder ao lead quando o SDR/operador é quem cancela.
 
-### 1. Backend — `supabase/functions/cadence-agent-decide/index.ts`
+Em produção real, o email do lead será diferente do organizador e o follow-up dispararia normalmente. Aqui é um artefato do teste com email próprio.
 
-Aceitar `dry_run: true` no body. Quando ligado:
-- Executa toda a lógica de decisão (LLM, política, business hours, hooks, `buildFirstMessage` para 1ª abordagem).
-- **Pula** todos os efeitos colaterais: não envia WhatsApp/email, não insere em `cadence_agent_decisions`, não cria/atualiza `messages`, não atualiza `cadence_enrollments` (next_execution_at, attempt_number), não enfileira ações, não dispara HITL.
-- Retorna `{ decision: { action, channel, hook, subject, message, rationale, scheduled_for } }`.
+## Recomendação
 
-Implementação: um guard `if (dryRun) return jsonResponse({ decision })` logo após a decisão estar montada e antes do primeiro write.
+Endurecer a detecção para reduzir falsos positivos:
 
-### 2. Hook — `src/hooks/useAgenticCadence.ts` (ou novo `useAgentPreview.ts`)
+### Mudança em `supabase/functions/calcom-webhook/index.ts` (~linha 221)
 
+Tratar como "cancelado pelo organizador" **somente quando houver sinal explícito**, e não só pelo email coincidente:
+
+1. Se `cancellation_source` interno (`sdr`, `sdr_reschedule`, `operator`) foi marcado nos últimos 5 min → organizador. (já existe)
+2. Se o `cancelledBy.email` casa com o organizador **E** o lead tem email diferente → organizador.
+3. Se o lead tem o mesmo email do organizador (caso de auto-teste ou cliente interno), confiar no `cancellation_source` interno; sem ele, assumir **lead**.
+
+Resumindo a nova condição:
 ```ts
-useAgentNextPreview(enrollmentId)  // useQuery, staleTime 5min
-useRegenerateAgentPreview()         // useMutation, invalida o query
+const leadEmailLower = (lead?.email || "").toLowerCase();
+const sameEmailAsLead = !!leadEmailLower && cancelledByEmail === leadEmailLower;
+const cancelledByOrganizer =
+  !!cancelledByEmail &&
+  !!organizerEmailLower &&
+  cancelledByEmail === organizerEmailLower &&
+  !sameEmailAsLead;  // se o email também bate com o lead, não conclua organizador
 ```
 
-Chama `supabase.functions.invoke("cadence-agent-decide", { body: { enrollment_id, dry_run: true } })`.
+### Validação
 
-### 3. UI — `src/components/CadenceDetail.tsx` (bloco `AgenticSimulationControls` / card do lead)
-
-Acima do botão "Executar próximo passo", inserir um bloco compacto inspirado em `CadenceFirstMessageInline`:
-
-- Badge do canal (whatsapp/email) + hook + "Prévia IA".
-- Linha de assunto (se email).
-- Corpo truncado em 180 chars com "Ver completa".
-- Botões: 🔄 Regenerar prévia, ✏️ (futuramente editar — fora de escopo).
-- Se `action !== "send"` (ex: wait/stop/handoff): mostrar o motivo (`rationale` / `stop_reason`) em vez de mensagem.
-- Loading skeleton enquanto busca; erro com "Tentar novamente".
-
-O botão "Executar próximo passo" continua chamando o decisor normal — a prévia é só visualização. Após executar, invalidar o query da prévia.
-
-### 4. Validação
-
-- Abrir cadência Inteligente, aba Leads, ver prévia carregando automaticamente para cada lead ativo.
-- Confirmar via `cadence_agent_decisions` que nenhuma linha nova foi criada ao abrir prévia.
-- Clicar Regenerar → nova mensagem aparece, ainda sem registros novos.
-- Clicar Executar próximo passo → mensagem real é enviada (pode diferir da prévia, já que o LLM não é determinístico — deixar nota visível "Prévia estimada; a mensagem final pode variar").
+1. Reproduzir cancelamento via link Cal.com com o mesmo lead Juliano.
+2. Conferir em `lead_action_queue` que `acknowledge_cancellation` aparece com `triggered_by='calcom_webhook'`.
+3. Verificar que o `execute-action` envia a mensagem empática na conversa do lead.
+4. Verificar que cancelamentos via "Cancelar reunião" pelo painel (SDR) continuam **não** disparando follow-up (porque `cancellation_source='sdr'` foi marcado nos 5 min anteriores).
 
 ## Fora de escopo
 
-- Editar e travar a prévia para garantir envio idêntico (precisaria persistir e bypassar o LLM no envio).
-- Mudanças no modo clássico.
-- Custos: cada prévia consome uma chamada de LLM; carregar sob demanda (expand) se quiser economizar — confirme se prefere auto-load ou on-demand.
+- Backfill dos cancelamentos antigos sem follow-up (`w8S1sk…`, `n1B66a…`, `4yDGD…`).
+- Mudanças em RLS, UI ou no campo `cancel_reason`.
 
-## Pergunta antes de implementar
+## Pergunta
 
-Prefere a prévia **auto-carregada** ao abrir a aba Leads (mais cômodo, gasta 1 chamada LLM por lead listado) ou **on-demand** via botão "Ver prévia" (economiza créditos)?
+Quer que eu implemente esse ajuste no guard agora?
