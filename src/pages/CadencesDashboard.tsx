@@ -469,8 +469,25 @@ export default function CadencesDashboard() {
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        <TableCell onClick={(ev) => ev.stopPropagation()}>
+                          <div className="flex items-center gap-1">
+                            {r.enrollment.status === "paused" && r.enrollment.paused_reason === "lead_replied" && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    size="icon"
+                                    variant="ghost"
+                                    className="h-7 w-7"
+                                    onClick={() => handleTestReengage(r.enrollment.id)}
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                  </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Testar reengajamento agora</TooltipContent>
+                              </Tooltip>
+                            )}
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          </div>
                         </TableCell>
                       </TableRow>
                     );
