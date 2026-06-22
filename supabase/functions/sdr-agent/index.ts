@@ -339,6 +339,21 @@ async function execTool(
   }
 
   if (name === "check_calendar") {
+    // Guard: se acabamos de receber o e-mail que pedimos, o slot JÁ está
+    // acordado — não buscar novos horários, ir direto pra book_slot.
+    {
+      const resolved = (ctx as any).pending_email_resolved as
+        | { slot_iso?: string }
+        | undefined;
+      if (resolved?.slot_iso) {
+        return {
+          ok: false,
+          downgrade: "book_now",
+          reason: "slot já acordado; lead acabou de fornecer e-mail — reservar direto",
+          next_action: `Chame book_slot({ slot_start: "${resolved.slot_iso}" }) imediatamente.`,
+        };
+      }
+    }
     // Slots no passado (ou nos próximos ~30min) são inúteis para oferecer.
     const MIN_LEAD_MS = 30 * 60 * 1000;
     const earliestAllowed = new Date(Date.now() + MIN_LEAD_MS);
