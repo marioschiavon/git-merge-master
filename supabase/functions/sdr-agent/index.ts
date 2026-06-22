@@ -1889,6 +1889,19 @@ Deno.serve(async (req) => {
       },
     });
 
+    // Override: lead acabou de mandar o e-mail pendente → força book_slot
+    // com o slot já acordado, independente do intent classificado.
+    const _per = (ctx as any).pending_email_resolved as { slot_iso?: string } | undefined;
+    if (_per?.slot_iso) {
+      (policy as any).stage = "scheduling_confirming_now";
+      (policy as any).allowed_tools = ["book_slot", "finalize"];
+      (policy as any).forced_tool = "book_slot";
+      (policy as any).forced_args = { slot_start: _per.slot_iso };
+      (policy as any).reason = "email_just_resolved_for_pending_slot";
+    }
+
+
+
 
     console.log("sdr-agent pipeline:", JSON.stringify({
       intent: intentResult.intent,
