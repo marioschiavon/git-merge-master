@@ -206,13 +206,13 @@ export default function Cadences() {
 }
 
 function CreateCadenceDialog({ form, setForm, onCreate, isPending }: {
-  form: { name: string; description: string; type: string; agentic: boolean };
+  form: { name: string; description: string; type: string; agentic: boolean; reengage_enabled: boolean; reengage_after_days: number; reengage_max_attempts: number };
   setForm: (f: any) => void;
   onCreate: () => void;
   isPending: boolean;
 }) {
   return (
-    <DialogContent>
+    <DialogContent className="max-h-[90vh] overflow-y-auto">
       <DialogHeader>
         <DialogTitle>Nova Cadência</DialogTitle>
       </DialogHeader>
@@ -267,6 +267,49 @@ function CreateCadenceDialog({ form, setForm, onCreate, isPending }: {
             </Select>
           </div>
         )}
+
+        <div className="space-y-3 rounded-md border p-3 bg-muted/30">
+          <div className="flex items-start gap-3">
+            <Switch
+              checked={form.reengage_enabled}
+              onCheckedChange={(v) => setForm({ ...form, reengage_enabled: v })}
+              id="reengage-toggle"
+            />
+            <div className="flex-1 space-y-1">
+              <Label htmlFor="reengage-toggle" className="cursor-pointer">
+                Reengajar leads silenciosos
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                Se o lead respondeu e depois parou, o sistema retoma a cadência automaticamente.
+                Reuniões agendadas pausam o reengajamento.
+              </p>
+            </div>
+          </div>
+          {form.reengage_enabled && (
+            <div className="grid grid-cols-2 gap-3 pt-1">
+              <div className="space-y-1">
+                <Label className="text-xs">Dias de silêncio</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={14}
+                  value={form.reengage_after_days}
+                  onChange={(e) => setForm({ ...form, reengage_after_days: Math.max(1, Math.min(14, Number(e.target.value) || 1)) })}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Máx. tentativas</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={5}
+                  value={form.reengage_max_attempts}
+                  onChange={(e) => setForm({ ...form, reengage_max_attempts: Math.max(1, Math.min(5, Number(e.target.value) || 1)) })}
+                />
+              </div>
+            </div>
+          )}
+        </div>
 
         <Button onClick={onCreate} disabled={isPending || !form.name.trim()} className="w-full">
           {isPending ? "Criando..." : form.agentic ? "Criar Cadência Inteligente" : "Criar Cadência"}
