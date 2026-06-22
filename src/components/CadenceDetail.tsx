@@ -455,20 +455,22 @@ function AgentNextPreview({
   const { data, isLoading, isError, refetch } = useAgentNextPreview(enrollmentId, open);
   const regen = useRegenerateAgentPreview();
 
-  // Sync incoming AI decision into editable draft once per new preview payload.
-  // We compare against originalMessage so SDR edits aren't clobbered on re-renders.
-  if (data && (!draft || draft.originalMessage !== (data.message || ""))) {
-    onDraftChange({
-      action: data.action,
-      channel: data.channel ?? null,
-      hook: data.hook ?? null,
-      subject: data.subject ?? "",
-      message: data.message ?? "",
-      rationale: data.rationale,
-      originalMessage: data.message ?? "",
-      originalSubject: data.subject ?? "",
-    });
-  }
+  // Sync incoming AI decision into editable draft when a new preview arrives.
+  useEffect(() => {
+    if (data && (!draft || draft.originalMessage !== (data.message || ""))) {
+      onDraftChange({
+        action: data.action,
+        channel: data.channel ?? null,
+        hook: data.hook ?? null,
+        subject: data.subject ?? "",
+        message: data.message ?? "",
+        rationale: data.rationale,
+        originalMessage: data.message ?? "",
+        originalSubject: data.subject ?? "",
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   const channel = draft?.channel ?? data?.channel;
   const channelIcon = channel === "whatsapp"
