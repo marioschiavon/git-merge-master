@@ -1,51 +1,50 @@
-## Objetivo
+## Problema
 
-Hoje a prévia gerada no modo inteligente e a mensagem que efetivamente é enviada são **duas chamadas independentes** ao LLM — o texto pode mudar entre uma e outra, e o SDR não tem como editar antes de disparar. Vamos transformar a prévia em um **rascunho editável** que será exatamente o que sai no WhatsApp/Email quando o SDR clicar em "Executar próximo passo".
+O lead não tinha e-mail cadastrado, mas o SDR confirmou a reunião assim mesmo usando um e-mail "placeholder" (`noreply+<lead_id>@…`) — isso é o que o flag `force_placeholder: true` faz em `sdr-agent` quando chama `calcom-confirm-booking`. Resultado: agendamento criado no Cal.com, mas o lead nunca recebe o convite por e-mail (só fica um alerta "enviar convite manualmente" em `lead_activities`).
 
-A boa notícia: o backend já aceita um parâmetro `override_decision` que pula a geração e usa o texto fornecido. Já existe também o fluxo de Aprovações (quando HITL está ligado) com edição inline — vamos espelhar essa UX direto no card do lead, sem obrigar a passar pela fila de Aprovações.
+O comportamento desejado: **se o lead não tem e-mail real, o SDR não deve agendar — deve antes pedir o e-mail ao lead, esperar a resposta, salvar em `leads.email`, e só então confirmar a reserva.**
 
-## Mudanças
+## Plano
 
-### 1. Prévia editável no card do lead (`src/components/CadenceDetail.tsx`)
+### 1. Bloquear `book_slot` quando falta e-mail real (`supabase/functions/sdr-agent/index.ts`)
 
-No bloco `AgentNextPreview`:
-- Trocar o texto somente-leitura por um `Textarea` editável com o conteúdo da mensagem (e um `Input` para o assunto, quando canal = email).
-- Botões existentes:
-  - **Regenerar** — descarta edições e busca novo draft da IA.
-  - **Restaurar original** (novo) — volta ao último texto vindo da IA, caso o SDR queira desfazer suas edições.
-- Indicador visual sutil "Editado" quando o texto diverge do gerado pela IA.
-- Persistir o rascunho editado em memória local (`useState` no componente pai do lead) para sobreviver entre colapsar/expandir o painel.
+No handler de `book_slot` (≈linha 855), antes de chamar `calcom-confirm-booking`:
 
-### 2. "Executar próximo passo" usa o rascunho
+- Carregar o e-mail atual do lead (`ctx.lead?.email`), considerar inválido se vazio, malformado, ou se já é um placeholder (`noreply+…@…`).
+- Se o canal da conversa for `email`, o e-mail real é o próprio `from` da thread — manter o fluxo atual.
+- Caso contrário (WhatsApp/LinkedIn/etc.) e e-mail ausente/placeholder:
+  - **Não** invocar `calcom-confirm-booking`.
+  - Marcar o `calendar_actions` claim como cancelado/abortado (sem erro fatal) para liberar retries.
+  - Persistir em `lead_memory.facts.pending_email_for_slot = { hold_id, slot_iso }` para o próximo turno saber qual horário "segurar".
+  - Retornar `{ ok: false, downgrade: "request_email", suggested_message: "Pra confirmar e te mandar o convite por e-mail, qual é o melhor e-mail pra te marcar nessa reunião?" }`.
 
-- Quando existir um rascunho (gerado ou editado), o botão "Executar próximo passo" passa a invocar `cadence-agent-decide` com `override_decision: { action, channel, hook, subject, message, rationale }`, garantindo que **o texto enviado = o texto da prévia**.
-- Se o SDR nunca abriu/gerou a prévia, mantém o comportamento atual (decisão fresca da IA).
-- Toast de sucesso passa a diferenciar: "Enviado (rascunho da IA)" vs "Enviado (editado pelo SDR)".
+O SDR já trata `downgrade + suggested_message` no fluxo padrão (ver linhas ~1352-1356) e usa a `suggested_message` no `finalize` → `send_message`.
 
-### 3. Registro da edição humana
+### 2. Capturar o e-mail informado pelo lead e salvar em `leads.email`
 
-No backend (`supabase/functions/cadence-agent-decide/index.ts`), no branch `override_decision` (linha ~249), aceitar e propagar duas flags opcionais já úteis para auditoria:
-- `override_decision.edited_by_human: boolean`
-- `override_decision.original_message?: string`
+Quando o lead responder com um e-mail no turno seguinte:
 
-Persistir ambas em `cadence_agent_decisions.metadata` (ou colunas existentes equivalentes) e adicionar à `lead_activities` algo como "✏️ SDR editou o rascunho da IA antes de enviar" quando `edited_by_human === true`.
+- Em `sdr-agent`, antes de decidir, checar se há `pending_email_for_slot` em `lead_memory.facts` e se a última mensagem do lead contém um e-mail válido (regex já usada em `entity-extractor.ts`).
+- Se sim:
+  - `UPDATE leads SET email = <novo> WHERE id = ctx.lead_id`.
+  - Limpar `pending_email_for_slot` em `lead_memory.facts`.
+  - Injetar no system prompt do turno um aviso: "Lead acabou de fornecer e-mail: `<email>`. Confirme a reunião no slot `<slot_iso>` chamando `book_slot` agora."
 
-### 4. Interação com o HITL (fila de Aprovações)
+Isso faz o LLM disparar `book_slot` no mesmo turno, e como o lead agora tem e-mail real, o caminho normal (sem placeholder) é usado.
 
-- Se o HITL estiver **ligado** para o escopo `first_message`/`cadence_step`, o clique continua criando uma `approval_request` — mas agora o `payload` enviado já contém o texto **editado** pelo SDR, então a fila de Aprovações mostra o rascunho final como ponto de partida. Comportamento atual da página `Approvals` (editar/aprovar) continua igual.
-- Se o HITL estiver **desligado**, o `override_decision` é enviado direto e a mensagem sai no WhatsApp/Email imediatamente com o texto exato da prévia.
+### 3. Remover o uso silencioso de `force_placeholder: true` no caminho do SDR
 
-## Fora de escopo
+Linha 899 de `sdr-agent/index.ts`: trocar `force_placeholder: true` por `force_placeholder: false`. O guard novo do item 1 garante que o SDR nunca chega aqui sem e-mail real. Se por algum motivo chegar (race), `calcom-confirm-booking` devolverá 400 "Lead email is required" e o SDR cairá no caminho de erro padrão — comportamento mais seguro que agendar sem e-mail.
 
-- Mudanças na página `/approvals` (já permite editar).
-- Mudanças no `execute-action` / `cadence-executor` (cadência automática sem intervenção continua gerando na hora).
-- Versionamento de múltiplos rascunhos / histórico de edições além do registro em `lead_activities`.
+O `human-book-slot` (ação manual) **mantém** sua semântica atual — humano pode optar por agendar mesmo sem e-mail (e nesse caso ainda recebe o aviso em `lead_activities`). Nada muda lá.
 
-## Validação
+### 4. Detalhes técnicos
 
-1. Abrir um lead em cadência inteligente, expandir "Prévia da próxima abordagem (IA)".
-2. Editar o texto, clicar "Executar próximo passo".
-3. Conferir no WhatsApp/Inbox que a mensagem enviada bate **caractere por caractere** com o texto editado.
-4. Conferir em `lead_activities` o registro "✏️ SDR editou…".
-5. Repetir com HITL ligado e verificar que a `approval_request` criada já vem com o texto editado no `payload.message`.
-6. Repetir sem editar (apenas gerar prévia + executar) → mensagem enviada = texto da prévia, sem chamada extra ao LLM.
+- Regex de e-mail: reaproveitar `EMAIL_RE` de `_shared/entity-extractor.ts`.
+- Detecção de placeholder: `/^noreply\+[a-f0-9-]+@/i.test(email)`.
+- Não criar novas tabelas. Tudo cabe em `lead_memory.facts` (jsonb) e em `leads.email`.
+- Não mexer em `calcom-confirm-booking`, `calcom-booking-create`, `human-book-slot` — eles já validam e-mail corretamente.
+
+### Arquivos a alterar
+
+- `supabase/functions/sdr-agent/index.ts` — guard pré-`book_slot`, captura de e-mail do lead em turno seguinte, troca de `force_placeholder` para `false`.
