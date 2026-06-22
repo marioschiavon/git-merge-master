@@ -124,6 +124,8 @@ export default function CadencesDashboard() {
   }, [cadences, enrollmentCounts, selectedId]);
 
   const cadenceId = selectedId || null;
+  const selectedCadence = useMemo(() => (cadences || []).find((c: any) => c.id === cadenceId) as any, [cadences, cadenceId]);
+
   const executeCadence = useExecuteCadenceNow();
   const { data: steps } = useCadenceSteps(cadenceId);
   const { data: rows, isLoading } = useCadenceLeadProgress(cadenceId);
