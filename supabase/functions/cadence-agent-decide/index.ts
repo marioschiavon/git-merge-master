@@ -87,10 +87,11 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const reqBody = await req.json();
-    const { enrollment_id, bypass_hitl, override_decision } = reqBody as {
+    const { enrollment_id, bypass_hitl, override_decision, dry_run } = reqBody as {
       enrollment_id?: string;
       bypass_hitl?: boolean;
       override_decision?: Partial<Decision>;
+      dry_run?: boolean;
     };
     if (!enrollment_id) {
       return new Response(JSON.stringify({ error: "enrollment_id required" }), {
@@ -98,9 +99,10 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const dryRun = !!dry_run;
 
-    // Idempotency — não aplicar quando é re-invocação via aprovação humana (bypass_hitl/override_decision).
-    if (!bypass_hitl && !override_decision) {
+    // Idempotency — skip in dry_run; preview is read-only and re-requestable.
+    if (!dryRun && !bypass_hitl && !override_decision) {
       const { data: recent } = await supabase
         .from("cadence_agent_decisions")
         .select("id, decided_at")
