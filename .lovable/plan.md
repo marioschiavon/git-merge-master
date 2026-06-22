@@ -1,57 +1,51 @@
-# Diagnóstico: cancelamento via link Cal.com
+## Objetivo
 
-## O que aconteceu — booking `d8ERZG7aWC1ymNsYCMs2dh` (Juliano)
+Hoje a prévia gerada no modo inteligente e a mensagem que efetivamente é enviada são **duas chamadas independentes** ao LLM — o texto pode mudar entre uma e outra, e o SDR não tem como editar antes de disparar. Vamos transformar a prévia em um **rascunho editável** que será exatamente o que sai no WhatsApp/Email quando o SDR clicar em "Executar próximo passo".
 
-✅ **Webhook recebeu e processou** (`signature_valid=true`, `processed=true`).
-✅ **`bookings.lead_id` foi populado** (`0928e5f1…`) — confirma que o fix anterior em `calcom-confirm-booking` está funcionando.
-✅ **Status atualizado para `cancelled`** com motivo `"Nao posso"`.
-❌ **`acknowledge_cancellation` NÃO foi enfileirado** — o SDR não vai responder.
+A boa notícia: o backend já aceita um parâmetro `override_decision` que pula a geração e usa o texto fornecido. Já existe também o fluxo de Aprovações (quando HITL está ligado) com edição inline — vamos espelhar essa UX direto no card do lead, sem obrigar a passar pela fila de Aprovações.
 
-## Por que não respondeu
+## Mudanças
 
-Payload do `BOOKING_CANCELLED`:
-- `cancelledBy: "eu@julianocarneiro.com.br"` (lead que clicou no link)
-- `organizer.email`: também `eu@julianocarneiro.com.br` (você está testando com seu próprio email como lead)
+### 1. Prévia editável no card do lead (`src/components/CadenceDetail.tsx`)
 
-O guard `cancelledByOrganizer` (linha 221 de `calcom-webhook/index.ts`) compara `cancelledByEmail === organizerEmail`. Como ambos batem, ele entende que **você (organizador) cancelou** e pula o follow-up por desenho — para não responder ao lead quando o SDR/operador é quem cancela.
+No bloco `AgentNextPreview`:
+- Trocar o texto somente-leitura por um `Textarea` editável com o conteúdo da mensagem (e um `Input` para o assunto, quando canal = email).
+- Botões existentes:
+  - **Regenerar** — descarta edições e busca novo draft da IA.
+  - **Restaurar original** (novo) — volta ao último texto vindo da IA, caso o SDR queira desfazer suas edições.
+- Indicador visual sutil "Editado" quando o texto diverge do gerado pela IA.
+- Persistir o rascunho editado em memória local (`useState` no componente pai do lead) para sobreviver entre colapsar/expandir o painel.
 
-Em produção real, o email do lead será diferente do organizador e o follow-up dispararia normalmente. Aqui é um artefato do teste com email próprio.
+### 2. "Executar próximo passo" usa o rascunho
 
-## Recomendação
+- Quando existir um rascunho (gerado ou editado), o botão "Executar próximo passo" passa a invocar `cadence-agent-decide` com `override_decision: { action, channel, hook, subject, message, rationale }`, garantindo que **o texto enviado = o texto da prévia**.
+- Se o SDR nunca abriu/gerou a prévia, mantém o comportamento atual (decisão fresca da IA).
+- Toast de sucesso passa a diferenciar: "Enviado (rascunho da IA)" vs "Enviado (editado pelo SDR)".
 
-Endurecer a detecção para reduzir falsos positivos:
+### 3. Registro da edição humana
 
-### Mudança em `supabase/functions/calcom-webhook/index.ts` (~linha 221)
+No backend (`supabase/functions/cadence-agent-decide/index.ts`), no branch `override_decision` (linha ~249), aceitar e propagar duas flags opcionais já úteis para auditoria:
+- `override_decision.edited_by_human: boolean`
+- `override_decision.original_message?: string`
 
-Tratar como "cancelado pelo organizador" **somente quando houver sinal explícito**, e não só pelo email coincidente:
+Persistir ambas em `cadence_agent_decisions.metadata` (ou colunas existentes equivalentes) e adicionar à `lead_activities` algo como "✏️ SDR editou o rascunho da IA antes de enviar" quando `edited_by_human === true`.
 
-1. Se `cancellation_source` interno (`sdr`, `sdr_reschedule`, `operator`) foi marcado nos últimos 5 min → organizador. (já existe)
-2. Se o `cancelledBy.email` casa com o organizador **E** o lead tem email diferente → organizador.
-3. Se o lead tem o mesmo email do organizador (caso de auto-teste ou cliente interno), confiar no `cancellation_source` interno; sem ele, assumir **lead**.
+### 4. Interação com o HITL (fila de Aprovações)
 
-Resumindo a nova condição:
-```ts
-const leadEmailLower = (lead?.email || "").toLowerCase();
-const sameEmailAsLead = !!leadEmailLower && cancelledByEmail === leadEmailLower;
-const cancelledByOrganizer =
-  !!cancelledByEmail &&
-  !!organizerEmailLower &&
-  cancelledByEmail === organizerEmailLower &&
-  !sameEmailAsLead;  // se o email também bate com o lead, não conclua organizador
-```
-
-### Validação
-
-1. Reproduzir cancelamento via link Cal.com com o mesmo lead Juliano.
-2. Conferir em `lead_action_queue` que `acknowledge_cancellation` aparece com `triggered_by='calcom_webhook'`.
-3. Verificar que o `execute-action` envia a mensagem empática na conversa do lead.
-4. Verificar que cancelamentos via "Cancelar reunião" pelo painel (SDR) continuam **não** disparando follow-up (porque `cancellation_source='sdr'` foi marcado nos 5 min anteriores).
+- Se o HITL estiver **ligado** para o escopo `first_message`/`cadence_step`, o clique continua criando uma `approval_request` — mas agora o `payload` enviado já contém o texto **editado** pelo SDR, então a fila de Aprovações mostra o rascunho final como ponto de partida. Comportamento atual da página `Approvals` (editar/aprovar) continua igual.
+- Se o HITL estiver **desligado**, o `override_decision` é enviado direto e a mensagem sai no WhatsApp/Email imediatamente com o texto exato da prévia.
 
 ## Fora de escopo
 
-- Backfill dos cancelamentos antigos sem follow-up (`w8S1sk…`, `n1B66a…`, `4yDGD…`).
-- Mudanças em RLS, UI ou no campo `cancel_reason`.
+- Mudanças na página `/approvals` (já permite editar).
+- Mudanças no `execute-action` / `cadence-executor` (cadência automática sem intervenção continua gerando na hora).
+- Versionamento de múltiplos rascunhos / histórico de edições além do registro em `lead_activities`.
 
-## Pergunta
+## Validação
 
-Quer que eu implemente esse ajuste no guard agora?
+1. Abrir um lead em cadência inteligente, expandir "Prévia da próxima abordagem (IA)".
+2. Editar o texto, clicar "Executar próximo passo".
+3. Conferir no WhatsApp/Inbox que a mensagem enviada bate **caractere por caractere** com o texto editado.
+4. Conferir em `lead_activities` o registro "✏️ SDR editou…".
+5. Repetir com HITL ligado e verificar que a `approval_request` criada já vem com o texto editado no `payload.message`.
+6. Repetir sem editar (apenas gerar prévia + executar) → mensagem enviada = texto da prévia, sem chamada extra ao LLM.
