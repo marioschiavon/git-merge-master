@@ -459,7 +459,7 @@ serve(async (req) => {
         if (originalPausedReason !== "awaiting_slot_confirmation") {
           await supabase
             .from("cadence_enrollments")
-            .update({ status: "paused", paused_reason: "lead_replied" } as any)
+            .update({ status: "paused", paused_reason: "lead_replied", reengage_attempts: 0 } as any)
             .eq("id", enrollmentId)
             .in("status", ["active", "completed"]);
         }

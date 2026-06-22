@@ -18,6 +18,7 @@ import { useAgentNextPreview, useRegenerateAgentPreview } from "@/hooks/useAgent
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -154,7 +155,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
 
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
-          <TabsList className={`grid w-full ${isAgentic ? "grid-cols-3" : "grid-cols-2"}`}>
+          <TabsList className={`grid w-full ${isAgentic ? "grid-cols-4" : "grid-cols-3"}`}>
             {isAgentic ? (
               <TabsTrigger value="policy">
                 <Sparkles className="mr-2 h-4 w-4" />Política
@@ -172,7 +173,16 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                 <Brain className="mr-2 h-4 w-4" />Decisões
               </TabsTrigger>
             )}
+            <TabsTrigger value="settings">
+              <RotateCcw className="mr-2 h-4 w-4" />Config
+            </TabsTrigger>
           </TabsList>
+
+          {cadenceId && (
+            <TabsContent value="settings" className="mt-4">
+              <ReengageSettings cadence={cadence} onSave={(v) => updateCadence.mutate({ id: cadenceId, ...v })} saving={updateCadence.isPending} />
+            </TabsContent>
+          )}
 
           {isAgentic && cadenceId && (
             <TabsContent value="policy" className="mt-4">
@@ -710,5 +720,78 @@ function AgenticSimulationControls({
     </div>
   );
 }
+
+function ReengageSettings({ cadence, onSave, saving }: { cadence: any; onSave: (v: { reengage_enabled: boolean; reengage_after_days: number; reengage_max_attempts: number }) => void; saving: boolean }) {
+  const [enabled, setEnabled] = useState<boolean>(cadence?.reengage_enabled ?? true);
+  const [days, setDays] = useState<number>(cadence?.reengage_after_days ?? 2);
+  const [maxAttempts, setMaxAttempts] = useState<number>(cadence?.reengage_max_attempts ?? 3);
+
+  useEffect(() => {
+    setEnabled(cadence?.reengage_enabled ?? true);
+    setDays(cadence?.reengage_after_days ?? 2);
+    setMaxAttempts(cadence?.reengage_max_attempts ?? 3);
+  }, [cadence?.id, cadence?.reengage_enabled, cadence?.reengage_after_days, cadence?.reengage_max_attempts]);
+
+  const dirty =
+    enabled !== (cadence?.reengage_enabled ?? true) ||
+    days !== (cadence?.reengage_after_days ?? 2) ||
+    maxAttempts !== (cadence?.reengage_max_attempts ?? 3);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-md border p-4 space-y-4">
+        <div>
+          <h3 className="text-sm font-semibold">Reengajamento de leads silenciosos</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Se o lead respondeu e depois parou de responder, o sistema retoma a cadência automaticamente.
+            Reuniões agendadas e agendamentos em andamento pausam o reengajamento.
+          </p>
+        </div>
+
+        <div className="flex items-start gap-3">
+          <Switch checked={enabled} onCheckedChange={setEnabled} id="reengage-settings-toggle" />
+          <Label htmlFor="reengage-settings-toggle" className="cursor-pointer text-sm">
+            Reengajar leads silenciosos
+          </Label>
+        </div>
+
+        {enabled && (
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs">Dias de silêncio antes de reengajar</Label>
+              <Input
+                type="number"
+                min={1}
+                max={14}
+                value={days}
+                onChange={(e) => setDays(Math.max(1, Math.min(14, Number(e.target.value) || 1)))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Máximo de tentativas</Label>
+              <Input
+                type="number"
+                min={1}
+                max={5}
+                value={maxAttempts}
+                onChange={(e) => setMaxAttempts(Math.max(1, Math.min(5, Number(e.target.value) || 1)))}
+              />
+            </div>
+          </div>
+        )}
+
+        <Button
+          size="sm"
+          onClick={() => onSave({ reengage_enabled: enabled, reengage_after_days: days, reengage_max_attempts: maxAttempts })}
+          disabled={!dirty || saving}
+        >
+          {saving ? <Loader2 className="mr-2 h-3 w-3 animate-spin" /> : null}
+          Salvar configurações
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 
 

@@ -384,10 +384,12 @@ export type Database = {
           enrolled_at: string
           id: string
           last_executed_at: string | null
+          last_reengage_at: string | null
           lead_id: string
           meeting_scheduled: boolean
           next_execution_at: string | null
           paused_reason: string | null
+          reengage_attempts: number
           status: Database["public"]["Enums"]["enrollment_status"]
           updated_at: string
         }
@@ -399,10 +401,12 @@ export type Database = {
           enrolled_at?: string
           id?: string
           last_executed_at?: string | null
+          last_reengage_at?: string | null
           lead_id: string
           meeting_scheduled?: boolean
           next_execution_at?: string | null
           paused_reason?: string | null
+          reengage_attempts?: number
           status?: Database["public"]["Enums"]["enrollment_status"]
           updated_at?: string
         }
@@ -414,10 +418,12 @@ export type Database = {
           enrolled_at?: string
           id?: string
           last_executed_at?: string | null
+          last_reengage_at?: string | null
           lead_id?: string
           meeting_scheduled?: boolean
           next_execution_at?: string | null
           paused_reason?: string | null
+          reengage_attempts?: number
           status?: Database["public"]["Enums"]["enrollment_status"]
           updated_at?: string
         }
@@ -580,6 +586,9 @@ export type Database = {
           kind: string
           mode: string
           name: string
+          reengage_after_days: number
+          reengage_enabled: boolean
+          reengage_max_attempts: number
           simulation_mode: boolean
           status: Database["public"]["Enums"]["cadence_status"]
           type: Database["public"]["Enums"]["cadence_type"]
@@ -594,6 +603,9 @@ export type Database = {
           kind?: string
           mode?: string
           name: string
+          reengage_after_days?: number
+          reengage_enabled?: boolean
+          reengage_max_attempts?: number
           simulation_mode?: boolean
           status?: Database["public"]["Enums"]["cadence_status"]
           type?: Database["public"]["Enums"]["cadence_type"]
@@ -608,6 +620,9 @@ export type Database = {
           kind?: string
           mode?: string
           name?: string
+          reengage_after_days?: number
+          reengage_enabled?: boolean
+          reengage_max_attempts?: number
           simulation_mode?: boolean
           status?: Database["public"]["Enums"]["cadence_status"]
           type?: Database["public"]["Enums"]["cadence_type"]

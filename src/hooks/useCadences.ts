@@ -108,7 +108,7 @@ export function useCreateCadence() {
 export function useUpdateCadence() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, ...values }: { id: string; name?: string; description?: string; type?: string; status?: string; kind?: string }) => {
+    mutationFn: async ({ id, ...values }: { id: string; name?: string; description?: string; type?: string; status?: string; kind?: string; reengage_enabled?: boolean; reengage_after_days?: number; reengage_max_attempts?: number }) => {
       const { error } = await supabase
         .from("cadences")
         .update(values as any)
