@@ -21,26 +21,47 @@ export function useToggleSimulation() {
   });
 }
 
+export interface RunNextStepArgs {
+  enrollmentId: string;
+  override?: {
+    action: "send" | "wait" | "stop" | "handoff_human";
+    channel?: string | null;
+    hook?: string | null;
+    subject?: string | null;
+    message?: string | null;
+    rationale?: string;
+    edited_by_human?: boolean;
+    original_message?: string | null;
+  };
+}
+
 export function useRunNextStep() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (enrollmentId: string) => {
+    mutationFn: async (args: string | RunNextStepArgs) => {
+      const { enrollmentId, override } =
+        typeof args === "string" ? { enrollmentId: args, override: undefined } : args;
       // Force immediate execution by clearing next_execution_at and last_executed_at
       await supabase
         .from("cadence_enrollments")
         .update({ next_execution_at: new Date(Date.now() - 60000).toISOString() })
         .eq("id", enrollmentId);
       const { data, error } = await supabase.functions.invoke("cadence-agent-decide", {
-        body: { enrollment_id: enrollmentId },
+        body: {
+          enrollment_id: enrollmentId,
+          ...(override ? { override_decision: override } : {}),
+        },
       });
       if (error) throw error;
       return data;
     },
-    onSuccess: (data: any) => {
+    onSuccess: (data: any, vars) => {
       qc.invalidateQueries({ queryKey: ["agent_decisions_cadence"] });
       qc.invalidateQueries({ queryKey: ["cadence_enrollments"] });
       const a = data?.decision?.action || data?.action;
-      toast.success(`Passo executado: ${a || "ok"}`);
+      const override = typeof vars === "string" ? undefined : vars.override;
+      const suffix = override?.edited_by_human ? " (editado pelo SDR)" : override ? " (rascunho da IA)" : "";
+      toast.success(`Passo executado: ${a || "ok"}${suffix}`);
     },
     onError: (e: any) => toast.error(`Falha ao executar passo: ${e.message}`),
   });
