@@ -57,7 +57,7 @@ serve(async (req) => {
       .select(`
         id, lead_id, company_id, cadence_id, current_step, meeting_scheduled,
         reengage_attempts, last_reengage_at, updated_at,
-        cadences!inner(id, status, reengage_enabled, reengage_after_days, reengage_max_attempts)
+        cadences!inner(id, status, mode, reengage_enabled, reengage_after_days, reengage_max_attempts)
       `)
       .eq("status", "paused")
       .eq("paused_reason", "lead_replied")
