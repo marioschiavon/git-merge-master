@@ -2091,7 +2091,16 @@ Deno.serve(async (req) => {
           reschedule_booking: "Tive um problema técnico pra remarcar agora. Sua reunião segue no horário atual. Vou tentar de novo e te confirmo em seguida.",
           book_slot: "Não consegui confirmar esse horário agora. Pode me mandar outro dia/horário que funcione pra você? Vou tentar de novo.",
         };
-        const fallbackMsg = typeof r.suggested_message === "string" && r.suggested_message
+        const pendingEmailResolvedForFailure = (ctx as any).pending_email_resolved as { slot_iso?: string } | undefined;
+        const requestedForcedSlot = typeof (forcedArgs as any)?.slot_start === "string" ? String((forcedArgs as any).slot_start) : "";
+        const emailResolvedNoConfirmationFailure = forcedToolName === "book_slot" &&
+          r.error_code === "no_confirmation" &&
+          pendingEmailResolvedForFailure?.slot_iso &&
+          requestedForcedSlot &&
+          Math.abs(new Date(pendingEmailResolvedForFailure.slot_iso).getTime() - new Date(requestedForcedSlot).getTime()) < 5 * 60_000;
+        const fallbackMsg = emailResolvedNoConfirmationFailure
+          ? "Recebi seu e-mail. Tive uma instabilidade para confirmar no calendário agora; vou tentar novamente e te confirmo em seguida."
+          : typeof r.suggested_message === "string" && r.suggested_message
           ? r.suggested_message
           : (honestByTool[forcedToolName] || "Tive um problema técnico aqui agora. Vou tentar de novo em alguns minutos.");
         finalDecision = {
