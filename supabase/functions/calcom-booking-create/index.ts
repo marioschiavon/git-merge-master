@@ -28,16 +28,31 @@ serve(async (req) => {
     const email = attendee_email || lead?.email;
     if (!name || !email) return jsonResponse({ error: "attendee_name and attendee_email required" }, 400);
 
-    let eventTypeId = event_type_id;
+    let eventTypeId: number | undefined = event_type_id ? Number(event_type_id) : undefined;
     if (!eventTypeId && lead?.company_id) {
       const { data: comp } = await supabase.from("companies").select("calcom_default_event_type_id").eq("id", lead.company_id).maybeSingle();
-      eventTypeId = comp?.calcom_default_event_type_id;
+      if (comp?.calcom_default_event_type_id) eventTypeId = Number(comp.calcom_default_event_type_id);
     }
-    if (!eventTypeId) {
+    // Fallback: pick an active event type from calcom_event_types for this company.
+    if (!eventTypeId && lead?.company_id) {
+      const { data: et } = await supabase
+        .from("calcom_event_types")
+        .select("calcom_id, active, default_for_intent")
+        .eq("company_id", lead.company_id)
+        .eq("active", true)
+        .order("default_for_intent", { ascending: true, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (et?.calcom_id) eventTypeId = Number(et.calcom_id);
+    }
+    if (!eventTypeId || Number.isNaN(eventTypeId)) {
       const envId = Deno.env.get("CALCOM_EVENT_TYPE_ID");
-      if (envId) eventTypeId = Number(envId);
+      const parsed = envId ? Number(envId) : NaN;
+      if (!Number.isNaN(parsed) && parsed > 0) eventTypeId = parsed;
     }
-    if (!eventTypeId) return jsonResponse({ error: "event_type_id not resolvable" }, 400);
+    if (!eventTypeId || Number.isNaN(eventTypeId)) {
+      return jsonResponse({ error: "event_type_id not resolvable (configure Cal.com event type in Settings)" }, 400);
+    }
 
     // Compute / accept idempotency key and claim a calendar_actions row.
     if (!idempotency_key) {
