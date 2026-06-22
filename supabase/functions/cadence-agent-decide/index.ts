@@ -478,6 +478,13 @@ Decida a próxima ação.`;
       decision.scheduled_for = scheduledFor;
     }
 
+    // === DRY-RUN: return decision without any side effect ===
+    if (dryRun) {
+      return new Response(JSON.stringify({ decision, dry_run: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // === EXECUTE ===
     if (decision.action === "stop") {
       await persistDecision(decision, { model: "google/gemini-2.5-flash" });
