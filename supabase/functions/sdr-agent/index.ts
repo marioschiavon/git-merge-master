@@ -339,6 +339,21 @@ async function execTool(
   }
 
   if (name === "check_calendar") {
+    // Guard: se acabamos de receber o e-mail que pedimos, o slot JÁ está
+    // acordado — não buscar novos horários, ir direto pra book_slot.
+    {
+      const resolved = (ctx as any).pending_email_resolved as
+        | { slot_iso?: string }
+        | undefined;
+      if (resolved?.slot_iso) {
+        return {
+          ok: false,
+          downgrade: "book_now",
+          reason: "slot já acordado; lead acabou de fornecer e-mail — reservar direto",
+          next_action: `Chame book_slot({ slot_start: "${resolved.slot_iso}" }) imediatamente.`,
+        };
+      }
+    }
     // Slots no passado (ou nos próximos ~30min) são inúteis para oferecer.
     const MIN_LEAD_MS = 30 * 60 * 1000;
     const earliestAllowed = new Date(Date.now() + MIN_LEAD_MS);
@@ -969,18 +984,21 @@ async function execBookingTool(
       provider_booking_uid: bookingUid,
       response_payload: (booking as any) ?? {},
     });
-    // Limpa offered_slots_pending da memória.
+    // Limpa offered_slots_pending, email_just_resolved_slot e pending_email_for_slot da memória.
     try {
       const newFacts = { ...facts };
-      if (newFacts.offered_slots_pending) {
-        delete newFacts.offered_slots_pending;
+      let changed = false;
+      if ((newFacts as any).offered_slots_pending) { delete (newFacts as any).offered_slots_pending; changed = true; }
+      if ((newFacts as any).email_just_resolved_slot) { delete (newFacts as any).email_just_resolved_slot; changed = true; }
+      if ((newFacts as any).pending_email_for_slot) { delete (newFacts as any).pending_email_for_slot; changed = true; }
+      if (changed) {
         const { error: memErr } = await supabase.from("lead_memory").upsert(
           { lead_id: ctx.lead_id, company_id: ctx.company_id, facts: newFacts, updated_at: new Date().toISOString() },
           { onConflict: "lead_id" },
         );
-        if (memErr) console.error("lead_memory upsert (clear offered_slots_pending) failed:", memErr);
+        if (memErr) console.error("lead_memory upsert (clear post-book flags) failed:", memErr);
       }
-    } catch (e) { console.error("lead_memory upsert (clear offered_slots_pending) threw:", e); }
+    } catch (e) { console.error("lead_memory upsert (clear post-book flags) threw:", e); }
     const guestSuffix = guestEmails.length > 0
       ? ` Também incluí ${guestEmails.join(", ")} no convite — eles vão receber o invite por e-mail.`
       : "";
@@ -1453,7 +1471,20 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
       ? `⚠️ AÇÃO OBRIGATÓRIA: no turn anterior você perguntou se deveria cancelar a reunião. ${leadAffirmed ? "O lead JÁ CONFIRMOU. " : ""}Se for prosseguir com o cancelamento, chame \`cancel_booking({ booking_uid: "${activeBooking.calcom_booking_uid}", reason })\` AGORA antes do finalize.`
       : "",
     (ctx as any).pending_email_resolved
-      ? `⚠️ AÇÃO OBRIGATÓRIA: o lead acabou de informar o e-mail (${(ctx as any).pending_email_resolved.email}) que pedimos no turno anterior pra agendar a reunião. Já salvei em \`leads.email\`. Chame \`book_slot({ slot_start: "${(ctx as any).pending_email_resolved.slot_iso}" })\` AGORA e depois \`finalize({ decision: "send_message", message: message_suggestion })\` confirmando a reserva. NÃO peça o e-mail de novo.`
+      ? [
+          `⚠️ AÇÃO OBRIGATÓRIA — RESERVAR JÁ:`,
+          `O lead acabou de informar o e-mail (${(ctx as any).pending_email_resolved.email}) que pedimos pra agendar. Já salvei em \`leads.email\`. O horário ${(ctx as any).pending_email_resolved.slot_iso} JÁ FOI ACORDADO antes — está apenas esperando a reserva sair.`,
+          ``,
+          `PROIBIDO neste turno:`,
+          `- NÃO chame \`check_calendar\` nem ofereça novos horários.`,
+          `- NÃO pergunte "podemos confirmar?", "tudo certo?", "fechado?" — o slot JÁ está acordado.`,
+          `- NÃO peça o e-mail de novo.`,
+          ``,
+          `OBRIGATÓRIO neste turno (nessa ordem):`,
+          `1. Chame \`book_slot({ slot_start: "${(ctx as any).pending_email_resolved.slot_iso}" })\`.`,
+          `2. Chame \`finalize({ decision: "send_message", message: <texto> })\`.`,
+          `   Texto deve apenas agradecer e confirmar (sem perguntas). Exemplo: "Perfeito! Reunião confirmada para <data/hora em pt-BR>. Você vai receber o convite por e-mail. Até lá!"`,
+        ].join("\n")
       : "",
     heldSlots.length
       ? `Slots já oferecidos/segurados: ${heldSlots.map((s) => `${fmtBrt(s.slot_datetime)} (${s.status})`).join(", ")}. NÃO ofereça esses mesmos slots novamente — passe-os em exclude_datetimes se for buscar novos.`
@@ -1788,6 +1819,15 @@ Deno.serve(async (req) => {
           (ctx.lead as any).email = found;
           const merged = { ...factsRef };
           delete (merged as any).pending_email_for_slot;
+          // Persiste flag com TTL pra sobreviver caso o LLM ignore o hint
+          // e mande mensagem sem reservar — assim no próximo turno a gente
+          // ainda sabe que o slot foi acordado.
+          (merged as any).email_just_resolved_slot = {
+            slot_iso: pending.slot_iso ?? null,
+            hold_id: pending.hold_id ?? null,
+            email: found,
+            expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+          };
           await supabase.from("lead_memory").upsert(
             { lead_id, company_id: ctx.lead.company_id, facts: merged, updated_at: new Date().toISOString() },
             { onConflict: "lead_id" },
@@ -1799,6 +1839,20 @@ Deno.serve(async (req) => {
             email: found,
           };
           console.log("sdr-agent: captured lead email and cleared pending_email_for_slot:", found);
+        }
+      }
+      // Hidratação: se não acabou de chegar mas ainda há um flag persistido
+      // não-expirado, restaurar pending_email_resolved.
+      if (!(ctx as any).pending_email_resolved) {
+        const stash = (ctx.memory?.facts as Record<string, unknown> | undefined)?.email_just_resolved_slot as
+          | { slot_iso?: string; hold_id?: string | null; email?: string; expires_at?: string }
+          | undefined;
+        if (stash?.slot_iso && stash?.expires_at && new Date(stash.expires_at).getTime() > Date.now()) {
+          (ctx as any).pending_email_resolved = {
+            slot_iso: stash.slot_iso,
+            hold_id: stash.hold_id ?? null,
+            email: stash.email ?? "",
+          };
         }
       }
     } catch (e) {
