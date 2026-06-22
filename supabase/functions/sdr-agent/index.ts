@@ -1816,6 +1816,15 @@ Deno.serve(async (req) => {
           (ctx.lead as any).email = found;
           const merged = { ...factsRef };
           delete (merged as any).pending_email_for_slot;
+          // Persiste flag com TTL pra sobreviver caso o LLM ignore o hint
+          // e mande mensagem sem reservar — assim no próximo turno a gente
+          // ainda sabe que o slot foi acordado.
+          (merged as any).email_just_resolved_slot = {
+            slot_iso: pending.slot_iso ?? null,
+            hold_id: pending.hold_id ?? null,
+            email: found,
+            expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+          };
           await supabase.from("lead_memory").upsert(
             { lead_id, company_id: ctx.lead.company_id, facts: merged, updated_at: new Date().toISOString() },
             { onConflict: "lead_id" },
@@ -1827,6 +1836,21 @@ Deno.serve(async (req) => {
             email: found,
           };
           console.log("sdr-agent: captured lead email and cleared pending_email_for_slot:", found);
+        }
+      }
+      // Hidratação: se não acabou de chegar mas ainda há um flag persistido
+      // não-expirado, restaurar pending_email_resolved.
+      if (!(ctx as any).pending_email_resolved) {
+        const stash = (ctx.memory?.facts as Record<string, unknown> | undefined)?.email_just_resolved_slot as
+          | { slot_iso?: string; hold_id?: string | null; email?: string; expires_at?: string }
+          | undefined;
+        if (stash?.slot_iso && stash?.expires_at && new Date(stash.expires_at).getTime() > Date.now()) {
+          (ctx as any).pending_email_resolved = {
+            slot_iso: stash.slot_iso,
+            hold_id: stash.hold_id ?? null,
+            email: stash.email ?? "",
+          };
+        }
         }
       }
     } catch (e) {
