@@ -1,26 +1,29 @@
-## Problema
+## Objetivo
 
-A página `/cadences/dashboard` mostra "Nenhum lead encontrado" mesmo havendo lead em cadência.
+Na coluna **Próxima execução** mostrar uma prévia do que será disparado: canal (com ícone + rótulo) e assunto/preview do próximo step.
 
-Confirmei na base: existem 6 cadências, mas só a cadência **"Inteligente"** tem 1 enrollment. As outras 5 estão zeradas. O seletor da página faz default para `cadences[0]`, que é **"Inteligente 2"** (mais recente, sem enrollments). Por isso a tabela aparece vazia — a cadência selecionada por padrão não é a que tem o lead.
+## Mudanças (somente frontend)
 
-## Plano
+**`src/hooks/useCadenceLeadProgress.ts`**
+- Ampliar `nextStep` para incluir `template` (além de `step_order`, `channel`, `subject`).
+  - Ajustar o `select` de `cadence_steps` para `"step_order, channel, subject, template"`.
+  - Atualizar o tipo `CadenceLeadProgressRow.nextStep`.
 
-Ajustar somente o frontend (`src/pages/CadencesDashboard.tsx` + `src/hooks/useCadences.ts` se necessário) para:
+**`src/pages/CadencesDashboard.tsx`** — célula "Próxima execução":
+- Renderizar:
+  - Linha 1: ícone do canal + rótulo do canal (`Email` / `WhatsApp` / `LinkedIn`) + `Step N`.
+  - Linha 2 (menor, muted): data formatada `dd/MM HH:mm` (como hoje).
+  - Linha 3 (truncada, muted): assunto do step se existir, senão primeiros ~60 caracteres do `template`. Tooltip com texto completo.
+- Se `nextStep` for nulo (cadência concluída/sem próximo step), mostrar "—".
 
-1. **Mostrar contagem de leads no seletor de cadência**
-   - No dropdown, exibir o nome da cadência com um badge/contagem: `Inteligente (1)`, `Inteligente 2 (0)`, etc.
-   - Para isso, buscar a contagem de `cadence_enrollments` por cadência (uma única query agregada) e juntar ao `useCadences`.
-
-2. **Default inteligente**
-   - Em vez de selecionar `cadences[0]`, selecionar a primeira cadência com `enrollments > 0`. Se nenhuma tiver, manter `cadences[0]`.
-
-3. **Mensagem vazia mais clara**
-   - Quando a cadência selecionada tiver 0 enrollments, trocar "Nenhum lead encontrado." por algo como "Esta cadência ainda não tem leads matriculados. Use Leads → Adicionar à cadência."
-
-Sem mudanças no backend, RLS ou nas edge functions.
+Sem mudanças de backend, RLS ou edge functions. A informação já está disponível em `cadence_steps`.
 
 ## Validação
 
-- Abrir `/cadences/dashboard`: deve abrir já com **"Inteligente (1)"** selecionada e o lead visível.
-- Trocar para "Inteligente 2" deve mostrar a nova mensagem explicativa.
+- Na linha do lead Juliano, a coluna "Próxima execução" deve mostrar algo como:
+  ```
+  ✉ Email · Step 2
+  24/06 10:13
+  Assunto: Seguindo nosso papo...
+  ```
+- Hover no preview deve mostrar o conteúdo completo do template.
