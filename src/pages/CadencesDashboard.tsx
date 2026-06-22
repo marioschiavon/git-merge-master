@@ -171,11 +171,14 @@ export default function CadencesDashboard() {
               <SelectValue placeholder="Selecione uma cadência" />
             </SelectTrigger>
             <SelectContent>
-              {cadences?.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
+              {cadences?.map((c) => {
+                const n = enrollmentCounts?.[c.id] ?? 0;
+                return (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} ({n})
+                  </SelectItem>
+                );
+              })}
             </SelectContent>
           </Select>
           {cadenceId && (
