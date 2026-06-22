@@ -154,7 +154,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
 
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
-          <TabsList className={`grid w-full ${isAgentic ? "grid-cols-3" : "grid-cols-2"}`}>
+          <TabsList className={`grid w-full ${isAgentic ? "grid-cols-4" : "grid-cols-3"}`}>
             {isAgentic ? (
               <TabsTrigger value="policy">
                 <Sparkles className="mr-2 h-4 w-4" />Política
@@ -172,7 +172,16 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                 <Brain className="mr-2 h-4 w-4" />Decisões
               </TabsTrigger>
             )}
+            <TabsTrigger value="settings">
+              <RotateCcw className="mr-2 h-4 w-4" />Config
+            </TabsTrigger>
           </TabsList>
+
+          {cadenceId && (
+            <TabsContent value="settings" className="mt-4">
+              <ReengageSettings cadence={cadence} onSave={(v) => updateCadence.mutate({ id: cadenceId, ...v })} saving={updateCadence.isPending} />
+            </TabsContent>
+          )}
 
           {isAgentic && cadenceId && (
             <TabsContent value="policy" className="mt-4">
