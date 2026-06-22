@@ -1767,6 +1767,44 @@ Deno.serve(async (req) => {
       console.error("referral_pending_name hydration failed:", e);
     }
 
+    // ── Captura: lead acabou de enviar o e-mail que pedimos ──────────
+    // Se em turno anterior o SDR pediu o e-mail (pending_email_for_slot
+    // em lead_memory.facts) e a inbound atual contém um e-mail válido,
+    // persistimos em leads.email, limpamos a flag e injetamos um hint
+    // pra o LLM disparar book_slot de novo no MESMO turno.
+    try {
+      const factsRef = (ctx.memory?.facts ?? {}) as Record<string, unknown>;
+      const pending = factsRef.pending_email_for_slot as
+        | { slot_iso?: string; hold_id?: string | null }
+        | undefined;
+      if (pending && typeof pending === "object") {
+        const m = String(lastInbound || "").match(/\b[\w.+-]+@[\w-]+\.[\w.-]+\b/i);
+        const found = m?.[0]?.toLowerCase() ?? "";
+        if (found && !/^noreply\+/i.test(found)) {
+          await supabase.from("leads").update({ email: found }).eq("id", lead_id);
+          (ctx.lead as any).email = found;
+          const merged = { ...factsRef };
+          delete (merged as any).pending_email_for_slot;
+          await supabase.from("lead_memory").upsert(
+            { lead_id, company_id: ctx.lead.company_id, facts: merged, updated_at: new Date().toISOString() },
+            { onConflict: "lead_id" },
+          );
+          ctx.memory = { ...(ctx.memory ?? { summary: null }), facts: merged } as typeof ctx.memory;
+          (ctx as any).pending_email_resolved = {
+            slot_iso: pending.slot_iso ?? null,
+            hold_id: pending.hold_id ?? null,
+            email: found,
+          };
+          console.log("sdr-agent: captured lead email and cleared pending_email_for_slot:", found);
+        }
+      }
+    } catch (e) {
+      console.error("pending_email_for_slot capture failed:", e);
+    }
+
+
+
+
 
     // Heurística leve para a Policy: o lead tem pergunta pendente?
     // Nossa última explicação foi curta? — usado pelo branch referral
