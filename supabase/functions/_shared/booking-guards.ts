@@ -154,6 +154,18 @@ export async function assertCanBook(
     };
   }
 
+  const emailJustResolved = deps.facts.email_just_resolved_slot as
+    | { slot_iso?: string | null; email?: string | null; expires_at?: string | null }
+    | undefined;
+  const emailResolvedSlotMatches = (() => {
+    if (op !== "book_slot" || !emailJustResolved?.slot_iso) return false;
+    const expiresAt = emailJustResolved.expires_at ? new Date(emailJustResolved.expires_at).getTime() : NaN;
+    if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return false;
+    const email = String(emailJustResolved.email || "").trim().toLowerCase();
+    if (!/^[\w.+-]+@[\w-]+\.[\w.-]+$/.test(email) || /^noreply\+/i.test(email)) return false;
+    return Math.abs(new Date(emailJustResolved.slot_iso).getTime() - target) < FIVE_MIN;
+  })();
+
   // ── Guard 3: slot must match an offered/held candidate + explicit confirmation ──
   const heldIsos = deps.holds.map((h) => h.slot_datetime);
   const pendingMeta = deps.facts.offered_slots_pending as
@@ -174,7 +186,7 @@ export async function assertCanBook(
   const explicit = deps.isLikelyConfirmation(deps.lastInbound);
   const ref = deps.matchesSlotReference(deps.lastInbound, candidates);
   const matchesOffered = candidates.some((iso) => Math.abs(new Date(iso).getTime() - target) < FIVE_MIN);
-  const hasConfirmation = explicit || !!ref.iso;
+  const hasConfirmation = explicit || !!ref.iso || emailResolvedSlotMatches;
 
   if (!matchesOffered || !hasConfirmation) {
     let suggested_message: string;

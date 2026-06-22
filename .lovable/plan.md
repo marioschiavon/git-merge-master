@@ -1,43 +1,24 @@
-## Problema
+## Diagnóstico
 
-No turno em que o lead envia o e-mail solicitado, o `book_slot` nunca é chamado e a reunião não vai pro Cal.com — apesar do SDR responder "Reunião confirmada".
+O comportamento persistiu porque o `book_slot` agora está sendo forçado corretamente, mas a guarda central de agendamento (`assertCanBook`) ainda exige que a última mensagem inbound seja uma confirmação de horário. Neste caso, a última mensagem é apenas o e-mail do lead, então a guarda retorna `no_confirmation` e o SDR usa a mensagem de fallback oferecendo os mesmos horários novamente.
 
-### Causa raiz (vista nos logs do run `6904ace1…`)
+## Plano de correção
 
-1. Turno anterior: `book_slot` foi forçado → downgrade `request_email` → policy gravou `pending_email_for_slot = { slot_iso: 2026-06-24T12:00:00Z, hold_id }`. SDR pediu o e-mail. ✓
-2. Turno atual: lead respondeu `eu@julianocarneiro.com.br`. O `classify-intent` rotulou isso como `smalltalk` (conf 0.80) porque é só uma string de e-mail.
-3. Como o intent é `smalltalk`, a `decidePolicy` devolveu:
-   - `stage: general`
-   - `allowed_tools: [search_knowledge, update_lead_facts, finalize]` — **sem `book_slot`**
-   - `forced_tool: null`
-4. O bloco de captura de e-mail (linha 1804–1860) capturou o endereço, setou `ctx.pending_email_resolved` e injetou o "AÇÃO OBRIGATÓRIA: chame book_slot", mas o `book_slot` **não está em allowed_tools**, então o LLM seguiu pelo caminho `update_lead_facts` + `finalize(send_message)` e mandou "Reunião confirmada" sem reservar nada. O próprio `rationale` do LLM admite: *"A booking tool falhou, mas a instrução explícita do sistema é para seguir com a mensagem de confirmação"*.
+1. Ajustar a guarda de agendamento em `supabase/functions/_shared/booking-guards.ts`
+   - Quando existir `lead_memory.facts.email_just_resolved_slot` válido, não exigir nova confirmação textual na última mensagem.
+   - Só liberar se o `slot_iso` salvo bater com o `slot_start` solicitado, dentro da tolerância já usada.
+   - Manter todas as outras proteções: slot precisa estar entre os holds/ofertas, precisa existir hold ativo ou refresh bem-sucedido, e não pode haver booking ativo conflitante.
 
-A causa não é o prompt — é a **policy** que está ignorando o `pending_email_resolved`.
+2. Reforçar o fallback no `sdr-agent`
+   - Se `book_slot` falhar por `no_confirmation` enquanto há `email_just_resolved_slot` para o mesmo horário, tratar como falha de guarda incorreta e tentar novamente com o caminho liberado pela nova regra.
+   - Evitar que esse caso volte a mandar “qual destes horários funciona melhor”.
 
-## Correção
+3. Validar com dados reais da conversa
+   - Confirmar que o lead está com e-mail salvo.
+   - Confirmar que o hold `2026-06-25T20:45:00+00:00` ainda está `held`.
+   - Após deploy, o próximo turno com esse estado deve executar `calcom-confirm-booking`, criar o booking e limpar `email_just_resolved_slot` / `offered_slots_pending`.
 
-Editar `supabase/functions/sdr-agent/index.ts`, logo após o bloco de decisão da policy (≈ linha 1890), com um **override** quando `ctx.pending_email_resolved?.slot_iso` está setado:
-
-```text
-if (ctx.pending_email_resolved?.slot_iso) {
-  policy.stage          = "scheduling_confirming_now";
-  policy.allowed_tools  = ["book_slot", "finalize"];
-  policy.forced_tool    = "book_slot";
-  policy.forced_args    = { slot_start: ctx.pending_email_resolved.slot_iso };
-  policy.reason         = "email_just_resolved_for_pending_slot";
-}
-```
-
-Isso garante que, no mesmo turno em que o e-mail chega (ou no turno seguinte, via hidratação de `email_just_resolved_slot`), o agente seja **forçado** a executar `book_slot` com o slot que já estava combinado — sem depender do LLM nem do classificador de intent.
-
-Comportamento esperado depois do fix:
-- Lead manda o e-mail → `book_slot` é executado de fato → `calcom-confirm-booking` cria o booking no Cal.com → cleanup limpa `email_just_resolved_slot`/`pending_email_for_slot`/`offered_slots_pending` → finalize manda a confirmação real.
-- Se o `book_slot` falhar por outro motivo (slot indisponível, etc.), o downgrade existente já cobre (ex.: `offer_two_slots`).
-
-## Validação
-
-1. `supabase--edge_function_logs sdr-agent` após próxima conversa: linha `pipeline:` deve mostrar `forced: book_slot` no turno em que o e-mail chega.
-2. `supabase--edge_function_logs calcom-booking-create` deve registrar a chamada.
-3. `SELECT * FROM bookings WHERE lead_id = … ORDER BY created_at DESC LIMIT 1` deve trazer o registro confirmado.
-
-Sem mudanças em UI, schema ou outras edge functions.
+4. Deploy e verificação
+   - Deploy de `sdr-agent`.
+   - Ver logs: `forced_tool_call` com `result.ok=true` e chamada em `calcom-confirm-booking`.
+   - Ver banco: novo registro em `bookings` e hold marcado como `confirmed`.
