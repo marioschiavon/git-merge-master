@@ -77,7 +77,7 @@ serve(async (req) => {
           .eq("cadence_id", enr.cadence_id)
           .eq("kind", "first_message")
           .eq("status", "approved")
-          .gte("approved_at", startOfDay.toISOString());
+          .gte("reviewed_at", startOfDay.toISOString());
         const max = cadence.auto_approve_max_per_day ?? 50;
         allowAuto = (count ?? 0) < max;
       }
@@ -98,7 +98,7 @@ serve(async (req) => {
         batch_id: batchId,
       };
       if (allowAuto) {
-        insertRow.approved_at = new Date().toISOString();
+        insertRow.reviewed_at = new Date().toISOString();
       }
 
       await supabase.from("approval_requests").insert(insertRow);
