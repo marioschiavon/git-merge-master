@@ -9,6 +9,7 @@ import { RequireMasterAdmin } from "@/components/RequireMasterAdmin";
 import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
+import LeadLists from "@/pages/LeadLists";
 import Cadences from "@/pages/Cadences";
 import CadencesDashboard from "@/pages/CadencesDashboard";
 import Scripts from "@/pages/Scripts";
