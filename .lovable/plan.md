@@ -1,42 +1,47 @@
-## Problema
+## Diagnóstico
 
-A correção anterior só foi aplicada em `execute-action` e `approval-execute`. Mas as respostas do SDR de cadência são enviadas por outros dois callers que **não** usam `getEmailReplyContext` — por isso continuam abrindo tópico novo com "Continuando nossa conversa".
+Confirmei nos dados do lead Juliani que a última resposta foi enviada como nova thread:
 
-Callers faltantes:
-- `supabase/functions/cadence-agent-decide/index.ts` (linha ~656) — caminho do SDR Agent decidindo follow-up de cadência.
-- `supabase/functions/cadence-executor/index.ts` (linhas ~277 e ~557) — executor de steps de cadência (mensagem custom aprovada e auto-gerada).
+- Primeiro email outbound: assunto `GroomerGenius: inovação para pets`, thread Gmail `19ef52350f60b518`.
+- Resposta inbound do lead: assunto `Re: GroomerGenius: inovação para pets`, mesma thread `19ef52350f60b518`.
+- Resposta do SDR: assunto `Continuando nossa conversa`, nova thread Gmail `19ef525df11a166f`, sem `In-Reply-To` e sem `References`.
 
-Nenhum dos três passa `in_reply_to_rfc_id`, `references`, `gmail_thread_id` nem usa `reply_subject`, então o Gmail abre tópico novo.
+O motivo provável é duplo:
 
-## O que vai ser feito
+1. O helper de thread busca a última mensagem com `.order("created_at")`, mas a tabela `messages` não tem coluna `created_at`; ela usa `sent_at`. Isso faz o contexto de reply falhar silenciosamente e voltar vazio.
+2. Alguns caminhos ainda usam fallback com assunto `Continuando nossa conversa`, então quando o contexto falha o email sai como tópico novo.
 
-Aplicar exatamente o mesmo padrão já validado em `execute-action`:
+## Plano de correção
 
-### 1. `cadence-agent-decide/index.ts`
-- Importar `getEmailReplyContext` de `../_shared/email-thread.ts`.
-- No bloco de email (linha ~654), antes de invocar `gmail-send`:
-  - `const threadCtx = await getEmailReplyContext(supabase, conversation?.id);`
-  - Passar no body: `subject: threadCtx.reply_subject || decision.subject || \`Mensagem para ${lead.name}\``, `in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id`, `references: threadCtx.references`, `gmail_thread_id: threadCtx.gmail_thread_id`.
+1. Corrigir `supabase/functions/_shared/email-thread.ts`
+   - Trocar a ordenação de `created_at` para `sent_at`.
+   - Buscar a última mensagem de email da conversa com `rfc_message_id`.
+   - Priorizar a última mensagem inbound para `In-Reply-To`, mantendo a cadeia `References` com os Message-IDs anteriores.
+   - Reaproveitar o `gmail_thread_id` da thread existente.
+   - Normalizar o assunto como `Re: <assunto original>` usando o primeiro/último assunto real da conversa.
 
-### 2. `cadence-executor/index.ts`
-Mesma mudança nos **dois** sites de email:
-- Linha ~277 (mensagem custom aprovada): usar `preConversation?.id` para buscar contexto e passar os campos.
-- Linha ~557 (mensagem auto-gerada): usar `preConversationAi?.id` para buscar contexto e passar os campos.
-- Subject mantém fallback `parsed.subject || \`Mensagem para ${lead.name}\`` se não houver thread anterior.
+2. Tornar o fallback de assunto mais seguro nos envios por Gmail
+   - Remover o fallback operacional `Continuando nossa conversa` dos caminhos de resposta.
+   - Se houver histórico de email, usar sempre `Re: <assunto da thread>`.
+   - Só permitir assunto novo quando for realmente o primeiro email da conversa.
 
-### 3. Sem mudanças adicionais
-- `_shared/email-thread.ts` já existe e funciona.
-- `gmail-send` já aceita e propaga `gmail_thread_id` / headers (não muda).
-- Sem migração, sem mudança de UI, sem secrets novos.
+3. Ajustar os callers principais que enviam resposta SDR por email
+   - `execute-action`: resposta live do SDR, callback, `send_email` e aprovações pendentes.
+   - `approval-execute`: execução de mensagens aprovadas.
+   - `cadence-agent-decide` e `cadence-executor`: manter o contexto já adicionado, mas agora funcionando com `sent_at`.
+   - Revisar `inbound-webhook` para passar também `gmail_thread_id` quando usa `gmail-send` em auto-reply legado.
 
-## Comportamento esperado depois
+4. Evitar mensagem duplicada no banco
+   - Revisar o `send_email` em `execute-action`, porque `gmail-send` já grava a mensagem outbound; não deve inserir uma segunda mensagem sem headers depois.
 
-- **Primeira mensagem da cadência por email:** assunto da cadência, tópico novo (correto).
-- **Follow-up do SDR após resposta do lead:** mesma thread no Gmail, subject "Re: <original>", headers `In-Reply-To` + `References` corretos, `threadId` reaproveitado.
-- **Step executado pelo cadence-executor depois que a thread já existe:** também responde dentro da thread.
+5. Deploy e validação
+   - Deploy das edge functions alteradas.
+   - Validar nos dados que próximas respostas terão:
+     - mesmo `gmail_thread_id` da conversa original,
+     - `In-Reply-To` preenchido,
+     - `References` preenchido,
+     - assunto `Re: GroomerGenius: inovação para pets` no caso da Juliani.
 
-## Arquivos a alterar
-- `supabase/functions/cadence-agent-decide/index.ts`
-- `supabase/functions/cadence-executor/index.ts`
+## Resultado esperado
 
-Deploy das duas edge functions após as edições.
+A próxima resposta do SDR por email entrará como reply normal na conversa existente, com o conteúdo da troca anterior preservado pelo cliente de email, e não mais como nova mensagem com assunto `Continuando nossa conversa`.
