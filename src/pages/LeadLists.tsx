@@ -15,16 +15,18 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useLeadLists, useDeleteLeadList } from "@/hooks/useLeadLists";
+import { useLeadLists, useDeleteLeadList, useArchiveLeadList } from "@/hooks/useLeadLists";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
-import { ListChecks, Upload, Trash2, ExternalLink } from "lucide-react";
+import { ListChecks, Upload, Trash2, ExternalLink, Rocket, Archive, ArchiveRestore } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
 export default function LeadLists() {
   const navigate = useNavigate();
-  const { data: lists = [], isLoading } = useLeadLists();
+  const [showArchived, setShowArchived] = useState(false);
+  const { data: lists = [], isLoading } = useLeadLists({ archived: showArchived });
   const del = useDeleteLeadList();
+  const archive = useArchiveLeadList();
   const [importOpen, setImportOpen] = useState(false);
 
   return (
@@ -39,9 +41,15 @@ export default function LeadLists() {
             Acompanhe lotes importados: enriquecimento, aprovações pendentes e envios.
           </p>
         </div>
-        <Button onClick={() => setImportOpen(true)}>
-          <Upload className="mr-2 h-4 w-4" /> Importar CSV
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setShowArchived(v => !v)}>
+            {showArchived ? <ArchiveRestore className="mr-2 h-4 w-4" /> : <Archive className="mr-2 h-4 w-4" />}
+            {showArchived ? "Ver ativas" : "Ver arquivadas"}
+          </Button>
+          <Button onClick={() => setImportOpen(true)}>
+            <Upload className="mr-2 h-4 w-4" /> Importar CSV
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -102,30 +110,48 @@ export default function LeadLists() {
                       {formatDistanceToNow(new Date(l.created_at), { locale: ptBR, addSuffix: true })}
                     </TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Excluir lista?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Os leads importados <strong>não</strong> serão removidos — apenas o agrupamento da lista <strong>{l.name}</strong> será excluído.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                              onClick={() => del.mutate(l.id)}
-                            >
-                              Excluir
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Lançar campanha"
+                          onClick={() => navigate(`/leads/lists/${l.id}/launch`)}
+                        >
+                          <Rocket className="h-4 w-4 text-primary" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title={showArchived ? "Desarquivar" : "Arquivar"}
+                          onClick={() => archive.mutate({ id: l.id, archive: !showArchived })}
+                        >
+                          {showArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
+                        </Button>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir lista?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Os leads importados <strong>não</strong> serão removidos — apenas o agrupamento da lista <strong>{l.name}</strong> será excluído.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={() => del.mutate(l.id)}
+                              >
+                                Excluir
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))
