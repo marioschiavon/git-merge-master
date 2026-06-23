@@ -1,72 +1,42 @@
+## Problema
 
-# Threading correto nos emails de saída
+A correção anterior só foi aplicada em `execute-action` e `approval-execute`. Mas as respostas do SDR de cadência são enviadas por outros dois callers que **não** usam `getEmailReplyContext` — por isso continuam abrindo tópico novo com "Continuando nossa conversa".
 
-## Diagnóstico
+Callers faltantes:
+- `supabase/functions/cadence-agent-decide/index.ts` (linha ~656) — caminho do SDR Agent decidindo follow-up de cadência.
+- `supabase/functions/cadence-executor/index.ts` (linhas ~277 e ~557) — executor de steps de cadência (mensagem custom aprovada e auto-gerada).
 
-Cada envio de email pelas ações (`execute-action`, `approval-execute`, feedback pós-reunião) cria um **tópico novo** no Gmail do lead por dois motivos somados:
-
-1. **Subject sempre novo.** Os callers passam literalmente `subject || "Continuando nossa conversa"`, descartando o assunto da conversa original. Gmail agrupa thread por `References`/`In-Reply-To` **ou** por assunto idêntico — perdendo os dois, vira tópico novo.
-2. **Headers de reply ausentes.** O `gmail-send` já aceita `in_reply_to_rfc_id` e `references` (e até gera os headers corretos), mas **nenhum caller passa esses campos**. A função tem o suporte; quem chama nunca usou.
-3. **`threadId` do Gmail não é enviado.** O jeito mais confiável de threading no Gmail API é incluir `threadId` no payload `messages.send`. Hoje o `gmail-send` só manda `{ raw }`, então mesmo com headers corretos o Gmail às vezes não agrupa.
-
-A função `gmail-sync-inbox` já guarda `gmail_thread_id` e `rfc_message_id` em cada `messages`, então a informação necessária para responder dentro da thread **já existe no banco** — só não está sendo lida na hora de enviar.
+Nenhum dos três passa `in_reply_to_rfc_id`, `references`, `gmail_thread_id` nem usa `reply_subject`, então o Gmail abre tópico novo.
 
 ## O que vai ser feito
 
-### 1. Helper compartilhado `_shared/email-thread.ts`
-Nova função `getEmailReplyContext(supabase, conversation_id)` que retorna:
-```ts
-{
-  in_reply_to_rfc_id: string | null,   // rfc_message_id da última msg da thread
-  references: string | null,            // cadeia acumulada (References anterior + última)
-  gmail_thread_id: string | null,       // para passar ao Gmail API
-  reply_subject: string | null,         // "Re: <assunto original>" (sem duplicar "Re:")
-}
-```
-Lógica: pega a **mensagem mais recente** da conversa (`order by created_at desc limit 1`) com canal email que tenha `rfc_message_id`. Usa `metadata.subject` ou, se vier de inbound, o subject parseado. Garante prefixo `Re: ` único.
+Aplicar exatamente o mesmo padrão já validado em `execute-action`:
 
-### 2. `gmail-send` — aceitar e propagar `gmail_thread_id`
-- Novo campo opcional no body: `gmail_thread_id`.
-- Incluir no payload do Gmail API: `JSON.stringify({ raw, threadId: gmail_thread_id })` quando presente.
-- Sem mudar nada quando ausente (primeira mensagem da thread).
+### 1. `cadence-agent-decide/index.ts`
+- Importar `getEmailReplyContext` de `../_shared/email-thread.ts`.
+- No bloco de email (linha ~654), antes de invocar `gmail-send`:
+  - `const threadCtx = await getEmailReplyContext(supabase, conversation?.id);`
+  - Passar no body: `subject: threadCtx.reply_subject || decision.subject || \`Mensagem para ${lead.name}\``, `in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id`, `references: threadCtx.references`, `gmail_thread_id: threadCtx.gmail_thread_id`.
 
-### 3. Callers que enviam email passam a usar o contexto
+### 2. `cadence-executor/index.ts`
+Mesma mudança nos **dois** sites de email:
+- Linha ~277 (mensagem custom aprovada): usar `preConversation?.id` para buscar contexto e passar os campos.
+- Linha ~557 (mensagem auto-gerada): usar `preConversationAi?.id` para buscar contexto e passar os campos.
+- Subject mantém fallback `parsed.subject || \`Mensagem para ${lead.name}\`` se não houver thread anterior.
 
-**`execute-action/index.ts`** (linhas 154–164, 320–329, 489–517):
-- Antes de chamar `gmail-send`, se `conversation_id` existe, busca `getEmailReplyContext`.
-- Passa `in_reply_to_rfc_id`, `references`, `gmail_thread_id`.
-- Subject:
-  - Usa `reply_subject` do contexto se houver thread anterior.
-  - Senão usa o subject vindo da decisão / generator.
-  - Só cai em `"Continuando nossa conversa"` se for genuinamente a primeira mensagem (sem conversa anterior e sem subject gerado).
+### 3. Sem mudanças adicionais
+- `_shared/email-thread.ts` já existe e funciona.
+- `gmail-send` já aceita e propaga `gmail_thread_id` / headers (não muda).
+- Sem migração, sem mudança de UI, sem secrets novos.
 
-**`approval-execute/index.ts`** (linha 178): mesma mudança, mesmo helper.
+## Comportamento esperado depois
 
-**`execute-action/index.ts` linha 1043** (request_feedback pós-reunião): mantém comportamento atual (é intencionalmente um tópico novo de pesquisa de satisfação) — **não** alterar.
-
-### 4. Sem migração de banco
-Tudo que precisamos (`rfc_message_id`, `gmail_thread_id`, `metadata.subject`) já está em `messages`. Nada a mudar no schema.
-
-## Comportamento resultante
-
-| Cenário | Hoje | Depois |
-|---|---|---|
-| Primeira mensagem de cadência por email | Subject definido pela cadência. Tópico novo (correto). | Igual. |
-| Lead responde, agente manda follow-up | Tópico novo "Continuando nossa conversa" | Mesmo tópico, subject "Re: <original>", aparece como reply no Gmail |
-| Operador aprova mensagem no HITL e envia | Tópico novo | Mesma thread |
-| Pesquisa pós-reunião | Tópico próprio | Mantém tópico próprio (intencional) |
-
-## Testes manuais sugeridos após implementar
-1. Criar cadência por email → enviar 1ª mensagem → ver no Gmail do lead.
-2. Lead responde manualmente.
-3. Agente decide enviar follow-up → deve aparecer **dentro** do mesmo tópico, com "Re: ".
-4. Acionar HITL, aprovar uma reply → mesma thread.
-5. Verificar em `messages` que `gmail_thread_id` é o mesmo das outras mensagens da conversa.
+- **Primeira mensagem da cadência por email:** assunto da cadência, tópico novo (correto).
+- **Follow-up do SDR após resposta do lead:** mesma thread no Gmail, subject "Re: <original>", headers `In-Reply-To` + `References` corretos, `threadId` reaproveitado.
+- **Step executado pelo cadence-executor depois que a thread já existe:** também responde dentro da thread.
 
 ## Arquivos a alterar
-- `supabase/functions/_shared/email-thread.ts` (novo)
-- `supabase/functions/gmail-send/index.ts`
-- `supabase/functions/execute-action/index.ts`
-- `supabase/functions/approval-execute/index.ts`
+- `supabase/functions/cadence-agent-decide/index.ts`
+- `supabase/functions/cadence-executor/index.ts`
 
-Sem mudanças de UI, sem migração, sem novos secrets.
+Deploy das duas edge functions após as edições.
