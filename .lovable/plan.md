@@ -1,75 +1,72 @@
-## Diagnóstico do caso Juliano
 
-- **Lead:** `Juliano` — tem WhatsApp `+5511976531515`, **NÃO tem e-mail**.
-- **Decisão do agente às 15:05** (`cadence_agent_decisions`): `action=send`, `channel=email`, subject *"GroomerGenius: Inovação para clínicas veterinárias…"*.
-- **Justificativa registrada pela IA:** *"Juliano não respondeu às últimas três tentativas pelo WhatsApp. Como o WhatsApp é o canal preferencial, mas não houve resposta, vou tentar o e-mail…"* — ou seja, a IA ignorou que o lead não tem e-mail e ignorou as respostas inbound que existiram.
-- **O que aconteceu de fato em `cadence-agent-decide` (linhas 622-657):**
-  - Branch `email && lead.email` → falso (lead sem e-mail).
-  - Branch `whatsapp && phone` → falso (canal era email).
-  - Cai no `else` final: `sendAction = "failed"`, `delivery_error = "Lead sem contato para canal email"`. **Nenhuma linha em `messages`. Nada saiu.**
-  - Mesmo assim, a `lead_activities` é gravada como *"🤖 IA enviou (email/new_info) – tentativa 4"*, sem refletir a falha.
-  - `next_execution_at` é empurrado para +72h, queimando uma tentativa.
+# Threading correto nos emails de saída
 
-Ou seja: o agente nunca deveria ter escolhido e-mail, e quando escolheu errado o sistema não fez fallback nem reportou falha corretamente.
+## Diagnóstico
 
-## Plano de correção
+Cada envio de email pelas ações (`execute-action`, `approval-execute`, feedback pós-reunião) cria um **tópico novo** no Gmail do lead por dois motivos somados:
 
-### 1. Guardrail determinístico de canal (em `cadence-agent-decide/index.ts`)
+1. **Subject sempre novo.** Os callers passam literalmente `subject || "Continuando nossa conversa"`, descartando o assunto da conversa original. Gmail agrupa thread por `References`/`In-Reply-To` **ou** por assunto idêntico — perdendo os dois, vira tópico novo.
+2. **Headers de reply ausentes.** O `gmail-send` já aceita `in_reply_to_rfc_id` e `references` (e até gera os headers corretos), mas **nenhum caller passa esses campos**. A função tem o suporte; quem chama nunca usou.
+3. **`threadId` do Gmail não é enviado.** O jeito mais confiável de threading no Gmail API é incluir `threadId` no payload `messages.send`. Hoje o `gmail-send` só manda `{ raw }`, então mesmo com headers corretos o Gmail às vezes não agrupa.
 
-Logo após a IA retornar a decisão (e após o normalize de `allowed_channels`, ~linha 488), forçar:
+A função `gmail-sync-inbox` já guarda `gmail_thread_id` e `rfc_message_id` em cada `messages`, então a informação necessária para responder dentro da thread **já existe no banco** — só não está sendo lida na hora de enviar.
 
-```text
-- Se decision.channel === "email" e !lead.email → trocar para "whatsapp" se houver whatsapp/phone; senão action="stop", stop_reason="no_contact".
-- Se decision.channel === "whatsapp" e !(lead.whatsapp || lead.phone) → trocar para "email" se houver e-mail; senão action="stop", stop_reason="no_contact".
+## O que vai ser feito
+
+### 1. Helper compartilhado `_shared/email-thread.ts`
+Nova função `getEmailReplyContext(supabase, conversation_id)` que retorna:
+```ts
+{
+  in_reply_to_rfc_id: string | null,   // rfc_message_id da última msg da thread
+  references: string | null,            // cadeia acumulada (References anterior + última)
+  gmail_thread_id: string | null,       // para passar ao Gmail API
+  reply_subject: string | null,         // "Re: <assunto original>" (sem duplicar "Re:")
+}
 ```
+Lógica: pega a **mensagem mais recente** da conversa (`order by created_at desc limit 1`) com canal email que tenha `rfc_message_id`. Usa `metadata.subject` ou, se vier de inbound, o subject parseado. Garante prefixo `Re: ` único.
 
-Esse guardrail é **autoritativo** — não depende do LLM acertar. Registrar no `rationale` que houve override (ex.: *"[override] canal trocado de email→whatsapp porque lead sem e-mail"*).
+### 2. `gmail-send` — aceitar e propagar `gmail_thread_id`
+- Novo campo opcional no body: `gmail_thread_id`.
+- Incluir no payload do Gmail API: `JSON.stringify({ raw, threadId: gmail_thread_id })` quando presente.
+- Sem mudar nada quando ausente (primeira mensagem da thread).
 
-### 2. Endurecer o prompt (mesmo arquivo, bloco `channelNote` ~linhas 219-226)
+### 3. Callers que enviam email passam a usar o contexto
 
-- Quando `hasEmail === false`: adicionar bullet **"PROIBIDO: o lead NÃO tem e-mail. NUNCA escolha channel=email, independente do número de tentativas no WhatsApp."**
-- Quando `hasWhatsapp === false`: simétrico para WhatsApp.
-- Também passar `hasEmail`/`hasWhatsapp` explícitos no contexto do lead (hoje vem só `lead.email || "N/A"`).
+**`execute-action/index.ts`** (linhas 154–164, 320–329, 489–517):
+- Antes de chamar `gmail-send`, se `conversation_id` existe, busca `getEmailReplyContext`.
+- Passa `in_reply_to_rfc_id`, `references`, `gmail_thread_id`.
+- Subject:
+  - Usa `reply_subject` do contexto se houver thread anterior.
+  - Senão usa o subject vindo da decisão / generator.
+  - Só cai em `"Continuando nossa conversa"` se for genuinamente a primeira mensagem (sem conversa anterior e sem subject gerado).
 
-### 3. Log honesto de atividade (linhas 660-669)
+**`approval-execute/index.ts`** (linha 178): mesma mudança, mesmo helper.
 
-Trocar a descrição em função de `sendAction`:
+**`execute-action/index.ts` linha 1043** (request_feedback pós-reunião): mantém comportamento atual (é intencionalmente um tópico novo de pesquisa de satisfação) — **não** alterar.
 
-- `sent`/`delivered` → `🤖 IA enviou (channel/hook) – tentativa N: …` (atual)
-- `failed` → `⚠️ IA tentou enviar (channel/hook) – falhou: <delivery_error || zapi_error>`
-- `pending_manual` → `📝 IA gerou (channel/hook) – pendente de envio manual`
-- `simulated` → mantém atual
+### 4. Sem migração de banco
+Tudo que precisamos (`rfc_message_id`, `gmail_thread_id`, `metadata.subject`) já está em `messages`. Nada a mudar no schema.
 
-E em `type` da activity, usar `system` quando `sendAction !== sent`, para não poluir a timeline de WhatsApp/email.
+## Comportamento resultante
 
-### 4. Quando o envio falhar por falta de contato, não queimar tentativa
+| Cenário | Hoje | Depois |
+|---|---|---|
+| Primeira mensagem de cadência por email | Subject definido pela cadência. Tópico novo (correto). | Igual. |
+| Lead responde, agente manda follow-up | Tópico novo "Continuando nossa conversa" | Mesmo tópico, subject "Re: <original>", aparece como reply no Gmail |
+| Operador aprova mensagem no HITL e envia | Tópico novo | Mesma thread |
+| Pesquisa pós-reunião | Tópico próprio | Mantém tópico próprio (intencional) |
 
-Se `sendAction === "failed"` por `delivery_error === "Lead sem contato para canal X"`:
-- **Não** incrementar `current_step`.
-- **Não** empurrar `next_execution_at` para +72h.
-- Encerrar o enrollment com `status='completed'`, `paused_reason='no_contact_channel'`, e gravar `lead_intents_log` com `category='no_response'` + metadata explicando.
+## Testes manuais sugeridos após implementar
+1. Criar cadência por email → enviar 1ª mensagem → ver no Gmail do lead.
+2. Lead responde manualmente.
+3. Agente decide enviar follow-up → deve aparecer **dentro** do mesmo tópico, com "Re: ".
+4. Acionar HITL, aprovar uma reply → mesma thread.
+5. Verificar em `messages` que `gmail_thread_id` é o mesmo das outras mensagens da conversa.
 
-(Falha técnica de provedor — ex.: Z-API offline — continua tentando depois.)
+## Arquivos a alterar
+- `supabase/functions/_shared/email-thread.ts` (novo)
+- `supabase/functions/gmail-send/index.ts`
+- `supabase/functions/execute-action/index.ts`
+- `supabase/functions/approval-execute/index.ts`
 
-### 5. Reconciliar o caso atual
-
-Para o enrollment `46a009df…`:
-- Reverter `current_step` (4 → 3) e `next_execution_at` para `now()` **OU** simplesmente disparar mais um manual de teste depois do fix para ver o agente escolhendo WhatsApp corretamente.
-
-A opção mais limpa: deixar o enrollment como está, fazer o deploy do fix, e usar o botão de teste manual novamente — o agente agora será obrigado a escolher WhatsApp.
-
-## Arquivos afetados
-
-- `supabase/functions/cadence-agent-decide/index.ts` — guardrail, prompt, log honesto, no-burn-on-no-contact.
-
-## Não muda
-
-- `cadence-reengage-cron` (já corrigido na rodada anterior).
-- `cadence-executor`, UI, schema.
-
-## Validação após implementar
-
-1. Clicar "Reengajar agora" novamente para o Juliano.
-2. Conferir `cadence_agent_decisions` mais recente → `channel='whatsapp'` (não email).
-3. Conferir `messages` → nova linha outbound com `delivery_status='delivered'` e `zapi_message_id` preenchido.
-4. Conferir `lead_activities` → descrição reflete envio real (não mais "IA enviou" em cima de falha).
+Sem mudanças de UI, sem migração, sem novos secrets.
