@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { getEmailReplyContext } from "../_shared/email-thread.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -172,15 +173,19 @@ serve(async (req) => {
           const { data: lead } = await supabase
             .from("leads").select("email").eq("id", approval.lead_id).maybeSingle();
           if (!lead?.email) throw new Error("lead sem email");
+          const threadCtx = await getEmailReplyContext(supabase, conversationId);
           const { error: sendErr } = await supabase.functions.invoke("gmail-send", {
             body: {
               to: lead.email,
-              subject: subject || "Continuando nossa conversa",
+              subject: threadCtx.reply_subject || subject || "Continuando nossa conversa",
               html: message.replace(/\n/g, "<br/>"),
               text: message,
               lead_id: approval.lead_id,
               company_id: approval.company_id,
               conversation_id: conversationId,
+              in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
+              references: threadCtx.references,
+              gmail_thread_id: threadCtx.gmail_thread_id,
               extra_metadata: { approval_id, hitl_approved: true },
             },
           });
