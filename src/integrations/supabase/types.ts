@@ -17,6 +17,7 @@ export type Database = {
       approval_requests: {
         Row: {
           action: string
+          batch_id: string | null
           cadence_id: string | null
           channel: string | null
           company_id: string
@@ -39,6 +40,7 @@ export type Database = {
         }
         Insert: {
           action?: string
+          batch_id?: string | null
           cadence_id?: string | null
           channel?: string | null
           company_id: string
@@ -61,6 +63,7 @@ export type Database = {
         }
         Update: {
           action?: string
+          batch_id?: string | null
           cadence_id?: string | null
           channel?: string | null
           company_id?: string
@@ -382,6 +385,7 @@ export type Database = {
           completed_at: string | null
           current_step: number
           enrolled_at: string
+          first_message_status: string | null
           id: string
           last_executed_at: string | null
           last_reengage_at: string | null
@@ -399,6 +403,7 @@ export type Database = {
           completed_at?: string | null
           current_step?: number
           enrolled_at?: string
+          first_message_status?: string | null
           id?: string
           last_executed_at?: string | null
           last_reengage_at?: string | null
@@ -416,6 +421,7 @@ export type Database = {
           completed_at?: string | null
           current_step?: number
           enrolled_at?: string
+          first_message_status?: string | null
           id?: string
           last_executed_at?: string | null
           last_reengage_at?: string | null
@@ -1675,6 +1681,63 @@ export type Database = {
           },
         ]
       }
+      lead_lists: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          default_cadence_id: string | null
+          file_name: string | null
+          id: string
+          lead_count: number
+          name: string
+          notes: string | null
+          source: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          default_cadence_id?: string | null
+          file_name?: string | null
+          id?: string
+          lead_count?: number
+          name: string
+          notes?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          default_cadence_id?: string | null
+          file_name?: string | null
+          id?: string
+          lead_count?: number
+          name?: string
+          notes?: string | null
+          source?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_lists_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_lists_default_cadence_id_fkey"
+            columns: ["default_cadence_id"]
+            isOneToOne: false
+            referencedRelation: "cadences"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_memory: {
         Row: {
           company_id: string
@@ -1808,6 +1871,7 @@ export type Database = {
           instagram_url: string | null
           last_synced_at: string | null
           lead_kind: string
+          lead_list_id: string | null
           linkedin_company_url: string | null
           linkedin_url: string | null
           name: string
@@ -1856,6 +1920,7 @@ export type Database = {
           instagram_url?: string | null
           last_synced_at?: string | null
           lead_kind?: string
+          lead_list_id?: string | null
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           name: string
@@ -1904,6 +1969,7 @@ export type Database = {
           instagram_url?: string | null
           last_synced_at?: string | null
           lead_kind?: string
+          lead_list_id?: string | null
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           name?: string
@@ -1940,6 +2006,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_lead_list_id_fkey"
+            columns: ["lead_list_id"]
+            isOneToOne: false
+            referencedRelation: "lead_lists"
             referencedColumns: ["id"]
           },
           {
