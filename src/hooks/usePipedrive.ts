@@ -227,12 +227,17 @@ export function useImportLeads() {
   const { companyId } = useAuth();
 
   return useMutation({
-    mutationFn: async (leads: LeadInput[]) => {
+    mutationFn: async (input: { leads: LeadInput[]; lead_list_id?: string | null } | LeadInput[]) => {
       if (!companyId) throw new Error("Empresa não identificada");
+      const leads = Array.isArray(input) ? input : input.leads;
+      const lead_list_id = Array.isArray(input) ? null : (input.lead_list_id || null);
       if (leads.length === 0) throw new Error("Nenhum lead para importar");
 
-      const rows = leads.map((l) => buildLeadRow(l, companyId, "csv_import"));
-
+      const rows = leads.map((l) => {
+        const r = buildLeadRow(l, companyId, "csv_import");
+        if (lead_list_id) (r as any).lead_list_id = lead_list_id;
+        return r;
+      });
 
       // Insert in chunks of 500
       let inserted = 0;
@@ -248,6 +253,7 @@ export function useImportLeads() {
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
+      queryClient.invalidateQueries({ queryKey: ["lead-lists"] });
       toast({ title: "Importação concluída!", description: `${data.inserted} leads importados.` });
     },
     onError: (error: Error) => {
