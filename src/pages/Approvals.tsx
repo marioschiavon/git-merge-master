@@ -1,15 +1,17 @@
 import { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin, NotebookPen } from "lucide-react";
-import { useApprovals, useApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
+import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin, NotebookPen, X } from "lucide-react";
+import { useApprovals, useApprovalExecute, useBulkApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
+import { useLeadLists } from "@/hooks/useLeadLists";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -30,10 +32,16 @@ const channelIcon = (ch: string | null) => {
 
 export default function ApprovalsPage() {
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const batchId = params.get("batch");
   const [tab, setTab] = useState<"pending" | "all">("pending");
-  const { data: approvals = [], isLoading } = useApprovals(tab);
+  const { data: approvals = [], isLoading } = useApprovals(tab, batchId);
+  const { data: lists = [] } = useLeadLists();
+  const activeList = useMemo(() => lists.find((l) => l.id === batchId), [lists, batchId]);
   const execute = useApprovalExecute();
+  const bulk = useBulkApprovalExecute();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const selected = useMemo(
     () => approvals.find((a: any) => a.id === selectedId) as any | undefined,
     [approvals, selectedId],
@@ -42,6 +50,31 @@ export default function ApprovalsPage() {
   useEffect(() => {
     if (!selectedId && approvals.length > 0) setSelectedId(approvals[0].id);
   }, [approvals, selectedId]);
+
+  // Clear selection if batch/tab changes
+  useEffect(() => { setChecked(new Set()); }, [batchId, tab]);
+
+  const pendingIds = useMemo(
+    () => approvals.filter((a: any) => a.status === "pending").map((a: any) => a.id),
+    [approvals],
+  );
+  const allChecked = checked.size > 0 && pendingIds.every((id) => checked.has(id));
+  const someChecked = checked.size > 0;
+
+  const toggleOne = (id: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setChecked(allChecked ? new Set() : new Set(pendingIds));
+  };
+
+  const clearBatch = () => {
+    const p = new URLSearchParams(params); p.delete("batch"); setParams(p, { replace: true });
+  };
 
 
   return (
