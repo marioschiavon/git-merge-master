@@ -584,6 +584,8 @@ export type Database = {
       }
       cadences: {
         Row: {
+          auto_approve_first_message: boolean
+          auto_approve_max_per_day: number
           company_id: string
           created_at: string
           created_by: string
@@ -601,6 +603,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_approve_first_message?: boolean
+          auto_approve_max_per_day?: number
           company_id: string
           created_at?: string
           created_by: string
@@ -618,6 +622,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_approve_first_message?: boolean
+          auto_approve_max_per_day?: number
           company_id?: string
           created_at?: string
           created_by?: string
@@ -822,6 +828,85 @@ export type Database = {
             columns: ["lead_id"]
             isOneToOne: false
             referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      campaigns: {
+        Row: {
+          approved_count: number
+          cadence_id: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          enrolled_count: number
+          filters: Json
+          id: string
+          list_id: string | null
+          mode: string
+          name: string
+          scheduled_for: string | null
+          sent_count: number
+          status: string
+          total_leads: number
+          updated_at: string
+        }
+        Insert: {
+          approved_count?: number
+          cadence_id?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          enrolled_count?: number
+          filters?: Json
+          id?: string
+          list_id?: string | null
+          mode: string
+          name: string
+          scheduled_for?: string | null
+          sent_count?: number
+          status?: string
+          total_leads?: number
+          updated_at?: string
+        }
+        Update: {
+          approved_count?: number
+          cadence_id?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          enrolled_count?: number
+          filters?: Json
+          id?: string
+          list_id?: string | null
+          mode?: string
+          name?: string
+          scheduled_for?: string | null
+          sent_count?: number
+          status?: string
+          total_leads?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaigns_cadence_id_fkey"
+            columns: ["cadence_id"]
+            isOneToOne: false
+            referencedRelation: "cadences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaigns_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "lead_lists"
             referencedColumns: ["id"]
           },
         ]
@@ -1683,42 +1768,51 @@ export type Database = {
       }
       lead_lists: {
         Row: {
+          archived_at: string | null
           company_id: string
           created_at: string
           created_by: string | null
           default_cadence_id: string | null
           file_name: string | null
+          folder: string | null
           id: string
           lead_count: number
           name: string
           notes: string | null
           source: string
+          tags: string[]
           updated_at: string
         }
         Insert: {
+          archived_at?: string | null
           company_id: string
           created_at?: string
           created_by?: string | null
           default_cadence_id?: string | null
           file_name?: string | null
+          folder?: string | null
           id?: string
           lead_count?: number
           name: string
           notes?: string | null
           source?: string
+          tags?: string[]
           updated_at?: string
         }
         Update: {
+          archived_at?: string | null
           company_id?: string
           created_at?: string
           created_by?: string | null
           default_cadence_id?: string | null
           file_name?: string | null
+          folder?: string | null
           id?: string
           lead_count?: number
           name?: string
           notes?: string | null
           source?: string
+          tags?: string[]
           updated_at?: string
         }
         Relationships: [
@@ -2248,6 +2342,7 @@ export type Database = {
           is_ai_generated: boolean
           name: string
           segment: string
+          slots: Json
           tone: string
           updated_at: string
         }
@@ -2261,6 +2356,7 @@ export type Database = {
           is_ai_generated?: boolean
           name: string
           segment?: string
+          slots?: Json
           tone?: string
           updated_at?: string
         }
@@ -2274,6 +2370,7 @@ export type Database = {
           is_ai_generated?: boolean
           name?: string
           segment?: string
+          slots?: Json
           tone?: string
           updated_at?: string
         }
