@@ -152,14 +152,19 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
     const lead = await loadLead(ctx);
     if (lead?.email) {
       try {
+        const threadCtx = await getEmailReplyContext(ctx.supabase, ctx.conversation_id);
+        const finalSubject = threadCtx.reply_subject || subject || "Continuando nossa conversa";
         await ctx.supabase.functions.invoke("gmail-send", {
           body: {
             to: lead.email,
-            subject: subject || "Continuando nossa conversa",
+            subject: finalSubject,
             html: content.replace(/\n/g, "<br/>"),
             lead_id: ctx.lead_id,
             company_id: ctx.company_id,
             conversation_id: ctx.conversation_id,
+            in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
+            references: threadCtx.references,
+            gmail_thread_id: threadCtx.gmail_thread_id,
           },
         });
         deliveryStatus = "sent";
