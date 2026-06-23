@@ -50,6 +50,7 @@ const masterItems = [
 const companyItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Leads", url: "/leads", icon: Target },
+  { title: "Listas", url: "/leads/lists", icon: ListChecks },
   { title: "Cadências", url: "/cadences", icon: MessageSquare },
   { title: "Acompanhamento", url: "/cadences/dashboard", icon: Activity },
   { title: "Aprovações", url: "/approvals", icon: ShieldCheck, showApprovalsBadge: true },
