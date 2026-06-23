@@ -22,21 +22,23 @@ export interface ApprovalRow {
   reviewed_at: string | null;
   executed_at: string | null;
   execution_error: string | null;
+  batch_id: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export function useApprovals(status: "pending" | "all" = "pending") {
+export function useApprovals(status: "pending" | "all" = "pending", batchId?: string | null) {
   const qc = useQueryClient();
   const query = useQuery({
-    queryKey: ["approvals", status],
+    queryKey: ["approvals", status, batchId || null],
     queryFn: async () => {
       let q = supabase
         .from("approval_requests")
-        .select("*, leads(id, name, email, company_name), cadences(id, name)")
+        .select("*, leads(id, name, email, company_name, lead_list_id), cadences(id, name)")
         .order("created_at", { ascending: false })
-        .limit(200);
+        .limit(500);
       if (status === "pending") q = q.eq("status", "pending");
+      if (batchId) q = q.eq("batch_id", batchId);
       const { data, error } = await q;
       if (error) throw error;
       return data as any[];
@@ -61,6 +63,53 @@ export function useApprovals(status: "pending" | "all" = "pending") {
   }, [qc]);
 
   return query;
+}
+
+export function useBulkApprovalExecute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      approval_ids: string[];
+      action: "approve" | "reject";
+      rejection_reason?: string;
+      throttle_ms?: number;
+    }) => {
+      const delay = Math.max(0, input.throttle_ms ?? 1500);
+      const results: { id: string; ok: boolean; error?: string }[] = [];
+      for (let i = 0; i < input.approval_ids.length; i++) {
+        const id = input.approval_ids[i];
+        try {
+          const { data, error } = await supabase.functions.invoke("approval-execute", {
+            body: {
+              approval_id: id,
+              action: input.action,
+              rejection_reason: input.action === "reject" ? input.rejection_reason : undefined,
+            },
+          });
+          if (error) throw error;
+          if (data?.error) throw new Error(data.error);
+          results.push({ id, ok: true });
+        } catch (e: any) {
+          results.push({ id, ok: false, error: e?.message || String(e) });
+        }
+        if (i < input.approval_ids.length - 1 && delay > 0) {
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
+      return results;
+    },
+    onSuccess: (results, vars) => {
+      qc.invalidateQueries({ queryKey: ["approvals"] });
+      qc.invalidateQueries({ queryKey: ["approvals-count"] });
+      qc.invalidateQueries({ queryKey: ["lead-lists"] });
+      const ok = results.filter((r) => r.ok).length;
+      const fail = results.length - ok;
+      const verb = vars.action === "approve" ? "enviadas" : "rejeitadas";
+      if (fail === 0) toast.success(`${ok} aprovações ${verb}`);
+      else toast.error(`${ok} ${verb}, ${fail} com erro`);
+    },
+    onError: (e: any) => toast.error(e?.message || "Falha no processamento em lote"),
+  });
 }
 
 export function usePendingApprovalsCount() {

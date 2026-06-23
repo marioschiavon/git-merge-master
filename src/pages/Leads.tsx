@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLeads, useSyncLeads, useIntegration, useDeleteLead } from "@/hooks/usePipedrive";
+import { useLeadLists } from "@/hooks/useLeadLists";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
@@ -20,7 +22,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil } from "lucide-react";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -47,6 +49,8 @@ const enrichmentLabels: Record<string, { label: string; cls: string }> = {
 
 
 export default function Leads() {
+  const [params, setParams] = useSearchParams();
+  const listId = params.get("list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedLead, setSelectedLead] = useState<any>(null);
@@ -54,12 +58,23 @@ export default function Leads() {
   const [importOpen, setImportOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<any>(null);
 
-
-  const { data: leads = [], isLoading } = useLeads({ status: statusFilter, search });
+  const { data: allLeads = [], isLoading } = useLeads({ status: statusFilter, search });
+  const { data: lists = [] } = useLeadLists();
+  const activeList = useMemo(() => lists.find((l) => l.id === listId), [lists, listId]);
+  const leads = useMemo(
+    () => (listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads),
+    [allLeads, listId],
+  );
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
   const isConnected = integration?.status === "active";
   const deleteLead = useDeleteLead();
+
+  const clearListFilter = () => {
+    const p = new URLSearchParams(params);
+    p.delete("list");
+    setParams(p, { replace: true });
+  };
 
   const actionButtons = (
     <div className="flex gap-2">
@@ -124,6 +139,18 @@ export default function Leads() {
         </div>
         {actionButtons}
       </div>
+
+      {activeList && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Filtrando pela lista:</span>
+          <Badge variant="secondary" className="gap-1">
+            {activeList.name}
+            <button onClick={clearListFilter} className="ml-1 rounded hover:bg-muted-foreground/20" aria-label="Remover filtro">
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex gap-3">

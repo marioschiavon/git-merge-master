@@ -1,15 +1,17 @@
 import { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin, NotebookPen } from "lucide-react";
-import { useApprovals, useApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
+import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin, NotebookPen, X } from "lucide-react";
+import { useApprovals, useApprovalExecute, useBulkApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
+import { useLeadLists } from "@/hooks/useLeadLists";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -30,10 +32,16 @@ const channelIcon = (ch: string | null) => {
 
 export default function ApprovalsPage() {
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const batchId = params.get("batch");
   const [tab, setTab] = useState<"pending" | "all">("pending");
-  const { data: approvals = [], isLoading } = useApprovals(tab);
+  const { data: approvals = [], isLoading } = useApprovals(tab, batchId);
+  const { data: lists = [] } = useLeadLists();
+  const activeList = useMemo(() => lists.find((l) => l.id === batchId), [lists, batchId]);
   const execute = useApprovalExecute();
+  const bulk = useBulkApprovalExecute();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
   const selected = useMemo(
     () => approvals.find((a: any) => a.id === selectedId) as any | undefined,
     [approvals, selectedId],
@@ -42,6 +50,31 @@ export default function ApprovalsPage() {
   useEffect(() => {
     if (!selectedId && approvals.length > 0) setSelectedId(approvals[0].id);
   }, [approvals, selectedId]);
+
+  // Clear selection if batch/tab changes
+  useEffect(() => { setChecked(new Set()); }, [batchId, tab]);
+
+  const pendingIds = useMemo(
+    () => approvals.filter((a: any) => a.status === "pending").map((a: any) => a.id),
+    [approvals],
+  );
+  const allChecked = checked.size > 0 && pendingIds.every((id) => checked.has(id));
+  const someChecked = checked.size > 0;
+
+  const toggleOne = (id: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setChecked(allChecked ? new Set() : new Set(pendingIds));
+  };
+
+  const clearBatch = () => {
+    const p = new URLSearchParams(params); p.delete("batch"); setParams(p, { replace: true });
+  };
 
 
   return (
@@ -64,6 +97,61 @@ export default function ApprovalsPage() {
         </Tabs>
       </div>
 
+      {activeList && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Lote:</span>
+          <Badge variant="secondary" className="gap-1">
+            {activeList.name}
+            <button onClick={clearBatch} className="ml-1 rounded hover:bg-muted-foreground/20" aria-label="Limpar filtro">
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        </div>
+      )}
+
+      {tab === "pending" && pendingIds.length > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/40 p-2 px-3">
+          <div className="flex items-center gap-2">
+            <Checkbox checked={allChecked} onCheckedChange={toggleAll} />
+            <span className="text-sm">
+              {someChecked ? `${checked.size} selecionada${checked.size > 1 ? "s" : ""}` : `Selecionar tudo (${pendingIds.length})`}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!someChecked || bulk.isPending}
+              onClick={() => {
+                if (confirm(`Rejeitar ${checked.size} aprovação(ões)?`)) {
+                  bulk.mutate(
+                    { approval_ids: Array.from(checked), action: "reject", rejection_reason: "Rejeitado em lote" },
+                    { onSuccess: () => setChecked(new Set()) },
+                  );
+                }
+              }}
+            >
+              <XCircle className="mr-1.5 h-3.5 w-3.5" /> Rejeitar
+            </Button>
+            <Button
+              size="sm"
+              disabled={!someChecked || bulk.isPending}
+              onClick={() => {
+                if (confirm(`Aprovar e enviar ${checked.size} mensagem(ns)? Será aplicado throttle de 1.5s entre envios.`)) {
+                  bulk.mutate(
+                    { approval_ids: Array.from(checked), action: "approve" },
+                    { onSuccess: () => setChecked(new Set()) },
+                  );
+                }
+              }}
+            >
+              {bulk.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />}
+              Aprovar e enviar
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4">
         <Card className="overflow-hidden">
           <CardHeader className="py-3">
@@ -71,7 +159,7 @@ export default function ApprovalsPage() {
               {tab === "pending" ? "Fila" : "Todos"} ({approvals.length})
             </CardTitle>
           </CardHeader>
-          <ScrollArea className="h-[calc(100vh-280px)]">
+          <ScrollArea className="h-[calc(100vh-340px)]">
             <div className="divide-y">
               {isLoading && <p className="p-4 text-sm text-muted-foreground">Carregando...</p>}
               {!isLoading && approvals.length === 0 && (
@@ -83,32 +171,45 @@ export default function ApprovalsPage() {
                 const leadName = a.leads?.name || a.leads?.company_name || "Lead sem nome";
                 const preview = (a.payload?.subject || a.payload?.message || a.payload?.body || "").toString().slice(0, 80);
                 const isActive = selectedId === a.id;
+                const isPending = a.status === "pending";
                 return (
-                  <button
+                  <div
                     key={a.id}
-                    onClick={() => setSelectedId(a.id)}
-                    className={`w-full text-left p-3 hover:bg-muted/50 transition ${isActive ? "bg-muted" : ""}`}
+                    className={`flex items-start gap-2 p-3 hover:bg-muted/50 transition ${isActive ? "bg-muted" : ""}`}
                   >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="text-sm font-medium truncate">{leadName}</span>
-                      <StatusBadge status={a.status} />
-                    </div>
-                    <div className="flex items-center gap-1.5 mb-1">
-                      <Badge variant="outline" className="text-[10px] gap-1">
-                        {channelIcon(a.channel)}
-                        {kindLabel[a.kind] || a.kind}
-                      </Badge>
-                      <span className="text-[10px] text-muted-foreground">
-                        {formatDistanceToNow(new Date(a.created_at), { locale: ptBR, addSuffix: true })}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground truncate">{preview}</p>
-                  </button>
+                    {isPending && (
+                      <Checkbox
+                        className="mt-1"
+                        checked={checked.has(a.id)}
+                        onCheckedChange={() => toggleOne(a.id)}
+                      />
+                    )}
+                    <button
+                      onClick={() => setSelectedId(a.id)}
+                      className="flex-1 text-left min-w-0"
+                    >
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <span className="text-sm font-medium truncate">{leadName}</span>
+                        <StatusBadge status={a.status} />
+                      </div>
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <Badge variant="outline" className="text-[10px] gap-1">
+                          {channelIcon(a.channel)}
+                          {kindLabel[a.kind] || a.kind}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground">
+                          {formatDistanceToNow(new Date(a.created_at), { locale: ptBR, addSuffix: true })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">{preview}</p>
+                    </button>
+                  </div>
                 );
               })}
             </div>
           </ScrollArea>
         </Card>
+
 
         {selected ? (
           <ApprovalDetail

@@ -1,11 +1,14 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import Papa from "papaparse";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useImportLeads, type LeadInput } from "@/hooks/usePipedrive";
+import { useCadences } from "@/hooks/useCadences";
+import { useCreateLeadList } from "@/hooks/useLeadLists";
 import { Download } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
@@ -19,7 +22,6 @@ const FIELD_ALIASES: Record<keyof LeadInput, string[]> = {
   email: ["email", "e-mail", "mail"],
   phone: ["phone", "telefone", "celular", "tel", "mobile"],
   whatsapp: ["whatsapp", "whats", "zap", "wpp"],
-
   company_name: ["company", "company_name", "empresa", "organização", "organizacao"],
   title: ["title", "cargo", "job_title", "job"],
   website: ["website", "site", "url", "web"],
@@ -31,7 +33,6 @@ const FIELD_ALIASES: Record<keyof LeadInput, string[]> = {
   status: ["status"],
   source: ["source", "origem"],
 };
-
 
 function normalize(s: string) {
   return s.toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -51,7 +52,18 @@ function mapRow(row: Record<string, string>): LeadInput | null {
 export function LeadImportDialog({ open, onOpenChange }: Props) {
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [fileName, setFileName] = useState("");
+  const [listName, setListName] = useState("");
+  const [cadenceId, setCadenceId] = useState<string>("");
   const importLeads = useImportLeads();
+  const createList = useCreateLeadList();
+  const { data: cadences = [] } = useCadences();
+
+  // Default list name to file name (minus extension) when file changes
+  useEffect(() => {
+    if (fileName && !listName) {
+      setListName(fileName.replace(/\.[^.]+$/, "").trim() || `Importação ${new Date().toLocaleDateString("pt-BR")}`);
+    }
+  }, [fileName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parsed = useMemo(() => {
     const valid: LeadInput[] = [];
@@ -96,19 +108,33 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
 
   const handleImport = async () => {
     if (parsed.valid.length === 0) return;
-    await importLeads.mutateAsync(parsed.valid);
-    setRows([]);
-    setFileName("");
+    const name = listName.trim() || `Importação ${new Date().toLocaleString("pt-BR")}`;
+    let lead_list_id: string | null = null;
+    try {
+      const list = await createList.mutateAsync({
+        name,
+        source: "csv",
+        file_name: fileName || null,
+        default_cadence_id: cadenceId || null,
+      });
+      lead_list_id = list.id;
+    } catch (e: any) {
+      toast({ title: "Falha ao criar lista", description: e?.message || String(e), variant: "destructive" });
+      return;
+    }
+    await importLeads.mutateAsync({ leads: parsed.valid, lead_list_id });
+    setRows([]); setFileName(""); setListName(""); setCadenceId("");
     onOpenChange(false);
   };
 
   const reset = (o: boolean) => {
-    if (!o) { setRows([]); setFileName(""); }
+    if (!o) { setRows([]); setFileName(""); setListName(""); setCadenceId(""); }
     onOpenChange(o);
   };
 
   const headers = rows[0] ? Object.keys(rows[0]) : [];
   const preview = rows.slice(0, 5);
+  const busy = importLeads.isPending || createList.isPending;
 
   return (
     <Dialog open={open} onOpenChange={reset}>
@@ -143,14 +169,40 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
 
           {rows.length > 0 && (
             <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <Label htmlFor="list-name">Nome da lista</Label>
+                  <Input
+                    id="list-name"
+                    value={listName}
+                    onChange={(e) => setListName(e.target.value)}
+                    placeholder="Ex: Pet shops SP — out/2024"
+                  />
+                  <p className="mt-1 text-[11px] text-muted-foreground">Usado para agrupar e acompanhar este lote.</p>
+                </div>
+                <div>
+                  <Label htmlFor="cadence">Cadência (opcional)</Label>
+                  <Select value={cadenceId || "none"} onValueChange={(v) => setCadenceId(v === "none" ? "" : v)}>
+                    <SelectTrigger id="cadence"><SelectValue placeholder="Nenhuma" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Nenhuma (usar configuração padrão)</SelectItem>
+                      {cadences.map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="mt-1 text-[11px] text-muted-foreground">Referência da lista. A inscrição segue a cadência padrão da empresa.</p>
+                </div>
+              </div>
+
               <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
                 <div><strong>{parsed.valid.length}</strong> leads válidos
                 {parsed.companyOnly > 0 && <> · <span className="text-amber-700">{parsed.companyOnly} sem nome (modo empresa)</span></>}
                 {parsed.skipped > 0 && <> · <span className="text-destructive">{parsed.skipped} ignorados (sem dados de contato)</span></>}</div>
-                <p className="text-xs text-muted-foreground">Leads sem nome serão tratados como canal corporativo: a primeira mensagem usa dados da empresa/redes e pede direcionamento ao decisor.</p>
+                <p className="text-xs text-muted-foreground">
+                  Após importar, o enriquecimento e a geração da 1ª mensagem rodam em background. As mensagens aparecem em Aprovações agrupadas por esta lista.
+                </p>
               </div>
-
-
 
               <div className="rounded-md border overflow-x-auto">
                 <Table>
@@ -176,9 +228,9 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
           <Button variant="outline" onClick={() => reset(false)}>Cancelar</Button>
           <Button
             onClick={handleImport}
-            disabled={parsed.valid.length === 0 || importLeads.isPending}
+            disabled={parsed.valid.length === 0 || busy}
           >
-            {importLeads.isPending ? "Importando..." : `Importar ${parsed.valid.length} leads`}
+            {busy ? "Importando..." : `Importar ${parsed.valid.length} leads`}
           </Button>
         </DialogFooter>
       </DialogContent>
