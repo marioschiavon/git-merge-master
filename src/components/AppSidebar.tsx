@@ -18,6 +18,7 @@ import {
   Bot,
   ShieldCheck,
   NotebookPen,
+  ListChecks,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
