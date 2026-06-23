@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
         gmail_message_id: gmailMessageId,
         gmail_thread_id: gmailThreadId,
         rfc_message_id: rfcMessageId,
-        metadata: { subject, channel: "email", via: "gmail", ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}) },
+        metadata: { subject, channel: "email", via: "gmail", references: references || in_reply_to_rfc_id || null, in_reply_to: in_reply_to_rfc_id || null, ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}) },
       });
     }
 
