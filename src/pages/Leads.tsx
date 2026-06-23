@@ -140,6 +140,18 @@ export default function Leads() {
         {actionButtons}
       </div>
 
+      {activeList && (
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Filtrando pela lista:</span>
+          <Badge variant="secondary" className="gap-1">
+            {activeList.name}
+            <button onClick={clearListFilter} className="ml-1 rounded hover:bg-muted-foreground/20" aria-label="Remover filtro">
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex gap-3">
         <div className="relative flex-1 max-w-sm">
