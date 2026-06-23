@@ -1,47 +1,34 @@
-## Diagnóstico
+## Por que as telas piscam
 
-Confirmei nos dados do lead Juliani que a última resposta foi enviada como nova thread:
+O `QueryClient` em `src/App.tsx` é criado sem opções, então valem os defaults do React Query:
 
-- Primeiro email outbound: assunto `GroomerGenius: inovação para pets`, thread Gmail `19ef52350f60b518`.
-- Resposta inbound do lead: assunto `Re: GroomerGenius: inovação para pets`, mesma thread `19ef52350f60b518`.
-- Resposta do SDR: assunto `Continuando nossa conversa`, nova thread Gmail `19ef525df11a166f`, sem `In-Reply-To` e sem `References`.
+- `refetchOnWindowFocus: true` → toda vez que você volta para a aba/janela, todas as queries são refetchadas.
+- `refetchOnMount: true` + `staleTime: 0` → cada navegação entre páginas refaz as queries do zero.
+- `refetchOnReconnect: true` → qualquer oscilação de rede dispara refetch.
 
-O motivo provável é duplo:
+Somado a isso, vários hooks fazem `refetchInterval` (Approvals 30s, SlotHolds 30s, HumanInbox 30s, LeadBooking 30s) e há canais realtime do Supabase em Conversations/Messages que chamam `invalidateQueries` agressivamente (inclusive `["conversations", companyId]` e `["lead-messages"]` em cada evento).
 
-1. O helper de thread busca a última mensagem com `.order("created_at")`, mas a tabela `messages` não tem coluna `created_at`; ela usa `sent_at`. Isso faz o contexto de reply falhar silenciosamente e voltar vazio.
-2. Alguns caminhos ainda usam fallback com assunto `Continuando nossa conversa`, então quando o contexto falha o email sai como tópico novo.
+O "piscar" acontece porque as páginas (`Leads`, `Dashboard`, `Conversations`, etc.) trocam o conteúdo por skeleton/spinner enquanto `isLoading`/`isFetching` está true — e com `staleTime: 0` isso vira loading toda hora.
 
-## Plano de correção
+## Plano
 
-1. Corrigir `supabase/functions/_shared/email-thread.ts`
-   - Trocar a ordenação de `created_at` para `sent_at`.
-   - Buscar a última mensagem de email da conversa com `rfc_message_id`.
-   - Priorizar a última mensagem inbound para `In-Reply-To`, mantendo a cadeia `References` com os Message-IDs anteriores.
-   - Reaproveitar o `gmail_thread_id` da thread existente.
-   - Normalizar o assunto como `Re: <assunto original>` usando o primeiro/último assunto real da conversa.
+1. **Configurar defaults sãos no `QueryClient`** (`src/App.tsx`):
+   - `staleTime: 30_000` (30s) para evitar refetch imediato a cada mount.
+   - `gcTime: 5 * 60_000`.
+   - `refetchOnWindowFocus: false`.
+   - `refetchOnReconnect: false`.
+   - `retry: 1`.
 
-2. Tornar o fallback de assunto mais seguro nos envios por Gmail
-   - Remover o fallback operacional `Continuando nossa conversa` dos caminhos de resposta.
-   - Se houver histórico de email, usar sempre `Re: <assunto da thread>`.
-   - Só permitir assunto novo quando for realmente o primeiro email da conversa.
+2. **Evitar flash de skeleton em refetch em background**: nas páginas que mostram listas grandes (`Leads`, `Conversations`, `CadencesDashboard`, `Approvals`, `Inbox`), trocar a condição de skeleton de `isLoading` para algo que só dispare na primeira carga — por padrão `useQuery` já só deixa `isLoading=true` quando não há dados em cache, mas vou revisar páginas que usam `isFetching` ou que recriam estado a cada render.
 
-3. Ajustar os callers principais que enviam resposta SDR por email
-   - `execute-action`: resposta live do SDR, callback, `send_email` e aprovações pendentes.
-   - `approval-execute`: execução de mensagens aprovadas.
-   - `cadence-agent-decide` e `cadence-executor`: manter o contexto já adicionado, mas agora funcionando com `sent_at`.
-   - Revisar `inbound-webhook` para passar também `gmail_thread_id` quando usa `gmail-send` em auto-reply legado.
+3. **Reduzir invalidations duplicadas do realtime em `Conversations.tsx`**: hoje cada evento de `messages` invalida `["conversations", companyId]`, `["messages", convId]` e `["lead-messages"]`. Vou manter apenas o que muda visualmente (mensagens da conversa atual) e debouncar a invalidation de `conversations` (ex.: só invalidar se o evento for de uma conversa não-aberta, ou usar `setQueryData` para atualizar localmente).
 
-4. Evitar mensagem duplicada no banco
-   - Revisar o `send_email` em `execute-action`, porque `gmail-send` já grava a mensagem outbound; não deve inserir uma segunda mensagem sem headers depois.
+4. **Revisar `refetchInterval` agressivos**: subir de 30s para 60s onde não for crítico (SlotHolds, LeadBooking) — Approvals e Inbox podem ficar em 30s. Opcional, posso deixar como está se preferir.
 
-5. Deploy e validação
-   - Deploy das edge functions alteradas.
-   - Validar nos dados que próximas respostas terão:
-     - mesmo `gmail_thread_id` da conversa original,
-     - `In-Reply-To` preenchido,
-     - `References` preenchido,
-     - assunto `Re: GroomerGenius: inovação para pets` no caso da Juliani.
+5. **Validar no preview**: navegar entre Leads → Conversations → Dashboard, alternar de aba e confirmar que não há mais flash de skeleton.
 
-## Resultado esperado
+### Detalhes técnicos
 
-A próxima resposta do SDR por email entrará como reply normal na conversa existente, com o conteúdo da troca anterior preservado pelo cliente de email, e não mais como nova mensagem com assunto `Continuando nossa conversa`.
+- Item 1 é a mudança que mata 90% do piscar (focus refetch é o mais comum).
+- Item 2/3 cobrem os casos onde realtime dispara renderização cheia.
+- Nada do backend / edge functions muda.
