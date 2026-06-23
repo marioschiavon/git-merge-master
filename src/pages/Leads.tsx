@@ -49,6 +49,8 @@ const enrichmentLabels: Record<string, { label: string; cls: string }> = {
 
 
 export default function Leads() {
+  const [params, setParams] = useSearchParams();
+  const listId = params.get("list");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedLead, setSelectedLead] = useState<any>(null);
@@ -56,12 +58,23 @@ export default function Leads() {
   const [importOpen, setImportOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<any>(null);
 
-
-  const { data: leads = [], isLoading } = useLeads({ status: statusFilter, search });
+  const { data: allLeads = [], isLoading } = useLeads({ status: statusFilter, search });
+  const { data: lists = [] } = useLeadLists();
+  const activeList = useMemo(() => lists.find((l) => l.id === listId), [lists, listId]);
+  const leads = useMemo(
+    () => (listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads),
+    [allLeads, listId],
+  );
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
   const isConnected = integration?.status === "active";
   const deleteLead = useDeleteLead();
+
+  const clearListFilter = () => {
+    const p = new URLSearchParams(params);
+    p.delete("list");
+    setParams(p, { replace: true });
+  };
 
   const actionButtons = (
     <div className="flex gap-2">
