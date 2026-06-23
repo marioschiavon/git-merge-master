@@ -104,6 +104,8 @@ export function useLeads(filters?: { status?: string; search?: string }) {
       return data || [];
     },
     enabled: !!companyId,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
   });
 }
 
