@@ -90,22 +90,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+        setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
+        setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
         if (session?.user) {
           setTimeout(() => fetchUserData(session.user.id), 0);
         } else {
-          setRoles([]);
-          setCompanyId(null);
-          setProfile(null);
+          setRoles((prev) => (prev.length === 0 ? prev : []));
+          setCompanyId((prev) => (prev === null ? prev : null));
+          setProfile((prev) => (prev === null ? prev : null));
         }
         setLoading(false);
       }
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+      setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
+      setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
       if (session?.user) {
         fetchUserData(session.user.id);
       }
@@ -118,11 +118,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isMasterAdmin = roles.includes("master_admin");
   const isCompanyAdmin = roles.includes("company_admin");
 
-  return (
-    <AuthContext.Provider value={{ session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin, signOut: doSignOut }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin, signOut: doSignOut }),
+    [session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);
