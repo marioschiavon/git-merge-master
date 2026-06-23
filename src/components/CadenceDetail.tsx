@@ -151,6 +151,40 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
           </div>
         )}
 
+        {cadenceId && cadence && (
+          <div className="mt-3 rounded-md border p-3 flex items-start justify-between gap-3 border-amber-200 bg-amber-50/50">
+            <div className="flex-1">
+              <div className="text-sm font-medium flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-amber-600" />
+                Modo full-auto (1ª mensagem)
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Quando ligado, a 1ª mensagem gerada pela IA é auto-aprovada e segue para o envio sem revisão humana, respeitando o limite diário.
+              </p>
+              {(cadence as any).auto_approve_first_message && (
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <Label className="text-xs">Limite diário:</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={500}
+                    className="h-7 w-24"
+                    defaultValue={(cadence as any).auto_approve_max_per_day ?? 50}
+                    onBlur={(e) => updateCadence.mutate({ id: cadenceId, auto_approve_max_per_day: Number(e.target.value || 50) } as any)}
+                  />
+                  <span className="text-muted-foreground">leads/dia</span>
+                </div>
+              )}
+            </div>
+            <Switch
+              checked={!!(cadence as any).auto_approve_first_message}
+              onCheckedChange={(v) => updateCadence.mutate({ id: cadenceId, auto_approve_first_message: v } as any)}
+              disabled={updateCadence.isPending}
+            />
+          </div>
+        )}
+
+
 
 
 

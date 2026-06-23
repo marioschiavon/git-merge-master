@@ -1,107 +1,136 @@
-## Objetivo
+## Próximas fases do Batch Pipeline
 
-Transformar o fluxo "1 a 1" num **pipeline em lote** com tela única de aprovação (1ª mensagem sempre revisada e editável), organização de listas importadas e, em seguida, modo full-auto, templates híbridos e wizard "Lançar campanha".
+Implementar as Fases 2, 3 e 4 do plano, mais o fechamento da Fase 1 (ativar de verdade o campo "Cadência" do import).
 
-## Fluxo central
+---
+
+### Fase 1.5 — Fechar o loop import → cadência → aprovação
+
+Hoje o `lead_lists.default_cadence_id` é só metadado. Conectar:
+
+- Quando a enrichment de um lead termina (`lead_enrichment_jobs` → `done`) e o lead tem `lead_list_id` com `default_cadence_id`:
+  1. Criar `cadence_enrollment` automaticamente (status `active`, `first_message_status = 'generating'`).
+  2. Disparar geração da 1ª mensagem via AI (edge function `generate-first-message`, reaproveitando prompts existentes do agent).
+  3. Criar `approval_request` com `batch_id = lead_list_id`, `first_message_status = 'pending_approval'`.
+- Contadores em `lead_lists` (`pending_approvals`, `enriched_count`) atualizados via trigger.
+- UI de `LeadLists` mostra barra de progresso real: importados → enriquecidos → aprovados → enviados.
+
+---
+
+### Fase 2 — Modo Full-Auto (toggle por cadência)
+
+- Migração: `cadences.auto_approve_first_message boolean default false` + `cadences.auto_approve_max_per_day int default 50` (guard-rail).
+- UI: na tela de edição de cadência, seção "Automação" com:
+  - Toggle "Aprovar e enviar 1ª mensagem automaticamente"
+  - Aviso visual ("⚠ Mensagens vão direto pro lead sem revisão humana")
+  - Limite diário (slider)
+- Backend: em `hitl-gate.ts`, se a cadência da enrollment tem `auto_approve_first_message = true` e o contador diário ainda permite, marca `approval_request.status = 'auto_approved'` e enfileira envio direto.
+- Log em `cadence_agent_decisions` com `decision_type = 'auto_approved'` para auditoria.
+- Filtro extra em `Approvals`: "Mostrar auto-aprovadas" (off por default).
+
+---
+
+### Fase 3 — Templates híbridos com slots de IA
+
+Mensagem como `script_template.body` com sintaxe:
 
 ```text
-[Importar CSV/Pipedrive]
-        ↓ define: nome da lista + cadência + responsável
-[Lista de leads criada] (lead_lists)
-        ↓
-[Enriquecimento em background] (lead_enrichment_jobs)
-        ↓ por lead, ao terminar
-[Geração automática da 1ª mensagem] (IA)
-        ↓
-[Fila de aprovação em lote] (Approvals em modo grid)
-   - filtros por lista, cadência, canal
-   - edição inline, regenerar, aprovar/rejeitar em massa
-        ↓
-[Disparo em lote com throttle]
+Oi {{lead.first_name}}, vi que vocês {{ai:hook sobre o site}}.
+Faz sentido conversar sobre {{ai:dor relacionada ao cargo}}?
 ```
 
-## Fase 1 — Pipeline em lote (núcleo)
+- Migração: `script_templates.slots jsonb` (cache do parsing: `[{key, prompt, max_tokens}]`).
+- Parser util `src/lib/templateSlots.ts`:
+  - Extrai `{{ai:...}}` e `{{lead.field}}` separadamente.
+  - Lead fields → substituição direta.
+  - AI slots → 1 chamada Lovable AI por mensagem retornando JSON com todos os slots de uma vez (economia de tokens/latência vs gerar a mensagem inteira).
+- Editor de template (UI): textarea com syntax highlight simples + preview lado a lado renderizando com um lead de exemplo.
+- Edge function `render-template-slots`:
+  - Input: `template_id`, `lead_id`
+  - Output: `{ rendered_body, slot_values }`
+  - Usa knowledge da company + dados do lead enriquecido como contexto.
+- Geração da 1ª mensagem (Fase 1.5) passa a usar este renderer quando a cadência tem template híbrido associado.
 
-### 1.1 Organização de listas importadas
-- Nova tabela `lead_lists` (`id, company_id, name, source: 'csv'|'pipedrive'|'manual', file_name, created_by, notes, lead_count cache`).
-- Coluna `lead_list_id` em `leads` (nullable; lead pode pertencer a 1 lista).
-- Tela nova `/leads/lists` (ou aba dentro de Leads): cards/tabela com nome, origem, qtd leads, % enriquecidos, % aprovados, % enviados, data.
-- No filtro de Leads, adicionar **filtro por lista**.
-- Ao clicar numa lista: abre Leads filtrado + ações ("Aprovar todos pendentes desta lista", "Reenriquecer", "Renomear", "Excluir").
+---
 
-### 1.2 Wizard de importação (`LeadImportDialog`)
-Passo extra após mapeamento:
-- Nome da lista (default: nome do arquivo)
-- Cadência (opcional)
-- Toggle "Enriquecer automaticamente" (default on se configurado)
-- Toggle "Gerar 1ª mensagem após enriquecer" (default on se cadência selecionada)
+### Fase 4 — Wizard "Lançar campanha" sobre listas existentes
 
-### 1.3 Orquestração backend
-- Função `cadence-batch-enroll` (ou hook em `enrich-lead`): ao terminar enriquecimento de um lead em lista com cadência → gera 1ª mensagem e cria `approval_requests` com `kind='first_message'`.
-- Adicionar `batch_id uuid` em `approval_requests` (= `lead_list_id`) para agrupar e permitir "aprovar tudo deste lote".
-- Adicionar `first_message_status` em `cadence_enrollments` (`pending_enrichment` | `pending_approval` | `approved` | `sent`).
+Nova rota `/lists/:id/launch` — wizard de 4 passos:
 
-### 1.4 Tela de Aprovações em lote
-Expandir `/approvals`:
-- **Modo grid** com checkbox, preview (subject + 1ª linha), filtros (lista, cadência, canal, status enriquecimento).
-- Painel lateral com mensagem editável (mantém detail atual; salva em `edited_payload`).
-- Ações em lote: aprovar selecionados, rejeitar, regenerar IA.
+1. **Seleção de leads** — checkbox da lista, filtros (enrichment_status, tem email, score), contagem ao vivo.
+2. **Cadência + template** — escolher cadência (sugere `default_cadence_id`), preview do template renderizado para 3 leads aleatórios.
+3. **Modo de envio** — radio: `Revisar cada mensagem` (cria approvals) | `Full-auto` (respeita guard-rail diário) | `Agendar` (data/hora futura).
+4. **Confirmar** — resumo (X leads, cadência Y, modo Z, estimativa de envio); botão "Lançar campanha".
 
-### 1.5 Throttle no disparo
-- Função `approval-execute-batch` recebe array de IDs e processa com intervalo configurável (ex.: 1 email a cada 2s) para respeitar limites do Gmail.
+- Botão "Lançar campanha" na linha de cada lista em `LeadLists.tsx`.
+- Backend: action `launch-campaign` cria batch de enrollments respeitando o modo escolhido; reusa pipeline da Fase 1.5/2.
+- Tabela nova `campaigns` (id, list_id, cadence_id, mode, scheduled_for, created_by, status, totals) para histórico/auditoria.
 
-### 1.6 Indicadores
-- Badge em Leads: `Enriquecendo` / `Aguardando aprovação` / `Enviado`.
-- Card resumo na lista: `12/50 aprovados · 8 enviados · 30 aguardando`.
+---
 
-## Fase 2 — Modo full-auto por cadência
-- Adicionar em `cadences` (ou `cadence_policies`) campo `first_message_mode` (`review_all` | `review_first_only` | `full_auto`).
-- Quando `full_auto`: pular `approval_requests` para `first_message` e enviar direto após enriquecer (respeitando throttle).
-- UI: toggle no editor da cadência com aviso ("usar apenas em listas validadas").
+### Organização de listas (complemento da Fase 1)
 
-## Fase 3 — Templates híbridos com slots de IA
-- Em `script_templates`, suportar marcadores `{{ai:hook_personalizado}}`, `{{ai:referencia_site}}` etc.
-- IA preenche só os slots, não a mensagem inteira → mais rápido, mais barato, mais consistente.
-- Editor de template detecta slots e mostra preview com dado de um lead exemplo.
-- Geração da 1ª mensagem usa esse caminho quando a cadência aponta para um template híbrido.
+- Adicionar à `lead_lists`: `tags text[]`, `folder text`, `archived_at timestamptz`.
+- UI em `/lists`:
+  - Filtro por tag e folder (sidebar leve).
+  - Bulk actions: arquivar, mover de folder, exportar CSV.
+  - Busca por nome.
 
-## Fase 4 — Wizard "Lançar campanha"
-Tela `/campaigns/new` para listas já existentes:
-1. Selecionar lista (ou filtro de leads)
-2. Selecionar cadência
-3. Escolher política de aprovação (review_all / review_first_only / full_auto)
-4. Preview de 3 mensagens amostrais + custo estimado + tempo total
-5. Botão "Lançar" → mesmo pipeline da Fase 1
+---
 
-## Detalhes técnicos
+### Detalhes técnicos
 
-- **Migrations necessárias** (Fase 1):
-  - `lead_lists` (id, company_id, name, source, file_name, notes, created_by, timestamps) + GRANTs + RLS por `company_id`.
-  - `leads.lead_list_id uuid nullable` + index.
-  - `approval_requests.batch_id uuid nullable` + index.
-  - `cadence_enrollments.first_message_status text` + check.
-- **Edge functions**:
-  - Fase 1: `cadence-batch-enroll` (nova), `approval-execute-batch` (nova), `enrich-lead` (hook ao terminar).
-  - Fase 2: ajuste em `cadence-batch-enroll` para pular aprovação se `full_auto`.
-  - Fase 3: nova `render-hybrid-template` ou ajuste em `preview-cadence-messages`.
-- **Frontend**:
-  - Fase 1: `LeadImportDialog` (passo extra), `Approvals.tsx` (modo grid + bulk), nova rota `/leads/lists`, `useApprovals` (paginação + bulk).
-  - Fase 2: editor de cadência com toggle.
-  - Fase 3: editor de template com slots.
-  - Fase 4: nova rota `/campaigns/new`.
+**Migrações (3 separadas, na ordem):**
+1. `cadences.auto_approve_first_message`, `auto_approve_max_per_day` + colunas de organização em `lead_lists` (tags, folder, archived_at) + trigger de contadores de `lead_lists`.
+2. `script_templates.slots` + nova tabela `campaigns` com RLS por company_id.
+3. Trigger `after_enrichment_done` → enfileira geração de 1ª mensagem.
 
-## Validação (Fase 1)
-- Importar CSV de 10 leads com nome de lista "Teste GroomerGenius" + cadência selecionada.
-- Lista aparece em `/leads/lists` com `0/10 enriquecidos`.
-- Enriquecimento roda → contador sobe.
-- 10 aprovações aparecem agrupadas em Approvals (filtro pela lista funciona).
-- Selecionar todas → aprovar → 10 emails saem com throttle.
-- Lista mostra `10/10 enviados`.
+**Edge functions novas:**
+- `generate-first-message` — reusa lógica do agent, salva em `cadence_custom_messages`, cria `approval_request`.
+- `render-template-slots` — 1 call AI batch para todos slots de um template.
+- `launch-campaign` — cria enrollments em lote para o wizard.
+- Atualizar `_shared/hitl-gate.ts` para honrar `auto_approve_first_message`.
 
-## Ordem de execução sugerida
-1. Migrations (lead_lists, colunas extras).
-2. Backend: hook enrich → batch enroll → approval em massa.
-3. Frontend: import wizard + tela de listas.
-4. Frontend: approvals em grid + bulk actions.
-5. Throttle batch send.
-6. Fases 2, 3, 4 em sequência depois.
+**Frontend principal:**
+- `src/pages/LeadLists.tsx` — folders/tags/arquivar + botão "Lançar campanha".
+- `src/pages/CampaignWizard.tsx` (nova).
+- `src/pages/Cadences/CadenceForm.tsx` — seção Automação.
+- `src/pages/Templates/TemplateEditor.tsx` — editor com preview de slots.
+- `src/lib/templateSlots.ts` — parser/renderer client-side.
+- Hooks: `useLaunchCampaign`, `useRenderTemplatePreview`, `useUpdateCadenceAutomation`.
+
+**Ordem de execução:** Fase 1.5 → Fase 2 → Fase 3 → Fase 4 → Organização. Cada fase fica utilizável isolada.
+
+Atualizar `.lovable/plan.md` ao final.
+
+---
+
+## Status da implementação (Fases 1.5 → 4)
+
+✅ **Fase 1.5 — Loop import → cadência → aprovação ativo**
+- Trigger `after_enrichment_done` cria enrollment com `first_message_status='pending_generation'` quando a lista do lead tem `default_cadence_id`.
+- Edge function `generate-pending-first-messages` (cron 1min): gera 1ª mensagem via `buildFirstMessage` e cria `approval_request`.
+
+✅ **Fase 2 — Toggle full-auto por cadência**
+- Colunas: `cadences.auto_approve_first_message`, `auto_approve_max_per_day`.
+- UI no header do `CadenceDetail`: switch + input de limite diário.
+- Cron auto-aprova respeitando quota: marca a approval como `approved` (com `context.auto_approved=true`).
+
+✅ **Fase 3 — Templates híbridos com slots de IA**
+- Parser client-side `src/lib/templateSlots.ts` (`{{ai:...}}` e `{{lead.field}}`).
+- Edge function `render-template-slots`: faz 1 chamada à Lovable AI e devolve `{rendered_body, slot_values}`.
+- Coluna `script_templates.slots jsonb` (cache).
+
+✅ **Fase 4 — Wizard "Lançar campanha"**
+- Rota `/leads/lists/:listId/launch` (4 passos: leads → cadência → modo → confirmar).
+- Edge function `launch-campaign` cria registro em `campaigns` + enrollments.
+- Tabela `campaigns` (id, list_id, cadence_id, mode, scheduled_for, totals, status).
+
+✅ **Organização de listas**
+- Colunas: `lead_lists.tags[]`, `folder`, `archived_at`.
+- UI: toggle "ver arquivadas", botão de arquivar/desarquivar, botão "Lançar campanha".
+
+⚠️ **TODO futuro (fora desta entrega)**:
+- Sender automático para `approval_requests` com `context.auto_approved=true` (hoje o envio segue o fluxo padrão de aprovação).
+- Editor visual de templates com preview de slots renderizados (parser e edge function já existem; falta integrar no `Scripts.tsx`).
+- Filtros por tag/folder na sidebar de `LeadLists`.

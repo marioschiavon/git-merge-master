@@ -25,17 +25,20 @@ export interface LeadListStats extends LeadListRow {
   failed: number;
 }
 
-export function useLeadLists() {
+export function useLeadLists(opts?: { archived?: boolean }) {
   const { companyId } = useAuth();
+  const archived = !!opts?.archived;
   return useQuery({
-    queryKey: ["lead-lists", companyId],
+    queryKey: ["lead-lists", companyId, archived],
     queryFn: async (): Promise<LeadListStats[]> => {
       if (!companyId) return [];
-      const { data: lists, error } = await supabase
+      let q = supabase
         .from("lead_lists" as any)
         .select("*")
         .eq("company_id", companyId)
         .order("created_at", { ascending: false });
+      q = archived ? q.not("archived_at", "is", null) : q.is("archived_at", null);
+      const { data: lists, error } = await q;
       if (error) throw error;
       const ids = (lists || []).map((l: any) => l.id);
       if (ids.length === 0) return [];
@@ -130,5 +133,23 @@ export function useRenameLeadList() {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["lead-lists"] }),
+  });
+}
+
+export function useArchiveLeadList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
+      const { error } = await supabase
+        .from("lead_lists" as any)
+        .update({ archived_at: archive ? new Date().toISOString() : null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["lead-lists"] });
+      toast.success(vars.archive ? "Lista arquivada" : "Lista desarquivada");
+    },
+    onError: (e: any) => toast.error(e?.message || "Falha"),
   });
 }

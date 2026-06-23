@@ -10,6 +10,7 @@ import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import Leads from "@/pages/Leads";
 import LeadLists from "@/pages/LeadLists";
+import CampaignWizard from "@/pages/CampaignWizard";
 import Cadences from "@/pages/Cadences";
 import CadencesDashboard from "@/pages/CadencesDashboard";
 import Scripts from "@/pages/Scripts";
@@ -61,6 +62,7 @@ const App = () => (
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/leads" element={<Leads />} />
               <Route path="/leads/lists" element={<LeadLists />} />
+              <Route path="/leads/lists/:listId/launch" element={<CampaignWizard />} />
               <Route path="/cadences" element={<Cadences />} />
               <Route path="/cadences/dashboard" element={<CadencesDashboard />} />
               <Route path="/scripts" element={<Scripts />} />
