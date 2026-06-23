@@ -121,6 +121,19 @@ export async function createApprovalRequest(
         .maybeSingle();
       if (existing) return { id: existing.id, created: false };
     }
+    // Auto-attach batch_id from lead.lead_list_id so approvals can be grouped by import list
+    let batchId: string | null = null;
+    if (params.lead_id) {
+      try {
+        const { data: ld } = await supabase
+          .from("leads")
+          .select("lead_list_id")
+          .eq("id", params.lead_id)
+          .maybeSingle();
+        if (ld?.lead_list_id) batchId = ld.lead_list_id;
+      } catch {}
+    }
+
     const { data, error } = await supabase
       .from("approval_requests")
       .insert({
@@ -135,6 +148,7 @@ export async function createApprovalRequest(
         payload: params.payload,
         context: params.context ?? {},
         status: "pending",
+        batch_id: batchId,
       })
       .select("id")
       .single();
