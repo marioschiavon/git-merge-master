@@ -49,20 +49,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
 
     const userRoles = rolesRes.data?.map((r) => r.role as AppRole) ?? [];
-    setRoles(userRoles);
-    if (profileRes.data) setProfile(profileRes.data);
+    setRoles((prev) =>
+      prev.length === userRoles.length && prev.every((r, i) => r === userRoles[i]) ? prev : userRoles,
+    );
+    if (profileRes.data) {
+      setProfile((prev) =>
+        prev &&
+        prev.full_name === profileRes.data.full_name &&
+        prev.avatar_url === profileRes.data.avatar_url
+          ? prev
+          : profileRes.data,
+      );
+    }
 
     const isMaster = userRoles.includes("master_admin");
 
     if (memberRes.data) {
-      setCompanyId(memberRes.data.company_id);
+      const nextCompanyId = memberRes.data.company_id;
+      setCompanyId((prev) => (prev === nextCompanyId ? prev : nextCompanyId));
 
       // Check company status — block inactive companies for non-master users
       if (!isMaster) {
         const { data: company } = await supabase
           .from("companies")
           .select("status")
-          .eq("id", memberRes.data.company_id)
+          .eq("id", nextCompanyId)
           .maybeSingle();
 
         if (company?.status === "inactive") {
@@ -72,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } else {
-      setCompanyId(null);
+      setCompanyId((prev) => (prev === null ? prev : null));
     }
   };
 
