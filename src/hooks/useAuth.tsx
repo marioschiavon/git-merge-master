@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -49,20 +49,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     ]);
 
     const userRoles = rolesRes.data?.map((r) => r.role as AppRole) ?? [];
-    setRoles(userRoles);
-    if (profileRes.data) setProfile(profileRes.data);
+    setRoles((prev) =>
+      prev.length === userRoles.length && prev.every((r, i) => r === userRoles[i]) ? prev : userRoles,
+    );
+    if (profileRes.data) {
+      setProfile((prev) =>
+        prev &&
+        prev.full_name === profileRes.data.full_name &&
+        prev.avatar_url === profileRes.data.avatar_url
+          ? prev
+          : profileRes.data,
+      );
+    }
 
     const isMaster = userRoles.includes("master_admin");
 
     if (memberRes.data) {
-      setCompanyId(memberRes.data.company_id);
+      const nextCompanyId = memberRes.data.company_id;
+      setCompanyId((prev) => (prev === nextCompanyId ? prev : nextCompanyId));
 
       // Check company status — block inactive companies for non-master users
       if (!isMaster) {
         const { data: company } = await supabase
           .from("companies")
           .select("status")
-          .eq("id", memberRes.data.company_id)
+          .eq("id", nextCompanyId)
           .maybeSingle();
 
         if (company?.status === "inactive") {
@@ -72,29 +83,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
     } else {
-      setCompanyId(null);
+      setCompanyId((prev) => (prev === null ? prev : null));
     }
   };
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        setSession(session);
-        setUser(session?.user ?? null);
+        setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
+        setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
         if (session?.user) {
           setTimeout(() => fetchUserData(session.user.id), 0);
         } else {
-          setRoles([]);
-          setCompanyId(null);
-          setProfile(null);
+          setRoles((prev) => (prev.length === 0 ? prev : []));
+          setCompanyId((prev) => (prev === null ? prev : null));
+          setProfile((prev) => (prev === null ? prev : null));
         }
         setLoading(false);
       }
     );
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+      setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
+      setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
       if (session?.user) {
         fetchUserData(session.user.id);
       }
@@ -107,11 +118,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isMasterAdmin = roles.includes("master_admin");
   const isCompanyAdmin = roles.includes("company_admin");
 
-  return (
-    <AuthContext.Provider value={{ session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin, signOut: doSignOut }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({ session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin, signOut: doSignOut }),
+    [session, user, roles, companyId, profile, loading, isMasterAdmin, isCompanyAdmin],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

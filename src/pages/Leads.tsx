@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,13 +52,23 @@ export default function Leads() {
   const [params, setParams] = useSearchParams();
   const listId = params.get("list");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<any>(null);
 
-  const { data: allLeads = [], isLoading } = useLeads({ status: statusFilter, search });
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const leadsFilters = useMemo(
+    () => ({ status: statusFilter, search: debouncedSearch }),
+    [statusFilter, debouncedSearch],
+  );
+  const { data: allLeads = [], isLoading } = useLeads(leadsFilters);
   const { data: lists = [] } = useLeadLists();
   const activeList = useMemo(() => lists.find((l) => l.id === listId), [lists, listId]);
   const leads = useMemo(

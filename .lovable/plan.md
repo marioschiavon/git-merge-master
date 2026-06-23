@@ -1,136 +1,37 @@
-## Próximas fases do Batch Pipeline
+# Corrigir o piscar em /leads e /leads/lists
 
-Implementar as Fases 2, 3 e 4 do plano, mais o fechamento da Fase 1 (ativar de verdade o campo "Cadência" do import).
+## Diagnóstico
 
----
+O "piscar" acontece porque as queries do React Query entram em estado `pending` e a tabela renderiza **"Carregando…"** no lugar das linhas, mesmo quando os dados já existiam. Isso ocorre em três cenários hoje:
 
-### Fase 1.5 — Fechar o loop import → cadência → aprovação
+1. **Filtros recriados a cada render** — em `Leads.tsx`, `useLeads({ status, search })` recebe um objeto novo a cada keystroke/render. Como a `queryKey` muda, a query vai para `isLoading` e a tabela mostra "Carregando…" antes de remontar.
+2. **AuthProvider reemite contexto** — `onAuthStateChange` (TOKEN_REFRESHED, visibilidade) chama `setSession`/`fetchUserData` e dispara `setCompanyId` mesmo quando o valor é o mesmo, recriando o objeto de contexto e fazendo as queries reavaliarem.
+3. **Sem `placeholderData`** — qualquer refetch (mutação, foco, sidebar invalidando) substitui a lista por "Carregando…" em vez de manter as linhas antigas durante o fetch.
 
-Hoje o `lead_lists.default_cadence_id` é só metadado. Conectar:
+## Mudanças
 
-- Quando a enrichment de um lead termina (`lead_enrichment_jobs` → `done`) e o lead tem `lead_list_id` com `default_cadence_id`:
-  1. Criar `cadence_enrollment` automaticamente (status `active`, `first_message_status = 'generating'`).
-  2. Disparar geração da 1ª mensagem via AI (edge function `generate-first-message`, reaproveitando prompts existentes do agent).
-  3. Criar `approval_request` com `batch_id = lead_list_id`, `first_message_status = 'pending_approval'`.
-- Contadores em `lead_lists` (`pending_approvals`, `enriched_count`) atualizados via trigger.
-- UI de `LeadLists` mostra barra de progresso real: importados → enriquecidos → aprovados → enviados.
+### `src/pages/Leads.tsx`
+- Memorizar o objeto de filtros (`useMemo`) e fazer **debounce** do `search` (~300ms) antes de jogar na query.
+- Ajustar mensagem de loading para só aparecer no primeiro carregamento (`isLoading && leads.length === 0`).
 
----
+### `src/hooks/usePipedrive.ts` — `useLeads`
+- Adicionar `placeholderData: (prev) => prev` (keep-previous-data) para manter as linhas durante refetches/troca de filtro.
+- Subir `staleTime` para 60s.
 
-### Fase 2 — Modo Full-Auto (toggle por cadência)
+### `src/hooks/useLeadLists.ts` — `useLeadLists`
+- Mesmo tratamento: `placeholderData: (prev) => prev`, `staleTime: 60_000`.
+- Em `LeadLists.tsx`, só mostrar "Carregando…" quando não houver dados anteriores (`isLoading && !lists.length`).
 
-- Migração: `cadences.auto_approve_first_message boolean default false` + `cadences.auto_approve_max_per_day int default 50` (guard-rail).
-- UI: na tela de edição de cadência, seção "Automação" com:
-  - Toggle "Aprovar e enviar 1ª mensagem automaticamente"
-  - Aviso visual ("⚠ Mensagens vão direto pro lead sem revisão humana")
-  - Limite diário (slider)
-- Backend: em `hitl-gate.ts`, se a cadência da enrollment tem `auto_approve_first_message = true` e o contador diário ainda permite, marca `approval_request.status = 'auto_approved'` e enfileira envio direto.
-- Log em `cadence_agent_decisions` com `decision_type = 'auto_approved'` para auditoria.
-- Filtro extra em `Approvals`: "Mostrar auto-aprovadas" (off por default).
+### `src/hooks/useAuth.tsx`
+- Evitar `setState` redundante em `setCompanyId`, `setRoles`, `setProfile` quando o valor já é o mesmo (compare antes de setar) para não recriar o contexto e não revalidar todas as queries a cada `TOKEN_REFRESHED`/visibilidade.
+- Memorizar o `value` do `AuthContext.Provider` com `useMemo` baseado em `session?.access_token`, `companyId`, `roles.join()`, `profile`, `loading`.
 
----
+## Detalhes técnicos
 
-### Fase 3 — Templates híbridos com slots de IA
+- Os hooks usam React Query v5: `placeholderData: keepPreviousData` é a API correta (importar de `@tanstack/react-query`).
+- Debounce simples via `useEffect` + `setTimeout`, sem dependência nova.
+- Comparação de roles por `JSON.stringify` curto (array pequeno).
 
-Mensagem como `script_template.body` com sintaxe:
+## Fora de escopo
 
-```text
-Oi {{lead.first_name}}, vi que vocês {{ai:hook sobre o site}}.
-Faz sentido conversar sobre {{ai:dor relacionada ao cargo}}?
-```
-
-- Migração: `script_templates.slots jsonb` (cache do parsing: `[{key, prompt, max_tokens}]`).
-- Parser util `src/lib/templateSlots.ts`:
-  - Extrai `{{ai:...}}` e `{{lead.field}}` separadamente.
-  - Lead fields → substituição direta.
-  - AI slots → 1 chamada Lovable AI por mensagem retornando JSON com todos os slots de uma vez (economia de tokens/latência vs gerar a mensagem inteira).
-- Editor de template (UI): textarea com syntax highlight simples + preview lado a lado renderizando com um lead de exemplo.
-- Edge function `render-template-slots`:
-  - Input: `template_id`, `lead_id`
-  - Output: `{ rendered_body, slot_values }`
-  - Usa knowledge da company + dados do lead enriquecido como contexto.
-- Geração da 1ª mensagem (Fase 1.5) passa a usar este renderer quando a cadência tem template híbrido associado.
-
----
-
-### Fase 4 — Wizard "Lançar campanha" sobre listas existentes
-
-Nova rota `/lists/:id/launch` — wizard de 4 passos:
-
-1. **Seleção de leads** — checkbox da lista, filtros (enrichment_status, tem email, score), contagem ao vivo.
-2. **Cadência + template** — escolher cadência (sugere `default_cadence_id`), preview do template renderizado para 3 leads aleatórios.
-3. **Modo de envio** — radio: `Revisar cada mensagem` (cria approvals) | `Full-auto` (respeita guard-rail diário) | `Agendar` (data/hora futura).
-4. **Confirmar** — resumo (X leads, cadência Y, modo Z, estimativa de envio); botão "Lançar campanha".
-
-- Botão "Lançar campanha" na linha de cada lista em `LeadLists.tsx`.
-- Backend: action `launch-campaign` cria batch de enrollments respeitando o modo escolhido; reusa pipeline da Fase 1.5/2.
-- Tabela nova `campaigns` (id, list_id, cadence_id, mode, scheduled_for, created_by, status, totals) para histórico/auditoria.
-
----
-
-### Organização de listas (complemento da Fase 1)
-
-- Adicionar à `lead_lists`: `tags text[]`, `folder text`, `archived_at timestamptz`.
-- UI em `/lists`:
-  - Filtro por tag e folder (sidebar leve).
-  - Bulk actions: arquivar, mover de folder, exportar CSV.
-  - Busca por nome.
-
----
-
-### Detalhes técnicos
-
-**Migrações (3 separadas, na ordem):**
-1. `cadences.auto_approve_first_message`, `auto_approve_max_per_day` + colunas de organização em `lead_lists` (tags, folder, archived_at) + trigger de contadores de `lead_lists`.
-2. `script_templates.slots` + nova tabela `campaigns` com RLS por company_id.
-3. Trigger `after_enrichment_done` → enfileira geração de 1ª mensagem.
-
-**Edge functions novas:**
-- `generate-first-message` — reusa lógica do agent, salva em `cadence_custom_messages`, cria `approval_request`.
-- `render-template-slots` — 1 call AI batch para todos slots de um template.
-- `launch-campaign` — cria enrollments em lote para o wizard.
-- Atualizar `_shared/hitl-gate.ts` para honrar `auto_approve_first_message`.
-
-**Frontend principal:**
-- `src/pages/LeadLists.tsx` — folders/tags/arquivar + botão "Lançar campanha".
-- `src/pages/CampaignWizard.tsx` (nova).
-- `src/pages/Cadences/CadenceForm.tsx` — seção Automação.
-- `src/pages/Templates/TemplateEditor.tsx` — editor com preview de slots.
-- `src/lib/templateSlots.ts` — parser/renderer client-side.
-- Hooks: `useLaunchCampaign`, `useRenderTemplatePreview`, `useUpdateCadenceAutomation`.
-
-**Ordem de execução:** Fase 1.5 → Fase 2 → Fase 3 → Fase 4 → Organização. Cada fase fica utilizável isolada.
-
-Atualizar `.lovable/plan.md` ao final.
-
----
-
-## Status da implementação (Fases 1.5 → 4)
-
-✅ **Fase 1.5 — Loop import → cadência → aprovação ativo**
-- Trigger `after_enrichment_done` cria enrollment com `first_message_status='pending_generation'` quando a lista do lead tem `default_cadence_id`.
-- Edge function `generate-pending-first-messages` (cron 1min): gera 1ª mensagem via `buildFirstMessage` e cria `approval_request`.
-
-✅ **Fase 2 — Toggle full-auto por cadência**
-- Colunas: `cadences.auto_approve_first_message`, `auto_approve_max_per_day`.
-- UI no header do `CadenceDetail`: switch + input de limite diário.
-- Cron auto-aprova respeitando quota: marca a approval como `approved` (com `context.auto_approved=true`).
-
-✅ **Fase 3 — Templates híbridos com slots de IA**
-- Parser client-side `src/lib/templateSlots.ts` (`{{ai:...}}` e `{{lead.field}}`).
-- Edge function `render-template-slots`: faz 1 chamada à Lovable AI e devolve `{rendered_body, slot_values}`.
-- Coluna `script_templates.slots jsonb` (cache).
-
-✅ **Fase 4 — Wizard "Lançar campanha"**
-- Rota `/leads/lists/:listId/launch` (4 passos: leads → cadência → modo → confirmar).
-- Edge function `launch-campaign` cria registro em `campaigns` + enrollments.
-- Tabela `campaigns` (id, list_id, cadence_id, mode, scheduled_for, totals, status).
-
-✅ **Organização de listas**
-- Colunas: `lead_lists.tags[]`, `folder`, `archived_at`.
-- UI: toggle "ver arquivadas", botão de arquivar/desarquivar, botão "Lançar campanha".
-
-⚠️ **TODO futuro (fora desta entrega)**:
-- Sender automático para `approval_requests` com `context.auto_approved=true` (hoje o envio segue o fluxo padrão de aprovação).
-- Editor visual de templates com preview de slots renderizados (parser e edge function já existem; falta integrar no `Scripts.tsx`).
-- Filtros por tag/folder na sidebar de `LeadLists`.
+- Não vamos adicionar realtime nem mudar a lógica das listas/enrichment; apenas estabilizar o render.
