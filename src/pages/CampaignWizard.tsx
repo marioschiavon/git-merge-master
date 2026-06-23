@@ -40,9 +40,10 @@ export default function CampaignWizard() {
     (async () => {
       if (!listId || !companyId) return;
       const { data: l } = await supabase.from("lead_lists" as any).select("*").eq("id", listId).maybeSingle();
-      setList(l);
-      if (l?.default_cadence_id) setCadenceId(l.default_cadence_id);
-      if (l?.name) setName(`Campanha — ${l.name}`);
+      const ll = l as any;
+      setList(ll);
+      if (ll?.default_cadence_id) setCadenceId(ll.default_cadence_id);
+      if (ll?.name) setName(`Campanha — ${ll.name}`);
       const { data: ld } = await supabase
         .from("leads")
         .select("id,name,email,company_name,enrichment_status")
