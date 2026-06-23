@@ -559,15 +559,19 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         }
         if (currentStep.channel === "email" && lead.email) {
           try {
+            const threadCtx = await getEmailReplyContext(supabase, preConversationAi?.id);
             const { error: sendError } = await supabase.functions.invoke("gmail-send", {
               body: {
                 to: lead.email,
-                subject: parsed.subject || `Mensagem para ${lead.name}`,
+                subject: threadCtx.reply_subject || parsed.subject || `Mensagem para ${lead.name}`,
                 html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${parsed.message.replace(/\n/g, "<br>")}</div>`,
                 text: parsed.message,
                 lead_id: lead.id,
                 company_id: cadence.company_id,
                 conversation_id: preConversationAi?.id,
+                in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
+                references: threadCtx.references,
+                gmail_thread_id: threadCtx.gmail_thread_id,
                 extra_metadata: { step_order: currentStep.step_order, auto_generated: true },
               },
             });
