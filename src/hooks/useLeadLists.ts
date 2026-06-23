@@ -25,17 +25,20 @@ export interface LeadListStats extends LeadListRow {
   failed: number;
 }
 
-export function useLeadLists() {
+export function useLeadLists(opts?: { archived?: boolean }) {
   const { companyId } = useAuth();
+  const archived = !!opts?.archived;
   return useQuery({
-    queryKey: ["lead-lists", companyId],
+    queryKey: ["lead-lists", companyId, archived],
     queryFn: async (): Promise<LeadListStats[]> => {
       if (!companyId) return [];
-      const { data: lists, error } = await supabase
+      let q = supabase
         .from("lead_lists" as any)
         .select("*")
         .eq("company_id", companyId)
         .order("created_at", { ascending: false });
+      q = archived ? q.not("archived_at", "is", null) : q.is("archived_at", null);
+      const { data: lists, error } = await q;
       if (error) throw error;
       const ids = (lists || []).map((l: any) => l.id);
       if (ids.length === 0) return [];
