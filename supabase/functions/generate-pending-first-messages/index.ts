@@ -1,7 +1,8 @@
-// Cron worker: processa enrollments com first_message_status='pending_generation',
-// gera a 1ª mensagem via buildFirstMessage e:
-//  - cria approval_request (kind='first_message') quando aprovação humana é necessária; OU
-//  - marca como auto_approved respeitando o limite diário da cadência.
+// Cron worker: processa enrollments com first_message_status='pending_generation'.
+// Gera a 1ª mensagem via buildFirstMessage e cria approval_request (kind='first_message').
+// Quando a cadência tem auto_approve_first_message=true e o limite diário ainda permite,
+// marca a approval_request como 'approved' (auto-aprovação). O envio efetivo segue o
+// fluxo padrão (approval-execute / cadence-executor).
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { buildFirstMessage } from "../_shared/build-first-message.ts";
@@ -60,71 +61,63 @@ serve(async (req) => {
         channel,
       });
 
-      // Salva mensagem customizada para o passo 0 (1ª mensagem)
-      await supabase
-        .from("cadence_custom_messages")
-        .upsert({
-          company_id: enr.company_id,
-          cadence_id: enr.cadence_id,
-          lead_id: enr.lead_id,
-          enrollment_id: enr.id,
-          step_index: 0,
-          subject: built.subject,
-          body: built.message,
-        }, { onConflict: "enrollment_id,step_index" });
+      // Resolve batch_id e quota diária
+      let batchId: string | null = null;
+      const { data: ld } = await supabase
+        .from("leads").select("lead_list_id").eq("id", enr.lead_id).maybeSingle();
+      if (ld?.lead_list_id) batchId = ld.lead_list_id;
 
-      // Decide auto-approve vs approval request
       const auto = !!cadence.auto_approve_first_message;
       let allowAuto = false;
       if (auto) {
         const startOfDay = new Date(); startOfDay.setUTCHours(0, 0, 0, 0);
         const { count } = await supabase
-          .from("cadence_enrollments")
+          .from("approval_requests")
           .select("id", { count: "exact", head: true })
           .eq("cadence_id", enr.cadence_id)
-          .eq("first_message_status", "auto_approved")
-          .gte("updated_at", startOfDay.toISOString());
+          .eq("kind", "first_message")
+          .eq("status", "approved")
+          .gte("approved_at", startOfDay.toISOString());
         const max = cadence.auto_approve_max_per_day ?? 50;
         allowAuto = (count ?? 0) < max;
       }
 
-      if (allowAuto) {
-        await supabase
-          .from("cadence_enrollments")
-          .update({ first_message_status: "auto_approved" })
-          .eq("id", enr.id);
-        await supabase.from("lead_activities").insert({
-          company_id: enr.company_id,
-          lead_id: enr.lead_id,
-          type: "system",
-          description: "⚡ 1ª mensagem auto-aprovada (modo full-auto da cadência)",
-          metadata: { cadence_id: enr.cadence_id, enrollment_id: enr.id },
-        });
-      } else {
-        // Cria approval_request
-        let batchId: string | null = null;
-        const { data: ld } = await supabase
-          .from("leads").select("lead_list_id").eq("id", enr.lead_id).maybeSingle();
-        if (ld?.lead_list_id) batchId = ld.lead_list_id;
+      const initialStatus = allowAuto ? "approved" : "pending";
 
-        await supabase.from("approval_requests").insert({
-          company_id: enr.company_id,
-          lead_id: enr.lead_id,
-          enrollment_id: enr.id,
-          cadence_id: enr.cadence_id,
-          kind: "first_message",
-          channel,
-          action: "send",
-          payload: { subject: built.subject, body: built.message, step_index: 0 },
-          context: { source: "batch_pipeline" },
-          status: "pending",
-          batch_id: batchId,
-        });
-        await supabase
-          .from("cadence_enrollments")
-          .update({ first_message_status: "pending_approval" })
-          .eq("id", enr.id);
+      const insertRow: any = {
+        company_id: enr.company_id,
+        lead_id: enr.lead_id,
+        enrollment_id: enr.id,
+        cadence_id: enr.cadence_id,
+        kind: "first_message",
+        channel,
+        action: "send",
+        payload: { subject: built.subject, body: built.message, step_index: 0 },
+        context: { source: "batch_pipeline", auto_approved: allowAuto },
+        status: initialStatus,
+        batch_id: batchId,
+      };
+      if (allowAuto) {
+        insertRow.approved_at = new Date().toISOString();
       }
+
+      await supabase.from("approval_requests").insert(insertRow);
+
+      await supabase
+        .from("cadence_enrollments")
+        .update({ first_message_status: allowAuto ? "auto_approved" : "pending_approval" })
+        .eq("id", enr.id);
+
+      await supabase.from("lead_activities").insert({
+        company_id: enr.company_id,
+        lead_id: enr.lead_id,
+        type: "system",
+        description: allowAuto
+          ? "⚡ 1ª mensagem gerada e auto-aprovada (modo full-auto)"
+          : "✍️ 1ª mensagem gerada — aguardando aprovação",
+        metadata: { cadence_id: enr.cadence_id, enrollment_id: enr.id, auto: allowAuto },
+      });
+
       results.push({ id: enr.id, ok: true, auto: allowAuto });
     } catch (e) {
       console.error("generate-pending-first-messages error", e);
