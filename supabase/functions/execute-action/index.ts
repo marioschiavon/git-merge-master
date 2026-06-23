@@ -536,15 +536,8 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       },
     });
     if (error) throw new Error(`gmail-send failed: ${error.message}`);
-    if (ctx.conversation_id) {
-      await ctx.supabase.from("messages").insert({
-        conversation_id: ctx.conversation_id,
-        content: body,
-        direction: "outbound",
-        ai_suggested: true,
-        metadata: { source: "execute-action", action: "send_email", subject } as any,
-      });
-    }
+    // `gmail-send` já persiste a mensagem outbound em `messages` com
+    // gmail_message_id e headers — não duplicar aqui.
     await logActivity(ctx, "email", `📧 E-mail enviado: ${subject}`, { direction: "outbound", subject });
     return { sent: true, to: lead.email, subject };
   },
