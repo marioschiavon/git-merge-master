@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 import { buildReferrerLabel, sanitizeReferrerMentions } from "../_shared/referrer-label.ts";
+import { getEmailReplyContext } from "../_shared/email-thread.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
