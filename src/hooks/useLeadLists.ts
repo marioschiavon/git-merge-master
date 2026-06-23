@@ -79,6 +79,8 @@ export function useLeadLists(opts?: { archived?: boolean }) {
       }));
     },
     enabled: !!companyId,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
   });
 }
 
