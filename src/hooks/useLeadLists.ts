@@ -135,3 +135,21 @@ export function useRenameLeadList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["lead-lists"] }),
   });
 }
+
+export function useArchiveLeadList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, archive }: { id: string; archive: boolean }) => {
+      const { error } = await supabase
+        .from("lead_lists" as any)
+        .update({ archived_at: archive ? new Date().toISOString() : null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, vars) => {
+      qc.invalidateQueries({ queryKey: ["lead-lists"] });
+      toast.success(vars.archive ? "Lista arquivada" : "Lista desarquivada");
+    },
+    onError: (e: any) => toast.error(e?.message || "Falha"),
+  });
+}
