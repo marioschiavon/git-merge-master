@@ -102,3 +102,35 @@ Nova rota `/lists/:id/launch` — wizard de 4 passos:
 **Ordem de execução:** Fase 1.5 → Fase 2 → Fase 3 → Fase 4 → Organização. Cada fase fica utilizável isolada.
 
 Atualizar `.lovable/plan.md` ao final.
+
+---
+
+## Status da implementação (Fases 1.5 → 4)
+
+✅ **Fase 1.5 — Loop import → cadência → aprovação ativo**
+- Trigger `after_enrichment_done` cria enrollment com `first_message_status='pending_generation'` quando a lista do lead tem `default_cadence_id`.
+- Edge function `generate-pending-first-messages` (cron 1min): gera 1ª mensagem via `buildFirstMessage` e cria `approval_request`.
+
+✅ **Fase 2 — Toggle full-auto por cadência**
+- Colunas: `cadences.auto_approve_first_message`, `auto_approve_max_per_day`.
+- UI no header do `CadenceDetail`: switch + input de limite diário.
+- Cron auto-aprova respeitando quota: marca a approval como `approved` (com `context.auto_approved=true`).
+
+✅ **Fase 3 — Templates híbridos com slots de IA**
+- Parser client-side `src/lib/templateSlots.ts` (`{{ai:...}}` e `{{lead.field}}`).
+- Edge function `render-template-slots`: faz 1 chamada à Lovable AI e devolve `{rendered_body, slot_values}`.
+- Coluna `script_templates.slots jsonb` (cache).
+
+✅ **Fase 4 — Wizard "Lançar campanha"**
+- Rota `/leads/lists/:listId/launch` (4 passos: leads → cadência → modo → confirmar).
+- Edge function `launch-campaign` cria registro em `campaigns` + enrollments.
+- Tabela `campaigns` (id, list_id, cadence_id, mode, scheduled_for, totals, status).
+
+✅ **Organização de listas**
+- Colunas: `lead_lists.tags[]`, `folder`, `archived_at`.
+- UI: toggle "ver arquivadas", botão de arquivar/desarquivar, botão "Lançar campanha".
+
+⚠️ **TODO futuro (fora desta entrega)**:
+- Sender automático para `approval_requests` com `context.auto_approved=true` (hoje o envio segue o fluxo padrão de aprovação).
+- Editor visual de templates com preview de slots renderizados (parser e edge function já existem; falta integrar no `Scripts.tsx`).
+- Filtros por tag/folder na sidebar de `LeadLists`.
