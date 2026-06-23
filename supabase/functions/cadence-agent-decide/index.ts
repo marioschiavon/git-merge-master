@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
 import { buildFirstMessage } from "../_shared/build-first-message.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
+import { getEmailReplyContext } from "../_shared/email-thread.ts";
 
 async function findOrCreateConversation(
   supabase: any,
@@ -653,15 +654,19 @@ Decida a próxima ação.`;
         // The message text stays in cadence_agent_decisions.message_body.
       } else if (channel === "email" && lead.email) {
         try {
+          const threadCtx = await getEmailReplyContext(supabase, conversation?.id);
           const { error: sendError } = await supabase.functions.invoke("gmail-send", {
             body: {
               to: lead.email,
-              subject: decision.subject || `Mensagem para ${lead.name}`,
+              subject: threadCtx.reply_subject || decision.subject || `Mensagem para ${lead.name}`,
               html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#111">${(decision.message || "").replace(/\n/g, "<br>")}</div>`,
               text: decision.message,
               lead_id: lead.id,
               company_id: cadence.company_id,
               conversation_id: conversation?.id,
+              in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
+              references: threadCtx.references,
+              gmail_thread_id: threadCtx.gmail_thread_id,
               extra_metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, hook: decision.hook, attempt: attemptNumber },
             },
           });
