@@ -60,7 +60,7 @@ Deno.serve(async (req) => {
     );
 
     const body = await req.json();
-    const { to, subject, html, text, lead_id, conversation_id, in_reply_to_rfc_id, references, company_id, extra_metadata } = body ?? {};
+    const { to, subject, html, text, lead_id, conversation_id, in_reply_to_rfc_id, references, gmail_thread_id, company_id, extra_metadata } = body ?? {};
 
     if (!to || !subject || (!html && !text)) {
       return new Response(JSON.stringify({ error: "Campos obrigatórios: to, subject, html|text" }), {
@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "X-Connection-Api-Key": GOOGLE_MAIL_API_KEY,
       },
-      body: JSON.stringify({ raw }),
+      body: JSON.stringify(gmail_thread_id ? { raw, threadId: gmail_thread_id } : { raw }),
     });
 
     if (!sendRes.ok) {
