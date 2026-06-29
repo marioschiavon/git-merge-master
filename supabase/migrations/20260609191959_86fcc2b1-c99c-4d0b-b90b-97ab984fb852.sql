@@ -1,1 +1,0 @@
-ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS whatsapp text;

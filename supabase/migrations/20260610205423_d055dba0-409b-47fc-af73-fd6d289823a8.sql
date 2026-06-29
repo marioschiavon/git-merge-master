@@ -1,1 +1,0 @@
-ALTER TYPE public.integration_provider ADD VALUE IF NOT EXISTS 'zapi_whatsapp';

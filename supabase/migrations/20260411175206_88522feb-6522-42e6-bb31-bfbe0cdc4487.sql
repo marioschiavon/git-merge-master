@@ -1,1 +1,0 @@
-ALTER TABLE public.lead_insights ADD CONSTRAINT lead_insights_lead_id_unique UNIQUE (lead_id);

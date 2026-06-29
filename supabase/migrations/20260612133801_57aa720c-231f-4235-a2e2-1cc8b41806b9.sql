@@ -1,2 +1,0 @@
-ALTER TABLE public.leads ADD COLUMN IF NOT EXISTS pipeline_mode text NOT NULL DEFAULT 'legacy' CHECK (pipeline_mode IN ('legacy','agent'));
-CREATE INDEX IF NOT EXISTS idx_leads_pipeline_mode ON public.leads (company_id, pipeline_mode) WHERE pipeline_mode = 'agent';

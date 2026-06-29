@@ -1,1 +1,0 @@
-ALTER TABLE public.cadence_enrollments ADD COLUMN paused_reason text;

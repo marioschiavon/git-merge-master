@@ -1,1 +1,0 @@
-ALTER TABLE public.cadence_steps ADD COLUMN use_highlights boolean NOT NULL DEFAULT true;

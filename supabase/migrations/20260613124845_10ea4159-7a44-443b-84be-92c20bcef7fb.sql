@@ -1,1 +1,0 @@
-ALTER TYPE public.action_type ADD VALUE IF NOT EXISTS 'acknowledge_cancellation';
