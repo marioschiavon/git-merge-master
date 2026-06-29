@@ -1,37 +1,36 @@
-# Corrigir o piscar em /leads e /leads/lists
+## Verificação completa do banco de dados
 
-## Diagnóstico
+Vou executar uma auditoria em 4 frentes, todas em paralelo, e devolver um relatório único com status (OK / atenção / problema) por item.
 
-O "piscar" acontece porque as queries do React Query entram em estado `pending` e a tabela renderiza **"Carregando…"** no lugar das linhas, mesmo quando os dados já existiam. Isso ocorre em três cenários hoje:
+### 1. Migrações aplicadas
+- Listar as 56 migrações em `supabase/migrations/` e comparar com o estado real do Supabase (tabelas, colunas, índices, funções, triggers).
+- Identificar migrações com falha, drift (schema real ≠ SQL) ou objetos esperados que não existem.
 
-1. **Filtros recriados a cada render** — em `Leads.tsx`, `useLeads({ status, search })` recebe um objeto novo a cada keystroke/render. Como a `queryKey` muda, a query vai para `isLoading` e a tabela mostra "Carregando…" antes de remontar.
-2. **AuthProvider reemite contexto** — `onAuthStateChange` (TOKEN_REFRESHED, visibilidade) chama `setSession`/`fetchUserData` e dispara `setCompanyId` mesmo quando o valor é o mesmo, recriando o objeto de contexto e fazendo as queries reavaliarem.
-3. **Sem `placeholderData`** — qualquer refetch (mutação, foco, sidebar invalidando) substitui a lista por "Carregando…" em vez de manter as linhas antigas durante o fetch.
+### 2. Conexão e secrets
+- Conferir `.env` (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PROJECT_ID = pqrslnydcrpjelpzdnyp`) e `supabase/config.toml` apontando pro mesmo projeto.
+- Rodar `fetch_secrets` e cruzar com os secrets que as edge functions consomem (`CALCOM_WEBHOOK_SECRET`, `LOVABLE_API_KEY`, tokens Twilio/Z-API/Pipedrive, etc.) — listar o que falta.
+- Validar que `supabase/functions/*/index.ts` não referencia env var inexistente.
 
-## Mudanças
+### 3. RLS e policies
+- Rodar `security--run_security_scan` para detectar tabelas em `public` sem RLS, policies permissivas demais (`USING (true)`), grants faltando, funções `SECURITY DEFINER` sem `search_path`.
+- Validar padrão de `user_roles` + `has_role()` (sem recursão).
+- Conferir que toda tabela nova tem o bloco `GRANT … TO authenticated/service_role` exigido pelo PostgREST.
 
-### `src/pages/Leads.tsx`
-- Memorizar o objeto de filtros (`useMemo`) e fazer **debounce** do `search` (~300ms) antes de jogar na query.
-- Ajustar mensagem de loading para só aparecer no primeiro carregamento (`isLoading && leads.length === 0`).
+### 4. Dados e integridade
+- Contagens das tabelas-chave: `companies`, `leads`, `conversations`, `bookings`, `messages`, `lead_action_queue`, `calcom_webhook_log`.
+- FKs órfãs (ex.: `bookings.lead_id` apontando pra lead inexistente, `messages.conversation_id` sem conversa).
+- Filas travadas: itens em `lead_action_queue` com `status='pending'` há muito tempo; `calcom_webhook_log` com `processed=false` ou `error not null`.
+- Holds expirados não limpos (`slot_holds`).
 
-### `src/hooks/usePipedrive.ts` — `useLeads`
-- Adicionar `placeholderData: (prev) => prev` (keep-previous-data) para manter as linhas durante refetches/troca de filtro.
-- Subir `staleTime` para 60s.
+### Pré-requisito técnico
+A sessão atual está sem `psql` direto (`PGHOST` vazio). Para itens 1, 3 e 4 vou usar `security--run_security_scan` + leitura via tools do Supabase. Para queries de contagem/integridade preciso que você habilite, em **Lovable Cloud → Settings**, o "Always allow" para **Read database** (e opcionalmente **Add data** se eu precisar inserir um registro de teste). Sem isso eu consigo só auditar schema e RLS, não os dados.
 
-### `src/hooks/useLeadLists.ts` — `useLeadLists`
-- Mesmo tratamento: `placeholderData: (prev) => prev`, `staleTime: 60_000`.
-- Em `LeadLists.tsx`, só mostrar "Carregando…" quando não houver dados anteriores (`isLoading && !lists.length`).
-
-### `src/hooks/useAuth.tsx`
-- Evitar `setState` redundante em `setCompanyId`, `setRoles`, `setProfile` quando o valor já é o mesmo (compare antes de setar) para não recriar o contexto e não revalidar todas as queries a cada `TOKEN_REFRESHED`/visibilidade.
-- Memorizar o `value` do `AuthContext.Provider` com `useMemo` baseado em `session?.access_token`, `companyId`, `roles.join()`, `profile`, `loading`.
-
-## Detalhes técnicos
-
-- Os hooks usam React Query v5: `placeholderData: keepPreviousData` é a API correta (importar de `@tanstack/react-query`).
-- Debounce simples via `useEffect` + `setTimeout`, sem dependência nova.
-- Comparação de roles por `JSON.stringify` curto (array pequeno).
-
-## Fora de escopo
-
-- Não vamos adicionar realtime nem mudar a lógica das listas/enrichment; apenas estabilizar o render.
+### Entregável
+Um único relatório no chat:
+```
+[OK]      Migrações: 56/56, sem drift
+[ATENÇÃO] Secrets: CALCOM_WEBHOOK_SECRET ausente em prod
+[PROBLEMA] RLS: tabela X sem policy de SELECT
+[OK]      Integridade: 0 FKs órfãs
+```
+Sem alterações de código nem de schema nesta etapa — só leitura. Se algum problema aparecer, abro um plano separado pra corrigir.
