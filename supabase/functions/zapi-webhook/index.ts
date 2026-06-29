@@ -83,9 +83,30 @@ serve(async (req) => {
       .or("phone.not.is.null,whatsapp.not.is.null");
 
     const fromDigits = fromPhone.replace(/\D/g, "");
+    // Gera variantes BR: com e sem o 9º dígito após o DDD (ex.: 5541997211537 <-> 554197211537)
+    function brVariants(d: string): string[] {
+      const out = new Set<string>([d]);
+      if (d.startsWith("55") && d.length >= 12) {
+        const ddi = d.slice(0, 2);
+        const ddd = d.slice(2, 4);
+        const rest = d.slice(4);
+        // sem 9 -> com 9
+        if (rest.length === 8) out.add(`${ddi}${ddd}9${rest}`);
+        // com 9 -> sem 9
+        if (rest.length === 9 && rest.startsWith("9")) out.add(`${ddi}${ddd}${rest.slice(1)}`);
+      }
+      return Array.from(out);
+    }
+    const fromVariants = brVariants(fromDigits);
     const lead = (leads || []).find((l: any) => {
-      const cands = [l.whatsapp, l.phone].filter(Boolean).map((p: string) => p.replace(/\D/g, ""));
-      return cands.some((c) => c === fromDigits || c.endsWith(fromDigits.slice(-10)) || fromDigits.endsWith(c.slice(-10)));
+      const cands = [l.whatsapp, l.phone]
+        .filter(Boolean)
+        .flatMap((p: string) => brVariants(p.replace(/\D/g, "")));
+      return cands.some((c) =>
+        fromVariants.some(
+          (f) => c === f || c.endsWith(f.slice(-10)) || f.endsWith(c.slice(-10)),
+        ),
+      );
     });
 
     if (!lead) {
