@@ -1,0 +1,4 @@
+CREATE POLICY "knowledge-docs read by company members" ON storage.objects FOR SELECT TO authenticated USING (bucket_id = 'knowledge-docs' AND (storage.foldername(name))[1] = public.get_user_company_id(auth.uid())::text);
+CREATE POLICY "knowledge-docs insert by company members" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'knowledge-docs' AND (storage.foldername(name))[1] = public.get_user_company_id(auth.uid())::text);
+CREATE POLICY "knowledge-docs update by company members" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'knowledge-docs' AND (storage.foldername(name))[1] = public.get_user_company_id(auth.uid())::text);
+CREATE POLICY "knowledge-docs delete by company members" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'knowledge-docs' AND (storage.foldername(name))[1] = public.get_user_company_id(auth.uid())::text);
