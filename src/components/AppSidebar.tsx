@@ -20,6 +20,7 @@ import {
   NotebookPen,
   ListChecks,
 } from "lucide-react";
+import leadereiLogo from "@/assets/brand/leaderei-white.png";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
 import { useInboxQueue } from "@/hooks/useHumanInbox";
