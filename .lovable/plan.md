@@ -1,49 +1,37 @@
-# Configurar backend completo no novo Lovable Cloud
+## Objetivo
+Replicar a identidade visual do **Leaderei Foundation** neste projeto — cores, tipografia, logos, favicon — e renomear "SDR Auto/Automation" para **Leaderei** nos textos visíveis.
 
-O Cloud foi ativado mas o banco está **vazio** (0 tabelas). O código tem 56 migrações e 60+ edge functions do projeto `outreach-ace-squad` que precisam ser aplicadas no novo Supabase deste projeto.
+## Assets que vou copiar do Leaderei
+- `public/favicon.ico`, `favicon-512.png`, `apple-touch-icon.png`
+- `public/fonts/ibrand.otf`
+- `src/assets/brand/leaderei-color.png` (auth/light)
+- `src/assets/brand/leaderei-white.png` (sidebar dark)
 
-## Estado atual
-- ✅ Lovable Cloud ativo (novo projeto Supabase: `plfcbbqzpcbgykfervnp`)
-- ✅ 56 arquivos `.sql` em `supabase/migrations/`
-- ✅ 60+ edge functions em `supabase/functions/`
-- ❌ Nenhuma tabela criada no banco novo
-- ❌ Nenhuma edge function deployada
-- ❌ Secrets de integrações (Cal.com, Gmail, etc.) não configurados
+## Arquivos que vou editar
 
-## Passos
+1. **`src/index.css`** — substituir tokens HSL pela paleta Leaderei (laranja `#e04e01` primary, off-white bg, sidebar near-black, muted `#606060`, deep `#313131`), adicionar `@font-face` Ibrand, importar Poppins, e novos tokens `--brand`, `--brand-soft`, `--success`, `--warning`. Variante `.dark` equivalente.
 
-### 1. Aplicar schema (1 migração consolidada)
-Concatenar os 56 arquivos `.sql` em ordem cronológica e rodar como **uma única migração** via `supabase--migration`. Isso cria todas as tabelas, RLS, policies, functions, triggers, enums e a infra de email (pgmq, cron).
+2. **`tailwind.config.ts`** — `fontFamily.sans` = Poppins; adicionar `display` e `brand` (Ibrand); registrar cores `brand`, `brand-soft`, `success`, `warning`.
 
-> Será exibido um diff grande para aprovação — é esperado.
+3. **`index.html`** — `<title>Leaderei</title>`, meta description, favicon/apple-touch-icon, preconnect Google Fonts (Poppins).
 
-### 2. Deploy de todas as edge functions
-Rodar `supabase--deploy_edge_functions` para todas as 60+ funções (`cadence-executor`, `calcom-*`, `gmail-*`, `process-email-queue`, webhooks etc.).
+4. **`src/components/AppSidebar.tsx`** — substituir ícone `Zap` + "SDR Auto" pelo `leaderei-white.png`.
 
-### 3. Auditar secrets necessários
-Listar secrets atuais e identificar os que faltam para as integrações:
-- **Cal.com**: `CALCOM_API_KEY`, `CALCOM_WEBHOOK_SECRET`, `CALCOM_EVENT_TYPE_ID`, `CALCOM_BOOKING_LINK`
-- **Email/Gmail**: avaliar se usa Lovable Emails (recomendado) ou Gmail API
-- **Pipedrive / Twilio / Z-API**: conforme funções usadas
-- **LOVABLE_API_KEY**: ✅ já existe
+5. **`src/pages/Auth.tsx`** — substituir `Zap` pelo `leaderei-color.png`; trocar "SDR Automation" por "Leaderei".
 
-Pedir só os que forem realmente necessários via `add_secret` (após confirmação).
+6. **Outras menções textuais** — buscar e renomear "SDR Auto" / "SDR Automation" em pages e copy visível (sem mexer em IDs, rotas ou nomes de tabelas).
 
-### 4. Configurar email infra
-Rodar `email_domain--setup_email_infra` para ativar fila + cron de email (a migração `20260410002434_email_infra.sql` cria as tabelas mas a infra pgmq/cron precisa do tool).
+## Tradução de cores principais
 
-### 5. Validação
-- `security--run_security_scan` para RLS
-- `supabase--linter` para warnings
-- Conferir contagem de tabelas e cron jobs ativos
+| Token | Origem oklch | HSL aplicado |
+|---|---|---|
+| primary / brand | `#e04e01` | `18 99% 44%` |
+| background | off-white | `60 14% 97%` |
+| foreground | near-black | `0 0% 11%` |
+| secondary | `#313131` | `0 0% 19%` |
+| muted-fg | `#606060` | `0 0% 38%` |
+| sidebar | near-black | `0 0% 8%` |
 
-## Detalhes técnicos
-- Não vou tocar em `src/integrations/supabase/client.ts`, `types.ts` ou `.env` (auto-gerados pelo Cloud).
-- A consolidação preserva a ordem original dos timestamps das migrações.
-- Se alguma migração depender de extensão não disponível (`pg_net`, `vault`, `pgmq`, `pg_cron`) o erro aparecerá no apply — corrijo na hora.
-- Edge functions com `verify_jwt` custom (`*-webhook`, hooks) precisam de bloco em `supabase/config.toml` — verifico ao fazer deploy.
-
-## Confirme antes de eu começar
-1. Posso aplicar **tudo de uma vez** (1 migração consolidada de ~56 arquivos)?
-2. Vamos manter **Lovable Emails** (recomendado) para os emails transacionais, ou você quer Gmail API via secret?
-3. Quais integrações vamos ativar agora: **Cal.com**, **Pipedrive**, **Twilio**, **Z-API**? (posso ativar só as essenciais e adicionar o resto depois)
+## Fora do escopo
+- Lógica de negócio, rotas, hooks, edge functions, schema do banco — intactos.
+- Sem mudar a Ibrand de licença/uso além de servir o `.otf` já presente no Leaderei.

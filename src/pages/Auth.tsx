@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { Zap } from "lucide-react";
+import leadereiLogo from "@/assets/brand/leaderei-color.png";
 
 export default function Auth() {
   const [isLogin, setIsLogin] = useState(true);
@@ -69,10 +70,10 @@ export default function Auth() {
     <div className="flex min-h-screen items-center justify-center bg-secondary/30 px-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary">
-            <Zap className="h-6 w-6 text-primary-foreground" />
+          <div className="mx-auto mb-4 flex h-12 items-center justify-center">
+            <img src={leadereiLogo} alt="Leaderei" className="h-10 w-auto" />
           </div>
-          <CardTitle className="text-2xl">SDR Automation</CardTitle>
+          <CardTitle className="text-2xl">Leaderei</CardTitle>
           <CardDescription>
             {isForgotPassword
               ? "Redefinir senha"

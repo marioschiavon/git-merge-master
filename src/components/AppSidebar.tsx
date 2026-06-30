@@ -20,6 +20,7 @@ import {
   NotebookPen,
   ListChecks,
 } from "lucide-react";
+import leadereiLogo from "@/assets/brand/leaderei-white.png";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
 import { useInboxQueue } from "@/hooks/useHumanInbox";
@@ -90,12 +91,11 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="p-4">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-            <Zap className="h-4 w-4 text-primary-foreground" />
-          </div>
-          {!collapsed && (
-            <span className="text-lg font-semibold text-foreground">SDR Auto</span>
-          )}
+          <img
+            src={leadereiLogo}
+            alt="Leaderei"
+            className={collapsed ? "h-8 w-auto" : "h-8 w-auto"}
+          />
         </div>
       </SidebarHeader>
 
