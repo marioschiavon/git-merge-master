@@ -1,96 +1,120 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+@font-face {
+  font-family: "Ibrand";
+  src: url("/fonts/ibrand.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * Leaderei design system.
+ * Brand: Orange #e04e01 (primary/CTA only), Black, Gray #313131, Gray #606060.
+ * Sober, corporate; restrained orange; no neon, no glass, no heavy gradients.
+ */
+
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 220 20% 10%;
+    --background: 60 14% 97%;
+    --foreground: 0 0% 11%;
 
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 10%;
+    --card-foreground: 0 0% 11%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 220 20% 10%;
+    --popover-foreground: 0 0% 11%;
 
-    --primary: 215 90% 50%;
+    --primary: 18 99% 44%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 215 20% 96%;
-    --secondary-foreground: 220 20% 10%;
+    --secondary: 0 0% 19%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 215 20% 96%;
-    --muted-foreground: 215 15% 47%;
+    --muted: 60 5% 95%;
+    --muted-foreground: 0 0% 38%;
 
-    --accent: 215 20% 96%;
-    --accent-foreground: 220 20% 10%;
+    --accent: 60 5% 95%;
+    --accent-foreground: 0 0% 11%;
 
-    --destructive: 0 84% 60%;
+    --destructive: 6 78% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 215 20% 91%;
-    --input: 215 20% 91%;
-    --ring: 215 90% 50%;
+    --border: 60 5% 88%;
+    --input: 60 5% 88%;
+    --ring: 18 99% 44%;
 
     --radius: 0.5rem;
 
-    --sidebar-background: 220 20% 98%;
-    --sidebar-foreground: 220 15% 30%;
-    --sidebar-primary: 215 90% 50%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 215 20% 95%;
-    --sidebar-accent-foreground: 220 15% 15%;
-    --sidebar-border: 215 20% 91%;
-    --sidebar-ring: 215 90% 50%;
+    --brand: 18 99% 44%;
+    --brand-foreground: 0 0% 100%;
+    --brand-soft: 18 99% 44%;
 
-    --success: 142 72% 42%;
+    --success: 155 50% 38%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
+    --warning: 38 80% 52%;
+    --warning-foreground: 0 0% 11%;
+
+    --sidebar-background: 0 0% 8%;
+    --sidebar-foreground: 0 0% 88%;
+    --sidebar-primary: 18 99% 44%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 0 0% 14%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 18 99% 44%;
   }
 
   .dark {
-    --background: 220 20% 7%;
-    --foreground: 210 20% 95%;
+    --background: 0 0% 9%;
+    --foreground: 0 0% 96%;
 
-    --card: 220 20% 10%;
-    --card-foreground: 210 20% 95%;
+    --card: 0 0% 12%;
+    --card-foreground: 0 0% 96%;
 
-    --popover: 220 20% 10%;
-    --popover-foreground: 210 20% 95%;
+    --popover: 0 0% 12%;
+    --popover-foreground: 0 0% 96%;
 
-    --primary: 215 90% 55%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 18 95% 52%;
+    --primary-foreground: 0 0% 10%;
 
-    --secondary: 215 20% 18%;
-    --secondary-foreground: 210 20% 95%;
+    --secondary: 0 0% 19%;
+    --secondary-foreground: 0 0% 96%;
 
-    --muted: 215 20% 18%;
-    --muted-foreground: 215 15% 60%;
+    --muted: 0 0% 16%;
+    --muted-foreground: 0 0% 65%;
 
-    --accent: 215 20% 18%;
-    --accent-foreground: 210 20% 95%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 96%;
 
-    --destructive: 0 63% 31%;
-    --destructive-foreground: 210 20% 95%;
+    --destructive: 6 80% 55%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 215 20% 18%;
-    --input: 215 20% 18%;
-    --ring: 215 90% 55%;
+    --border: 0 0% 18%;
+    --input: 0 0% 18%;
+    --ring: 18 95% 52%;
 
-    --sidebar-background: 220 20% 8%;
-    --sidebar-foreground: 210 20% 90%;
-    --sidebar-primary: 215 90% 55%;
-    --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 215 20% 15%;
-    --sidebar-accent-foreground: 210 20% 90%;
-    --sidebar-border: 215 20% 15%;
-    --sidebar-ring: 215 90% 55%;
+    --brand: 18 95% 52%;
+    --brand-foreground: 0 0% 10%;
+    --brand-soft: 18 95% 52%;
 
-    --success: 142 72% 42%;
+    --success: 155 50% 45%;
     --success-foreground: 0 0% 100%;
-    --warning: 38 92% 50%;
-    --warning-foreground: 0 0% 100%;
+    --warning: 38 80% 58%;
+    --warning-foreground: 0 0% 10%;
+
+    --sidebar-background: 0 0% 6%;
+    --sidebar-foreground: 0 0% 88%;
+    --sidebar-primary: 18 95% 52%;
+    --sidebar-primary-foreground: 0 0% 10%;
+    --sidebar-accent: 0 0% 13%;
+    --sidebar-accent-foreground: 0 0% 96%;
+    --sidebar-border: 0 0% 14%;
+    --sidebar-ring: 18 95% 52%;
   }
 }
 
@@ -101,5 +125,27 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "cv11", "ss01";
+    text-rendering: optimizeLegibility;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display, "Poppins", system-ui, sans-serif);
+    letter-spacing: -0.02em;
+    font-weight: 600;
+    color: hsl(var(--foreground));
+  }
+
+  .font-brand {
+    font-family: "Ibrand", "Poppins", sans-serif;
+    letter-spacing: 0;
+  }
+
+  .label-exec {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: hsl(var(--muted-foreground));
   }
 }
