@@ -173,11 +173,14 @@ export type LeadInput = {
   address?: string | null;
   status?: LeadStatus;
   source?: string | null;
+  /** Campos extras (do CSV) que serão persistidos em pipedrive_data.csv_import */
+  extra?: Record<string, string> | null;
 };
 
 function buildLeadRow(input: LeadInput, companyId: string, defaultSource: string) {
   const hasPersonName = Boolean(input.name && String(input.name).trim());
   const display = computeLeadDisplayName(input);
+  const extra = input.extra && Object.keys(input.extra).length > 0 ? input.extra : null;
   return {
     company_id: companyId,
     name: display,
@@ -195,6 +198,7 @@ function buildLeadRow(input: LeadInput, companyId: string, defaultSource: string
     status: (input.status || "new") as LeadStatus,
     source: input.source || defaultSource,
     lead_kind: hasPersonName ? "person" : "company",
+    ...(extra ? { pipedrive_data: { csv_import: extra } } : {}),
   } as any;
 }
 
