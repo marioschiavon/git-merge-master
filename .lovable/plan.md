@@ -1,37 +1,12 @@
-## Objetivo
-Replicar a identidade visual do **Leaderei Foundation** neste projeto — cores, tipografia, logos, favicon — e renomear "SDR Auto/Automation" para **Leaderei** nos textos visíveis.
+## Renomeação para "Leaderei"
 
-## Assets que vou copiar do Leaderei
-- `public/favicon.ico`, `favicon-512.png`, `apple-touch-icon.png`
-- `public/fonts/ibrand.otf`
-- `src/assets/brand/leaderei-color.png` (auth/light)
-- `src/assets/brand/leaderei-white.png` (sidebar dark)
+A maior parte já foi feita em turno anterior (sidebar, tela de auth, `index.html` title/meta, favicons, logos). Falta apenas pequenos ajustes residuais.
 
-## Arquivos que vou editar
+### Mudanças
+1. **`index.html`** — texto das meta descriptions ainda diz "plataforma de SDR e automação comercial". Atualizar para algo alinhado à marca Leaderei (ex.: "Leaderei — plataforma de prospecção e automação comercial").
+2. **`package.json`** — campo `name` ainda é `vite_react_shadcn_ts`. Renomear para `leaderei`.
+3. **Varredura final** — confirmar que nenhum outro texto visível (toasts, títulos de página, emails de boas-vindas em edge functions, etc.) ainda usa "SDR Auto" / "SDR Automation". A busca atual não encontrou nada além das meta tags; se aparecer algo durante a edição, ajusto junto.
 
-1. **`src/index.css`** — substituir tokens HSL pela paleta Leaderei (laranja `#e04e01` primary, off-white bg, sidebar near-black, muted `#606060`, deep `#313131`), adicionar `@font-face` Ibrand, importar Poppins, e novos tokens `--brand`, `--brand-soft`, `--success`, `--warning`. Variante `.dark` equivalente.
-
-2. **`tailwind.config.ts`** — `fontFamily.sans` = Poppins; adicionar `display` e `brand` (Ibrand); registrar cores `brand`, `brand-soft`, `success`, `warning`.
-
-3. **`index.html`** — `<title>Leaderei</title>`, meta description, favicon/apple-touch-icon, preconnect Google Fonts (Poppins).
-
-4. **`src/components/AppSidebar.tsx`** — substituir ícone `Zap` + "SDR Auto" pelo `leaderei-white.png`.
-
-5. **`src/pages/Auth.tsx`** — substituir `Zap` pelo `leaderei-color.png`; trocar "SDR Automation" por "Leaderei".
-
-6. **Outras menções textuais** — buscar e renomear "SDR Auto" / "SDR Automation" em pages e copy visível (sem mexer em IDs, rotas ou nomes de tabelas).
-
-## Tradução de cores principais
-
-| Token | Origem oklch | HSL aplicado |
-|---|---|---|
-| primary / brand | `#e04e01` | `18 99% 44%` |
-| background | off-white | `60 14% 97%` |
-| foreground | near-black | `0 0% 11%` |
-| secondary | `#313131` | `0 0% 19%` |
-| muted-fg | `#606060` | `0 0% 38%` |
-| sidebar | near-black | `0 0% 8%` |
-
-## Fora do escopo
-- Lógica de negócio, rotas, hooks, edge functions, schema do banco — intactos.
-- Sem mudar a Ibrand de licença/uso além de servir o `.otf` já presente no Leaderei.
+### Fora de escopo
+- Não mexer no termo "SDR" quando se refere ao cargo (ex.: `"editado pelo SDR"` em `useSimulateCadence.ts`) — é função/role, não nome do produto.
+- Não tocar em logos/cores (já aplicados).
