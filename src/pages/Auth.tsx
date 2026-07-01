@@ -73,7 +73,7 @@ export default function Auth() {
           <div className="mx-auto mb-4 flex h-12 items-center justify-center">
             <img src={leadereiLogo} alt="Leaderei" className="h-10 w-auto" />
           </div>
-          <CardTitle className="text-2xl">Leaderei</CardTitle>
+          
           <CardDescription>
             {isForgotPassword
               ? "Redefinir senha"
