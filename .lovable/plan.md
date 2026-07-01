@@ -1,9 +1,22 @@
-## Ajuste na tela /auth
+# Desativar confirmação por email
 
-**Verificação TS2304**: A importação `leadereiLogo` já existe corretamente em `Auth.tsx` (linha 10) e `AppSidebar.tsx` (linha 23), e os arquivos `leaderei-color.png` e `leaderei-white.png` estão em `src/assets/brand/`. Não há erro real de TS2304 no código atual — se aparecer no editor, é cache de tipos e some no próximo build.
+Ativar auto-confirm no auth do Lovable Cloud para que usuários fiquem logados imediatamente após o cadastro, sem precisar clicar em link.
 
-**Alteração solicitada em `src/pages/Auth.tsx`**:
-- Remover a linha `<CardTitle className="text-2xl">Leaderei</CardTitle>`
-- Manter apenas a logo (`leaderei-color.png`) e a `CardDescription` ("Acesse sua conta" / "Crie sua conta" / "Redefinir senha")
+## Alterações
 
-Nenhuma outra alteração de layout, estilo ou lógica.
+1. **Config auth** — chamar `supabase--configure_auth` com:
+   - `auto_confirm_email: true`
+   - `password_hibp_enabled: true` (mantém proteção contra senhas vazadas — já está ativa)
+   - `disable_signup: false`
+   - `external_anonymous_users_enabled: false`
+
+2. **Usuário existente** (`mario@s7.dev.br`) — está com `email_verified: false`. Vou confirmá-lo manualmente via update em `auth.users` para ele conseguir logar sem precisar do email.
+
+## Fora de escopo
+
+- Configurar domínio próprio de email (fica pra depois, se quiser voltar a exigir confirmação com boa deliverability).
+- Alterar telas de signup/login no frontend — nada muda visualmente; o usuário só deixa de ser redirecionado pra "verifique seu email".
+
+## Aviso de segurança
+
+Auto-confirm = qualquer email digitado é aceito sem prova de posse. Ok pra MVP/testes internos. Antes de ir a produção com usuários externos, recomendo reativar confirmação + domínio próprio.
