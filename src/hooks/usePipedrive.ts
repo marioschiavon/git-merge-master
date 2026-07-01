@@ -173,11 +173,14 @@ export type LeadInput = {
   address?: string | null;
   status?: LeadStatus;
   source?: string | null;
+  /** Campos extras (do CSV) que serão persistidos em pipedrive_data.csv_import */
+  extra?: Record<string, string> | null;
 };
 
 function buildLeadRow(input: LeadInput, companyId: string, defaultSource: string) {
   const hasPersonName = Boolean(input.name && String(input.name).trim());
   const display = computeLeadDisplayName(input);
+  const extra = input.extra && Object.keys(input.extra).length > 0 ? input.extra : null;
   return {
     company_id: companyId,
     name: display,
@@ -195,6 +198,7 @@ function buildLeadRow(input: LeadInput, companyId: string, defaultSource: string
     status: (input.status || "new") as LeadStatus,
     source: input.source || defaultSource,
     lead_kind: hasPersonName ? "person" : "company",
+    ...(extra ? { pipedrive_data: { csv_import: extra } } : {}),
   } as any;
 }
 
@@ -242,21 +246,28 @@ export function useImportLeads() {
       });
 
       // Insert in chunks of 500
-      let inserted = 0;
+      let created = 0;
+      const errors: { row: number; message: string }[] = [];
       for (let i = 0; i < rows.length; i += 500) {
         const chunk = rows.slice(i, i + 500);
         const { error, count } = await supabase
           .from("leads")
           .insert(chunk, { count: "exact" });
-        if (error) throw error;
-        inserted += count || chunk.length;
+        if (error) {
+          errors.push({ row: i + 1, message: error.message });
+        } else {
+          created += count || chunk.length;
+        }
       }
-      return { inserted };
+      return { received: leads.length, created, skipped: leads.length - created, errors };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
       queryClient.invalidateQueries({ queryKey: ["lead-lists"] });
-      toast({ title: "Importação concluída!", description: `${data.inserted} leads importados.` });
+      const desc = data.errors.length > 0
+        ? `${data.created} criados · ${data.skipped} ignorados · ${data.errors.length} erros`
+        : `${data.created} leads importados.`;
+      toast({ title: "Importação concluída!", description: desc });
     },
     onError: (error: Error) => {
       toast({ title: "Erro ao importar", description: error.message, variant: "destructive" });
