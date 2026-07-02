@@ -2287,6 +2287,7 @@ export type Database = {
       }
       platform_settings: {
         Row: {
+          apify_actors: Json
           apify_enabled: boolean
           created_at: string
           id: string
@@ -2296,6 +2297,7 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
+          apify_actors?: Json
           apify_enabled?: boolean
           created_at?: string
           id?: string
@@ -2305,6 +2307,7 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
+          apify_actors?: Json
           apify_enabled?: boolean
           created_at?: string
           id?: string

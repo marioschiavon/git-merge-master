@@ -272,8 +272,20 @@ async function runJob(job_id: string) {
     // Apify is now a platform-wide integration managed by master_admin.
     // Token comes from env; a global toggle (platform_settings.apify_enabled) can disable it for everyone.
     const { data: platform } = await supabase
-      .from("platform_settings").select("apify_enabled").eq("singleton", true).maybeSingle();
+      .from("platform_settings").select("apify_enabled, apify_actors").eq("singleton", true).maybeSingle();
     const apifyToken = platform?.apify_enabled ? Deno.env.get("APIFY_API_TOKEN") : null;
+    const DEFAULT_ACTORS: Record<string, { actor_id: string; enabled: boolean }> = {
+      instagram:        { actor_id: "apify/instagram-scraper",             enabled: true },
+      facebook:         { actor_id: "apify/facebook-pages-scraper",        enabled: true },
+      linkedin_person:  { actor_id: "dev_fusion/linkedin-profile-scraper", enabled: true },
+      linkedin_company: { actor_id: "apimaestro/linkedin-company",         enabled: true },
+    };
+    const platformActors: Record<string, { actor_id: string; enabled: boolean }> = {
+      ...DEFAULT_ACTORS,
+      ...((platform?.apify_actors as any) || {}),
+    };
+    const actorFor = (k: string) => platformActors[k]?.actor_id || DEFAULT_ACTORS[k].actor_id;
+    const actorOn = (k: string) => platformActors[k]?.enabled !== false;
 
     const steps: any = { ...(job.steps_done || {}) };
     const leadPatch: any = {};
@@ -355,11 +367,11 @@ async function runJob(job_id: string) {
         }, { onConflict: "lead_id,network" });
       };
 
-      if (actors.instagram !== false && lead.instagram_url) {
+      if (actorOn("instagram") && actors.instagram !== false && lead.instagram_url) {
         const handle = handleFromUrl(lead.instagram_url, "instagram\\.com");
         if (handle) tasks.push((async () => {
           const limit = Math.max(3, Math.min(30, Number(actors.instagram_posts_limit) || 12));
-          const r = await runApifyActor(apifyToken, "apify/instagram-scraper", {
+          const r = await runApifyActor(apifyToken, actorFor("instagram"), {
             directUrls: [lead.instagram_url],
             resultsType: "posts",
             resultsLimit: limit,
@@ -383,21 +395,21 @@ async function runJob(job_id: string) {
           }
         })());
       }
-      if (actors.facebook !== false && lead.facebook_url) {
+      if (actorOn("facebook") && actors.facebook !== false && lead.facebook_url) {
         tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, "apify/facebook-pages-scraper", { startUrls: [{ url: lead.facebook_url }] });
+          const r = await runApifyActor(apifyToken, actorFor("facebook"), { startUrls: [{ url: lead.facebook_url }] });
           if (r) await upsertProfile("facebook", handleFromUrl(lead.facebook_url, "facebook\\.com"), lead.facebook_url, r);
         })());
       }
-      if (actors.linkedin_person !== false && lead.linkedin_url) {
+      if (actorOn("linkedin_person") && actors.linkedin_person !== false && lead.linkedin_url) {
         tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, "dev_fusion/linkedin-profile-scraper", { profileUrls: [lead.linkedin_url] });
+          const r = await runApifyActor(apifyToken, actorFor("linkedin_person"), { profileUrls: [lead.linkedin_url] });
           if (r) await upsertProfile("linkedin_person", handleFromUrl(lead.linkedin_url, "linkedin\\.com/in"), lead.linkedin_url, r);
         })());
       }
-      if (actors.linkedin_company !== false && lead.linkedin_company_url) {
+      if (actorOn("linkedin_company") && actors.linkedin_company !== false && lead.linkedin_company_url) {
         tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, "apimaestro/linkedin-company", { companyUrls: [lead.linkedin_company_url] });
+          const r = await runApifyActor(apifyToken, actorFor("linkedin_company"), { companyUrls: [lead.linkedin_company_url] });
           if (r) await upsertProfile("linkedin_company", handleFromUrl(lead.linkedin_company_url, "linkedin\\.com/company"), lead.linkedin_company_url, r);
         })());
       }
