@@ -2285,6 +2285,36 @@ export type Database = {
         }
         Relationships: []
       }
+      platform_settings: {
+        Row: {
+          apify_enabled: boolean
+          created_at: string
+          id: string
+          metadata: Json
+          singleton: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          apify_enabled?: boolean
+          created_at?: string
+          id?: string
+          metadata?: Json
+          singleton?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          apify_enabled?: boolean
+          created_at?: string
+          id?: string
+          metadata?: Json
+          singleton?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       processed_inbound_messages: {
         Row: {
           content_bucket: number | null
