@@ -3,15 +3,34 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Shield, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Sparkles, Shield, AlertCircle, CheckCircle2, ExternalLink, RotateCcw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+
+type ActorCfg = { actor_id: string; enabled: boolean };
+type ActorsMap = Record<"instagram" | "facebook" | "linkedin_person" | "linkedin_company", ActorCfg>;
+
+const DEFAULT_ACTORS: ActorsMap = {
+  instagram:        { actor_id: "apify/instagram-scraper",             enabled: true },
+  facebook:         { actor_id: "apify/facebook-pages-scraper",        enabled: true },
+  linkedin_person:  { actor_id: "dev_fusion/linkedin-profile-scraper", enabled: true },
+  linkedin_company: { actor_id: "apimaestro/linkedin-company",         enabled: true },
+};
+
+const ACTOR_ROWS: { key: keyof ActorsMap; label: string }[] = [
+  { key: "instagram",        label: "Instagram" },
+  { key: "facebook",         label: "Facebook" },
+  { key: "linkedin_person",  label: "LinkedIn (pessoa)" },
+  { key: "linkedin_company", label: "LinkedIn (empresa)" },
+];
 
 export default function PlatformSettings() {
   const qc = useQueryClient();
   const [apifyEnabled, setApifyEnabled] = useState(false);
+  const [actors, setActors] = useState<ActorsMap>(DEFAULT_ACTORS);
 
   const { data: settings, isLoading } = useQuery({
     queryKey: ["platform_settings"],
@@ -36,14 +55,17 @@ export default function PlatformSettings() {
   });
 
   useEffect(() => {
-    if (settings) setApifyEnabled(!!settings.apify_enabled);
+    if (settings) {
+      setApifyEnabled(!!settings.apify_enabled);
+      setActors({ ...DEFAULT_ACTORS, ...((settings as any).apify_actors || {}) });
+    }
   }, [settings]);
 
   const save = useMutation({
     mutationFn: async () => {
       const { error } = await supabase
         .from("platform_settings")
-        .update({ apify_enabled: apifyEnabled })
+        .update({ apify_enabled: apifyEnabled, apify_actors: actors as any })
         .eq("singleton", true);
       if (error) throw error;
     },
@@ -53,6 +75,9 @@ export default function PlatformSettings() {
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
+
+  const updateActor = (k: keyof ActorsMap, patch: Partial<ActorCfg>) =>
+    setActors((s) => ({ ...s, [k]: { ...s[k], ...patch } }));
 
   const tokenConfigured = !!status?.apify.token_configured;
 
@@ -83,7 +108,7 @@ export default function PlatformSettings() {
             </Badge>
           </div>
           <CardDescription>
-            Motor global usado pelo enriquecimento de leads (Instagram, Facebook, LinkedIn). O token fica salvo como segredo da plataforma — nenhuma empresa vê ou configura.
+            Motor global usado pelo enriquecimento de leads. O token fica salvo como segredo da plataforma — nenhuma empresa vê ou configura.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -91,7 +116,7 @@ export default function PlatformSettings() {
             <div>
               <Label className="font-medium">Habilitar Apify globalmente</Label>
               <p className="text-xs text-muted-foreground mt-1">
-                Quando desativado, as empresas não conseguem usar scraping via Apify mesmo que tenham marcado a opção.
+                Quando desativado, nenhuma empresa consegue usar scraping via Apify.
               </p>
             </div>
             <Switch
@@ -104,9 +129,66 @@ export default function PlatformSettings() {
           {!tokenConfigured && (
             <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
               O secret <code className="text-xs bg-background px-1 py-0.5 rounded">APIFY_API_TOKEN</code> não está configurado.
-              Peça ao ambiente Lovable para adicionar/atualizar esse segredo antes de habilitar o recurso.
+              Configure-o antes de habilitar o recurso.
             </div>
           )}
+
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <Label className="font-medium">Actors por rede</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Escolha qual actor do Apify roda em cada rede. Formato: <code>owner/actor-name</code>.
+                </p>
+              </div>
+              <a
+                href="https://apify.com/store"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-primary hover:underline inline-flex items-center gap-1"
+              >
+                Apify Store <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+
+            <div className="space-y-2">
+              {ACTOR_ROWS.map(({ key, label }) => {
+                const cfg = actors[key];
+                const isDefault = cfg.actor_id === DEFAULT_ACTORS[key].actor_id;
+                return (
+                  <div key={key} className="flex items-center gap-2 border rounded-md p-3">
+                    <Switch
+                      checked={cfg.enabled}
+                      onCheckedChange={(v) => updateActor(key, { enabled: v })}
+                    />
+                    <div className="w-40 shrink-0">
+                      <div className="text-sm font-medium">{label}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        default: {DEFAULT_ACTORS[key].actor_id}
+                      </div>
+                    </div>
+                    <Input
+                      value={cfg.actor_id}
+                      onChange={(e) => updateActor(key, { actor_id: e.target.value })}
+                      placeholder="owner/actor-name"
+                      className="h-8 font-mono text-xs"
+                      disabled={!cfg.enabled}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => updateActor(key, { actor_id: DEFAULT_ACTORS[key].actor_id })}
+                      disabled={isDefault}
+                      title="Restaurar padrão"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           <div className="pt-2">
             <Button onClick={() => save.mutate()} disabled={save.isPending || isLoading}>
