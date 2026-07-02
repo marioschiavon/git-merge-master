@@ -1,98 +1,82 @@
-# Isolamento Multi-Tenant Completo
+# Configurações Globais do Master Admin
 
-Garantir que cada `company` só enxergue seus próprios dados (integrações, membros, leads, cadências, campanhas, conversas, etc.), tanto no banco (RLS) quanto no frontend (queries filtradas) e nas Edge Functions (autorização server-side).
+Criar uma área de settings exclusiva do `master_admin` para gerenciar integrações e chaves que valem para **toda a plataforma** (todas as empresas usam de forma transparente, sem enxergar nem configurar).
 
-## 1. Auditoria (antes de escrever SQL)
+## 1. Tabela `platform_settings` (singleton)
 
-Rodar `supabase--read_query` para listar, em todas as tabelas de negócio, se existe coluna `company_id` e quais políticas RLS estão ativas hoje. Alvo mínimo:
+Nova tabela para armazenar configuração global:
 
-- `integrations`, `gmail_account`, `calcom_event_types`, `calcom_webhook_log`
-- `leads`, `lead_lists`, `lead_activities`, `lead_insights`, `lead_memory`, `lead_social_profiles`, `lead_enrichment_jobs`, `lead_action_queue`, `lead_intents_log`
-- `cadences`, `cadence_steps`, `cadence_policies`, `cadence_enrollments`, `cadence_custom_messages`, `cadence_agent_decisions`
-- `campaigns`, `conversations`, `messages`, `message_annotations`
-- `bookings`, `slot_holds`, `slot_expiry_followups`, `calendar_actions`
-- `company_knowledge`, `knowledge_chunks`, `script_templates`, `script_variations`
-- `approval_requests`, `sdr_agent_runs`, `execution_logs`, `email_send_log`, `email_send_state`, `email_unsubscribe_tokens`, `suppressed_emails`
-- `intent_action_rules`, `pending_inbound_runs`, `processed_inbound_messages`
-- `company_members`, `user_roles`
-
-Saída da auditoria = matriz `tabela → tem company_id? → política atual`.
-
-## 2. Migração de RLS uniforme
-
-Para toda tabela de negócio com `company_id`, aplicar padrão único:
-
-```sql
-DROP POLICY IF EXISTS <antigas> ON public.<t>;
-
-CREATE POLICY "tenant_select" ON public.<t> FOR SELECT TO authenticated
-  USING (company_id = public.get_user_company_id(auth.uid())
-      OR public.has_role(auth.uid(), 'master_admin'));
-
-CREATE POLICY "tenant_write" ON public.<t> FOR ALL TO authenticated
-  USING (company_id = public.get_user_company_id(auth.uid())
-      OR public.has_role(auth.uid(), 'master_admin'))
-  WITH CHECK (company_id = public.get_user_company_id(auth.uid())
-      OR public.has_role(auth.uid(), 'master_admin'));
+```
+platform_settings
+  id (uuid, singleton — sempre 1 linha)
+  apify_enabled (bool)
+  apify_api_token (text, secret-like)
+  openai_enabled / anthropic / etc. (fase 2)
+  metadata (jsonb) — extensível
+  updated_by (uuid → auth.users)
+  updated_at
 ```
 
-Tabelas-filhas sem `company_id` (ex.: `messages`, `cadence_steps`, `knowledge_chunks`) usam política via join no pai:
+RLS: `SELECT/UPDATE` apenas para `master_admin`. Edge functions leem via `service_role` (bypassa RLS).
 
-```sql
-USING (EXISTS (SELECT 1 FROM public.conversations c
-  WHERE c.id = messages.conversation_id
-    AND c.company_id = public.get_user_company_id(auth.uid())))
+Companies **não** têm acesso direto — nem via API nem via UI.
+
+## 2. Segredos globais reais
+
+Chaves sensíveis (Apify token, futuras chaves globais) continuam guardadas como **secrets do backend** (`APIFY_API_TOKEN`, etc.) via `add_secret`. A tabela `platform_settings` guarda apenas o **estado** (habilitado/desabilitado) e metadados não-sensíveis. Isso mantém as chaves fora do banco e reutilizáveis nas edge functions.
+
+## 3. Nova página `/master/platform-settings`
+
+Página React só acessível para `master_admin` (guard já existe no sidebar). Conteúdo:
+
+- Card "Apify (Enriquecimento)"
+  - Toggle habilitar/desabilitar globalmente
+  - Botão "Configurar token" → `update_secret('APIFY_API_TOKEN')`
+  - Status: chave configurada? sim/não (via edge function `platform-settings-status`)
+  - Botão "Testar conexão"
+- Slots futuros: OpenAI global, Anthropic global, Cal.com master, etc. (só um deles ativo agora — Apify)
+
+## 4. Item no sidebar do master
+
+Adicionar em `masterItems` em `AppSidebar.tsx`:
+- "Integrações da Plataforma" → `/master/platform-settings`
+
+## 5. Migração da lógica atual do Apify
+
+Hoje o Apify está em `EnrichmentSettingsCard.tsx` como integração por empresa (`integrations` table, `provider=apify`). Mudança:
+
+- Remover o campo de token Apify do card por-empresa (ele fica só como toggle "Usar Apify" por empresa, respeitando o master habilitar/desabilitar globalmente).
+- `enrich-lead/index.ts` passa a ler `APIFY_API_TOKEN` do env global (não mais de `integrations.api_token` por empresa).
+- Se `platform_settings.apify_enabled = false`, a função retorna sem chamar Apify (mesmo que a empresa tenha habilitado).
+
+## 6. Edge function `platform-settings-status`
+
+Endpoint só para `master_admin` que retorna:
+```json
+{ "apify": { "enabled": true, "token_configured": true } }
 ```
+Verifica JWT + role, e reporta se o env `APIFY_API_TOKEN` existe. Nunca vaza o valor.
 
-`company_members` e `user_roles`: usuário vê apenas linhas da própria empresa; `master_admin` vê tudo.
+## 7. UX
 
-Confirmar `GRANT SELECT, INSERT, UPDATE, DELETE ... TO authenticated` + `GRANT ALL ... TO service_role` em toda tabela tocada.
-
-## 3. Frontend — filtro obrigatório por company
-
-Criar helper `useCompanyId()` (já parcialmente em `useAuth`) e revisar todas as queries Supabase para incluir `.eq('company_id', companyId)` explicitamente (defesa em profundidade, mesmo com RLS). Arquivos alvo iniciais:
-
-- `src/pages/settings/Integrations.tsx`, `Members.tsx`, `Knowledge.tsx`
-- `src/pages/Leads.tsx`, `LeadLists.tsx`, `LeadDetail.tsx`
-- `src/pages/Cadences.tsx`, `Campaigns.tsx`, `Inbox.tsx`, `Conversations.tsx`, `Bookings.tsx`, `Approvals.tsx`
-- Componentes de listagem que fazem `.from(...).select()` sem filtro
-
-Bloquear render quando `companyId` for `null` (loader) para evitar flash de dados vazios ou race conditions.
-
-## 4. Edge Functions — autorização server-side
-
-Estender `_shared/tenant-auth.ts` (criado antes) e aplicar em **todas** as funções que aceitam `company_id`, `lead_id`, `cadence_id`, `integration_id` no body: resolver o `company_id` real do recurso via service role e comparar com `requireCompanyMember(user, company_id)`. Nunca confiar no body.
-
-Alvo prioritário (integrações e ações que escrevem):
-- `gmail-*`, `calcom-*`, `pipedrive-*`, `apollo-*`, `apify-*`
-- `launch-campaign`, `enroll-cadence`, `send-message`, `enrich-lead`, `webhook-*`
-- Qualquer função invocada pelo cliente com `supabase.functions.invoke`
-
-## 5. Members por empresa
-
-Página `settings/Members.tsx`: listar apenas `company_members` da empresa atual, permitir convidar/remover (respeitando `company_admin`/`master_admin`). Invite via edge function que valida papel do chamador.
-
-## 6. UX
-
-- Empty states claros ("Nenhuma integração conectada para {companyName}")
-- Badge da empresa já no sidebar → adicionar tooltip com role
-- Se `master_admin` → seletor de empresa (switch tenant) no header (opcional, marcar como fase 2)
-
-## 7. Validação
-
-- Criar 2ª empresa de teste + usuário B → confirmar que A não vê nada de B em: integrações, leads, cadências, conversas, members
-- Rodar `supabase--linter` após as migrações
-- Playwright: login como B, tentar `GET /rest/v1/leads?company_id=eq.<A>` → deve retornar `[]`
+- Master admin: vê o novo menu, configura o token uma vez, toggle liga/desliga.
+- Company admin: não vê nem sabe que Apify existe como serviço externo — vê apenas "Enriquecimento avançado (via plataforma)" como um toggle simples no seu próprio settings.
+- Se master desabilita globalmente, o toggle da empresa fica desabilitado com aviso "Recurso indisponível — contate o suporte".
 
 ## Detalhes técnicos
 
-- Uma migração por grupo lógico (RLS integrações, RLS leads, RLS cadências, RLS conversas, RLS knowledge, RLS logs) para facilitar revisão
-- Preservar policies existentes de `master_admin` já corretas
-- Nenhuma mudança em `auth.*`, `storage.*`
-- Zero breaking changes esperados no frontend além de adicionar filtros e loaders
+- Migração cria tabela + grants + RLS + policy `master_admin only` + seed de 1 linha default.
+- `platform_settings` NÃO tem `company_id` — é singleton.
+- Reaproveitar hook `useAuth` para checar `isMasterAdmin` (já existe).
+- Nenhuma mudança em auth.
 
 ## Fora do escopo
 
-- Trocar de tenant em runtime (fase 2)
-- Billing por empresa
-- Convites por email com token (usar apenas add manual de member por enquanto)
+- Migração de outras integrações globais (OpenAI/Anthropic/etc.) — só Apify agora, estrutura preparada para mais.
+- Billing/quotas por empresa em cima do recurso global.
+- Auditoria de uso do recurso global por empresa (fase 2, via `execution_logs`).
+
+## Perguntas de confirmação
+
+1. Confirmo que o **token Apify** deve migrar para um secret global (`APIFY_API_TOKEN`) — quer que eu já solicite via `add_secret` neste plano ou você prefere configurar manualmente depois?
+2. Além do Apify, existe alguma outra integração que **você já sabe** que deve ser global desde já (ex.: Cal.com centralizado, provider de e-mail transacional)?
