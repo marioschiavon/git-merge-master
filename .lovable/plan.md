@@ -1,58 +1,48 @@
-# Seleção centralizada dos actors do Apify
+# Apify 100% global — remover configuração por empresa
 
-Hoje os IDs dos actors do Apify estão **hardcoded** dentro de `enrich-lead/index.ts` (`apify/instagram-scraper`, `apify/facebook-pages-scraper`, `dev_fusion/linkedin-profile-scraper`, `apimaestro/linkedin-company`). Isso significa que trocar um actor exige alterar código. A empresa continua escolhendo apenas **quais redes** usar; **qual actor** rodar em cada rede é decisão global do master admin.
+Hoje a empresa ainda vê no `EnrichmentSettingsCard` um toggle "Scraping avançado de redes sociais" e uma sub-seção "Redes habilitadas" (Instagram / Facebook / LinkedIn pessoa / LinkedIn empresa) + limite de posts do Instagram. Isso conflita com a decisão: **Apify é um recurso da plataforma; empresas não configuram nada.**
 
-## 1. Extender `platform_settings`
+## 1. `EnrichmentSettingsCard.tsx`
 
-Adicionar uma coluna `apify_actors JSONB` (default com os valores atuais) que guarda, para cada rede, o actor ativo:
+Remover completamente:
+- Toggle `apify_scrape`
+- Bloco condicional "Redes habilitadas" (`apify_actors.instagram/facebook/linkedin_person/linkedin_company`)
+- Input `instagram_posts_limit`
 
-```json
-{
-  "instagram":        { "actor_id": "apify/instagram-scraper",           "enabled": true },
-  "facebook":         { "actor_id": "apify/facebook-pages-scraper",      "enabled": true },
-  "linkedin_person":  { "actor_id": "dev_fusion/linkedin-profile-scraper","enabled": true },
-  "linkedin_company": { "actor_id": "apimaestro/linkedin-company",       "enabled": true }
-}
-```
+O que fica no card da empresa:
+- `website_analysis`
+- `discover_socials`
+- `autofill_contacts`
+- `validate_whatsapp`
+- `generate_message` + `default_cadence_id`
 
-Só o master admin lê/escreve (RLS já garante isso na tabela singleton).
+Adicionar uma linha informativa neutra logo abaixo do `discover_socials`:
+> "O enriquecimento de redes sociais (Instagram, Facebook, LinkedIn) é executado automaticamente pela plataforma quando disponível — nenhuma configuração necessária."
 
-## 2. UI em `/master/platform-settings`
+## 2. `enrich-lead/index.ts`
 
-Novo bloco dentro do card "Apify — Scraping de redes sociais": uma seção **"Actors por rede"** com 4 linhas (Instagram, Facebook, LinkedIn Pessoa, LinkedIn Empresa). Cada linha tem:
+O gating do Apify passa a depender **só** de:
+- `platform_settings.apify_enabled = true`
+- `APIFY_API_TOKEN` presente
+- Actor da rede com `enabled: true` no `platform_settings.apify_actors`
+- Lead ter o `<rede>_url` correspondente
 
-- Toggle "Habilitar essa rede globalmente"
-- Input de texto com o **Actor ID** (formato `owner/actor-name`), pré-preenchido com o default
-- Link "Buscar actors no Apify Store →"
-- Botão pequeno "Restaurar padrão"
+Remover as verificações `settings.apify_scrape` e `settings.apify_actors.<rede>` (config por empresa). O `instagram_posts_limit` vira uma constante interna (12) — se no futuro o master quiser expor, entra no `platform_settings`.
 
-Um único botão "Salvar" persiste `apify_enabled` + `apify_actors` de uma vez.
+O trigger `enqueue_lead_enrichment` no banco continua igual: já enfileira quando qualquer dos outros toggles da empresa está ligado; o Apify pega carona no mesmo job automaticamente, sem depender de `apify_scrape`.
 
-Se um actor global estiver desabilitado, o toggle correspondente da empresa (em `EnrichmentSettingsCard`) fica sem efeito para aquela rede — o enrich pula.
+## 3. Migração leve nas empresas existentes
 
-## 3. Refatorar `enrich-lead/index.ts`
-
-- Ler `platform_settings.apify_actors` uma vez por execução (mesma query que já lê `apify_enabled`).
-- Substituir os 4 literais `"apify/instagram-scraper"` etc. por `platformActors.instagram.actor_id` etc.
-- Fallback: se a coluna vier vazia/nula, usar os defaults hardcoded (mantém retrocompatibilidade).
-- A condição de rodar cada actor vira: `platformActor.enabled !== false && company.actors.<network> !== false && lead.<url>`.
-
-## 4. Documentar defaults e formato
-
-Comentar no card do master que:
-- Actor ID segue o formato `owner/name` do Apify Store.
-- O token global (`APIFY_API_TOKEN`) precisa ter permissão de rodar o actor escolhido.
-- Trocar o actor afeta imediatamente todas as próximas execuções.
+Não é necessário migrar dados — o edge function passa a ignorar `enrichment_settings.apify_*`. Deixamos os campos antigos como lixo inócuo no JSON; não removemos por não haver custo.
 
 ## Detalhes técnicos
 
-- Migração: `ALTER TABLE platform_settings ADD COLUMN apify_actors JSONB NOT NULL DEFAULT '{...}';` com o JSON dos 4 defaults atuais.
-- Sem mudança de RLS (a política existente cobre a coluna nova).
-- Frontend: estender o `useState` de `PlatformSettings.tsx` para incluir `apify_actors`; adicionar componente `<ActorRow network label defaultId />` reaproveitável.
-- Edge function: apenas 4 substituições de string + uma leitura extra do select.
+- Sem mudança de schema.
+- Sem mudança em `PlatformSettings.tsx` (a UI global já está pronta).
+- Frontend: 1 arquivo (`EnrichmentSettingsCard.tsx`).
+- Backend: 1 arquivo (`enrich-lead/index.ts`) — remover 2 condições e o bloco de `actors.instagram_posts_limit`.
 
 ## Fora do escopo
 
-- Configurar **parâmetros por actor** (ex.: `resultsLimit` do Instagram já é por-empresa, mantém como está).
-- Suportar múltiplos actors alternativos por rede com fallback.
-- Actors adicionais (TikTok, YouTube, etc.) — adicionar depois é só estender o JSON.
+- Expor limite de posts do Instagram no painel do master (posso adicionar depois se pedir).
+- Métricas/quotas por empresa sobre o uso do recurso global.
