@@ -5,7 +5,6 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
@@ -26,13 +25,10 @@ type Settings = {
 export function EnrichmentSettingsCard() {
   const qc = useQueryClient();
   const { data: cadences = [] } = useCadences();
-  const [apifyToken, setApifyToken] = useState("");
 
   const { data: company } = useQuery({
     queryKey: ["enrichment_settings"],
     queryFn: async () => {
-      const { data: profile } = await supabase.from("profiles").select("user_id").maybeSingle();
-      void profile;
       const { data: cm } = await supabase.from("company_members").select("company_id").limit(1).maybeSingle();
       if (!cm?.company_id) return null;
       const { data } = await supabase.from("companies").select("id, enrichment_settings").eq("id", cm.company_id).maybeSingle();
@@ -40,12 +36,13 @@ export function EnrichmentSettingsCard() {
     },
   });
 
-  const { data: apifyInt } = useQuery({
-    queryKey: ["apify_integration", company?.id],
-    enabled: !!company?.id,
+  // Global platform toggle for Apify (managed by master admin). RLS returns null for non-master users.
+  const { data: apifyGloballyEnabled } = useQuery({
+    queryKey: ["platform_apify_enabled_public"],
     queryFn: async () => {
-      const { data } = await supabase.from("integrations").select("id, api_token, status").eq("company_id", company!.id).eq("provider", "apify").maybeSingle();
-      return data;
+      // We can't SELECT platform_settings from non-master. Instead call a lightweight check via a public flag.
+      // For now, we assume it's enabled and let the backend enforce. UI shows a generic label.
+      return true;
     },
   });
 
@@ -59,18 +56,10 @@ export function EnrichmentSettingsCard() {
       if (!company?.id) throw new Error("Empresa não encontrada");
       const { error } = await supabase.from("companies").update({ enrichment_settings: settings }).eq("id", company.id);
       if (error) throw error;
-      if (apifyToken) {
-        const { error: e2 } = await supabase.from("integrations").upsert({
-          company_id: company.id, provider: "apify", api_token: apifyToken, status: "active",
-        }, { onConflict: "company_id,provider" });
-        if (e2) throw e2;
-      }
     },
     onSuccess: () => {
       toast({ title: "Configurações salvas" });
-      setApifyToken("");
       qc.invalidateQueries({ queryKey: ["enrichment_settings"] });
-      qc.invalidateQueries({ queryKey: ["apify_integration"] });
     },
     onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
@@ -82,44 +71,27 @@ export function EnrichmentSettingsCard() {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Sparkles className="h-4 w-4" /> Enriquecimento automático de leads
-          </CardTitle>
-          <Badge variant={apifyInt?.status === "active" ? "default" : "secondary"}>
-            {apifyInt?.status === "active" ? "Apify conectado" : "Configure"}
-          </Badge>
-        </div>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sparkles className="h-4 w-4" /> Enriquecimento automático de leads
+        </CardTitle>
         <CardDescription>
-          Ao criar ou importar um lead, dispara em background: análise do site, descoberta de redes sociais, scraping (Apify) e rascunho de mensagem personalizada.
+          Ao criar ou importar um lead, dispara em background: análise do site, descoberta de redes sociais, scraping via plataforma e rascunho de mensagem personalizada.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Toggle id="ws" label="Analisar website automaticamente" checked={!!settings.website_analysis} onChange={(v) => set("website_analysis", v)} />
         <Toggle id="ds" label="Descobrir Instagram/LinkedIn/Facebook no website" checked={!!settings.discover_socials} onChange={(v) => set("discover_socials", v)} />
         <Toggle id="ac" label="Completar contatos faltantes (email / telefone / WhatsApp) a partir do site e redes" checked={settings.autofill_contacts !== false} onChange={(v) => set("autofill_contacts", v)} />
-        <Toggle id="ap" label="Scraping de redes sociais via Apify" checked={!!settings.apify_scrape} onChange={(v) => set("apify_scrape", v)} />
+        <Toggle id="ap" label="Scraping avançado de redes sociais (via plataforma)" checked={!!settings.apify_scrape} onChange={(v) => set("apify_scrape", v)} />
 
         {settings.apify_scrape && (
           <div className="pl-6 space-y-3 border-l-2 border-muted">
-            <div>
-              <Label htmlFor="apify-token">Token Apify</Label>
-              <Input
-                id="apify-token"
-                type="password"
-                placeholder={apifyInt?.api_token ? "•••••••• (preenchido)" : "Cole seu Apify API token"}
-                value={apifyToken}
-                onChange={(e) => setApifyToken(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                <a href="https://console.apify.com/account/integrations" target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                  Onde encontrar o token →
-                </a>
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              O motor de scraping é gerenciado pela plataforma — nenhum token é necessário.
+            </p>
             <div className="space-y-2">
-              <Label className="text-sm">Actors habilitados</Label>
-              <Toggle id="ai" label="Instagram (apify/instagram-scraper)" checked={settings.apify_actors?.instagram !== false} onChange={(v) => setActor("instagram", v)} />
+              <Label className="text-sm">Redes habilitadas</Label>
+              <Toggle id="ai" label="Instagram" checked={settings.apify_actors?.instagram !== false} onChange={(v) => setActor("instagram", v)} />
               {settings.apify_actors?.instagram !== false && (
                 <div className="pl-6 flex items-center gap-2">
                   <Label htmlFor="ig-posts" className="text-xs font-normal text-muted-foreground">Posts a analisar</Label>
@@ -137,9 +109,9 @@ export function EnrichmentSettingsCard() {
                   />
                 </div>
               )}
-              <Toggle id="af" label="Facebook (apify/facebook-pages-scraper)" checked={settings.apify_actors?.facebook !== false} onChange={(v) => setActor("facebook", v)} />
-              <Toggle id="alp" label="LinkedIn pessoa (dev_fusion/linkedin-profile-scraper)" checked={settings.apify_actors?.linkedin_person !== false} onChange={(v) => setActor("linkedin_person", v)} />
-              <Toggle id="alc" label="LinkedIn empresa (apimaestro/linkedin-company)" checked={settings.apify_actors?.linkedin_company !== false} onChange={(v) => setActor("linkedin_company", v)} />
+              <Toggle id="af" label="Facebook" checked={settings.apify_actors?.facebook !== false} onChange={(v) => setActor("facebook", v)} />
+              <Toggle id="alp" label="LinkedIn (pessoa)" checked={settings.apify_actors?.linkedin_person !== false} onChange={(v) => setActor("linkedin_person", v)} />
+              <Toggle id="alc" label="LinkedIn (empresa)" checked={settings.apify_actors?.linkedin_company !== false} onChange={(v) => setActor("linkedin_company", v)} />
             </div>
           </div>
         )}
@@ -185,3 +157,4 @@ function Toggle({ id, label, checked, onChange }: { id: string; label: string; c
     </div>
   );
 }
+

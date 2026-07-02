@@ -269,10 +269,11 @@ async function runJob(job_id: string) {
     const { data: company } = await supabase.from("companies").select("enrichment_settings").eq("id", job.company_id).single();
     const settings: any = company?.enrichment_settings || {};
 
-    const { data: apifyIntegration } = await supabase
-      .from("integrations").select("api_token, config")
-      .eq("company_id", job.company_id).eq("provider", "apify").maybeSingle();
-    const apifyToken = apifyIntegration?.api_token;
+    // Apify is now a platform-wide integration managed by master_admin.
+    // Token comes from env; a global toggle (platform_settings.apify_enabled) can disable it for everyone.
+    const { data: platform } = await supabase
+      .from("platform_settings").select("apify_enabled").eq("singleton", true).maybeSingle();
+    const apifyToken = platform?.apify_enabled ? Deno.env.get("APIFY_API_TOKEN") : null;
 
     const steps: any = { ...(job.steps_done || {}) };
     const leadPatch: any = {};
