@@ -351,9 +351,8 @@ async function runJob(job_id: string) {
       Object.assign(lead, leadPatch);
     }
 
-    // Step 3: Apify scrape
-    if (settings.apify_scrape && apifyToken) {
-      const actors: any = settings.apify_actors || {};
+    // Step 3: Apify scrape — controlled 100% by master admin (platform_settings)
+    if (apifyToken) {
       const tasks: Promise<void>[] = [];
 
       const upsertProfile = async (network: string, handle: string | null, url: string | null, raw: any) => {
@@ -367,14 +366,13 @@ async function runJob(job_id: string) {
         }, { onConflict: "lead_id,network" });
       };
 
-      if (actorOn("instagram") && actors.instagram !== false && lead.instagram_url) {
+      if (actorOn("instagram") && lead.instagram_url) {
         const handle = handleFromUrl(lead.instagram_url, "instagram\\.com");
         if (handle) tasks.push((async () => {
-          const limit = Math.max(3, Math.min(30, Number(actors.instagram_posts_limit) || 12));
           const r = await runApifyActor(apifyToken, actorFor("instagram"), {
             directUrls: [lead.instagram_url],
             resultsType: "posts",
-            resultsLimit: limit,
+            resultsLimit: 12,
             addParentData: true,
           });
           if (r && Array.isArray(r) && r.length) {
@@ -395,19 +393,19 @@ async function runJob(job_id: string) {
           }
         })());
       }
-      if (actorOn("facebook") && actors.facebook !== false && lead.facebook_url) {
+      if (actorOn("facebook") && lead.facebook_url) {
         tasks.push((async () => {
           const r = await runApifyActor(apifyToken, actorFor("facebook"), { startUrls: [{ url: lead.facebook_url }] });
           if (r) await upsertProfile("facebook", handleFromUrl(lead.facebook_url, "facebook\\.com"), lead.facebook_url, r);
         })());
       }
-      if (actorOn("linkedin_person") && actors.linkedin_person !== false && lead.linkedin_url) {
+      if (actorOn("linkedin_person") && lead.linkedin_url) {
         tasks.push((async () => {
           const r = await runApifyActor(apifyToken, actorFor("linkedin_person"), { profileUrls: [lead.linkedin_url] });
           if (r) await upsertProfile("linkedin_person", handleFromUrl(lead.linkedin_url, "linkedin\\.com/in"), lead.linkedin_url, r);
         })());
       }
-      if (actorOn("linkedin_company") && actors.linkedin_company !== false && lead.linkedin_company_url) {
+      if (actorOn("linkedin_company") && lead.linkedin_company_url) {
         tasks.push((async () => {
           const r = await runApifyActor(apifyToken, actorFor("linkedin_company"), { companyUrls: [lead.linkedin_company_url] });
           if (r) await upsertProfile("linkedin_company", handleFromUrl(lead.linkedin_company_url, "linkedin\\.com/company"), lead.linkedin_company_url, r);
