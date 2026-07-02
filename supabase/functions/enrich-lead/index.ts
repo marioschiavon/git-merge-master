@@ -351,9 +351,8 @@ async function runJob(job_id: string) {
       Object.assign(lead, leadPatch);
     }
 
-    // Step 3: Apify scrape
-    if (settings.apify_scrape && apifyToken) {
-      const actors: any = settings.apify_actors || {};
+    // Step 3: Apify scrape — controlled 100% by master admin (platform_settings)
+    if (apifyToken) {
       const tasks: Promise<void>[] = [];
 
       const upsertProfile = async (network: string, handle: string | null, url: string | null, raw: any) => {
