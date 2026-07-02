@@ -60,6 +60,7 @@ import { Separator } from "@/components/ui/separator";
 const masterItems = [
   { title: "Painel Master", url: "/master", icon: LayoutDashboard },
   { title: "Empresas", url: "/master/companies", icon: Building2 },
+  { title: "Integrações da Plataforma", url: "/master/platform-settings", icon: ShieldCheck },
 ];
 
 const companyItems = [
