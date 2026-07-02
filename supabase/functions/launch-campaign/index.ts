@@ -37,6 +37,15 @@ serve(async (req) => {
     if (!list) return json({ error: "list not found" }, 404);
     const companyId = list.company_id;
 
+    // Tenant guard
+    const { requireCompanyMember, HttpError } = await import("../_shared/tenant-auth.ts");
+    try {
+      await requireCompanyMember(u.user.id, companyId);
+    } catch (err) {
+      const status = err instanceof HttpError ? err.status : 403;
+      return json({ error: (err as Error).message }, status);
+    }
+
     // Resolve leads
     let q = supabase.from("leads").select("id, email, enrichment_status").eq("lead_list_id", list_id).eq("company_id", companyId);
     if (Array.isArray(lead_ids) && lead_ids.length > 0) q = q.in("id", lead_ids);
