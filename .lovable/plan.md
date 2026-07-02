@@ -1,82 +1,58 @@
-# Configurações Globais do Master Admin
+# Seleção centralizada dos actors do Apify
 
-Criar uma área de settings exclusiva do `master_admin` para gerenciar integrações e chaves que valem para **toda a plataforma** (todas as empresas usam de forma transparente, sem enxergar nem configurar).
+Hoje os IDs dos actors do Apify estão **hardcoded** dentro de `enrich-lead/index.ts` (`apify/instagram-scraper`, `apify/facebook-pages-scraper`, `dev_fusion/linkedin-profile-scraper`, `apimaestro/linkedin-company`). Isso significa que trocar um actor exige alterar código. A empresa continua escolhendo apenas **quais redes** usar; **qual actor** rodar em cada rede é decisão global do master admin.
 
-## 1. Tabela `platform_settings` (singleton)
+## 1. Extender `platform_settings`
 
-Nova tabela para armazenar configuração global:
+Adicionar uma coluna `apify_actors JSONB` (default com os valores atuais) que guarda, para cada rede, o actor ativo:
 
-```
-platform_settings
-  id (uuid, singleton — sempre 1 linha)
-  apify_enabled (bool)
-  apify_api_token (text, secret-like)
-  openai_enabled / anthropic / etc. (fase 2)
-  metadata (jsonb) — extensível
-  updated_by (uuid → auth.users)
-  updated_at
-```
-
-RLS: `SELECT/UPDATE` apenas para `master_admin`. Edge functions leem via `service_role` (bypassa RLS).
-
-Companies **não** têm acesso direto — nem via API nem via UI.
-
-## 2. Segredos globais reais
-
-Chaves sensíveis (Apify token, futuras chaves globais) continuam guardadas como **secrets do backend** (`APIFY_API_TOKEN`, etc.) via `add_secret`. A tabela `platform_settings` guarda apenas o **estado** (habilitado/desabilitado) e metadados não-sensíveis. Isso mantém as chaves fora do banco e reutilizáveis nas edge functions.
-
-## 3. Nova página `/master/platform-settings`
-
-Página React só acessível para `master_admin` (guard já existe no sidebar). Conteúdo:
-
-- Card "Apify (Enriquecimento)"
-  - Toggle habilitar/desabilitar globalmente
-  - Botão "Configurar token" → `update_secret('APIFY_API_TOKEN')`
-  - Status: chave configurada? sim/não (via edge function `platform-settings-status`)
-  - Botão "Testar conexão"
-- Slots futuros: OpenAI global, Anthropic global, Cal.com master, etc. (só um deles ativo agora — Apify)
-
-## 4. Item no sidebar do master
-
-Adicionar em `masterItems` em `AppSidebar.tsx`:
-- "Integrações da Plataforma" → `/master/platform-settings`
-
-## 5. Migração da lógica atual do Apify
-
-Hoje o Apify está em `EnrichmentSettingsCard.tsx` como integração por empresa (`integrations` table, `provider=apify`). Mudança:
-
-- Remover o campo de token Apify do card por-empresa (ele fica só como toggle "Usar Apify" por empresa, respeitando o master habilitar/desabilitar globalmente).
-- `enrich-lead/index.ts` passa a ler `APIFY_API_TOKEN` do env global (não mais de `integrations.api_token` por empresa).
-- Se `platform_settings.apify_enabled = false`, a função retorna sem chamar Apify (mesmo que a empresa tenha habilitado).
-
-## 6. Edge function `platform-settings-status`
-
-Endpoint só para `master_admin` que retorna:
 ```json
-{ "apify": { "enabled": true, "token_configured": true } }
+{
+  "instagram":        { "actor_id": "apify/instagram-scraper",           "enabled": true },
+  "facebook":         { "actor_id": "apify/facebook-pages-scraper",      "enabled": true },
+  "linkedin_person":  { "actor_id": "dev_fusion/linkedin-profile-scraper","enabled": true },
+  "linkedin_company": { "actor_id": "apimaestro/linkedin-company",       "enabled": true }
+}
 ```
-Verifica JWT + role, e reporta se o env `APIFY_API_TOKEN` existe. Nunca vaza o valor.
 
-## 7. UX
+Só o master admin lê/escreve (RLS já garante isso na tabela singleton).
 
-- Master admin: vê o novo menu, configura o token uma vez, toggle liga/desliga.
-- Company admin: não vê nem sabe que Apify existe como serviço externo — vê apenas "Enriquecimento avançado (via plataforma)" como um toggle simples no seu próprio settings.
-- Se master desabilita globalmente, o toggle da empresa fica desabilitado com aviso "Recurso indisponível — contate o suporte".
+## 2. UI em `/master/platform-settings`
+
+Novo bloco dentro do card "Apify — Scraping de redes sociais": uma seção **"Actors por rede"** com 4 linhas (Instagram, Facebook, LinkedIn Pessoa, LinkedIn Empresa). Cada linha tem:
+
+- Toggle "Habilitar essa rede globalmente"
+- Input de texto com o **Actor ID** (formato `owner/actor-name`), pré-preenchido com o default
+- Link "Buscar actors no Apify Store →"
+- Botão pequeno "Restaurar padrão"
+
+Um único botão "Salvar" persiste `apify_enabled` + `apify_actors` de uma vez.
+
+Se um actor global estiver desabilitado, o toggle correspondente da empresa (em `EnrichmentSettingsCard`) fica sem efeito para aquela rede — o enrich pula.
+
+## 3. Refatorar `enrich-lead/index.ts`
+
+- Ler `platform_settings.apify_actors` uma vez por execução (mesma query que já lê `apify_enabled`).
+- Substituir os 4 literais `"apify/instagram-scraper"` etc. por `platformActors.instagram.actor_id` etc.
+- Fallback: se a coluna vier vazia/nula, usar os defaults hardcoded (mantém retrocompatibilidade).
+- A condição de rodar cada actor vira: `platformActor.enabled !== false && company.actors.<network> !== false && lead.<url>`.
+
+## 4. Documentar defaults e formato
+
+Comentar no card do master que:
+- Actor ID segue o formato `owner/name` do Apify Store.
+- O token global (`APIFY_API_TOKEN`) precisa ter permissão de rodar o actor escolhido.
+- Trocar o actor afeta imediatamente todas as próximas execuções.
 
 ## Detalhes técnicos
 
-- Migração cria tabela + grants + RLS + policy `master_admin only` + seed de 1 linha default.
-- `platform_settings` NÃO tem `company_id` — é singleton.
-- Reaproveitar hook `useAuth` para checar `isMasterAdmin` (já existe).
-- Nenhuma mudança em auth.
+- Migração: `ALTER TABLE platform_settings ADD COLUMN apify_actors JSONB NOT NULL DEFAULT '{...}';` com o JSON dos 4 defaults atuais.
+- Sem mudança de RLS (a política existente cobre a coluna nova).
+- Frontend: estender o `useState` de `PlatformSettings.tsx` para incluir `apify_actors`; adicionar componente `<ActorRow network label defaultId />` reaproveitável.
+- Edge function: apenas 4 substituições de string + uma leitura extra do select.
 
 ## Fora do escopo
 
-- Migração de outras integrações globais (OpenAI/Anthropic/etc.) — só Apify agora, estrutura preparada para mais.
-- Billing/quotas por empresa em cima do recurso global.
-- Auditoria de uso do recurso global por empresa (fase 2, via `execution_logs`).
-
-## Perguntas de confirmação
-
-1. Confirmo que o **token Apify** deve migrar para um secret global (`APIFY_API_TOKEN`) — quer que eu já solicite via `add_secret` neste plano ou você prefere configurar manualmente depois?
-2. Além do Apify, existe alguma outra integração que **você já sabe** que deve ser global desde já (ex.: Cal.com centralizado, provider de e-mail transacional)?
+- Configurar **parâmetros por actor** (ex.: `resultsLimit` do Instagram já é por-empresa, mantém como está).
+- Suportar múltiplos actors alternativos por rede com fallback.
+- Actors adicionais (TikTok, YouTube, etc.) — adicionar depois é só estender o JSON.
