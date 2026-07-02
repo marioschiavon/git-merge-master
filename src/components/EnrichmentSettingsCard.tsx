@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Sparkles } from "lucide-react";
@@ -14,12 +13,10 @@ import { useCadences } from "@/hooks/useCadences";
 type Settings = {
   website_analysis?: boolean;
   discover_socials?: boolean;
-  apify_scrape?: boolean;
   generate_message?: boolean;
   autofill_contacts?: boolean;
   validate_whatsapp?: boolean;
   default_cadence_id?: string | null;
-  apify_actors?: { instagram?: boolean; facebook?: boolean; linkedin_person?: boolean; linkedin_company?: boolean };
 };
 
 export function EnrichmentSettingsCard() {
@@ -33,16 +30,6 @@ export function EnrichmentSettingsCard() {
       if (!cm?.company_id) return null;
       const { data } = await supabase.from("companies").select("id, enrichment_settings").eq("id", cm.company_id).maybeSingle();
       return data as { id: string; enrichment_settings: Settings } | null;
-    },
-  });
-
-  // Global platform toggle for Apify (managed by master admin). RLS returns null for non-master users.
-  const { data: apifyGloballyEnabled } = useQuery({
-    queryKey: ["platform_apify_enabled_public"],
-    queryFn: async () => {
-      // We can't SELECT platform_settings from non-master. Instead call a lightweight check via a public flag.
-      // For now, we assume it's enabled and let the backend enforce. UI shows a generic label.
-      return true;
     },
   });
 
@@ -65,8 +52,6 @@ export function EnrichmentSettingsCard() {
   });
 
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setSettings((s) => ({ ...s, [k]: v }));
-  const setActor = (k: keyof NonNullable<Settings["apify_actors"]>, v: boolean) =>
-    setSettings((s) => ({ ...s, apify_actors: { ...(s.apify_actors || {}), [k]: v } }));
 
   return (
     <Card>
@@ -75,46 +60,18 @@ export function EnrichmentSettingsCard() {
           <Sparkles className="h-4 w-4" /> Enriquecimento automático de leads
         </CardTitle>
         <CardDescription>
-          Ao criar ou importar um lead, dispara em background: análise do site, descoberta de redes sociais, scraping via plataforma e rascunho de mensagem personalizada.
+          Ao criar ou importar um lead, dispara em background: análise do site, descoberta de redes sociais e rascunho de mensagem personalizada.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <Toggle id="ws" label="Analisar website automaticamente" checked={!!settings.website_analysis} onChange={(v) => set("website_analysis", v)} />
         <Toggle id="ds" label="Descobrir Instagram/LinkedIn/Facebook no website" checked={!!settings.discover_socials} onChange={(v) => set("discover_socials", v)} />
-        <Toggle id="ac" label="Completar contatos faltantes (email / telefone / WhatsApp) a partir do site e redes" checked={settings.autofill_contacts !== false} onChange={(v) => set("autofill_contacts", v)} />
-        <Toggle id="ap" label="Scraping avançado de redes sociais (via plataforma)" checked={!!settings.apify_scrape} onChange={(v) => set("apify_scrape", v)} />
 
-        {settings.apify_scrape && (
-          <div className="pl-6 space-y-3 border-l-2 border-muted">
-            <p className="text-xs text-muted-foreground">
-              O motor de scraping é gerenciado pela plataforma — nenhum token é necessário.
-            </p>
-            <div className="space-y-2">
-              <Label className="text-sm">Redes habilitadas</Label>
-              <Toggle id="ai" label="Instagram" checked={settings.apify_actors?.instagram !== false} onChange={(v) => setActor("instagram", v)} />
-              {settings.apify_actors?.instagram !== false && (
-                <div className="pl-6 flex items-center gap-2">
-                  <Label htmlFor="ig-posts" className="text-xs font-normal text-muted-foreground">Posts a analisar</Label>
-                  <Input
-                    id="ig-posts"
-                    type="number"
-                    min={3}
-                    max={30}
-                    className="h-7 w-20"
-                    value={(settings.apify_actors as any)?.instagram_posts_limit ?? 12}
-                    onChange={(e) => setSettings((s) => ({
-                      ...s,
-                      apify_actors: { ...(s.apify_actors || {}), instagram_posts_limit: Math.max(3, Math.min(30, Number(e.target.value) || 12)) } as any,
-                    }))}
-                  />
-                </div>
-              )}
-              <Toggle id="af" label="Facebook" checked={settings.apify_actors?.facebook !== false} onChange={(v) => setActor("facebook", v)} />
-              <Toggle id="alp" label="LinkedIn (pessoa)" checked={settings.apify_actors?.linkedin_person !== false} onChange={(v) => setActor("linkedin_person", v)} />
-              <Toggle id="alc" label="LinkedIn (empresa)" checked={settings.apify_actors?.linkedin_company !== false} onChange={(v) => setActor("linkedin_company", v)} />
-            </div>
-          </div>
-        )}
+        <p className="text-xs text-muted-foreground -mt-2 pl-0">
+          O enriquecimento de redes sociais (Instagram, Facebook, LinkedIn) é executado automaticamente pela plataforma quando disponível — nenhuma configuração necessária.
+        </p>
+
+        <Toggle id="ac" label="Completar contatos faltantes (email / telefone / WhatsApp) a partir do site e redes" checked={settings.autofill_contacts !== false} onChange={(v) => set("autofill_contacts", v)} />
 
         <div className="space-y-1">
           <Toggle id="vw" label="Validar se o número tem WhatsApp (Z-API)" checked={!!settings.validate_whatsapp} onChange={(v) => set("validate_whatsapp", v)} />
@@ -157,4 +114,3 @@ function Toggle({ id, label, checked, onChange }: { id: string; label: string; c
     </div>
   );
 }
-
