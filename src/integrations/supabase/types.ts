@@ -1277,6 +1277,7 @@ export type Database = {
       }
       gmail_account: {
         Row: {
+          company_id: string | null
           created_at: string
           email: string
           id: string
@@ -1286,6 +1287,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          company_id?: string | null
           created_at?: string
           email: string
           id?: string
@@ -1295,6 +1297,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          company_id?: string | null
           created_at?: string
           email?: string
           id?: string
@@ -1303,7 +1306,15 @@ export type Database = {
           last_synced_at?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "gmail_account_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       integrations: {
         Row: {
