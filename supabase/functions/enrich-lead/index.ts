@@ -272,8 +272,20 @@ async function runJob(job_id: string) {
     // Apify is now a platform-wide integration managed by master_admin.
     // Token comes from env; a global toggle (platform_settings.apify_enabled) can disable it for everyone.
     const { data: platform } = await supabase
-      .from("platform_settings").select("apify_enabled").eq("singleton", true).maybeSingle();
+      .from("platform_settings").select("apify_enabled, apify_actors").eq("singleton", true).maybeSingle();
     const apifyToken = platform?.apify_enabled ? Deno.env.get("APIFY_API_TOKEN") : null;
+    const DEFAULT_ACTORS: Record<string, { actor_id: string; enabled: boolean }> = {
+      instagram:        { actor_id: "apify/instagram-scraper",             enabled: true },
+      facebook:         { actor_id: "apify/facebook-pages-scraper",        enabled: true },
+      linkedin_person:  { actor_id: "dev_fusion/linkedin-profile-scraper", enabled: true },
+      linkedin_company: { actor_id: "apimaestro/linkedin-company",         enabled: true },
+    };
+    const platformActors: Record<string, { actor_id: string; enabled: boolean }> = {
+      ...DEFAULT_ACTORS,
+      ...((platform?.apify_actors as any) || {}),
+    };
+    const actorFor = (k: string) => platformActors[k]?.actor_id || DEFAULT_ACTORS[k].actor_id;
+    const actorOn = (k: string) => platformActors[k]?.enabled !== false;
 
     const steps: any = { ...(job.steps_done || {}) };
     const leadPatch: any = {};
