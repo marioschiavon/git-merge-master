@@ -48,6 +48,18 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Tenant guard: ensure the caller belongs to this company
+    const { requireCompanyMember, HttpError } = await import("../_shared/tenant-auth.ts");
+    try {
+      await requireCompanyMember(user.id, company_id);
+    } catch (err) {
+      const status = err instanceof HttpError ? err.status : 403;
+      return new Response(JSON.stringify({ error: (err as Error).message }), {
+        status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Validate token with Pipedrive API
     const pipedriveRes = await fetch(
       `https://api.pipedrive.com/v1/users/me?api_token=${api_token}`

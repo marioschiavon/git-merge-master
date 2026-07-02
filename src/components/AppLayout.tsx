@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 
 export function AppLayout() {
-  const { session, loading } = useAuth();
+  const { session, loading, companyId, isMasterAdmin } = useAuth();
 
   if (loading) {
     return (
@@ -17,6 +17,10 @@ export function AppLayout() {
 
   if (!session) {
     return <Navigate to="/auth" replace />;
+  }
+
+  if (!companyId && !isMasterAdmin) {
+    return <Navigate to="/onboarding" replace />;
   }
 
   return (

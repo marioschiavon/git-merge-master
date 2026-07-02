@@ -86,6 +86,18 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Tenant guard
+    const { requireCompanyMember, HttpError } = await import("../_shared/tenant-auth.ts");
+    try {
+      await requireCompanyMember(user.id, company_id);
+    } catch (err) {
+      const status = err instanceof HttpError ? err.status : 403;
+      return new Response(JSON.stringify({ error: (err as Error).message }), {
+        status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Get integration token
     const { data: integration, error: intError } = await supabase
       .from("integrations")

@@ -2690,6 +2690,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      create_company_and_join: {
+        Args: { p_name: string; p_slug?: string }
+        Returns: string
+      }
       delete_email: {
         Args: { message_id: number; queue_name: string }
         Returns: boolean
