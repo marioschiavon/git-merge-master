@@ -32,6 +32,7 @@ import CalcomSettings from "@/pages/settings/CalcomSettings";
 import Bookings from "@/pages/Bookings";
 import Unsubscribe from "@/pages/Unsubscribe";
 import ResetPassword from "@/pages/ResetPassword";
+import Onboarding from "@/pages/Onboarding";
 import NotFound from "@/pages/NotFound";
 
 const queryClient = new QueryClient({
@@ -57,6 +58,7 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/unsubscribe" element={<Unsubscribe />} />
+            <Route path="/onboarding" element={<Onboarding />} />
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
               <Route path="/dashboard" element={<Dashboard />} />

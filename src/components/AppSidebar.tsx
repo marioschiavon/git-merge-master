@@ -24,6 +24,19 @@ import leadereiLogo from "@/assets/brand/leaderei-white.png";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
 import { useInboxQueue } from "@/hooks/useHumanInbox";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+
+function useCompanyName(companyId: string | null) {
+  return useQuery({
+    queryKey: ["company-name", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const { data } = await supabase.from("companies").select("name").eq("id", companyId!).maybeSingle();
+      return data?.name ?? null;
+    },
+  });
+}
 
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -79,10 +92,12 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
-  const { isMasterAdmin, signOut, profile } = useAuth();
+  const { isMasterAdmin, signOut, profile, companyId } = useAuth();
   const { data: pendingCount = 0 } = usePendingApprovalsCount();
   const { data: inboxQueue = [] } = useInboxQueue();
   const inboxCount = inboxQueue.length;
+
+  const { data: companyName } = useCompanyName(companyId);
 
 
   const isActive = (path: string) => location.pathname === path;
@@ -97,6 +112,12 @@ export function AppSidebar() {
             className={collapsed ? "h-8 w-auto" : "h-8 w-auto"}
           />
         </div>
+        {!collapsed && companyName && (
+          <Badge variant="outline" className="mt-2 w-fit max-w-full truncate border-sidebar-border/60 bg-sidebar-accent/40 text-xs font-medium text-sidebar-foreground">
+            <Building2 className="mr-1 h-3 w-3 shrink-0" />
+            <span className="truncate">{companyName}</span>
+          </Badge>
+        )}
       </SidebarHeader>
 
       <SidebarContent>
