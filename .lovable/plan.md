@@ -1,46 +1,48 @@
-## Objetivo
-Verificar se a Base de Conhecimento (/knowledge) está 100% funcional: adicionar texto, upload de documento, extração de URL, edição, exclusão, destaques, instruções da IA e geração de embeddings para uso pela IA nas cadências.
+# Tela dedicada de configuração e monitoramento do Gmail
 
-## Achados da auditoria (antes de rodar teste)
+Hoje a integração Gmail vive só num diálogo pequeno em `/settings/integrations`. Vou criar uma **página dedicada por company** com status, histórico e ações — mantendo o cartão da lista de integrações como atalho.
 
-1. **BUG crítico em `embed-knowledge`** — usa import inválido `npm:@supabase/supabase-js@2/cors`. Esse subpath não existe, então a função quebra ao ser chamada (deploy/execução falham). Precisa ser trocado por `corsHeaders` local (padrão usado nas outras functions do projeto).
+## O que a tela mostra
 
-2. **Embeddings nunca são gerados automaticamente** — o trigger `trg_mark_knowledge_needs_embedding` marca `needs_embedding=true` ao inserir/alterar `company_knowledge`, mas:
-   - Nenhuma parte do frontend (`useKnowledge.ts`, `Knowledge.tsx`) chama `embed-knowledge` após criar/editar.
-   - `embed-knowledge` também não atualiza `needs_embedding=false` nem `embedded_at` após processar.
-   - Resultado: `knowledge_chunks` fica vazia (confirmado no DB — 0 linhas), e a IA (cadence-agent-decide, sdr-agent, etc.) não consegue recuperar contexto via `match_knowledge_chunks`.
+Rota nova: `/settings/gmail` (protegida, escopada pela company do usuário via RLS existente em `gmail_account`).
 
-3. **Sem cron/processador** para varrer itens com `needs_embedding=true`.
+Seções:
 
-## Plano de execução
+1. **Header de status da conta**
+   - Email conectado, `is_active`, data de conexão (`created_at`).
+   - Badge: Conectado / Desconectado / Erro (deriva do último log).
+   - Botão "Sincronizar agora" (invoca `gmail-sync-inbox`, mesma chamada de hoje).
 
-### Etapa 1 — Corrigir bugs
-- `supabase/functions/embed-knowledge/index.ts`: substituir o import quebrado por `corsHeaders` inline (mesmo padrão de `extract-knowledge` e `parse-knowledge-doc`). Ao final do `embedDocument`, executar `UPDATE company_knowledge SET needs_embedding=false, embedded_at=now() WHERE id=doc.id`.
+2. **Cards de resumo (últimos 7 dias)**
+   - Última sincronização (`gmail_account.last_synced_at`) + tempo relativo.
+   - Emails enviados (contagem `email_send_log` status `sent`, dedupe por `message_id`).
+   - Falhas (`dlq` + `failed`).
+   - Respostas processadas na última sync (retornado por `gmail-sync-inbox`, guardado em memória via React Query).
 
-### Etapa 2 — Disparar embedding automaticamente
-- Em `useKnowledge.ts`, após `useCreateKnowledge` e `useUpdateKnowledge` completarem com sucesso, chamar (fire-and-forget) `supabase.functions.invoke("embed-knowledge", { body: { knowledge_id } })`. Falha na indexação não deve quebrar a UI (só log).
-- Também disparar após `useSaveHighlights` e `useSaveAiInstructions` para que esses conteúdos entrem no retrieval.
+3. **Última execução (detalhe)**
+   - Timestamp, resultado (`processed`, `matched`, erros) — usando o retorno mais recente do invoke.
+   - Se houve erro, mostra a mensagem.
 
-### Etapa 3 — Testar E2E via Playwright na preview
-Com a sessão do usuário atual injetada, rodar um script que:
-1. Faz login na sessão e navega para `/knowledge`.
-2. Adiciona um item de texto ("Teste QA – Proposta de Valor" + conteúdo curto), verifica toast + card renderizado.
-3. Salva "Destaques para Prospecção" e "Instruções da IA", verifica toasts.
-4. Extrai uma URL simples (ex: site institucional público) e valida que card foi criado.
-5. Edita o item de texto criado e salva.
-6. Exclui o item de texto.
-7. Consulta `company_knowledge` e `knowledge_chunks` via `psql` para confirmar linhas persistidas e chunks embutidos.
-8. Captura screenshots de cada passo.
+4. **Histórico de envios (tabela)**
+   - Últimos 50 registros de `email_send_log` filtrados pela company (via RLS).
+   - Colunas: Template, Destinatário, Status (badge colorido), Timestamp, Erro.
+   - Dedupe por `message_id` mantendo o mais recente (regra do email dashboard).
 
-### Etapa 4 — Relatório final
-Resumo do que passou / falhou, com screenshots-chave e contagem de chunks gerados. Se o upload de documento (PDF) exigir arquivo do usuário, marco como "não testado — requer arquivo" em vez de inventar um.
+5. **Ações**
+   - Sincronizar inbox agora.
+   - Desconectar conta (marca `is_active = false`).
+   - Link para docs internos de configuração.
 
-## Fora de escopo
-- Reescrever o pipeline de RAG.
-- Criar cron de re-embedding em massa (posso propor depois se quiser).
-- Alterar telas fora de `/knowledge`.
+## Mudanças de código
+
+- `src/pages/settings/Gmail.tsx` — nova página, usa `useGmailAccount`, novo hook `useGmailStats` (query em `email_send_log`) e mutation de sync/disconnect.
+- `src/App.tsx` — registrar rota `/settings/gmail`.
+- `src/pages/settings/Integrations.tsx` — no card Gmail, trocar `onAction` para `navigate("/settings/gmail")` em vez de abrir dialog (mantém o dialog como fallback para "Sincronizar rápido" ou remove — vou remover para evitar duplicidade).
+- Sidebar/menu de Settings (se listar itens) — adicionar link "Gmail".
 
 ## Detalhes técnicos
-- Arquivos alterados: `supabase/functions/embed-knowledge/index.ts`, `src/hooks/useKnowledge.ts`.
-- Novo comportamento: após qualquer create/update de conhecimento, invocação assíncrona de `embed-knowledge` popula `knowledge_chunks` e marca `embedded_at`.
-- Sem migrações; sem mudanças de RLS; sem mudanças de tipos gerados.
+
+- Isolamento: `gmail_account` e `email_send_log` já têm RLS por `company_id` (via `get_user_company_id`). Nenhuma migration necessária.
+- Sem novas edge functions — reusa `gmail-sync-inbox`.
+- Dedup query em `email_send_log`: `SELECT DISTINCT ON (message_id) ...` via RPC não é necessário; faço dedupe no client sobre os últimos 200 registros ordenados por `created_at desc`.
+- Estado "Desconectado" quando não há linha em `gmail_account` — CTA explica que a conexão inicial acontece na primeira sync (fluxo atual do backend).
