@@ -49,6 +49,7 @@ Deno.serve(async (req) => {
             .from("gmail_account")
             .select("email")
             .eq("is_active", true)
+            .eq("company_id", lead.company_id)
             .maybeSingle();
 
           if (gmailAcc?.email) {

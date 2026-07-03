@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -12,6 +12,7 @@ import {
   Send,
   Inbox,
   Clock3,
+  Link2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -91,9 +92,41 @@ function useRecentEmails() {
 export default function GmailSettings() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: account, isLoading: loadingAccount } = useGmailAccount();
   const { data: stats } = useEmailStats();
   const { data: recent } = useRecentEmails();
+
+  // Handle OAuth callback return
+  useEffect(() => {
+    const connected = searchParams.get("connected");
+    const err = searchParams.get("gmail_error");
+    if (connected) {
+      toast({ title: "Gmail conectado", description: "Sua conta Gmail foi vinculada com sucesso." });
+      queryClient.invalidateQueries({ queryKey: ["gmail_account"] });
+      searchParams.delete("connected");
+      setSearchParams(searchParams, { replace: true });
+    } else if (err) {
+      toast({ title: "Erro ao conectar Gmail", description: err, variant: "destructive" });
+      searchParams.delete("gmail_error");
+      setSearchParams(searchParams, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connectMutation = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("gmail-oauth-start", {
+        body: { origin: window.location.origin },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      if (!data?.authorize_url) throw new Error("URL de autorização não recebida");
+      window.location.href = data.authorize_url;
+    },
+    onError: (e: Error) =>
+      toast({ title: "Falha ao iniciar OAuth", description: e.message, variant: "destructive" }),
+  });
 
   const syncMutation = useMutation({
     mutationFn: async () => {
@@ -108,9 +141,7 @@ export default function GmailSettings() {
       queryClient.invalidateQueries({ queryKey: ["gmail_account"] });
       queryClient.invalidateQueries({ queryKey: ["gmail_email_stats_7d"] });
       queryClient.invalidateQueries({ queryKey: ["gmail_recent_emails"] });
-      const msg = data?.bootstrapped
-        ? `Conta ${data.email} conectada.`
-        : `${data?.processed || 0} respostas processadas (${data?.matched || 0} casadas com leads).`;
+      const msg = `${data?.processed || 0} respostas processadas (${data?.matched || 0} casadas com leads).`;
       toast({ title: "Sincronização Gmail", description: msg });
     },
     onError: (e: Error) =>
@@ -126,7 +157,12 @@ export default function GmailSettings() {
       if (!account?.id) throw new Error("Sem conta ativa");
       const { error } = await supabase
         .from("gmail_account")
-        .update({ is_active: false })
+        .update({
+          is_active: false,
+          refresh_token_encrypted: null,
+          access_token: null,
+          access_token_expires_at: null,
+        })
         .eq("id", account.id);
       if (error) throw error;
     },
@@ -138,7 +174,9 @@ export default function GmailSettings() {
       toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
-  const isConnected = !!account;
+  const isConnected = !!account && !!(account as any).refresh_token_encrypted;
+  const needsReauth = !!account && !(account as any).refresh_token_encrypted;
+  const lastError = (account as any)?.last_error as string | null | undefined;
 
   return (
     <div className="space-y-6">
@@ -178,6 +216,33 @@ export default function GmailSettings() {
         </Badge>
       </div>
 
+      {needsReauth && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-foreground">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
+            <div>
+              <p className="font-medium">Sua integração precisa ser reconectada</p>
+              <p className="text-muted-foreground mt-1">
+                Migramos para autenticação OAuth direto com o Google. Clique em{" "}
+                <strong>Conectar Gmail</strong> para autorizar novamente.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {lastError && (
+        <div className="rounded-md border border-red-500/30 bg-red-500/5 p-4 text-sm text-foreground">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5" />
+            <div>
+              <p className="font-medium">Último erro reportado pelo Gmail</p>
+              <p className="text-muted-foreground mt-1 font-mono text-xs break-all">{lastError}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Account card */}
       <div className="rounded-xl border bg-card p-5 space-y-4">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
@@ -188,61 +253,77 @@ export default function GmailSettings() {
           <p className="text-sm text-muted-foreground">Carregando…</p>
         ) : isConnected ? (
           <div className="grid gap-3 sm:grid-cols-3">
-            <InfoRow label="Email" value={account!.email} />
+            <InfoRow label="Email" value={(account as any).email} />
             <InfoRow
               label="Conectado em"
-              value={new Date(account!.created_at).toLocaleString("pt-BR")}
+              value={
+                (account as any).connected_at
+                  ? new Date((account as any).connected_at).toLocaleString("pt-BR")
+                  : new Date((account as any).created_at).toLocaleString("pt-BR")
+              }
             />
             <InfoRow
               label="Última sincronização"
               value={
-                account!.last_synced_at
-                  ? `${new Date(account!.last_synced_at).toLocaleString("pt-BR")} (${relTime(
-                      account!.last_synced_at,
+                (account as any).last_synced_at
+                  ? `${new Date((account as any).last_synced_at).toLocaleString("pt-BR")} (${relTime(
+                      (account as any).last_synced_at,
                     )})`
                   : "Nunca"
               }
             />
           </div>
         ) : (
-          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm text-foreground">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5" />
-              <div>
-                <p className="font-medium">Nenhuma conta Gmail conectada</p>
-                <p className="text-muted-foreground mt-1">
-                  A conta Gmail configurada no backend é registrada automaticamente na
-                  primeira sincronização. Clique em <strong>Sincronizar agora</strong>{" "}
-                  para inicializar.
-                </p>
-              </div>
-            </div>
+          <div className="rounded-md border bg-background p-4 text-sm">
+            <p className="font-medium">Nenhuma conta Gmail conectada</p>
+            <p className="text-muted-foreground mt-1">
+              Conecte a conta Gmail que sua empresa usará para enviar e receber emails dos leads.
+              O Google pedirá permissão para envio, leitura e modificação de mensagens.
+            </p>
           </div>
         )}
 
         <div className="flex flex-wrap gap-2 pt-2">
-          <Button
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`}
-            />
-            {syncMutation.isPending ? "Sincronizando…" : "Sincronizar agora"}
-          </Button>
-          {isConnected && (
+          {!isConnected || needsReauth ? (
             <Button
-              variant="outline"
-              onClick={() => {
-                if (confirm("Desconectar a conta Gmail da empresa?")) {
-                  disconnectMutation.mutate();
-                }
-              }}
-              disabled={disconnectMutation.isPending}
+              onClick={() => connectMutation.mutate()}
+              disabled={connectMutation.isPending}
             >
-              <Unplug className="mr-2 h-4 w-4" />
-              Desconectar
+              <Link2 className="mr-2 h-4 w-4" />
+              {connectMutation.isPending ? "Abrindo Google…" : "Conectar Gmail"}
             </Button>
+          ) : (
+            <>
+              <Button
+                onClick={() => syncMutation.mutate()}
+                disabled={syncMutation.isPending}
+              >
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`}
+                />
+                {syncMutation.isPending ? "Sincronizando…" : "Sincronizar agora"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => connectMutation.mutate()}
+                disabled={connectMutation.isPending}
+              >
+                <Link2 className="mr-2 h-4 w-4" />
+                Reconectar
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (confirm("Desconectar a conta Gmail da empresa?")) {
+                    disconnectMutation.mutate();
+                  }
+                }}
+                disabled={disconnectMutation.isPending}
+              >
+                <Unplug className="mr-2 h-4 w-4" />
+                Desconectar
+              </Button>
+            </>
           )}
         </div>
       </div>
@@ -251,19 +332,11 @@ export default function GmailSettings() {
       <div className="grid gap-3 sm:grid-cols-3">
         <StatCard
           label="Última sync"
-          value={relTime(account?.last_synced_at)}
+          value={relTime((account as any)?.last_synced_at)}
           icon={Clock3}
         />
-        <StatCard
-          label="Enviados (7d)"
-          value={stats?.sent ?? 0}
-          icon={Send}
-        />
-        <StatCard
-          label="Recebidos (7d)"
-          value={stats?.received ?? 0}
-          icon={Inbox}
-        />
+        <StatCard label="Enviados (7d)" value={stats?.sent ?? 0} icon={Send} />
+        <StatCard label="Recebidos (7d)" value={stats?.received ?? 0} icon={Inbox} />
       </div>
 
       {/* Recent activity */}

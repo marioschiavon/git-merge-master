@@ -2284,6 +2284,7 @@ Analise a última mensagem e decida a ação.`,
               .from("gmail_account")
               .select("email")
               .eq("is_active", true)
+              .eq("company_id", companyId)
               .maybeSingle();
             let sent = false;
             if (gmailAcc?.email) {
@@ -2398,6 +2399,7 @@ Analise a última mensagem e decida a ação.`,
           .from("gmail_account")
           .select("email")
           .eq("is_active", true)
+          .eq("company_id", companyId)
           .maybeSingle();
 
         if (gmailAcc?.email) {
