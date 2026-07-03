@@ -64,8 +64,8 @@ export function EnrichmentSettingsCard() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Toggle id="ws" label="Analisar website automaticamente" checked={!!settings.website_analysis} onChange={(v) => set("website_analysis", v)} />
-        <Toggle id="ds" label="Descobrir Instagram/LinkedIn/Facebook no website" checked={!!settings.discover_socials} onChange={(v) => set("discover_socials", v)} />
+        <Toggle id="ws" label="Analisar website automaticamente" checked={settings.website_analysis !== false} onChange={(v) => set("website_analysis", v)} />
+        <Toggle id="ds" label="Descobrir Instagram/LinkedIn/Facebook no website" checked={settings.discover_socials !== false} onChange={(v) => set("discover_socials", v)} />
 
         <p className="text-xs text-muted-foreground -mt-2 pl-0">
           O enriquecimento de redes sociais (Instagram, Facebook, LinkedIn) é executado automaticamente pela plataforma quando disponível — nenhuma configuração necessária.
@@ -74,15 +74,15 @@ export function EnrichmentSettingsCard() {
         <Toggle id="ac" label="Completar contatos faltantes (email / telefone / WhatsApp) a partir do site e redes" checked={settings.autofill_contacts !== false} onChange={(v) => set("autofill_contacts", v)} />
 
         <div className="space-y-1">
-          <Toggle id="vw" label="Validar se o número tem WhatsApp (Z-API)" checked={!!settings.validate_whatsapp} onChange={(v) => set("validate_whatsapp", v)} />
+          <Toggle id="vw" label="Validar se o número tem WhatsApp (Hook7)" checked={settings.validate_whatsapp !== false} onChange={(v) => set("validate_whatsapp", v)} />
           <p className="text-xs text-muted-foreground pl-0">
-            Consulta a Z-API para confirmar se o telefone do lead está registrado no WhatsApp. Se não estiver, a cadência pula automaticamente os passos de WhatsApp. Requer integração Z-API ativa.
+            Consulta o Hook7 para confirmar se o telefone do lead está registrado no WhatsApp. Se não estiver, a cadência pula automaticamente os passos de WhatsApp. Requer uma instância do Hook7 conectada.
           </p>
         </div>
 
-        <Toggle id="gm" label="Gerar rascunho de mensagem personalizada" checked={!!settings.generate_message} onChange={(v) => set("generate_message", v)} />
+        <Toggle id="gm" label="Gerar rascunho de mensagem personalizada" checked={settings.generate_message !== false} onChange={(v) => set("generate_message", v)} />
 
-        {settings.generate_message && (
+        {settings.generate_message !== false && (
           <div className="pl-6 border-l-2 border-muted">
             <Label>Cadência padrão (rascunho será salvo no 1º passo)</Label>
             <Select value={settings.default_cadence_id || ""} onValueChange={(v) => set("default_cadence_id", v || null)}>
