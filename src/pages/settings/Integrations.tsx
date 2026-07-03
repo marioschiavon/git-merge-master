@@ -818,21 +818,6 @@ export default function Integrations() {
       onAction: () => setCalcomOpen(true),
     },
     {
-      key: "zapi",
-      name: "WhatsApp (Z-API)",
-      category: "Mensageria",
-      description:
-        "Envie e receba mensagens de WhatsApp via Z-API. Cada empresa usa sua própria instância.",
-      icon: SiWhatsapp,
-      iconTint: "text-[#25D366]",
-      status: zapiStatus,
-      operationalLabel:
-        zapiStatus === "connected"
-          ? ((zapi?.config as any)?.whatsapp_number ?? "Conectado")
-          : undefined,
-      onAction: () => setZapiOpen(true),
-    },
-    {
       key: "whatsapp",
       name: "WhatsApp",
       category: "Mensageria",
@@ -850,21 +835,6 @@ export default function Integrations() {
       readinessLabel:
         whatsappStatus === "pending" ? "Aguardando leitura do QR" : undefined,
       onAction: () => setWhatsappOpen(true),
-    },
-    {
-      key: "zapi",
-      name: "WhatsApp (Z-API — legado)",
-      category: "Mensageria",
-      description:
-        "Integração Z-API antiga. Mantida durante a migração para o novo provedor. Não use para novas conexões.",
-      icon: SiWhatsapp,
-      iconTint: "text-muted-foreground",
-      status: zapiStatus,
-      operationalLabel:
-        zapiStatus === "connected"
-          ? ((zapi?.config as any)?.whatsapp_number ?? "Conectado")
-          : undefined,
-      onAction: () => setZapiOpen(true),
     },
     {
       key: "linkedin",
