@@ -141,3 +141,31 @@ export async function getWhatsAppSender(
 
 export const NO_WHATSAPP_INSTANCE_ERROR =
   "Nenhuma instância WhatsApp (Hook7) conectada para esta empresa";
+
+// ---------------------------------------------------------------------------
+// Aliases drop-in para call sites migrados de Z-API — mantêm assinatura antiga.
+// getZApiConfig(admin, companyId) → retorna um "sender" (ou null se sem instância).
+// sendWhatsAppViaZApi(cfg, phone, body) → delega ao sender resolvido.
+// ---------------------------------------------------------------------------
+
+// deno-lint-ignore no-explicit-any
+type LegacyCfg = any;
+
+export async function getZApiConfig(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  companyId: string,
+): Promise<LegacyCfg | null> {
+  return await getWhatsAppSender(admin, companyId);
+}
+
+export async function sendWhatsAppViaZApi(
+  cfg: LegacyCfg,
+  toPhone: string,
+  body: string,
+): Promise<WhatsAppSendResult> {
+  if (!cfg || typeof cfg.send !== "function") {
+    return { ok: false, error: NO_WHATSAPP_INSTANCE_ERROR };
+  }
+  return await cfg.send(toPhone, body);
+}
