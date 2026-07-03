@@ -133,6 +133,7 @@ export function WhatsAppManagerDialog({
     onSuccess: async (inst) => {
       setNewName("");
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+      qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
       // conecta e abre o QR imediatamente
       setActiveId(inst.id);
       await connectAndFetchQr(inst.id);
