@@ -82,7 +82,7 @@ export function EnrichmentSettingsCard() {
 
         <Toggle id="gm" label="Gerar rascunho de mensagem personalizada" checked={settings.generate_message !== false} onChange={(v) => set("generate_message", v)} />
 
-        {settings.generate_message && (
+        {settings.generate_message !== false && (
           <div className="pl-6 border-l-2 border-muted">
             <Label>Cadência padrão (rascunho será salvo no 1º passo)</Label>
             <Select value={settings.default_cadence_id || ""} onValueChange={(v) => set("default_cadence_id", v || null)}>
