@@ -125,11 +125,12 @@ Deno.serve(async (req) => {
             .eq("id", instance.id);
         }
         processStatus = "processed";
-      } else if (event === "MESSAGE" || event === "READ_RECEIPT") {
-        // Reservado para próxima fase (ingestão de mensagens + auto-lead).
-        console.log("[hook7-webhook] evento ainda não processado", { event });
-        processStatus = "ignored";
-      } else if (event === "SEND_MESSAGE") {
+      } else if (event === "MESSAGE" || event === "messages.upsert") {
+        const handled = await handleInboundMessage(admin, instance, company, body);
+        processStatus = handled ? "processed" : "ignored";
+      } else if (event === "READ_RECEIPT" || event === "SEND_MESSAGE") {
+        // Não temos ainda ganchos de status para outbound Hook7 além do próprio
+        // retorno HTTP do sendText. Deixa como ignorado.
         processStatus = "ignored";
       } else {
         console.log("[hook7-webhook] evento desconhecido", { event });
