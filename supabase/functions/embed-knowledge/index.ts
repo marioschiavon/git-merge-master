@@ -5,8 +5,13 @@
 //  - { all: true }            -> re-embed every company (admin/cron)
 
 import { createClient } from "npm:@supabase/supabase-js@2";
-import { corsHeaders } from "npm:@supabase/supabase-js@2/cors";
 import { createEmbedding } from "../_shared/ai-gateway.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+};
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -93,6 +98,12 @@ async function embedDocument(doc: {
 
   const { error } = await supabase.from("knowledge_chunks").insert(insertRows);
   if (error) throw error;
+
+  await supabase
+    .from("company_knowledge")
+    .update({ needs_embedding: false, embedded_at: new Date().toISOString() })
+    .eq("id", doc.id);
+
   return { knowledge_id: doc.id, chunks: chunks.length };
 }
 

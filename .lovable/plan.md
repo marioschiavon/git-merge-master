@@ -1,42 +1,46 @@
-# Corrigir redirecionamento pós-login
+## Objetivo
+Verificar se a Base de Conhecimento (/knowledge) está 100% funcional: adicionar texto, upload de documento, extração de URL, edição, exclusão, destaques, instruções da IA e geração de embeddings para uso pela IA nas cadências.
 
-## Problema
+## Achados da auditoria (antes de rodar teste)
 
-Ao clicar em "Entrar", o token é emitido com sucesso (HTTP 200), mas o usuário permanece na tela `/auth` com o botão travado em "Carregando..." e nenhuma navegação para `/dashboard` acontece.
+1. **BUG crítico em `embed-knowledge`** — usa import inválido `npm:@supabase/supabase-js@2/cors`. Esse subpath não existe, então a função quebra ao ser chamada (deploy/execução falham). Precisa ser trocado por `corsHeaders` local (padrão usado nas outras functions do projeto).
 
-## Causa
+2. **Embeddings nunca são gerados automaticamente** — o trigger `trg_mark_knowledge_needs_embedding` marca `needs_embedding=true` ao inserir/alterar `company_knowledge`, mas:
+   - Nenhuma parte do frontend (`useKnowledge.ts`, `Knowledge.tsx`) chama `embed-knowledge` após criar/editar.
+   - `embed-knowledge` também não atualiza `needs_embedding=false` nem `embedded_at` após processar.
+   - Resultado: `knowledge_chunks` fica vazia (confirmado no DB — 0 linhas), e a IA (cadence-agent-decide, sdr-agent, etc.) não consegue recuperar contexto via `match_knowledge_chunks`.
 
-Em `src/hooks/useAuth.tsx`, o callback do `supabase.auth.onAuthStateChange` faz `await fetchUserData(...)`, e `fetchUserData` executa `supabase.from(...)` (roles, company_members, profiles, companies). Isso é o deadlock clássico do supabase-js: chamadas ao cliente Supabase dentro do callback de `onAuthStateChange` bloqueiam o próprio pipeline de auth, então:
+3. **Sem cron/processador** para varrer itens com `needs_embedding=true`.
 
-- `setLoading(false)` no callback nunca é atingido de forma consistente.
-- `Auth.tsx` chama `navigate("/")` mas o `AuthProvider` fica em estado inconsistente.
-- O usuário fica preso em `/auth`.
+## Plano de execução
 
-Isso está confirmado por:
-- Network log mostra apenas o `token?grant_type=password` no momento do clique (21:26:44); as queries de `user_roles`, `profiles`, `company_members`, `companies` só aparecem quase 20 min depois, quando o usuário navegou manualmente e recarregou.
-- Session replay mostra o botão "Carregando..." permanente após o clique.
+### Etapa 1 — Corrigir bugs
+- `supabase/functions/embed-knowledge/index.ts`: substituir o import quebrado por `corsHeaders` inline (mesmo padrão de `extract-knowledge` e `parse-knowledge-doc`). Ao final do `embedDocument`, executar `UPDATE company_knowledge SET needs_embedding=false, embedded_at=now() WHERE id=doc.id`.
 
-## Correção
+### Etapa 2 — Disparar embedding automaticamente
+- Em `useKnowledge.ts`, após `useCreateKnowledge` e `useUpdateKnowledge` completarem com sucesso, chamar (fire-and-forget) `supabase.functions.invoke("embed-knowledge", { body: { knowledge_id } })`. Falha na indexação não deve quebrar a UI (só log).
+- Também disparar após `useSaveHighlights` e `useSaveAiInstructions` para que esses conteúdos entrem no retrieval.
 
-Editar `src/hooks/useAuth.tsx`:
+### Etapa 3 — Testar E2E via Playwright na preview
+Com a sessão do usuário atual injetada, rodar um script que:
+1. Faz login na sessão e navega para `/knowledge`.
+2. Adiciona um item de texto ("Teste QA – Proposta de Valor" + conteúdo curto), verifica toast + card renderizado.
+3. Salva "Destaques para Prospecção" e "Instruções da IA", verifica toasts.
+4. Extrai uma URL simples (ex: site institucional público) e valida que card foi criado.
+5. Edita o item de texto criado e salva.
+6. Exclui o item de texto.
+7. Consulta `company_knowledge` e `knowledge_chunks` via `psql` para confirmar linhas persistidas e chunks embutidos.
+8. Captura screenshots de cada passo.
 
-1. Manter o listener `onAuthStateChange` **síncrono**: apenas atualiza `session` e `user` no state e faz `setLoading(false)`. Sem `await` de nada do Supabase dentro do callback.
-2. Disparar `fetchUserData` de forma "fire-and-forget" (via `setTimeout(0)` ou apenas chamando sem `await`) para carregar roles/profile/companyId **fora** do callback de auth.
-3. No `getSession()` inicial, seguir o mesmo padrão: setar `session`/`user`/`loading=false` primeiro, e disparar `fetchUserData` fora do await do auth.
-4. Manter a lógica atual de checagem de `companies.status === "inactive"` (com `signOut`), mas executada dentro de `fetchUserData` que agora roda desacoplada.
-5. Preservar comparações "estáveis" já existentes (evitar re-render desnecessário) e o `useMemo` do value.
+### Etapa 4 — Relatório final
+Resumo do que passou / falhou, com screenshots-chave e contagem de chunks gerados. Se o upload de documento (PDF) exigir arquivo do usuário, marco como "não testado — requer arquivo" em vez de inventar um.
 
-Nenhuma mudança em `Auth.tsx`, `AppLayout.tsx`, rotas, backend ou banco.
+## Fora de escopo
+- Reescrever o pipeline de RAG.
+- Criar cron de re-embedding em massa (posso propor depois se quiser).
+- Alterar telas fora de `/knowledge`.
 
-## Fora do escopo
-
-- Não alterar edge functions, migrations, tipos, ou qualquer outra tela.
-- Não mudar o design da tela de login.
-- Não mexer no fluxo de onboarding/master admin — apenas destravar o `loading` para que a navegação atual funcione.
-
-## Validação
-
-Após a mudança, ao fazer login com um usuário `company_admin` com empresa ativa:
-- Botão sai de "Carregando..." rapidamente.
-- Navegação para `/dashboard` ocorre.
-- Não há loop de redirecionamento para `/auth` ou `/onboarding`.
+## Detalhes técnicos
+- Arquivos alterados: `supabase/functions/embed-knowledge/index.ts`, `src/hooks/useKnowledge.ts`.
+- Novo comportamento: após qualquer create/update de conhecimento, invocação assíncrona de `embed-knowledge` popula `knowledge_chunks` e marca `embedded_at`.
+- Sem migrações; sem mudanças de RLS; sem mudanças de tipos gerados.
