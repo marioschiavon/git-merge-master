@@ -49,7 +49,7 @@ export default function Auth() {
         navigate("/");
       }
     } else {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -60,7 +60,13 @@ export default function Auth() {
       if (error) {
         toast.error(error.message);
       } else {
-        toast.success("Conta criada! Verifique seu email para confirmar.");
+        if (data.session) {
+          toast.success("Conta criada com sucesso!");
+          navigate("/");
+        } else {
+          toast.success("Conta criada! Você já pode fazer login.");
+          setIsLogin(true);
+        }
       }
     }
     setLoading(false);
