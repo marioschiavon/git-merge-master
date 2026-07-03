@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import leadereiLogo from "@/assets/brand/leaderei-color.png";
 
 export default function Onboarding() {
-  const { session, companyId, loading, user } = useAuth();
+  const { session, companyId, loading, user, isMasterAdmin } = useAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -18,6 +18,7 @@ export default function Onboarding() {
   if (loading) return null;
   if (!session) return <Navigate to="/auth" replace />;
   if (companyId) return <Navigate to="/dashboard" replace />;
+  if (isMasterAdmin) return <Navigate to="/master" replace />;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
