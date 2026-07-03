@@ -732,22 +732,10 @@ function ZapiDialog({
 export default function Integrations() {
   const { data: pipedrive } = useIntegration("pipedrive");
   const { data: gmail } = useGmailAccount();
-  const { data: zapi } = useQuery({
-    queryKey: ["integration", "zapi_whatsapp"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("integrations")
-        .select("*")
-        .eq("provider", "zapi_whatsapp" as any)
-        .maybeSingle();
-      return data;
-    },
-  });
 
   const [pipedriveOpen, setPipedriveOpen] = useState(false);
   const [gmailOpen, setGmailOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
-  const [zapiOpen, setZapiOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
 
   // Hook7 (novo WhatsApp) — status agregado por company
@@ -774,8 +762,6 @@ export default function Integrations() {
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
   const gmailStatus: StatusKey = gmail ? "connected" : "disconnected";
-  const zapiStatus: StatusKey =
-    zapi?.status === "active" ? "connected" : "disconnected";
   // Cal.com is configured via env vars; we can't detect from the client. Show pending.
   const calcomStatus: StatusKey = "pending";
 
