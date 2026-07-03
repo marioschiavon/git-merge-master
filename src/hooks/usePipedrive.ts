@@ -245,7 +245,9 @@ export function useImportLeads() {
         return r;
       });
 
-      // Insert in chunks of 500
+      // Insert in chunks of 500. On chunk failure, retry row-by-row to
+      // isolate the actual failing rows (Postgres bulk inserts are atomic,
+      // so a single bad row would otherwise silently drop the whole chunk).
       let created = 0;
       const errors: { row: number; message: string }[] = [];
       for (let i = 0; i < rows.length; i += 500) {
@@ -253,10 +255,18 @@ export function useImportLeads() {
         const { error, count } = await supabase
           .from("leads")
           .insert(chunk, { count: "exact" });
-        if (error) {
-          errors.push({ row: i + 1, message: error.message });
-        } else {
+        if (!error) {
           created += count || chunk.length;
+          continue;
+        }
+        // Retry each row individually to know exactly which failed.
+        for (let j = 0; j < chunk.length; j++) {
+          const { error: rowErr } = await supabase.from("leads").insert(chunk[j]);
+          if (rowErr) {
+            errors.push({ row: i + j + 1, message: rowErr.message });
+          } else {
+            created += 1;
+          }
         }
       }
       return { received: leads.length, created, skipped: leads.length - created, errors };
@@ -264,10 +274,16 @@ export function useImportLeads() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });
       queryClient.invalidateQueries({ queryKey: ["lead-lists"] });
-      const desc = data.errors.length > 0
-        ? `${data.created} criados · ${data.skipped} ignorados · ${data.errors.length} erros`
-        : `${data.created} leads importados.`;
-      toast({ title: "Importação concluída!", description: desc });
+      if (data.errors.length > 0) {
+        const firstMsg = data.errors[0]?.message ?? "";
+        toast({
+          title: data.created > 0 ? "Importação parcial" : "Falha na importação",
+          description: `${data.created} criados · ${data.errors.length} falharam. ${firstMsg}`.trim(),
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Importação concluída!", description: `${data.created} leads importados.` });
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Erro ao importar", description: error.message, variant: "destructive" });

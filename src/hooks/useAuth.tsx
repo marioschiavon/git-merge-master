@@ -93,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
         setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
         if (session?.user) {
-          setTimeout(() => fetchUserData(session.user.id), 0);
+          await fetchUserData(session.user.id);
         } else {
           setRoles((prev) => (prev.length === 0 ? prev : []));
           setCompanyId((prev) => (prev === null ? prev : null));
@@ -103,11 +103,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
       setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
       if (session?.user) {
-        fetchUserData(session.user.id);
+        await fetchUserData(session.user.id);
       }
       setLoading(false);
     });
