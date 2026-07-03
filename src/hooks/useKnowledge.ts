@@ -33,6 +33,9 @@ export function useCreateKnowledge() {
         .select()
         .single();
       if (error) throw error;
+      // fire-and-forget embedding
+      supabase.functions.invoke("embed-knowledge", { body: { knowledge_id: data.id } })
+        .catch((e) => console.warn("embed-knowledge failed", e));
       return data;
     },
     onSuccess: () => {
