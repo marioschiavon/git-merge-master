@@ -678,7 +678,7 @@ Decida a próxima ação.`;
           const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, decision.message);
           if (r.ok) deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status };
           else { sendAction = "failed"; deliveryMeta = { delivery_status: "failed", zapi_error: r.error }; }
-        } else { sendAction = "pending_manual"; deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" }; }
+        } else { sendAction = "pending_manual"; deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" }; }
         if (conversation) {
           await supabase.from("messages").insert({
             conversation_id: conversation.id,

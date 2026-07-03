@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
         const zCfg = await getZApiConfig(admin, companyId);
         if (!zCfg) {
           deliveryStatus = "failed";
-          deliveryMeta = { delivery_error: "Integração Z-API não configurada" };
+          deliveryMeta = { delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
         } else {
           const r = await sendWhatsAppViaZApi(zCfg, toNumber, content);
           if (r.ok) {

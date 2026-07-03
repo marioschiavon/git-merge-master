@@ -2340,7 +2340,7 @@ Analise a última mensagem e decida a ação.`,
                 deliveryMeta = { zapi_status: r.status, zapi_error: r.error };
               }
             } else {
-              deliveryMeta = { delivery_error: "Z-API não configurada" };
+              deliveryMeta = { delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
             }
             await supabase.from("messages").insert({
               conversation_id: newConvId,
@@ -2458,7 +2458,7 @@ Analise a última mensagem e decida a ação.`,
         let deliveryMeta: Record<string, unknown> = { ...autoReplyMetadata };
 
         if (!zCfg) {
-          deliveryMeta = { ...deliveryMeta, delivery_status: "pending_manual", delivery_error: "Z-API não configurada para a empresa" };
+          deliveryMeta = { ...deliveryMeta, delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada para a empresa" };
           console.warn("inbound-webhook: Z-API not configured for company", companyId);
         } else {
           const r = await sendWhatsAppViaZApi(zCfg, toNumber, parsed.reply_message);

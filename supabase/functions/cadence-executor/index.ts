@@ -306,7 +306,7 @@ serve(async (req) => {
               }
             } else {
               sendAction = "pending_manual";
-              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
+              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
             }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
 
@@ -598,7 +598,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           } else {
             // Z-API não configurado — registra como tarefa manual
             sendAction = "pending_manual";
-            deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
+            deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
           }
 
 
