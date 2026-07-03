@@ -881,7 +881,7 @@ export default function Integrations() {
       <PipedriveDialog open={pipedriveOpen} onOpenChange={setPipedriveOpen} />
       <GmailDialog open={gmailOpen} onOpenChange={setGmailOpen} />
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
-      <ZapiDialog open={zapiOpen} onOpenChange={setZapiOpen} />
+      
       <WhatsAppManagerDialog open={whatsappOpen} onOpenChange={setWhatsappOpen} />
     </div>
   );
