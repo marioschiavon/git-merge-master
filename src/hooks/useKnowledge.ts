@@ -106,6 +106,7 @@ export function useSaveHighlights() {
   return useMutation({
     mutationFn: async ({ content, existingId }: { content: string; existingId?: string }) => {
       if (!companyId) throw new Error("Sem empresa vinculada");
+      let id = existingId;
       if (existingId) {
         const { error } = await supabase
           .from("company_knowledge")
@@ -113,10 +114,17 @@ export function useSaveHighlights() {
           .eq("id", existingId);
         if (error) throw error;
       } else {
-        const { error } = await supabase
+        const { data, error } = await supabase
           .from("company_knowledge")
-          .insert({ company_id: companyId, title: "Destaques para Prospecção", content, type: "highlights" });
+          .insert({ company_id: companyId, title: "Destaques para Prospecção", content, type: "highlights" })
+          .select()
+          .single();
         if (error) throw error;
+        id = data.id;
+      }
+      if (id) {
+        supabase.functions.invoke("embed-knowledge", { body: { knowledge_id: id } })
+          .catch((e) => console.warn("embed-knowledge failed", e));
       }
     },
     onSuccess: () => {
