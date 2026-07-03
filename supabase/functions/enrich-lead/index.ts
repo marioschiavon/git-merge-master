@@ -511,10 +511,10 @@ async function runJob(job_id: string) {
       }
     }
 
-    // Step 5: validate WhatsApp via Z-API
+    // Step 5: validate WhatsApp via Hook7 (Evolution)
     if (settings.validate_whatsapp) {
       try {
-        const { getZApiConfig, checkPhoneExistsOnWhatsApp } = await import("../_shared/zapi-whatsapp.ts");
+        const { getHook7SendInstance, checkPhoneExistsOnWhatsApp } = await import("../_shared/hook7-whatsapp.ts");
         const finalWa = leadPatch.whatsapp || lead.whatsapp || leadPatch.phone || lead.phone;
         if (!finalWa) {
           await supabase.from("leads").update({
@@ -524,11 +524,11 @@ async function runJob(job_id: string) {
           }).eq("id", lead.id);
           steps.validate_whatsapp = "no_phone";
         } else {
-          const cfg = await getZApiConfig(supabase, job.company_id);
-          if (!cfg) {
-            steps.validate_whatsapp = "zapi_not_configured";
+          const inst = await getHook7SendInstance(supabase, job.company_id);
+          if (!inst) {
+            steps.validate_whatsapp = "hook7_not_configured";
           } else {
-            const r = await checkPhoneExistsOnWhatsApp(cfg, finalWa);
+            const r = await checkPhoneExistsOnWhatsApp(supabase, job.company_id, finalWa);
             if (r.ok) {
               await supabase.from("leads").update({
                 whatsapp_valid: !!r.exists,
@@ -539,7 +539,7 @@ async function runJob(job_id: string) {
             } else {
               await supabase.from("leads").update({
                 whatsapp_checked_at: new Date().toISOString(),
-                whatsapp_check_error: r.error || "zapi_error",
+                whatsapp_check_error: r.error || "hook7_error",
               }).eq("id", lead.id);
               steps.validate_whatsapp = `error: ${r.error}`;
             }
@@ -549,6 +549,7 @@ async function runJob(job_id: string) {
         steps.validate_whatsapp = `error: ${e instanceof Error ? e.message : e}`;
       }
     }
+
 
     await supabase.from("lead_enrichment_jobs").update({
       status: "completed", steps_done: steps, error: null, updated_at: new Date().toISOString(),
