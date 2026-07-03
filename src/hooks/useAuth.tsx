@@ -89,11 +89,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      (_event, session) => {
         setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
         setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
         if (session?.user) {
-          await fetchUserData(session.user.id);
+          // Defer Supabase calls out of the auth callback to avoid deadlock.
+          setTimeout(() => {
+            void fetchUserData(session.user.id);
+          }, 0);
         } else {
           setRoles((prev) => (prev.length === 0 ? prev : []));
           setCompanyId((prev) => (prev === null ? prev : null));
@@ -103,17 +106,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     );
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
       setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
       if (session?.user) {
-        await fetchUserData(session.user.id);
+        void fetchUserData(session.user.id);
       }
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
+
 
   const isMasterAdmin = roles.includes("master_admin");
   const isCompanyAdmin = roles.includes("company_admin");

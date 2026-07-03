@@ -1,56 +1,42 @@
+# Corrigir redirecionamento pós-login
 
-## Objetivo
+## Problema
 
-1. Trocar o rótulo/descrição de "Validar WhatsApp (Z-API)" por Hook7 e migrar o fluxo real de verificação de número para Hook7 (backend Evolution).
-2. Deixar todas as opções do card **Enriquecimento automático de leads** ligadas por padrão.
+Ao clicar em "Entrar", o token é emitido com sucesso (HTTP 200), mas o usuário permanece na tela `/auth` com o botão travado em "Carregando..." e nenhuma navegação para `/dashboard` acontece.
 
-## 1. Frontend — `src/components/EnrichmentSettingsCard.tsx`
+## Causa
 
-Todas as toggles passam a usar o padrão "ligado até desativar explicitamente" (`settings.x !== false`):
+Em `src/hooks/useAuth.tsx`, o callback do `supabase.auth.onAuthStateChange` faz `await fetchUserData(...)`, e `fetchUserData` executa `supabase.from(...)` (roles, company_members, profiles, companies). Isso é o deadlock clássico do supabase-js: chamadas ao cliente Supabase dentro do callback de `onAuthStateChange` bloqueiam o próprio pipeline de auth, então:
 
-- `website_analysis`
-- `discover_socials`
-- `autofill_contacts` (já era)
-- `validate_whatsapp`
-- `generate_message`
+- `setLoading(false)` no callback nunca é atingido de forma consistente.
+- `Auth.tsx` chama `navigate("/")` mas o `AuthProvider` fica em estado inconsistente.
+- O usuário fica preso em `/auth`.
 
-Atualizar o toggle de WhatsApp:
+Isso está confirmado por:
+- Network log mostra apenas o `token?grant_type=password` no momento do clique (21:26:44); as queries de `user_roles`, `profiles`, `company_members`, `companies` só aparecem quase 20 min depois, quando o usuário navegou manualmente e recarregou.
+- Session replay mostra o botão "Carregando..." permanente após o clique.
 
-- Rótulo: **"Validar se o número tem WhatsApp (Hook7)"**
-- Descrição: **"Consulta o Hook7 para confirmar se o telefone do lead está registrado no WhatsApp. Se não estiver, a cadência pula automaticamente os passos de WhatsApp. Requer uma instância do Hook7 conectada."**
+## Correção
 
-Observação: como agora o default é "ligado", o gatilho de enriquecimento (`enqueue_lead_enrichment`) continua funcionando — ele já dispara quando qualquer flag relevante está ativa.
+Editar `src/hooks/useAuth.tsx`:
 
-## 2. Backend — verificação de número via Hook7
+1. Manter o listener `onAuthStateChange` **síncrono**: apenas atualiza `session` e `user` no state e faz `setLoading(false)`. Sem `await` de nada do Supabase dentro do callback.
+2. Disparar `fetchUserData` de forma "fire-and-forget" (via `setTimeout(0)` ou apenas chamando sem `await`) para carregar roles/profile/companyId **fora** do callback de auth.
+3. No `getSession()` inicial, seguir o mesmo padrão: setar `session`/`user`/`loading=false` primeiro, e disparar `fetchUserData` fora do await do auth.
+4. Manter a lógica atual de checagem de `companies.status === "inactive"` (com `signOut`), mas executada dentro de `fetchUserData` que agora roda desacoplada.
+5. Preservar comparações "estáveis" já existentes (evitar re-render desnecessário) e o `useMemo` do value.
 
-### 2.1 `supabase/functions/_shared/hook7-whatsapp.ts`
+Nenhuma mudança em `Auth.tsx`, `AppLayout.tsx`, rotas, backend ou banco.
 
-Adicionar `checkPhoneExistsOnWhatsApp(admin, companyId, toPhone)` que:
+## Fora do escopo
 
-1. Resolve a instância conectada via `getHook7SendInstance`.
-2. Carrega o token via `loadInstanceToken`.
-3. Faz `POST {HOOK7_BASE}/chat/whatsappNumbers/{external_name}` com `{ numbers: [phone] }` e header `apikey: <token>` (endpoint padrão Evolution).
-4. Retorna `{ ok, exists?, status?, error? }` no mesmo shape do helper Z-API anterior, para não mexer nos call sites.
+- Não alterar edge functions, migrations, tipos, ou qualquer outra tela.
+- Não mudar o design da tela de login.
+- Não mexer no fluxo de onboarding/master admin — apenas destravar o `loading` para que a navegação atual funcione.
 
-Também expor um alias `checkPhoneExistsOnWhatsAppLegacy(cfg, phone)` que aceita o "sender" devolvido por `getZApiConfig` (compatível com o código atual do `enrich-lead`), delegando ao helper acima.
+## Validação
 
-### 2.2 `supabase/functions/enrich-lead/index.ts` (linhas 514–551)
-
-Trocar o bloco "Step 5: validate WhatsApp via Z-API":
-
-- Import passa de `../_shared/zapi-whatsapp.ts` para `../_shared/hook7-whatsapp.ts`.
-- `getZApiConfig` → usar `getHook7SendInstance(supabase, job.company_id)`.
-- Se não houver instância conectada → `steps.validate_whatsapp = "hook7_not_configured"`.
-- Caso contrário, chamar `checkPhoneExistsOnWhatsApp(supabase, job.company_id, finalWa)` e gravar `whatsapp_valid` / `whatsapp_checked_at` / `whatsapp_check_error` exatamente como antes (rótulos `valid`, `not_on_whatsapp`, `no_phone`, `error: …`).
-
-Nenhuma outra function precisa mudar — `cadence-executor`, `cadence-agent-decide`, `send-outbound-message`, `slot-expiry-followup` e `inbound-webhook` já usam os aliases `getZApiConfig` / `sendWhatsAppViaZApi` que hoje apontam para Hook7.
-
-## 3. Ajuste cosmético em `src/components/LeadDetailContent.tsx`
-
-Nos tooltips das badges (linhas 288 e 293), substituir "validado via Z-API" por "validado via WhatsApp (Hook7)". Sem mudança de lógica.
-
-## Fora de escopo
-
-- Não remover a integração Z-API antiga do banco/UI (isso é uma limpeza maior; aqui só desativamos o uso na verificação).
-- Não mexer no dialog do Hook7 nem nos edge functions de envio (já migrados).
-- Backfill de leads antigos com `whatsapp_valid = null` não é feito automaticamente — só novos jobs de enriquecimento passam pela nova checagem.
+Após a mudança, ao fazer login com um usuário `company_admin` com empresa ativa:
+- Botão sai de "Carregando..." rapidamente.
+- Navegação para `/dashboard` ocorre.
+- Não há loop de redirecionamento para `/auth` ou `/onboarding`.
