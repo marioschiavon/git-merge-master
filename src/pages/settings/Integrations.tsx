@@ -731,11 +731,11 @@ function ZapiDialog({
 // ---------------------------------------------------------------------------
 
 export default function Integrations() {
+  const navigate = useNavigate();
   const { data: pipedrive } = useIntegration("pipedrive");
   const { data: gmail } = useGmailAccount();
 
   const [pipedriveOpen, setPipedriveOpen] = useState(false);
-  const [gmailOpen, setGmailOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
 
