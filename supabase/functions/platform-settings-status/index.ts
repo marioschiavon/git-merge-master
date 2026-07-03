@@ -38,8 +38,32 @@ serve(async (req) => {
       });
     }
     const apifyTokenConfigured = !!Deno.env.get("APIFY_API_TOKEN");
+    const hook7ApikeyConfigured = !!(Deno.env.get("HOOK7_GLOBAL_APIKEY") ?? "").trim();
+    const hook7WebhookConfigured = !!(Deno.env.get("HOOK7_WEBHOOK_SECRET") ?? "").trim();
+    const hook7PassphraseConfigured =
+      (Deno.env.get("HOOK7_INSTANCE_TOKEN_PASSPHRASE") ?? "").trim().length >= 16;
+    const { data: ps } = await admin
+      .from("platform_settings")
+      .select("hook7_base_url")
+      .eq("singleton", true)
+      .maybeSingle();
+    const hook7BaseUrl =
+      (ps as any)?.hook7_base_url && String((ps as any).hook7_base_url).length > 0
+        ? String((ps as any).hook7_base_url)
+        : "https://api.hook7.com.br";
+    const supaUrl = (SUPABASE_URL ?? "").replace(/\/+$/, "");
+    const webhookUrlMasked = hook7WebhookConfigured && supaUrl
+      ? `${supaUrl}/functions/v1/hook7-webhook/****/{company-slug}`
+      : null;
     return new Response(JSON.stringify({
       apify: { token_configured: apifyTokenConfigured },
+      hook7: {
+        apikey_configured: hook7ApikeyConfigured,
+        webhook_configured: hook7WebhookConfigured,
+        passphrase_configured: hook7PassphraseConfigured,
+        base_url: hook7BaseUrl,
+        webhook_url_masked: webhookUrlMasked,
+      },
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), {

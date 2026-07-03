@@ -38,6 +38,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
+import { WhatsAppManagerDialog } from "@/components/WhatsAppManagerDialog";
 
 const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
 const ZAPI_WEBHOOK_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/zapi-webhook`;
@@ -747,6 +748,28 @@ export default function Integrations() {
   const [gmailOpen, setGmailOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
   const [zapiOpen, setZapiOpen] = useState(false);
+  const [whatsappOpen, setWhatsappOpen] = useState(false);
+
+  // Hook7 (novo WhatsApp) — status agregado por company
+  const { data: hook7Instances } = useQuery({
+    queryKey: ["hook7_instances_summary"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("hook7_instances")
+        .select("id, status, phone_number, connected_profile_name")
+        .is("archived_at", null);
+      return data ?? [];
+    },
+  });
+  const hook7Connected = (hook7Instances ?? []).find(
+    (i: any) => i.status === "connected",
+  );
+  const whatsappStatus: StatusKey =
+    hook7Connected
+      ? "connected"
+      : (hook7Instances ?? []).length > 0
+      ? "pending"
+      : "disconnected";
 
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
@@ -802,6 +825,40 @@ export default function Integrations() {
         "Envie e receba mensagens de WhatsApp via Z-API. Cada empresa usa sua própria instância.",
       icon: SiWhatsapp,
       iconTint: "text-[#25D366]",
+      status: zapiStatus,
+      operationalLabel:
+        zapiStatus === "connected"
+          ? ((zapi?.config as any)?.whatsapp_number ?? "Conectado")
+          : undefined,
+      onAction: () => setZapiOpen(true),
+    },
+    {
+      key: "whatsapp",
+      name: "WhatsApp",
+      category: "Mensageria",
+      description:
+        "Conecte o WhatsApp da sua empresa via QR Code. Cada empresa gerencia suas próprias instâncias; a infraestrutura é gerenciada pela plataforma.",
+      icon: SiWhatsapp,
+      iconTint: "text-[#25D366]",
+      status: whatsappStatus,
+      operationalLabel:
+        hook7Connected
+          ? (hook7Connected.connected_profile_name ??
+             hook7Connected.phone_number ??
+             "Conectado")
+          : undefined,
+      readinessLabel:
+        whatsappStatus === "pending" ? "Aguardando leitura do QR" : undefined,
+      onAction: () => setWhatsappOpen(true),
+    },
+    {
+      key: "zapi",
+      name: "WhatsApp (Z-API — legado)",
+      category: "Mensageria",
+      description:
+        "Integração Z-API antiga. Mantida durante a migração para o novo provedor. Não use para novas conexões.",
+      icon: SiWhatsapp,
+      iconTint: "text-muted-foreground",
       status: zapiStatus,
       operationalLabel:
         zapiStatus === "connected"
@@ -869,6 +926,7 @@ export default function Integrations() {
       <GmailDialog open={gmailOpen} onOpenChange={setGmailOpen} />
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
       <ZapiDialog open={zapiOpen} onOpenChange={setZapiOpen} />
+      <WhatsAppManagerDialog open={whatsappOpen} onOpenChange={setWhatsappOpen} />
     </div>
   );
 }

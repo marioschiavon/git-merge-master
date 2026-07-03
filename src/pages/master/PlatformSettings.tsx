@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Shield, AlertCircle, CheckCircle2, ExternalLink, RotateCcw } from "lucide-react";
+import { Sparkles, Shield, AlertCircle, CheckCircle2, ExternalLink, RotateCcw, Smartphone, Copy, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -50,7 +50,16 @@ export default function PlatformSettings() {
     queryFn: async () => {
       const { data, error } = await supabase.functions.invoke("platform-settings-status");
       if (error) throw error;
-      return data as { apify: { token_configured: boolean } };
+      return data as {
+        apify: { token_configured: boolean };
+        hook7: {
+          apikey_configured: boolean;
+          webhook_configured: boolean;
+          passphrase_configured: boolean;
+          base_url: string;
+          webhook_url_masked: string | null;
+        };
+      };
     },
   });
 
@@ -197,6 +206,208 @@ export default function PlatformSettings() {
           </div>
         </CardContent>
       </Card>
+
+      <Hook7Card
+        status={status?.hook7}
+        currentBaseUrl={(settings as any)?.hook7_base_url ?? null}
+      />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hook7 (WhatsApp) — configuração da plataforma
+// ---------------------------------------------------------------------------
+
+function Hook7Card({
+  status,
+  currentBaseUrl,
+}: {
+  status?: {
+    apikey_configured: boolean;
+    webhook_configured: boolean;
+    passphrase_configured: boolean;
+    base_url: string;
+    webhook_url_masked: string | null;
+  };
+  currentBaseUrl: string | null;
+}) {
+  const qc = useQueryClient();
+  const [baseUrl, setBaseUrl] = useState<string>("");
+
+  useEffect(() => {
+    setBaseUrl(currentBaseUrl ?? status?.base_url ?? "https://api.hook7.com.br");
+  }, [currentBaseUrl, status?.base_url]);
+
+  const apikeyOk = !!status?.apikey_configured;
+  const webhookOk = !!status?.webhook_configured;
+  const passphraseOk = !!status?.passphrase_configured;
+  const allConfigured = apikeyOk && webhookOk && passphraseOk;
+
+  const saveBaseUrl = useMutation({
+    mutationFn: async () => {
+      const clean = baseUrl.trim().replace(/\/+$/, "");
+      if (!clean || !/^https?:\/\//i.test(clean)) {
+        throw new Error("Informe uma URL válida (https://…)");
+      }
+      const { error } = await supabase
+        .from("platform_settings")
+        .update({ hook7_base_url: clean } as any)
+        .eq("singleton", true);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({ title: "URL base do Hook7 atualizada" });
+      qc.invalidateQueries({ queryKey: ["platform_settings"] });
+      qc.invalidateQueries({ queryKey: ["platform_settings_status"] });
+    },
+    onError: (e: any) =>
+      toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const testConn = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("hook7-test-connection");
+      if (error) throw error;
+      return data as { ok: boolean; message: string };
+    },
+    onSuccess: (r) =>
+      toast({
+        title: r.ok ? "Conexão OK" : "Falha na conexão",
+        description: r.message,
+        variant: r.ok ? "default" : "destructive",
+      }),
+    onError: (e: any) =>
+      toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Smartphone className="h-4 w-4 text-[#25D366]" /> WhatsApp · Hook7
+          </CardTitle>
+          <Badge variant={allConfigured ? "default" : "secondary"}>
+            {allConfigured ? (
+              <><CheckCircle2 className="h-3 w-3 mr-1" /> Pronto</>
+            ) : (
+              <><AlertCircle className="h-3 w-3 mr-1" /> Config pendente</>
+            )}
+          </Badge>
+        </div>
+        <CardDescription>
+          Infraestrutura WhatsApp usada por todas as empresas. A chave global e a
+          passphrase de criptografia ficam como segredos da plataforma —
+          nenhuma empresa vê ou altera esses valores.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-3">
+          <StatusPill label="Chave global" ok={apikeyOk} envName="HOOK7_GLOBAL_APIKEY" />
+          <StatusPill label="Passphrase (cripto)" ok={passphraseOk} envName="HOOK7_INSTANCE_TOKEN_PASSPHRASE" />
+          <StatusPill label="Webhook secret" ok={webhookOk} envName="HOOK7_WEBHOOK_SECRET" />
+        </div>
+
+        <div className="space-y-2 border rounded-md p-3">
+          <Label htmlFor="hook7-base-url" className="text-sm font-medium">
+            URL base do Hook7
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="hook7-base-url"
+              value={baseUrl}
+              onChange={(e) => setBaseUrl(e.target.value)}
+              placeholder="https://api.hook7.com.br"
+              className="font-mono text-xs"
+            />
+            <Button
+              onClick={() => saveBaseUrl.mutate()}
+              disabled={saveBaseUrl.isPending}
+              variant="outline"
+            >
+              Salvar URL
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Não é segredo; pode ser alterada pela UI. Só o master admin vê este
+            campo.
+          </p>
+        </div>
+
+        {status?.webhook_url_masked && (
+          <div className="space-y-2 border rounded-md p-3">
+            <Label className="text-sm font-medium">URL do webhook (mascarada)</Label>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-[11px] bg-muted rounded px-2 py-1 truncate">
+                {status.webhook_url_masked}
+              </code>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  navigator.clipboard.writeText(status.webhook_url_masked ?? "");
+                  toast({ title: "Copiado" });
+                }}
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              O secret real nunca aparece na UI. O Hook7 é registrado
+              automaticamente pelo servidor ao conectar cada instância.
+            </p>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <Button
+            onClick={() => testConn.mutate()}
+            disabled={testConn.isPending || !apikeyOk}
+            variant="outline"
+          >
+            {testConn.isPending ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Testando…</>
+            ) : (
+              <>Testar conexão</>
+            )}
+          </Button>
+          <a
+            href="https://hook7.com.br"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline self-center"
+          >
+            hook7.com.br <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function StatusPill({
+  label,
+  ok,
+  envName,
+}: {
+  label: string;
+  ok: boolean;
+  envName: string;
+}) {
+  return (
+    <div className="border rounded-md p-2">
+      <div className="flex items-center gap-2 text-sm">
+        {ok ? (
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+        ) : (
+          <AlertCircle className="h-4 w-4 text-destructive" />
+        )}
+        <span className="font-medium">{label}</span>
+      </div>
+      <div className="text-[10px] font-mono text-muted-foreground mt-1 truncate">
+        {envName}
+      </div>
     </div>
   );
 }
