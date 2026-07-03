@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -730,11 +731,11 @@ function ZapiDialog({
 // ---------------------------------------------------------------------------
 
 export default function Integrations() {
+  const navigate = useNavigate();
   const { data: pipedrive } = useIntegration("pipedrive");
   const { data: gmail } = useGmailAccount();
 
   const [pipedriveOpen, setPipedriveOpen] = useState(false);
-  const [gmailOpen, setGmailOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
 
@@ -788,7 +789,7 @@ export default function Integrations() {
       status: gmailStatus,
       operationalLabel: gmail?.email,
       syncLabel: gmail?.last_synced_at ? relTime(gmail.last_synced_at) : null,
-      onAction: () => setGmailOpen(true),
+      onAction: () => navigate("/settings/gmail"),
     },
     {
       key: "cal_com",
@@ -879,7 +880,7 @@ export default function Integrations() {
       <EnrichmentSettingsCard />
 
       <PipedriveDialog open={pipedriveOpen} onOpenChange={setPipedriveOpen} />
-      <GmailDialog open={gmailOpen} onOpenChange={setGmailOpen} />
+      
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
       
       <WhatsAppManagerDialog open={whatsappOpen} onOpenChange={setWhatsappOpen} />
