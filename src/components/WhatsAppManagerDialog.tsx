@@ -204,6 +204,7 @@ export function WhatsAppManagerDialog({
           });
           setQrBase64(null);
           qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+          qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
         }
       } catch { /* silent */ }
     };
