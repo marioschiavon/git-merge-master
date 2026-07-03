@@ -1277,33 +1277,54 @@ export type Database = {
       }
       gmail_account: {
         Row: {
+          access_token: string | null
+          access_token_expires_at: string | null
           company_id: string | null
+          connected_at: string | null
           created_at: string
           email: string
+          google_user_id: string | null
           id: string
           is_active: boolean
+          last_error: string | null
           last_history_id: string | null
           last_synced_at: string | null
+          refresh_token_encrypted: string | null
+          scope: string | null
           updated_at: string
         }
         Insert: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
           company_id?: string | null
+          connected_at?: string | null
           created_at?: string
           email: string
+          google_user_id?: string | null
           id?: string
           is_active?: boolean
+          last_error?: string | null
           last_history_id?: string | null
           last_synced_at?: string | null
+          refresh_token_encrypted?: string | null
+          scope?: string | null
           updated_at?: string
         }
         Update: {
+          access_token?: string | null
+          access_token_expires_at?: string | null
           company_id?: string | null
+          connected_at?: string | null
           created_at?: string
           email?: string
+          google_user_id?: string | null
           id?: string
           is_active?: boolean
+          last_error?: string | null
           last_history_id?: string | null
           last_synced_at?: string | null
+          refresh_token_encrypted?: string | null
+          scope?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -2821,6 +2842,16 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      get_gmail_oauth_tokens: {
+        Args: { _company_id: string; _passphrase: string }
+        Returns: {
+          access_token: string
+          access_token_expires_at: string
+          email: string
+          refresh_token: string
+          scope: string
+        }[]
+      }
       get_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string }
         Returns: string
@@ -2832,6 +2863,10 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
+      }
+      mark_gmail_error: {
+        Args: { _company_id: string; _error: string }
+        Returns: undefined
       }
       match_knowledge_chunks: {
         Args: {
@@ -2864,8 +2899,29 @@ export type Database = {
           read_ct: number
         }[]
       }
+      set_gmail_oauth_tokens: {
+        Args: {
+          _access_token: string
+          _access_token_expires_at: string
+          _company_id: string
+          _email: string
+          _google_user_id: string
+          _passphrase: string
+          _refresh_token: string
+          _scope: string
+        }
+        Returns: string
+      }
       set_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string; _token: string }
+        Returns: undefined
+      }
+      update_gmail_access_token: {
+        Args: {
+          _access_token: string
+          _access_token_expires_at: string
+          _company_id: string
+        }
         Returns: undefined
       }
     }
