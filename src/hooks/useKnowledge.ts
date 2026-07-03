@@ -55,6 +55,8 @@ export function useUpdateKnowledge() {
         .update(values)
         .eq("id", id);
       if (error) throw error;
+      supabase.functions.invoke("embed-knowledge", { body: { knowledge_id: id } })
+        .catch((e) => console.warn("embed-knowledge failed", e));
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["company_knowledge"] });
