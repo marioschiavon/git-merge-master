@@ -732,22 +732,10 @@ function ZapiDialog({
 export default function Integrations() {
   const { data: pipedrive } = useIntegration("pipedrive");
   const { data: gmail } = useGmailAccount();
-  const { data: zapi } = useQuery({
-    queryKey: ["integration", "zapi_whatsapp"],
-    queryFn: async () => {
-      const { data } = await supabase
-        .from("integrations")
-        .select("*")
-        .eq("provider", "zapi_whatsapp" as any)
-        .maybeSingle();
-      return data;
-    },
-  });
 
   const [pipedriveOpen, setPipedriveOpen] = useState(false);
   const [gmailOpen, setGmailOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
-  const [zapiOpen, setZapiOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
 
   // Hook7 (novo WhatsApp) — status agregado por company
@@ -774,8 +762,6 @@ export default function Integrations() {
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
   const gmailStatus: StatusKey = gmail ? "connected" : "disconnected";
-  const zapiStatus: StatusKey =
-    zapi?.status === "active" ? "connected" : "disconnected";
   // Cal.com is configured via env vars; we can't detect from the client. Show pending.
   const calcomStatus: StatusKey = "pending";
 
@@ -818,21 +804,6 @@ export default function Integrations() {
       onAction: () => setCalcomOpen(true),
     },
     {
-      key: "zapi",
-      name: "WhatsApp (Z-API)",
-      category: "Mensageria",
-      description:
-        "Envie e receba mensagens de WhatsApp via Z-API. Cada empresa usa sua própria instância.",
-      icon: SiWhatsapp,
-      iconTint: "text-[#25D366]",
-      status: zapiStatus,
-      operationalLabel:
-        zapiStatus === "connected"
-          ? ((zapi?.config as any)?.whatsapp_number ?? "Conectado")
-          : undefined,
-      onAction: () => setZapiOpen(true),
-    },
-    {
       key: "whatsapp",
       name: "WhatsApp",
       category: "Mensageria",
@@ -850,21 +821,6 @@ export default function Integrations() {
       readinessLabel:
         whatsappStatus === "pending" ? "Aguardando leitura do QR" : undefined,
       onAction: () => setWhatsappOpen(true),
-    },
-    {
-      key: "zapi",
-      name: "WhatsApp (Z-API — legado)",
-      category: "Mensageria",
-      description:
-        "Integração Z-API antiga. Mantida durante a migração para o novo provedor. Não use para novas conexões.",
-      icon: SiWhatsapp,
-      iconTint: "text-muted-foreground",
-      status: zapiStatus,
-      operationalLabel:
-        zapiStatus === "connected"
-          ? ((zapi?.config as any)?.whatsapp_number ?? "Conectado")
-          : undefined,
-      onAction: () => setZapiOpen(true),
     },
     {
       key: "linkedin",
@@ -925,7 +881,7 @@ export default function Integrations() {
       <PipedriveDialog open={pipedriveOpen} onOpenChange={setPipedriveOpen} />
       <GmailDialog open={gmailOpen} onOpenChange={setGmailOpen} />
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
-      <ZapiDialog open={zapiOpen} onOpenChange={setZapiOpen} />
+      
       <WhatsAppManagerDialog open={whatsappOpen} onOpenChange={setWhatsappOpen} />
     </div>
   );

@@ -2,7 +2,7 @@
 // e só então registra a mensagem na tabela messages com o delivery_status real.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
         const zCfg = await getZApiConfig(admin, companyId);
         if (!zCfg) {
           deliveryStatus = "failed";
-          deliveryMeta = { delivery_error: "Integração Z-API não configurada" };
+          deliveryMeta = { delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
         } else {
           const r = await sendWhatsAppViaZApi(zCfg, toNumber, content);
           if (r.ok) {

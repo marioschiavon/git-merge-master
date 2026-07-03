@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 import { buildReferrerLabel, sanitizeReferrerMentions } from "../_shared/referrer-label.ts";
 import { getEmailReplyContext } from "../_shared/email-thread.ts";
@@ -306,7 +306,7 @@ serve(async (req) => {
               }
             } else {
               sendAction = "pending_manual";
-              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
+              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
             }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
 
@@ -598,7 +598,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           } else {
             // Z-API não configurado — registra como tarefa manual
             sendAction = "pending_manual";
-            deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" };
+            deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
           }
 
 

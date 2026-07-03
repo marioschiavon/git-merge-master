@@ -2,7 +2,7 @@
 // Decides next action per enrollment: send / wait / stop / handoff_human.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
 import { buildFirstMessage } from "../_shared/build-first-message.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 import { getEmailReplyContext } from "../_shared/email-thread.ts";
@@ -678,7 +678,7 @@ Decida a próxima ação.`;
           const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, decision.message);
           if (r.ok) deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status };
           else { sendAction = "failed"; deliveryMeta = { delivery_status: "failed", zapi_error: r.error }; }
-        } else { sendAction = "pending_manual"; deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Z-API não configurada" }; }
+        } else { sendAction = "pending_manual"; deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" }; }
         if (conversation) {
           await supabase.from("messages").insert({
             conversation_id: conversation.id,
