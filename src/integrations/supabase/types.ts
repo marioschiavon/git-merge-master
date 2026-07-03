@@ -1316,6 +1316,77 @@ export type Database = {
           },
         ]
       }
+      hook7_instances: {
+        Row: {
+          archived_at: string | null
+          company_id: string
+          connected_profile_name: string | null
+          created_at: string
+          created_by: string | null
+          display_name: string
+          external_id: string | null
+          external_name: string | null
+          id: string
+          last_connected_at: string | null
+          last_error: string | null
+          last_qr_at: string | null
+          owner_user_id: string | null
+          phone_number: string | null
+          status: Database["public"]["Enums"]["hook7_instance_status"]
+          token_encrypted: string | null
+          updated_at: string
+          user_disconnected_at: string | null
+        }
+        Insert: {
+          archived_at?: string | null
+          company_id: string
+          connected_profile_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          display_name: string
+          external_id?: string | null
+          external_name?: string | null
+          id?: string
+          last_connected_at?: string | null
+          last_error?: string | null
+          last_qr_at?: string | null
+          owner_user_id?: string | null
+          phone_number?: string | null
+          status?: Database["public"]["Enums"]["hook7_instance_status"]
+          token_encrypted?: string | null
+          updated_at?: string
+          user_disconnected_at?: string | null
+        }
+        Update: {
+          archived_at?: string | null
+          company_id?: string
+          connected_profile_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          display_name?: string
+          external_id?: string | null
+          external_name?: string | null
+          id?: string
+          last_connected_at?: string | null
+          last_error?: string | null
+          last_qr_at?: string | null
+          owner_user_id?: string | null
+          phone_number?: string | null
+          status?: Database["public"]["Enums"]["hook7_instance_status"]
+          token_encrypted?: string | null
+          updated_at?: string
+          user_disconnected_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hook7_instances_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       integrations: {
         Row: {
           api_domain: string | null
@@ -2290,6 +2361,7 @@ export type Database = {
           apify_actors: Json
           apify_enabled: boolean
           created_at: string
+          hook7_base_url: string
           id: string
           metadata: Json
           singleton: boolean
@@ -2300,6 +2372,7 @@ export type Database = {
           apify_actors?: Json
           apify_enabled?: boolean
           created_at?: string
+          hook7_base_url?: string
           id?: string
           metadata?: Json
           singleton?: boolean
@@ -2310,6 +2383,7 @@ export type Database = {
           apify_actors?: Json
           apify_enabled?: boolean
           created_at?: string
+          hook7_base_url?: string
           id?: string
           metadata?: Json
           singleton?: boolean
@@ -2747,6 +2821,10 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
+      get_hook7_instance_token: {
+        Args: { _instance_id: string; _passphrase: string }
+        Returns: string
+      }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
       has_role: {
         Args: {
@@ -2785,6 +2863,10 @@ export type Database = {
           msg_id: number
           read_ct: number
         }[]
+      }
+      set_hook7_instance_token: {
+        Args: { _instance_id: string; _passphrase: string; _token: string }
+        Returns: undefined
       }
     }
     Enums: {
@@ -2846,6 +2928,14 @@ export type Database = {
         | "replied"
         | "bounced"
         | "paused"
+      hook7_instance_status:
+        | "pending_qr"
+        | "qr_ready"
+        | "pairing"
+        | "connected"
+        | "disconnected"
+        | "banned"
+        | "error"
       integration_provider:
         | "pipedrive"
         | "gmail"
@@ -3057,6 +3147,15 @@ export const Constants = {
         "replied",
         "bounced",
         "paused",
+      ],
+      hook7_instance_status: [
+        "pending_qr",
+        "qr_ready",
+        "pairing",
+        "connected",
+        "disconnected",
+        "banned",
+        "error",
       ],
       integration_provider: [
         "pipedrive",
