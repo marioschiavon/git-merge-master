@@ -808,7 +808,7 @@ export default function Integrations() {
       name: "WhatsApp",
       category: "Mensageria",
       description:
-        "Conecte o WhatsApp da sua empresa via QR Code. Cada empresa gerencia suas próprias instâncias; a infraestrutura é gerenciada pela plataforma.",
+        "Conecte o WhatsApp da sua empresa para que o agente envie mensagens aos seus leads e acompanhe respostas automaticamente.",
       icon: SiWhatsapp,
       iconTint: "text-[#25D366]",
       status: whatsappStatus,

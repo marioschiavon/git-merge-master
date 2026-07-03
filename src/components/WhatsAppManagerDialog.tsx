@@ -133,6 +133,7 @@ export function WhatsAppManagerDialog({
     onSuccess: async (inst) => {
       setNewName("");
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+      qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
       // conecta e abre o QR imediatamente
       setActiveId(inst.id);
       await connectAndFetchQr(inst.id);
@@ -147,6 +148,7 @@ export function WhatsAppManagerDialog({
     onSuccess: () => {
       toast({ title: "Instância desconectada" });
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+      qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
     },
   });
 
@@ -158,6 +160,7 @@ export function WhatsAppManagerDialog({
       if (activeId) setActiveId(null);
       setQrBase64(null);
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+      qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
     },
   });
 
@@ -201,6 +204,7 @@ export function WhatsAppManagerDialog({
           });
           setQrBase64(null);
           qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+          qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
         }
       } catch { /* silent */ }
     };
@@ -225,9 +229,8 @@ export function WhatsAppManagerDialog({
             <Smartphone className="h-5 w-5 text-[#25D366]" /> WhatsApp — Instâncias
           </DialogTitle>
           <DialogDescription>
-            Cada empresa conecta seu próprio número via QR Code. As credenciais
-            de infraestrutura ficam com a plataforma; sua empresa vê apenas as
-            instâncias criadas aqui.
+            Conecte o WhatsApp da sua empresa para que o agente envie mensagens
+            aos seus leads e acompanhe respostas automaticamente.
           </DialogDescription>
         </DialogHeader>
 

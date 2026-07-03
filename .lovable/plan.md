@@ -1,14 +1,26 @@
-## Objetivo
-Após o signup, o usuário deve entrar direto no app (já autenticado) e o `useAuth` o levará ao `/onboarding` automaticamente — sem pedir login manual.
+## Ajustes no WhatsApp — Integrações
 
-## Mudanças
+### 1. Melhorar a copy de orientação no WhatsAppManagerDialog
+**Arquivo:** `src/components/WhatsAppManagerDialog.tsx`
 
-**`src/pages/Auth.tsx` — bloco `signUp` (linhas ~52-70):**
+A descrição atual (linhas 228–230) é técnica e passiva. Substituir por uma frase que oriente o usuário sobre o benefício real: enviar mensagens do agente aos leads.
 
-- Se `data.session` existir → `navigate("/")` (fluxo normal do `useAuth` redireciona para `/onboarding` se não houver empresa).
-- Se `data.session` for `null` (auto-confirm desativado ou race condition) → fazer imediatamente `supabase.auth.signInWithPassword({ email, password })` com as credenciais recém-usadas e navegar para `/`. Só cair no fallback de "faça login" se esse signIn também falhar.
-- Toast simplificado: "Conta criada!" em vez de "Você já pode fazer login."
+**Nova copy sugerida:**
+> Conecte o WhatsApp da sua empresa para que o agente envie mensagens aos seus leads e acompanhe respostas automaticamente.
 
-## Fora de escopo
-- Config de auth backend (já está com `auto_confirm_email = true`).
-- Página `/onboarding` e lógica do `useAuth` (já redirecionam corretamente quando o usuário não tem empresa).
+### 2. Corrigir status "desconectado" no card de Integrações
+**Arquivo:** `src/pages/settings/Integrations.tsx`
+
+O card do WhatsApp na grade de integrações continua exibindo "Desconectado" mesmo quando existem instâncias ativas. O componente já consulta `hook7_instances`, mas o status agregado pode não estar refletindo corretamente.
+
+**Investigação necessária:**
+- Verificar se a query `hook7_instances_summary` está retornando dados para a empresa do usuário logado.
+- Conferir se o mapeamento de `status` da instância para `StatusKey` do card está correto.
+- Garantir que o cache do React Query não esteja exibindo estado obsoleto após criação/conexão de instâncias.
+
+**Possível correção:**
+- Invalidar a query `hook7_instances_summary` ao abrir/fechar o `WhatsAppManagerDialog`.
+- Ou garantir que o `refetch` da lista de instâncias atualize o estado agregado do card imediatamente.
+
+### Escopo
+Apenas ajustes de frontend (copy e lógica de status). Nenhuma alteração de backend ou banco de dados.
