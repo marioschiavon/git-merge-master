@@ -5,7 +5,7 @@ import { routeAndEnqueue } from "../_shared/route-intent.ts";
 import { extractDateRangeFromText } from "../_shared/date-range.ts";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
 import { cancelCalcomBooking, cancelCalcomReservation } from "../_shared/calcom.ts";
 import { clarifyingReplyFor, detectMeetingClarifier, normalizePtText } from "../_shared/meeting-clarifier.ts";
 

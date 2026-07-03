@@ -2,7 +2,7 @@
 // e só então registra a mensagem na tabela messages com o delivery_status real.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/zapi-whatsapp.ts";
+import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
