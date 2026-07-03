@@ -880,7 +880,7 @@ export default function Integrations() {
       <EnrichmentSettingsCard />
 
       <PipedriveDialog open={pipedriveOpen} onOpenChange={setPipedriveOpen} />
-      <GmailDialog open={gmailOpen} onOpenChange={setGmailOpen} />
+      
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
       
       <WhatsAppManagerDialog open={whatsappOpen} onOpenChange={setWhatsappOpen} />
