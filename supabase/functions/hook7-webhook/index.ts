@@ -16,6 +16,120 @@ function ok200() {
   return new Response("", { status: 200 });
 }
 
+function brVariants(d: string): string[] {
+  const out = new Set<string>([d]);
+  if (d.startsWith("55") && d.length >= 12) {
+    const ddi = d.slice(0, 2);
+    const ddd = d.slice(2, 4);
+    const rest = d.slice(4);
+    if (rest.length === 8) out.add(`${ddi}${ddd}9${rest}`);
+    if (rest.length === 9 && rest.startsWith("9")) out.add(`${ddi}${ddd}${rest.slice(1)}`);
+  }
+  return Array.from(out);
+}
+
+// deno-lint-ignore no-explicit-any
+async function handleInboundMessage(admin: any, instance: any, company: any, body: any): Promise<boolean> {
+  const d = body?.data ?? body ?? {};
+  // Formato Hook7 (semelhante Evolution API): { key: { remoteJid, fromMe, id }, message: { conversation | extendedTextMessage.text } }
+  const key = d.key ?? {};
+  const fromMe = key?.fromMe === true || d?.fromMe === true;
+  if (fromMe) return false;
+  const remoteJid: string = String(key?.remoteJid ?? d?.remoteJid ?? d?.from ?? "");
+  const messageId: string | null = key?.id ?? d?.id ?? d?.messageId ?? null;
+  const text: string =
+    d?.message?.conversation ??
+    d?.message?.extendedTextMessage?.text ??
+    d?.text?.message ??
+    d?.body ??
+    "";
+  if (!remoteJid || !text) return false;
+
+  const fromDigits = remoteJid.split("@")[0].replace(/\D/g, "");
+  if (!fromDigits) return false;
+  const fromPhone = `+${fromDigits}`;
+
+  // Dedup por provider_message_id
+  if (messageId) {
+    const { data: dup } = await admin
+      .from("messages")
+      .select("id")
+      .eq("provider", "hook7")
+      .eq("provider_message_id", String(messageId))
+      .maybeSingle();
+    if (dup) return true;
+  }
+
+  // Localiza lead por telefone dentro da company
+  const { data: leads } = await admin
+    .from("leads")
+    .select("id, phone, whatsapp")
+    .eq("company_id", company.id)
+    .or("phone.not.is.null,whatsapp.not.is.null");
+  const fromVariants = brVariants(fromDigits);
+  const lead = (leads || []).find((l: any) => {
+    const cands = [l.whatsapp, l.phone]
+      .filter(Boolean)
+      .flatMap((p: string) => brVariants(p.replace(/\D/g, "")));
+    return cands.some((c) =>
+      fromVariants.some((f) => c === f || c.endsWith(f.slice(-10)) || f.endsWith(c.slice(-10))),
+    );
+  });
+  if (!lead) {
+    console.warn("[hook7-webhook] lead não encontrado", { fromPhone, company: company.id });
+    return false;
+  }
+
+  // Conversation: reaproveita a mais recente do lead
+  let { data: conv } = await admin
+    .from("conversations")
+    .select("id")
+    .eq("lead_id", lead.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!conv) {
+    const { data: newConv } = await admin
+      .from("conversations")
+      .insert({ lead_id: lead.id, company_id: company.id, channel: "whatsapp" })
+      .select("id")
+      .single();
+    conv = newConv;
+  }
+
+  await admin.from("messages").insert({
+    conversation_id: conv!.id,
+    content: text,
+    direction: "inbound",
+    channel: "whatsapp",
+    ai_suggested: false,
+    metadata: { hook7_message_id: messageId, from: fromPhone, instance_id: instance.id },
+    provider: "hook7",
+    provider_message_id: messageId ? String(messageId) : null,
+  });
+
+  // Encaminha para pipeline (intenção, IA) pulando insert duplicado
+  const invokeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/inbound-webhook`;
+  fetch(invokeUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+    },
+    body: JSON.stringify({
+      lead_id: lead.id,
+      conversation_id: conv!.id,
+      content: text,
+      channel: "whatsapp",
+      skip_insert: true,
+      provider: "hook7",
+      provider_message_id: messageId ? String(messageId) : null,
+    }),
+  }).catch((e) => console.error("[hook7-webhook] inbound forward error:", e));
+
+  return true;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") return ok200();
   try {
