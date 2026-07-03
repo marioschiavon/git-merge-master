@@ -789,7 +789,7 @@ export default function Integrations() {
       status: gmailStatus,
       operationalLabel: gmail?.email,
       syncLabel: gmail?.last_synced_at ? relTime(gmail.last_synced_at) : null,
-      onAction: () => setGmailOpen(true),
+      onAction: () => navigate("/settings/gmail"),
     },
     {
       key: "cal_com",
