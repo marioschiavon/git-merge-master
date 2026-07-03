@@ -99,6 +99,12 @@ async function embedDocument(doc: {
 
   const { error } = await supabase.from("knowledge_chunks").insert(insertRows);
   if (error) throw error;
+
+  await supabase
+    .from("company_knowledge")
+    .update({ needs_embedding: false, embedded_at: new Date().toISOString() })
+    .eq("id", doc.id);
+
   return { knowledge_id: doc.id, chunks: chunks.length };
 }
 
