@@ -225,9 +225,8 @@ export function WhatsAppManagerDialog({
             <Smartphone className="h-5 w-5 text-[#25D366]" /> WhatsApp — Instâncias
           </DialogTitle>
           <DialogDescription>
-            Cada empresa conecta seu próprio número via QR Code. As credenciais
-            de infraestrutura ficam com a plataforma; sua empresa vê apenas as
-            instâncias criadas aqui.
+            Conecte o WhatsApp da sua empresa para que o agente envie mensagens
+            aos seus leads e acompanhe respostas automaticamente.
           </DialogDescription>
         </DialogHeader>
 
