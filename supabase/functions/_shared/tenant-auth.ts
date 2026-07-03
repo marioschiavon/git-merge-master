@@ -53,13 +53,13 @@ export async function requireUser(req: Request): Promise<{
     global: { headers: { Authorization: authHeader } },
   });
 
-  const { data, error } = await supabase.auth.getClaims(token);
-  if (error || !data?.claims?.sub) {
+  const { data, error } = await supabase.auth.getUser(token);
+  if (error || !data?.user?.id) {
     throw new HttpError(401, "Invalid session");
   }
 
   return {
-    user: { id: data.claims.sub as string, email: data.claims.email as string | undefined },
+    user: { id: data.user.id, email: data.user.email ?? undefined },
     supabase,
     token,
   };
