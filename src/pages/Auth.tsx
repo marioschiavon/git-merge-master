@@ -59,13 +59,17 @@ export default function Auth() {
       });
       if (error) {
         toast.error(error.message);
+      } else if (data.session) {
+        toast.success("Conta criada com sucesso!");
+        navigate("/");
       } else {
-        if (data.session) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        if (signInError) {
+          toast.success("Conta criada! Faça login para continuar.");
+          setIsLogin(true);
+        } else {
           toast.success("Conta criada com sucesso!");
           navigate("/");
-        } else {
-          toast.success("Conta criada! Você já pode fazer login.");
-          setIsLogin(true);
         }
       }
     }
