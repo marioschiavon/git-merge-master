@@ -1,4 +1,4 @@
-// Consolidated Hook7 instance manager (per-company).
+// Consolidated Hook7 instance manager (per-company). v2 (auth: getUser)
 //
 // Actions (JSON body: { action, ... }):
 //   - list                                    → lista instâncias da company do caller

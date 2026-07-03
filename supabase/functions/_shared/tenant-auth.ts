@@ -3,7 +3,7 @@
 //   const { user, supabase } = await requireUser(req);
 //   await requireCompanyMember(supabase, user.id, companyId);
 //
-// requireUser validates the JWT via supabase.auth.getClaims(). The returned
+// requireUser validates the JWT via supabase.auth.getUser(). The returned
 // Supabase client is scoped to the caller (RLS applies).
 
 import { createClient, SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
