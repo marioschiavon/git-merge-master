@@ -1,42 +1,28 @@
-## Por que o erro aparece
+## Objetivo
 
-O erro `supabase.auth.getClaims is not a function` vem da edge function `hook7-instance-manage` **em execução no servidor**. O código fonte no repositório já está correto (usa `supabase.auth.getUser(token)` em `_shared/tenant-auth.ts`), mas a versão **deployada** da função ainda tem o código antigo — o redeploy não ocorreu depois da correção do shared helper.
+Garantir que novos usuários entrem direto no app após o cadastro, sem precisar confirmar o email.
 
-`getClaims` não existe no SDK `@supabase/supabase-js@2.45.4` que essas functions importam; ele só existe em versões mais novas / no client SSR do Next. Por isso qualquer function que ainda tenha esse call falha em runtime com 500.
+## Diagnóstico
 
-Além do `hook7-instance-manage`, existem outras duas functions que ainda chamam `getClaims` diretamente no arquivo (não via helper) e vão explodir do mesmo jeito assim que forem invocadas:
+O log de autenticação mostra `immediate_login_after_signup: true`, o que indica que o auto-confirm parece estar ativo em algum ponto. Mesmo assim, você percebe que a confirmação continua acontecendo — provavelmente o email de confirmação ainda é disparado, ou a configuração de auth do backend não está persistida como esperado.
 
-- `supabase/functions/twilio-test-connection/index.ts:25`
-- `supabase/functions/zapi-test-connection/index.ts:25`
+## O que fazer
 
-## Correção proposta
+1. Reaplicar a configuração de auth do backend com:
+   - `auto_confirm_email = true` (usuário é confirmado automaticamente ao se cadastrar)
+   - `disable_signup = false` (mantém cadastro aberto)
+   - `external_anonymous_users_enabled = false` (mantém logins anônimos desligados)
+   - `password_hibp_enabled = false` (mantém o comportamento atual)
 
-1. **Redeploy `hook7-instance-manage`** para publicar o `tenant-auth.ts` já corrigido (mudança sem edição de código — apenas redeploy). Isso resolve o erro que aparece agora na tela.
-
-2. **Corrigir as duas functions legadas** que ainda usam `supabase.auth.getClaims(...)` diretamente, trocando por:
-
-   ```ts
-   const { data: userData, error } = await supabase.auth.getUser(
-     authHeader.replace("Bearer ", "")
-   );
-   if (error || !userData?.user) return 401;
-   const userId = userData.user.id;
-   ```
-
-   Arquivos:
-   - `supabase/functions/twilio-test-connection/index.ts`
-   - `supabase/functions/zapi-test-connection/index.ts`
-
-   (Mantém o comportamento — só troca a API que não existe pela que existe.)
-
-3. **Atualizar o comentário** em `_shared/tenant-auth.ts` (linha 6) que ainda menciona `getClaims`, para evitar confusão futura.
+2. Validar criando um novo usuário de teste:
+   - Não deve chegar email de "confirme seu email"
+   - O usuário deve conseguir logar imediatamente após o cadastro
 
 ## Fora de escopo
 
-- Não vou remover as functions `zapi-*` / `twilio-*` agora (isso é da fase de cleanup pós-validação do Hook7, conforme combinado).
-- Não vou mexer no fluxo de envio nem no webhook Hook7.
+- Não vou mexer em templates de auth email, domínio de email, ou provider Google.
+- Não vou alterar telas de cadastro/login.
 
-## Critério de aceite
+## Observação
 
-- Abrir Configurações → Integrações → WhatsApp não gera mais `500 supabase.auth.getClaims is not a function`.
-- Listagem de instâncias Hook7 carrega normalmente (mesmo que vazia).
+Se depois de aplicar isso ainda chegar um email de confirmação, o próximo passo será investigar o `auth-email-hook` para ver se ele está enfileirando emails de signup mesmo com auto-confirm ativo — mas normalmente a configuração acima já resolve.
