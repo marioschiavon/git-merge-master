@@ -1,28 +1,14 @@
 ## Objetivo
+Após o signup, o usuário deve entrar direto no app (já autenticado) e o `useAuth` o levará ao `/onboarding` automaticamente — sem pedir login manual.
 
-Garantir que novos usuários entrem direto no app após o cadastro, sem precisar confirmar o email.
+## Mudanças
 
-## Diagnóstico
+**`src/pages/Auth.tsx` — bloco `signUp` (linhas ~52-70):**
 
-O log de autenticação mostra `immediate_login_after_signup: true`, o que indica que o auto-confirm parece estar ativo em algum ponto. Mesmo assim, você percebe que a confirmação continua acontecendo — provavelmente o email de confirmação ainda é disparado, ou a configuração de auth do backend não está persistida como esperado.
-
-## O que fazer
-
-1. Reaplicar a configuração de auth do backend com:
-   - `auto_confirm_email = true` (usuário é confirmado automaticamente ao se cadastrar)
-   - `disable_signup = false` (mantém cadastro aberto)
-   - `external_anonymous_users_enabled = false` (mantém logins anônimos desligados)
-   - `password_hibp_enabled = false` (mantém o comportamento atual)
-
-2. Validar criando um novo usuário de teste:
-   - Não deve chegar email de "confirme seu email"
-   - O usuário deve conseguir logar imediatamente após o cadastro
+- Se `data.session` existir → `navigate("/")` (fluxo normal do `useAuth` redireciona para `/onboarding` se não houver empresa).
+- Se `data.session` for `null` (auto-confirm desativado ou race condition) → fazer imediatamente `supabase.auth.signInWithPassword({ email, password })` com as credenciais recém-usadas e navegar para `/`. Só cair no fallback de "faça login" se esse signIn também falhar.
+- Toast simplificado: "Conta criada!" em vez de "Você já pode fazer login."
 
 ## Fora de escopo
-
-- Não vou mexer em templates de auth email, domínio de email, ou provider Google.
-- Não vou alterar telas de cadastro/login.
-
-## Observação
-
-Se depois de aplicar isso ainda chegar um email de confirmação, o próximo passo será investigar o `auth-email-hook` para ver se ele está enfileirando emails de signup mesmo com auto-confirm ativo — mas normalmente a configuração acima já resolve.
+- Config de auth backend (já está com `auto_confirm_email = true`).
+- Página `/onboarding` e lógica do `useAuth` (já redirecionam corretamente quando o usuário não tem empresa).
