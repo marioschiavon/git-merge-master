@@ -285,7 +285,7 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
             <a href={`https://wa.me/${lead.whatsapp.replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">{lead.whatsapp}</a>
             <AutoBadge src={autofill.whatsapp || (lead as any).whatsapp_source} />
             {lead.whatsapp_valid === true && (
-              <Badge variant="outline" className="ml-1 h-5 px-1.5 text-[10px] border-emerald-300 text-emerald-700" title={lead.whatsapp_checked_at ? `Verificado em ${new Date(lead.whatsapp_checked_at).toLocaleString("pt-BR")}` : "WhatsApp validado via Z-API"}>
+              <Badge variant="outline" className="ml-1 h-5 px-1.5 text-[10px] border-emerald-300 text-emerald-700" title={lead.whatsapp_checked_at ? `Verificado em ${new Date(lead.whatsapp_checked_at).toLocaleString("pt-BR")}` : "WhatsApp validado via Hook7"}>
                 ✓ WhatsApp válido
               </Badge>
             )}
