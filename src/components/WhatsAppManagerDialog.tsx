@@ -148,6 +148,7 @@ export function WhatsAppManagerDialog({
     onSuccess: () => {
       toast({ title: "Instância desconectada" });
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+      qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
     },
   });
 
