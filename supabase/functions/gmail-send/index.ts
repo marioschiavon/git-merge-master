@@ -1,11 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { getGmailToken, gmailApiFetch, GmailNotConnectedError } from "../_shared/gmail-oauth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
 
 function b64url(str: string): string {
   const bytes = new TextEncoder().encode(str);
@@ -46,21 +45,17 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    const GOOGLE_MAIL_API_KEY = Deno.env.get("GOOGLE_MAIL_API_KEY");
-    if (!LOVABLE_API_KEY || !GOOGLE_MAIL_API_KEY) {
-      return new Response(JSON.stringify({ error: "Gmail não conectado" }), {
-        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
     const body = await req.json();
-    const { to, subject, html, text, lead_id, conversation_id, in_reply_to_rfc_id, references, gmail_thread_id, company_id, extra_metadata } = body ?? {};
+    const {
+      to, subject, html, text, lead_id, conversation_id,
+      in_reply_to_rfc_id, references, gmail_thread_id,
+      company_id, extra_metadata,
+    } = body ?? {};
 
     if (!to || !subject || (!html && !text)) {
       return new Response(JSON.stringify({ error: "Campos obrigatórios: to, subject, html|text" }), {
@@ -68,23 +63,43 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Get sender account
-    const { data: account } = await supabase
-      .from("gmail_account")
-      .select("email")
-      .eq("is_active", true)
-      .maybeSingle();
-    if (!account?.email) {
-      return new Response(JSON.stringify({ error: "Conta Gmail não configurada" }), {
-        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    // Resolve company_id: prefer explicit, then from conversation, then from lead
+    let companyId: string | null = company_id ?? null;
+    if (!companyId && conversation_id) {
+      const { data: conv } = await supabase
+        .from("conversations").select("company_id").eq("id", conversation_id).maybeSingle();
+      companyId = conv?.company_id ?? null;
+    }
+    if (!companyId && lead_id) {
+      const { data: lead } = await supabase
+        .from("leads").select("company_id").eq("id", lead_id).maybeSingle();
+      companyId = lead?.company_id ?? null;
+    }
+
+    if (!companyId) {
+      return new Response(JSON.stringify({ error: "company_id não pôde ser resolvido" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Load OAuth token for this company (auto-refreshes if needed)
+    let tokenInfo;
+    try {
+      tokenInfo = await getGmailToken(supabase, companyId);
+    } catch (err) {
+      if (err instanceof GmailNotConnectedError) {
+        return new Response(JSON.stringify({ error: "Gmail não conectado para essa company" }), {
+          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw err;
     }
 
     const finalHtml = html || `<p>${escapeHtml(text)}</p>`;
     const rfcMessageId = `<${crypto.randomUUID()}@lovable-sdr>`;
 
     const raw = buildRawEmail({
-      from: account.email,
+      from: tokenInfo.email,
       to,
       subject,
       html: finalHtml,
@@ -93,19 +108,26 @@ Deno.serve(async (req) => {
       references: references || in_reply_to_rfc_id || null,
     });
 
-    const sendRes = await fetch(`${GATEWAY_URL}/users/me/messages/send`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "X-Connection-Api-Key": GOOGLE_MAIL_API_KEY,
+    const tokenRef = { current: tokenInfo };
+    const sendRes = await gmailApiFetch(
+      supabase, companyId, "/users/me/messages/send",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(gmail_thread_id ? { raw, threadId: gmail_thread_id } : { raw }),
       },
-      body: JSON.stringify(gmail_thread_id ? { raw, threadId: gmail_thread_id } : { raw }),
-    });
+      tokenRef,
+    );
 
     if (!sendRes.ok) {
       const errText = await sendRes.text();
       console.error("Gmail send error:", sendRes.status, errText);
+      if (sendRes.status === 401 || sendRes.status === 403) {
+        await supabase.rpc("mark_gmail_error", {
+          _company_id: companyId,
+          _error: `send ${sendRes.status}: ${errText.slice(0, 300)}`,
+        });
+      }
       return new Response(JSON.stringify({ error: `Gmail API ${sendRes.status}`, details: errText }), {
         status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -117,7 +139,7 @@ Deno.serve(async (req) => {
 
     // Persist outbound message
     let conversationId = conversation_id;
-    if (!conversationId && lead_id && company_id) {
+    if (!conversationId && lead_id && companyId) {
       const { data: existing } = await supabase
         .from("conversations")
         .select("id")
@@ -128,7 +150,7 @@ Deno.serve(async (req) => {
       else {
         const { data: newConv } = await supabase
           .from("conversations")
-          .insert({ lead_id, company_id, channel: "email" })
+          .insert({ lead_id, company_id: companyId, channel: "email" })
           .select("id").single();
         conversationId = newConv?.id;
       }
@@ -143,7 +165,12 @@ Deno.serve(async (req) => {
         gmail_message_id: gmailMessageId,
         gmail_thread_id: gmailThreadId,
         rfc_message_id: rfcMessageId,
-        metadata: { subject, channel: "email", via: "gmail", references: references || in_reply_to_rfc_id || null, in_reply_to: in_reply_to_rfc_id || null, ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}) },
+        metadata: {
+          subject, channel: "email", via: "gmail",
+          references: references || in_reply_to_rfc_id || null,
+          in_reply_to: in_reply_to_rfc_id || null,
+          ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}),
+        },
       });
     }
 
@@ -155,7 +182,7 @@ Deno.serve(async (req) => {
         rfc_message_id: rfcMessageId,
         conversation_id: conversationId,
       }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {
     console.error("gmail-send exception:", err);
