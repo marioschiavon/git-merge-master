@@ -2280,14 +2280,8 @@ Analise a última mensagem e decida a ação.`,
           // Email path → use gmail-send when available, else transactional
           if (newChannel === "email" && normalizedEmail && newConvId) {
             const subject = `${leadData.company_name || "Indicação"} — apresentação`;
-            const { data: gmailAcc } = await supabase
-              .from("gmail_account")
-              .select("email")
-              .eq("is_active", true)
-              .eq("company_id", companyId)
-              .maybeSingle();
             let sent = false;
-            if (gmailAcc?.email) {
+            {
               try {
                 const { error: sendErr } = await supabase.functions.invoke("gmail-send", {
                   body: {
