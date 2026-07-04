@@ -44,15 +44,8 @@ Deno.serve(async (req) => {
         const msg = `Oi ${lead.name?.split(" ")[0] || ""}! Tudo bem? Só passando para saber se conseguiu encaminhar para o responsável. Sem pressão — se precisar de algum material para apoiar, é só me avisar. Obrigado!`;
 
         if (channel === "email" && lead.email && conv?.id) {
-          // Reuse gmail-send (threading happens via prior rfc ids inside the function chain — here we send a fresh message)
-          const { data: gmailAcc } = await supabase
-            .from("gmail_account")
-            .select("email")
-            .eq("is_active", true)
-            .eq("company_id", lead.company_id)
-            .maybeSingle();
-
-          if (gmailAcc?.email) {
+          // Reuse gmail-send (shared workspace connector Gmail — always available)
+          {
             // Pull last rfc id for threading
             const { data: priorMsgs } = await supabase
               .from("messages")
@@ -77,14 +70,6 @@ Deno.serve(async (req) => {
                 in_reply_to_rfc_id: lastRfc,
                 references: allRfc.length ? allRfc.join(" ") : lastRfc,
               },
-            });
-          } else {
-            await supabase.from("messages").insert({
-              conversation_id: conv.id,
-              content: msg,
-              direction: "outbound",
-              ai_suggested: true,
-              metadata: { referral_followup: true, pending_send: true },
             });
           }
         } else if (conv?.id) {
