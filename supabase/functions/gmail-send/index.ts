@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { getGmailToken, gmailApiFetch, GmailNotConnectedError } from "../_shared/gmail-oauth.ts";
+import { gmailPostJson, getConnectorProfile, GmailConnectorNotLinkedError } from "../_shared/gmail-connector.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,7 +63,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Resolve company_id: prefer explicit, then from conversation, then from lead
+    // Resolve company_id (used only for persistence, not for auth)
     let companyId: string | null = company_id ?? null;
     if (!companyId && conversation_id) {
       const { data: conv } = await supabase
@@ -76,19 +76,15 @@ Deno.serve(async (req) => {
       companyId = lead?.company_id ?? null;
     }
 
-    if (!companyId) {
-      return new Response(JSON.stringify({ error: "company_id não pôde ser resolvido" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // Load OAuth token for this company (auto-refreshes if needed)
-    let tokenInfo;
+    // Resolve sender from the connector-linked account
+    let fromEmail: string;
     try {
-      tokenInfo = await getGmailToken(supabase, companyId);
+      const profile = await getConnectorProfile();
+      if (!profile.email) throw new Error("Perfil Gmail sem emailAddress");
+      fromEmail = profile.email;
     } catch (err) {
-      if (err instanceof GmailNotConnectedError) {
-        return new Response(JSON.stringify({ error: "Gmail não conectado para essa company" }), {
+      if (err instanceof GmailConnectorNotLinkedError) {
+        return new Response(JSON.stringify({ error: "Gmail connector não conectado no workspace" }), {
           status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
@@ -99,7 +95,7 @@ Deno.serve(async (req) => {
     const rfcMessageId = `<${crypto.randomUUID()}@lovable-sdr>`;
 
     const raw = buildRawEmail({
-      from: tokenInfo.email,
+      from: fromEmail,
       to,
       subject,
       html: finalHtml,
@@ -108,26 +104,14 @@ Deno.serve(async (req) => {
       references: references || in_reply_to_rfc_id || null,
     });
 
-    const tokenRef = { current: tokenInfo };
-    const sendRes = await gmailApiFetch(
-      supabase, companyId, "/users/me/messages/send",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(gmail_thread_id ? { raw, threadId: gmail_thread_id } : { raw }),
-      },
-      tokenRef,
+    const sendRes = await gmailPostJson(
+      "/users/me/messages/send",
+      gmail_thread_id ? { raw, threadId: gmail_thread_id } : { raw },
     );
 
     if (!sendRes.ok) {
       const errText = await sendRes.text();
-      console.error("Gmail send error:", sendRes.status, errText);
-      if (sendRes.status === 401 || sendRes.status === 403) {
-        await supabase.rpc("mark_gmail_error", {
-          _company_id: companyId,
-          _error: `send ${sendRes.status}: ${errText.slice(0, 300)}`,
-        });
-      }
+      console.error("Gmail connector send error:", sendRes.status, errText);
       return new Response(JSON.stringify({ error: `Gmail API ${sendRes.status}`, details: errText }), {
         status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -166,7 +150,8 @@ Deno.serve(async (req) => {
         gmail_thread_id: gmailThreadId,
         rfc_message_id: rfcMessageId,
         metadata: {
-          subject, channel: "email", via: "gmail",
+          subject, channel: "email", via: "gmail_connector",
+          sender_email: fromEmail,
           references: references || in_reply_to_rfc_id || null,
           in_reply_to: in_reply_to_rfc_id || null,
           ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}),
@@ -181,6 +166,7 @@ Deno.serve(async (req) => {
         gmail_thread_id: gmailThreadId,
         rfc_message_id: rfcMessageId,
         conversation_id: conversationId,
+        from: fromEmail,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
