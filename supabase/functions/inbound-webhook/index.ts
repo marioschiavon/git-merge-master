@@ -2388,15 +2388,8 @@ Analise a última mensagem e decida a ação.`,
           .find((s: any) => typeof s === "string" && s.length > 0) || `${leadData.company_name || leadData.name}`;
         const replySubject = /^re:/i.test(originalSubject) ? originalSubject : `Re: ${originalSubject}`;
 
-        // Check Gmail availability for this company
-        const { data: gmailAcc } = await supabase
-          .from("gmail_account")
-          .select("email")
-          .eq("is_active", true)
-          .eq("company_id", companyId)
-          .maybeSingle();
-
-        if (gmailAcc?.email) {
+        // Shared workspace Gmail connector — always try, transactional fallback below
+        {
           try {
             const { data: sendRes, error: sendErr } = await supabase.functions.invoke("gmail-send", {
               body: {
