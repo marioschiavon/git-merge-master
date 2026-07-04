@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
                 in_reply_to_rfc_id: lastRfc,
                 references: allRfc.length ? allRfc.join(" ") : lastRfc,
               },
+            });
           }
         } else if (conv?.id) {
           await supabase.from("messages").insert({
