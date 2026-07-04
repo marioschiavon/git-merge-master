@@ -70,15 +70,6 @@ Deno.serve(async (req) => {
                 in_reply_to_rfc_id: lastRfc,
                 references: allRfc.length ? allRfc.join(" ") : lastRfc,
               },
-            });
-          } else {
-            await supabase.from("messages").insert({
-              conversation_id: conv.id,
-              content: msg,
-              direction: "outbound",
-              ai_suggested: true,
-              metadata: { referral_followup: true, pending_send: true },
-            });
           }
         } else if (conv?.id) {
           await supabase.from("messages").insert({
