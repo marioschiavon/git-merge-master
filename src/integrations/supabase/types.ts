@@ -3092,6 +3092,7 @@ export type Database = {
         | "twilio_whatsapp"
         | "apify"
         | "zapi_whatsapp"
+        | "apollo"
       intent_category:
         | "interest"
         | "info_request"
@@ -3313,6 +3314,7 @@ export const Constants = {
         "twilio_whatsapp",
         "apify",
         "zapi_whatsapp",
+        "apollo",
       ],
       intent_category: [
         "interest",
