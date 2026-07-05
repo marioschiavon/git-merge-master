@@ -36,6 +36,7 @@ import Unsubscribe from "@/pages/Unsubscribe";
 import ResetPassword from "@/pages/ResetPassword";
 import Onboarding from "@/pages/Onboarding";
 import NotFound from "@/pages/NotFound";
+import ApolloSearch from "@/pages/ApolloSearch";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -67,6 +68,7 @@ const App = () => (
               <Route path="/leads" element={<Leads />} />
               <Route path="/leads/lists" element={<LeadLists />} />
               <Route path="/leads/lists/:listId/launch" element={<CampaignWizard />} />
+              <Route path="/apollo" element={<ApolloSearch />} />
               <Route path="/cadences" element={<Cadences />} />
               <Route path="/cadences/dashboard" element={<CadencesDashboard />} />
               <Route path="/scripts" element={<Scripts />} />

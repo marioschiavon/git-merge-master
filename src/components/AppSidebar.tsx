@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   NotebookPen,
   ListChecks,
+  Sparkles,
 } from "lucide-react";
 import leadereiLogo from "@/assets/brand/leaderei-white.png";
 import { Badge } from "@/components/ui/badge";
@@ -67,6 +68,7 @@ const companyItems = [
   { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard },
   { title: "Leads", url: "/leads", icon: Target },
   { title: "Listas", url: "/leads/lists", icon: ListChecks },
+  { title: "Buscar no Apollo", url: "/apollo", icon: Sparkles },
   { title: "Cadências", url: "/cadences", icon: MessageSquare },
   { title: "Acompanhamento", url: "/cadences/dashboard", icon: Activity },
   { title: "Aprovações", url: "/approvals", icon: ShieldCheck, showApprovalsBadge: true },
