@@ -337,16 +337,12 @@ export function mapPersonToLeadPayload(p: ApolloPerson, company_id: string): Rec
 export function mergeLeadPatch(existing: Record<string, any>, incoming: Record<string, any>): Record<string, any> {
   const patch: Record<string, any> = {};
   for (const [k, v] of Object.entries(incoming)) {
-    if (k === "company_id" || k === "enrichment_data") continue;
+    if (k === "company_id") continue;
     if (v == null || v === "") continue;
     const cur = existing?.[k];
     const empty = cur == null || cur === "" || (Array.isArray(cur) && cur.length === 0);
     if (empty) patch[k] = v;
   }
-  patch.enrichment_data = {
-    ...(existing?.enrichment_data ?? {}),
-    apollo: incoming.enrichment_data?.apollo ?? existing?.enrichment_data?.apollo,
-  };
   if (incoming.apollo_person_id && !existing?.apollo_person_id) {
     patch.apollo_person_id = incoming.apollo_person_id;
   }
