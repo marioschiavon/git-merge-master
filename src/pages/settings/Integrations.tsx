@@ -40,6 +40,9 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
 import { WhatsAppManagerDialog } from "@/components/WhatsAppManagerDialog";
+import { ApolloConnectDialog } from "@/components/ApolloConnectDialog";
+import { useApolloStatus } from "@/hooks/useApollo";
+import { Sparkles } from "lucide-react";
 
 const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
 const ZAPI_WEBHOOK_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/zapi-webhook`;
@@ -738,6 +741,8 @@ export default function Integrations() {
   const [pipedriveOpen, setPipedriveOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
+  const [apolloOpen, setApolloOpen] = useState(false);
+  const { data: apolloStatus } = useApolloStatus();
 
   // Hook7 (novo WhatsApp) — status agregado por company
   const { data: hook7Instances } = useQuery({
@@ -824,6 +829,18 @@ export default function Integrations() {
       onAction: () => setWhatsappOpen(true),
     },
     {
+      key: "apollo",
+      name: "Apollo.io",
+      category: "Prospecção",
+      description: "Busque prospects e enriqueça leads direto pela API do Apollo.",
+      icon: Sparkles,
+      iconTint: "text-primary",
+      status: (apolloStatus?.connected ? "connected" : "disconnected") as StatusKey,
+      operationalLabel: apolloStatus?.connected ? "Chave ativa" : undefined,
+      syncLabel: apolloStatus?.last_check_at ? relTime(apolloStatus.last_check_at) : null,
+      onAction: () => setApolloOpen(true),
+    },
+    {
       key: "linkedin",
       name: "LinkedIn",
       category: "Social",
@@ -884,6 +901,8 @@ export default function Integrations() {
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
       
       <WhatsAppManagerDialog open={whatsappOpen} onOpenChange={setWhatsappOpen} />
+
+      <ApolloConnectDialog open={apolloOpen} onOpenChange={setApolloOpen} />
     </div>
   );
 }
