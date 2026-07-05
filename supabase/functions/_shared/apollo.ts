@@ -315,24 +315,21 @@ export function mapPersonToLeadPayload(p: ApolloPerson, company_id: string): Rec
   const org = p.organization ?? null;
   const usableEmail = isUsableEmail(p.email, p.email_status) ? p.email : null;
 
+  const address = [p.city, p.state, p.country].filter(Boolean).join(", ") || null;
+
   return {
     company_id,
     name: fullName,
     email: usableEmail,
-    job_title: p.title ?? null,
+    title: p.title ?? null,
     company_name: org?.name ?? null,
     website: org?.website_url ?? null,
     linkedin_url: p.linkedin_url ?? null,
-    industry: org?.industry ?? null,
-    employee_count: org?.estimated_num_employees ?? null,
-    seniority: p.seniority ?? null,
-    department: p.departments?.[0] ?? null,
-    city: p.city ?? null,
-    state: p.state ?? null,
-    country: p.country ?? null,
+    linkedin_company_url: org?.linkedin_url ?? null,
+    address,
     phone: primaryPhone,
+    source: "apollo",
     apollo_person_id: p.id,
-    enrichment_data: { apollo: p },
   };
 }
 
