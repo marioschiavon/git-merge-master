@@ -6,14 +6,16 @@ import { Badge } from "@/components/ui/badge";
 import { Instagram, Linkedin, Facebook, RefreshCw, Building2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
-export function LeadSocialCard({ leadId, companyId, enrichmentStatus }: { leadId: string; companyId: string; enrichmentStatus?: string | null }) {
+export function LeadSocialCard({ leadId, companyId, enrichmentStatus, hasEnrichableSource = true }: { leadId: string; companyId: string; enrichmentStatus?: string | null; hasEnrichableSource?: boolean }) {
   const qc = useQueryClient();
+  const isEnriching = enrichmentStatus === "pending" || enrichmentStatus === "processing";
   const { data: profiles = [] } = useQuery({
     queryKey: ["lead_social_profiles", leadId],
     queryFn: async () => {
       const { data } = await supabase.from("lead_social_profiles").select("*").eq("lead_id", leadId);
       return data || [];
     },
+    refetchInterval: isEnriching ? 5000 : false,
   });
 
   const reEnqueue = useMutation({
@@ -66,9 +68,14 @@ export function LeadSocialCard({ leadId, companyId, enrichmentStatus }: { leadId
             </Button>
           </div>
         </div>
-        {profiles.length === 0 ? (
+        {!hasEnrichableSource && profiles.length === 0 && (
+          <div className="text-xs rounded border border-amber-300 bg-amber-50 text-amber-900 p-2">
+            Nada para enriquecer: adicione ao lead ao menos um site ou uma URL de rede social (Instagram, Facebook, LinkedIn) e clique em <span className="font-medium">Reprocessar</span>.
+          </div>
+        )}
+        {profiles.length === 0 && hasEnrichableSource ? (
           <p className="text-xs text-muted-foreground">Nenhum perfil social raspado ainda.</p>
-        ) : (
+        ) : profiles.length === 0 ? null : (
           <div className="space-y-2">
             {profiles.map((p: any) => (
               <div key={p.id} className="flex items-start gap-2 text-sm border rounded p-2">

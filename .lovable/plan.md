@@ -1,45 +1,37 @@
-## Objetivo
-Validar ponta a ponta a integração Apollo no preview autenticado: conexão da API key, busca de prospects e importação em lote com deduplicação.
+## Como o fluxo de enriquecimento funciona hoje
 
-## Passos (Playwright headless, viewport 1280×1800)
+`supabase/functions/enrich-lead/index.ts` é o pipeline. Passos, na ordem:
 
-1. **Bootstrap de sessão**
-   - Restaurar cookies + `localStorage` do Supabase (sessão do preview já injetada).
-   - Navegar para `/settings/integrations`. Screenshot.
+1. **Baixa o HTML do `lead.website`** (necessário para os passos 2 e parte do 3).
+2. **`discover_socials`** — regex no HTML para achar Instagram/Facebook/LinkedIn e preencher `instagram_url`, `facebook_url`, `linkedin_url`, `linkedin_company_url` no lead.
+3. **`autofill_contacts`** — regex no HTML (e nas páginas `/contato`, `/contact`, …) para extrair `email`, `phone`, `whatsapp`.
+4. **`website_analysis`** — chama a Lovable AI (Gemini 2.5 Flash) com o texto do site e grava insights B2B em `lead_insights`.
+5. **Apify scrape** — chama os actors ligados em `platform_settings.apify_actors` (hoje ligados: Instagram e LinkedIn pessoal; Facebook e LinkedIn empresa estão desligados). Cada actor só roda se o lead já tiver a URL correspondente. Salva em `lead_social_profiles` (bio, seguidores, últimos posts, contatos extraídos).
+6. **Fallback contatos por redes sociais** — usa bio/campos do Instagram para preencher email/telefone/whatsapp se ainda vazios.
+7. **`generate_message`** (opcional) — gera mensagem personalizada.
 
-2. **Conectar Apollo**
-   - Abrir o card "Apollo.io" → dialog `ApolloConnectDialog`.
-   - Colar a API key (lida de `os.environ["APOLLO_TEST_KEY"]`) e clicar em "Conectar".
-   - Confirmar toast "Apollo conectado!" + badge "Validado …". Screenshot.
-   - `curl` na edge function `apollo-status` esperando `connected: true`.
+O trigger `enqueue_lead_enrichment` cria o job automaticamente ao inserir o lead, e o botão "Reprocessar" reenfileira manualmente. O cron `enrichment-cron` recupera jobs travados > 10 min.
 
-3. **Buscar prospects**
-   - Ir para `/apollo`.
-   - Preencher filtros mínimos (cargo "CEO", senioridade "c_suite", país "Brazil").
-   - Executar busca; validar resultados renderizados. Screenshot.
-   - Conferir network: `apollo-search` retorna 200 com `people` + `existingEmails`/`existingApolloIds`.
+## O que aconteceu com o lead "Thiago"
 
-4. **Importar leads**
-   - Selecionar 2 resultados → "Importar selecionados".
-   - Esperar toast "Importação concluída · X criados · Y atualizados · Z pulados". Screenshot.
-   - `supabase--read_query` em `leads` filtrando pelos `apollo_person_id` para confirmar persistência.
+O job **rodou e completou em 6s** (`status = completed`, `steps_done = {apify_scrape: "ran 0"}`, sem erro). Motivo de "nada acontecer":
 
-5. **Reimportar (dedup)**
-   - Repetir importação → esperar `updated=2, created=0`. Screenshot.
+- O lead **não tem `website`, `instagram_url`, `facebook_url`, `linkedin_url` nem `linkedin_company_url`**.
+- Sem site → passos 1-4 são pulados.
+- Sem URLs sociais → nenhum actor Apify é acionado (`ran 0`).
+- Resultado: pipeline não tem o que enriquecer.
 
-6. **Cleanup**
-   - Voltar em Integrações → "Desconectar Apollo". Confirmar `apollo-status` = `connected: false`.
+A plataforma está OK (Apify habilitado, tokens presentes, actor de Instagram e LinkedIn pessoal ligados). O único bug visível é o de UI já apontado (badge "Enriquecendo…" preso).
 
-## Critérios de sucesso
-- Todos os toasts esperados sem erros de console.
-- `apollo-status`, `apollo-search`, `apollo-import` retornam 200.
-- Leads gravados em `public.leads` com `apollo_person_id` e `company_id` corretos.
-- Segunda importação faz update (prova dedup).
+## Correções propostas
 
-## Notas técnicas
-- Script em `/tmp/browser/apollo-e2e/test.py`; screenshots em `/tmp/browser/apollo-e2e/screenshots/`.
-- API key passada apenas como variável de ambiente no comando; não persiste em arquivos versionados nem é logada.
-- Sem alterações no código do projeto.
+1. **UI (bug real):** auto-refresh do `enrichment_status` enquanto for `pending`/`processing` — `refetchInterval` condicional (5s) em:
+   - `src/pages/Leads.tsx` (query `["leads", …]`)
+   - `src/components/LeadDetailContent.tsx` (queries `["lead_enrichment_job", leadId]` e do próprio lead)
+   - `src/components/LeadSocialCard.tsx` (query `["lead_social_profiles", leadId]`)
 
-## Fora de escopo
-- Testes de rate limit, cache 24h e cron de re-enriquecimento.
+2. **UX (feedback claro):** quando o job completa mas nada foi enriquecido por falta de URLs, mostrar aviso no `LeadSocialCard`/`LeadDetailContent`:
+   - Se `steps_done.apify_scrape === "ran 0"` **e** o lead não tem `website`/`instagram_url`/`facebook_url`/`linkedin_url`/`linkedin_company_url`, exibir um alerta:
+     _"Nada para enriquecer: adicione ao menos o site ou uma URL de rede social do lead e clique em Reprocessar."_
+
+Nenhuma alteração em edge functions ou banco.

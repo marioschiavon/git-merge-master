@@ -152,6 +152,10 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
         .maybeSingle();
       return data;
     },
+    refetchInterval: (q) => {
+      const s = (q.state.data as any)?.status;
+      return s === "pending" || s === "processing" ? 5000 : false;
+    },
   });
 
   const autoAnalyzedRef = useRef<string | null>(null);
@@ -551,7 +555,12 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
 
       {/* Redes sociais */}
       {lead.company_id && (
-        <LeadSocialCard leadId={lead.id} companyId={lead.company_id} enrichmentStatus={lead.enrichment_status} />
+        <LeadSocialCard
+          leadId={lead.id}
+          companyId={lead.company_id}
+          enrichmentStatus={lead.enrichment_status}
+          hasEnrichableSource={!!(lead.website || (lead as any).instagram_url || (lead as any).facebook_url || (lead as any).linkedin_url || (lead as any).linkedin_company_url)}
+        />
       )}
 
       <Separator />
