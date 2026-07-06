@@ -42,13 +42,6 @@ const statusLabels: Record<string, string> = {
   converted: "Convertido",
 };
 
-const enrichmentLabels: Record<string, { label: string; cls: string }> = {
-  pending: { label: "Enriquecendo…", cls: "bg-amber-100 text-amber-800" },
-  processing: { label: "Enriquecendo…", cls: "bg-amber-100 text-amber-800" },
-  completed: { label: "Enriquecido", cls: "bg-emerald-100 text-emerald-800" },
-  failed: { label: "Falhou", cls: "bg-red-100 text-red-800" },
-};
-void enrichmentLabels;
 
 
 export default function Leads() {
