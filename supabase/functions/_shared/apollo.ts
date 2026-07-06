@@ -190,8 +190,9 @@ export async function validateApolloKey(args: {
   apiKey: string; company_id: string; supabase: SupabaseLike; triggered_by?: string | null;
 }): Promise<{ ok: true }> {
   await callApollo<any>({
-    endpoint: "auth/health",
-    method: "GET",
+    endpoint: "mixed_people/api_search",
+    method: "POST",
+    body: { page: 1, per_page: 1 },
     apiKey: args.apiKey,
     company_id: args.company_id,
     supabase: args.supabase,
@@ -257,7 +258,7 @@ export async function searchPeopleWithCache(args: {
   }
 
   const data = await callApollo<{ people: ApolloPerson[]; pagination: any }>({
-    endpoint: "mixed_people/search",
+    endpoint: "mixed_people/api_search",
     method: "POST",
     body: normalized,
     apiKey: args.apiKey,
