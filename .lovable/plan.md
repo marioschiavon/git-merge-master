@@ -1,37 +1,18 @@
-## Como o fluxo de enriquecimento funciona hoje
+## Teste da integração Pipedrive
 
-`supabase/functions/enrich-lead/index.ts` é o pipeline. Passos, na ordem:
+Token `6507d804…2898` já foi validado direto na API do Pipedrive: retornou `success:true`, usuário **Nico (nico@leaderei.com.br)**, empresa **Leaderei** (domínio `leaderei`), com persons e organizations presentes. Ou seja, o token está bom para uso.
 
-1. **Baixa o HTML do `lead.website`** (necessário para os passos 2 e parte do 3).
-2. **`discover_socials`** — regex no HTML para achar Instagram/Facebook/LinkedIn e preencher `instagram_url`, `facebook_url`, `linkedin_url`, `linkedin_company_url` no lead.
-3. **`autofill_contacts`** — regex no HTML (e nas páginas `/contato`, `/contact`, …) para extrair `email`, `phone`, `whatsapp`.
-4. **`website_analysis`** — chama a Lovable AI (Gemini 2.5 Flash) com o texto do site e grava insights B2B em `lead_insights`.
-5. **Apify scrape** — chama os actors ligados em `platform_settings.apify_actors` (hoje ligados: Instagram e LinkedIn pessoal; Facebook e LinkedIn empresa estão desligados). Cada actor só roda se o lead já tiver a URL correspondente. Salva em `lead_social_profiles` (bio, seguidores, últimos posts, contatos extraídos).
-6. **Fallback contatos por redes sociais** — usa bio/campos do Instagram para preencher email/telefone/whatsapp se ainda vazios.
-7. **`generate_message`** (opcional) — gera mensagem personalizada.
+## O que vou fazer
 
-O trigger `enqueue_lead_enrichment` cria o job automaticamente ao inserir o lead, e o botão "Reprocessar" reenfileira manualmente. O cron `enrichment-cron` recupera jobs travados > 10 min.
+1. **Conectar via `pipedrive-connect`** usando o novo token para a company atual (upsert em `integrations` → `status=active`, `api_domain=leaderei.pipedrive.com`).
+2. **Rodar `pipedrive-sync`** para popular a tabela `leads` a partir de persons + organizations (com fallback de website via custom fields, extração de endereço e reconciliação de deletados).
+3. **Reportar** total de persons/orgs, quantos leads foram sincronizados, quantos erros e quantos removidos.
+4. **Opcional (se pedir):** pegar 1 lead recém-sincronizado que tenha `website`/social e disparar `enrich-lead` para validar o pipeline ponta a ponta com este workspace.
 
-## O que aconteceu com o lead "Thiago"
+## Detalhes técnicos
 
-O job **rodou e completou em 6s** (`status = completed`, `steps_done = {apify_scrape: "ran 0"}`, sem erro). Motivo de "nada acontecer":
+- Nenhuma alteração de código — apenas execução das edge functions existentes `pipedrive-connect` e `pipedrive-sync`.
+- O token será persistido em `integrations.api_token` (já é o comportamento atual da função). Se preferir não salvar em texto claro, posso propor num plano separado migrar para `pgp_sym_encrypt` como já fazemos com Gmail/Hook7.
+- Se a sincronização trouxer muitos registros, ela é paginada de 100 em 100 e pode demorar alguns segundos.
 
-- O lead **não tem `website`, `instagram_url`, `facebook_url`, `linkedin_url` nem `linkedin_company_url`**.
-- Sem site → passos 1-4 são pulados.
-- Sem URLs sociais → nenhum actor Apify é acionado (`ran 0`).
-- Resultado: pipeline não tem o que enriquecer.
-
-A plataforma está OK (Apify habilitado, tokens presentes, actor de Instagram e LinkedIn pessoal ligados). O único bug visível é o de UI já apontado (badge "Enriquecendo…" preso).
-
-## Correções propostas
-
-1. **UI (bug real):** auto-refresh do `enrichment_status` enquanto for `pending`/`processing` — `refetchInterval` condicional (5s) em:
-   - `src/pages/Leads.tsx` (query `["leads", …]`)
-   - `src/components/LeadDetailContent.tsx` (queries `["lead_enrichment_job", leadId]` e do próprio lead)
-   - `src/components/LeadSocialCard.tsx` (query `["lead_social_profiles", leadId]`)
-
-2. **UX (feedback claro):** quando o job completa mas nada foi enriquecido por falta de URLs, mostrar aviso no `LeadSocialCard`/`LeadDetailContent`:
-   - Se `steps_done.apify_scrape === "ran 0"` **e** o lead não tem `website`/`instagram_url`/`facebook_url`/`linkedin_url`/`linkedin_company_url`, exibir um alerta:
-     _"Nada para enriquecer: adicione ao menos o site ou uma URL de rede social do lead e clique em Reprocessar."_
-
-Nenhuma alteração em edge functions ou banco.
+Confirma que posso conectar com este token e rodar o sync?
