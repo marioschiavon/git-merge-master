@@ -8,12 +8,14 @@ import { toast } from "@/hooks/use-toast";
 
 export function LeadSocialCard({ leadId, companyId, enrichmentStatus }: { leadId: string; companyId: string; enrichmentStatus?: string | null }) {
   const qc = useQueryClient();
+  const isEnriching = enrichmentStatus === "pending" || enrichmentStatus === "processing";
   const { data: profiles = [] } = useQuery({
     queryKey: ["lead_social_profiles", leadId],
     queryFn: async () => {
       const { data } = await supabase.from("lead_social_profiles").select("*").eq("lead_id", leadId);
       return data || [];
     },
+    refetchInterval: isEnriching ? 5000 : false,
   });
 
   const reEnqueue = useMutation({
