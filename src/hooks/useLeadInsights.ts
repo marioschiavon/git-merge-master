@@ -21,6 +21,31 @@ export function useLeadInsights(leadId: string | null) {
   });
 }
 
+/**
+ * Batch-fetch the latest lead_insights row for a list of leads.
+ * Returns a map keyed by lead_id containing only the most recent row per lead.
+ */
+export function useLeadInsightsBatch(leadIds: string[]) {
+  const key = [...leadIds].sort().join(",");
+  return useQuery({
+    queryKey: ["lead_insights_batch", key],
+    enabled: leadIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("lead_insights")
+        .select("lead_id, insights, raw_summary, analyzed_at")
+        .in("lead_id", leadIds)
+        .order("analyzed_at", { ascending: false });
+      if (error) throw error;
+      const map: Record<string, any> = {};
+      for (const row of data || []) {
+        if (!map[row.lead_id]) map[row.lead_id] = row; // first is newest
+      }
+      return map;
+    },
+  });
+}
+
 export function useAnalyzeWebsite() {
   const qc = useQueryClient();
   return useMutation({
