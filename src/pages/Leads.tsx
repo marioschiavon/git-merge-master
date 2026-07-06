@@ -8,6 +8,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLeads, useSyncLeads, useIntegration, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadLists } from "@/hooks/useLeadLists";
+import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
+import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
@@ -46,6 +48,7 @@ const enrichmentLabels: Record<string, { label: string; cls: string }> = {
   completed: { label: "Enriquecido", cls: "bg-emerald-100 text-emerald-800" },
   failed: { label: "Falhou", cls: "bg-red-100 text-red-800" },
 };
+void enrichmentLabels;
 
 
 export default function Leads() {
