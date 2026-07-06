@@ -106,6 +106,10 @@ export function useLeads(filters?: { status?: string; search?: string }) {
     enabled: !!companyId,
     placeholderData: keepPreviousData,
     staleTime: 60_000,
+    refetchInterval: (q) => {
+      const data = (q.state.data as any[]) || [];
+      return data.some((l: any) => l?.enrichment_status === "pending" || l?.enrichment_status === "processing") ? 5000 : false;
+    },
   });
 }
 
