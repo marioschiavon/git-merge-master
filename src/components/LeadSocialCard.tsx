@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Instagram, Linkedin, Facebook, RefreshCw, Building2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
-export function LeadSocialCard({ leadId, companyId, enrichmentStatus }: { leadId: string; companyId: string; enrichmentStatus?: string | null }) {
+export function LeadSocialCard({ leadId, companyId, enrichmentStatus, hasEnrichableSource = true }: { leadId: string; companyId: string; enrichmentStatus?: string | null; hasEnrichableSource?: boolean }) {
   const qc = useQueryClient();
   const isEnriching = enrichmentStatus === "pending" || enrichmentStatus === "processing";
   const { data: profiles = [] } = useQuery({
