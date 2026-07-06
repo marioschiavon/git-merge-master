@@ -26,15 +26,13 @@ export function useLeadInsights(leadId: string | null) {
  * Returns a map keyed by lead_id containing only the most recent row per lead.
  */
 export function useLeadInsightsBatch(leadIds: string[]) {
-  const key = [...leadIds].sort().join(",");
   return useQuery({
-    queryKey: ["lead_insights_batch", key],
+    queryKey: ["lead_insights_batch", "all"],
     enabled: leadIds.length > 0,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lead_insights")
         .select("lead_id, insights, raw_summary, analyzed_at")
-        .in("lead_id", leadIds)
         .order("analyzed_at", { ascending: false });
       if (error) throw error;
       const map: Record<string, any> = {};
