@@ -78,6 +78,8 @@ export default function Leads() {
     () => (listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads),
     [allLeads, listId],
   );
+  const leadIds = useMemo(() => leads.map((l: any) => l.id), [leads]);
+  const { data: insightsMap = {} } = useLeadInsightsBatch(leadIds);
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
   const isConnected = integration?.status === "active";
@@ -239,11 +241,14 @@ export default function Leads() {
                             🤖 Agente
                           </Badge>
                         )}
-                        {lead.enrichment_status && enrichmentLabels[lead.enrichment_status] && (
-                          <Badge variant="secondary" className={`${enrichmentLabels[lead.enrichment_status].cls} text-[10px] px-1.5 py-0`}>
-                            {enrichmentLabels[lead.enrichment_status].label}
-                          </Badge>
-                        )}
+                        {(() => {
+                          const r = computeReadiness(lead, insightsMap[lead.id]);
+                          return r ? (
+                            <Badge variant="secondary" className={`${r.cls} text-[10px] px-1.5 py-0`} title={r.tooltip}>
+                              {r.label}
+                            </Badge>
+                          ) : null;
+                        })()}
                       </div>
 
                     </TableCell>
