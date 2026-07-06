@@ -25,6 +25,7 @@ import { RefreshCw } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles, Bot } from "lucide-react";
+import { computeReadiness } from "@/lib/lead-readiness";
 
 
 const statusColors: Record<string, string> = {
@@ -196,6 +197,14 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
             <Badge className={statusColors[lead.status] || ""}>
               {statusLabels[lead.status] || lead.status}
             </Badge>
+            {(() => {
+              const r = computeReadiness(lead, insightData);
+              return r ? (
+                <Badge variant="secondary" className={r.cls} title={r.tooltip}>
+                  {r.label}
+                </Badge>
+              ) : null;
+            })()}
             {lead.referral_role === "indicador" && (
               <Badge variant="outline" className="border-amber-300 text-amber-800">Indicador</Badge>
             )}
