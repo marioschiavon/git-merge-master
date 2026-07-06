@@ -555,7 +555,12 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
 
       {/* Redes sociais */}
       {lead.company_id && (
-        <LeadSocialCard leadId={lead.id} companyId={lead.company_id} enrichmentStatus={lead.enrichment_status} />
+        <LeadSocialCard
+          leadId={lead.id}
+          companyId={lead.company_id}
+          enrichmentStatus={lead.enrichment_status}
+          hasEnrichableSource={!!(lead.website || (lead as any).instagram_url || (lead as any).facebook_url || (lead as any).linkedin_url || (lead as any).linkedin_company_url)}
+        />
       )}
 
       <Separator />
