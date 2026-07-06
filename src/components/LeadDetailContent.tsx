@@ -152,6 +152,10 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
         .maybeSingle();
       return data;
     },
+    refetchInterval: (q) => {
+      const s = (q.state.data as any)?.status;
+      return s === "pending" || s === "processing" ? 5000 : false;
+    },
   });
 
   const autoAnalyzedRef = useRef<string | null>(null);
