@@ -7,6 +7,7 @@ export type ReadinessKey =
   | "partial"
   | "needs_review"
   | "processing"
+  | "held"
   | "failed";
 
 export interface Readiness {
