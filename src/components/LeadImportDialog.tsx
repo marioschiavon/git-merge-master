@@ -514,6 +514,24 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
                     </Select>
                   </div>
                 </div>
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <Label htmlFor="enrich-cap" className="text-sm">Quantos leads enriquecer agora?</Label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Input
+                      id="enrich-cap"
+                      type="number"
+                      min={0}
+                      placeholder={`Todos (${stats?.total ?? 0})`}
+                      className="max-w-[180px]"
+                      value={enrichLimit}
+                      onChange={(e) => setEnrichLimit(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Deixe em branco para enriquecer todos. Referência: SDR humano trabalha 100–150 leads/mês.
+                      Os demais ficam salvos "em espera" — enriqueça mais depois pela lista de leads.
+                    </p>
+                  </div>
+                </div>
               </>
             )}
 
