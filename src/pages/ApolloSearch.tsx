@@ -49,6 +49,7 @@ export default function ApolloSearch() {
   const [page, setPage] = useState(1);
   const [results, setResults] = useState<any>(null);
   const [selected, setSelected] = useState<Record<string, any>>({});
+  const [enrichLimit, setEnrichLimit] = useState<string>("");
 
   const isConnected = !!statusQuery.data?.connected;
 
