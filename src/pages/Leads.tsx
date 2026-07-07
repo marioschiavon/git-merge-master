@@ -25,7 +25,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X } from "lucide-react";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
