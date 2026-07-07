@@ -259,6 +259,8 @@ Regras para "score":
     console.error("analyze-lead-website error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Erro desconhecido" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 });
 
 function normalizeScore(ins: any): number | null {
@@ -272,5 +274,3 @@ function normalizeScore(ins: any): number | null {
   if (fit === "low") return 20;
   return null;
 }
-  }
-});
