@@ -240,6 +240,8 @@ Regras para "score":
       .upsert({
         lead_id: lead.id, company_id: lead.company_id, website_url: websiteUrl,
         insights, raw_summary: insights.resumo || content,
+        score: normalizeScore(insights),
+        score_breakdown: Array.isArray(insights?.score_breakdown) ? insights.score_breakdown : null,
         analyzed_at: new Date().toISOString(),
       }, { onConflict: "lead_id" }).select().single();
 
