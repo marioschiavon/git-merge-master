@@ -259,6 +259,18 @@ Regras para "score":
     console.error("analyze-lead-website error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Erro desconhecido" }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+});
+
+function normalizeScore(ins: any): number | null {
+  const raw = ins?.score;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  }
+  const fit = String(ins?.fit_score || "").toLowerCase();
+  if (fit === "high") return 80;
+  if (fit === "medium") return 50;
+  if (fit === "low") return 20;
+  return null;
+}
   }
 });
