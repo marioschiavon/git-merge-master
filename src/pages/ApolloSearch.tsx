@@ -200,18 +200,34 @@ export default function ApolloSearch() {
               <span className="font-medium text-foreground">{pagination?.total_entries ?? people.length}</span>{" "}
               resultados · página {pagination?.page ?? page} de {Math.min(pagination?.total_pages ?? 1, 5)}
             </div>
-            <Button
-              size="sm"
-              disabled={!selectedCount || importMut.isPending}
-              onClick={() => {
-                if (confirm(`Importar ${selectedCount} leads para a base?`))
-                  importMut.mutate(Object.values(selected), { onSuccess: () => setSelected({}) });
-              }}
-            >
-              {importMut.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Download className="mr-1 h-4 w-4" />}
-              Importar selecionados ({selectedCount})
-            </Button>
-          </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground" htmlFor="enrich-cap-apollo">Enriquecer agora:</label>
+              <Input
+                id="enrich-cap-apollo"
+                type="number"
+                min={0}
+                placeholder="todos"
+                className="h-8 w-24"
+                value={enrichLimit}
+                onChange={(e) => setEnrichLimit(e.target.value)}
+              />
+              <Button
+                size="sm"
+                disabled={!selectedCount || importMut.isPending}
+                onClick={() => {
+                  const cap = enrichLimit === "" ? null : Math.max(0, Number(enrichLimit) || 0);
+                  const capMsg = cap === null ? "" : ` (enriquecendo os primeiros ${cap})`;
+                  if (confirm(`Importar ${selectedCount} leads para a base${capMsg}?`))
+                    importMut.mutate(
+                      { people: Object.values(selected), enrich_limit: cap },
+                      { onSuccess: () => setSelected({}) },
+                    );
+                }}
+              >
+                {importMut.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Download className="mr-1 h-4 w-4" />}
+                Importar selecionados ({selectedCount})
+              </Button>
+            </div>
 
           {people.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Nenhum resultado.</p>
