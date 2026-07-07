@@ -66,13 +66,16 @@ export function useApolloImport() {
   const qc = useQueryClient();
   const { companyId } = useAuth();
   return useMutation({
-    mutationFn: (people: any[]) => invoke("apollo-import", { company_id: companyId, people }),
+    mutationFn: ({ people, enrich_limit }: { people: any[]; enrich_limit?: number | null }) =>
+      invoke("apollo-import", { company_id: companyId, people, enrich_limit: enrich_limit ?? null }),
     onSuccess: (r: any) => {
+      const held = r.held ? ` · ${r.held} em espera (sem enriquecer)` : "";
       toast({
         title: "Importação concluída",
-        description: `${r.created} criados · ${r.updated} atualizados · ${r.skipped} pulados`,
+        description: `${r.created} criados · ${r.updated} atualizados · ${r.skipped} pulados${held}`,
       });
       qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead-lists"] });
     },
     onError: (e: any) => toast({ title: "Erro ao importar", description: e.message, variant: "destructive" }),
   });
