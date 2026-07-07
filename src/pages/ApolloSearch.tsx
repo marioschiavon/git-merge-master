@@ -228,6 +228,9 @@ export default function ApolloSearch() {
                 Importar selecionados ({selectedCount})
               </Button>
             </div>
+          </div>
+
+
 
           {people.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">Nenhum resultado.</p>
