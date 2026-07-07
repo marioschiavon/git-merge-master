@@ -344,7 +344,8 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
       toast({ title: "Falha ao criar lista", description: e?.message || String(e), variant: "destructive" });
       return;
     }
-    const res = await importLeads.mutateAsync({ leads, lead_list_id });
+    const cap = enrichLimit === "" ? null : Math.max(0, Number(enrichLimit) || 0);
+    const res = await importLeads.mutateAsync({ leads, lead_list_id, enrich_limit: cap });
     setResult(res);
   };
 
