@@ -149,6 +149,7 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
   const [mapping, setMapping] = useState<Record<string, FieldKey>>({});
   const [listName, setListName] = useState("");
   const [cadenceId, setCadenceId] = useState<string>("");
+  const [enrichLimit, setEnrichLimit] = useState<string>("");
   const [result, setResult] = useState<{ received: number; created: number; skipped: number; errors: { row: number; message: string }[] } | null>(null);
 
   const importLeads = useImportLeads();
