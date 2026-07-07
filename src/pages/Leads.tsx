@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useLeads, useSyncLeads, useIntegration, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadLists } from "@/hooks/useLeadLists";
 import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
+import { useEnrichMore } from "@/hooks/useScoring";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
@@ -24,7 +25,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X } from "lucide-react";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -84,8 +85,31 @@ export default function Leads() {
     setParams(p, { replace: true });
   };
 
+  const enrichMore = useEnrichMore();
+  const heldCount = useMemo(
+    () => leads.filter((l: any) => l.enrichment_status === "not_queued").length,
+    [leads],
+  );
+
   const actionButtons = (
-    <div className="flex gap-2">
+    <div className="flex gap-2 flex-wrap">
+      {heldCount > 0 && (
+        <Button
+          variant="outline"
+          onClick={() => {
+            const raw = prompt(`Existem ${heldCount} lead(s) em espera. Quantos enriquecer agora?`, String(Math.min(50, heldCount)));
+            if (!raw) return;
+            const n = Math.max(1, Number(raw) || 0);
+            if (!n) return;
+            enrichMore.mutate({ limit: n, lead_list_id: listId || null });
+          }}
+          disabled={enrichMore.isPending}
+          title="Libera leads marcados como 'em espera' para o enriquecimento automático"
+        >
+          <Sparkles className={`mr-2 h-4 w-4 ${enrichMore.isPending ? "animate-pulse" : ""}`} />
+          Enriquecer mais ({heldCount})
+        </Button>
+      )}
       <Button variant="outline" onClick={() => setImportOpen(true)}>
         <Upload className="mr-2 h-4 w-4" /> Importar CSV
       </Button>

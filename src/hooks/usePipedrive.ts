@@ -237,15 +237,17 @@ export function useImportLeads() {
   const { companyId } = useAuth();
 
   return useMutation({
-    mutationFn: async (input: { leads: LeadInput[]; lead_list_id?: string | null } | LeadInput[]) => {
+    mutationFn: async (input: { leads: LeadInput[]; lead_list_id?: string | null; enrich_limit?: number | null } | LeadInput[]) => {
       if (!companyId) throw new Error("Empresa não identificada");
       const leads = Array.isArray(input) ? input : input.leads;
       const lead_list_id = Array.isArray(input) ? null : (input.lead_list_id || null);
+      const enrichCap = Array.isArray(input) ? null : (typeof input.enrich_limit === "number" && input.enrich_limit >= 0 ? input.enrich_limit : null);
       if (leads.length === 0) throw new Error("Nenhum lead para importar");
 
-      const rows = leads.map((l) => {
+      const rows = leads.map((l, idx) => {
         const r = buildLeadRow(l, companyId, "csv_import");
         if (lead_list_id) (r as any).lead_list_id = lead_list_id;
+        if (enrichCap !== null && idx >= enrichCap) (r as any).enrichment_status = "not_queued";
         return r;
       });
 
@@ -253,6 +255,7 @@ export function useImportLeads() {
       // isolate the actual failing rows (Postgres bulk inserts are atomic,
       // so a single bad row would otherwise silently drop the whole chunk).
       let created = 0;
+      let held = 0;
       const errors: { row: number; message: string }[] = [];
       for (let i = 0; i < rows.length; i += 500) {
         const chunk = rows.slice(i, i + 500);
@@ -261,6 +264,7 @@ export function useImportLeads() {
           .insert(chunk, { count: "exact" });
         if (!error) {
           created += count || chunk.length;
+          held += chunk.filter((r: any) => r.enrichment_status === "not_queued").length;
           continue;
         }
         // Retry each row individually to know exactly which failed.
@@ -270,10 +274,11 @@ export function useImportLeads() {
             errors.push({ row: i + j + 1, message: rowErr.message });
           } else {
             created += 1;
+            if ((chunk[j] as any).enrichment_status === "not_queued") held += 1;
           }
         }
       }
-      return { received: leads.length, created, skipped: leads.length - created, errors };
+      return { received: leads.length, created, held, skipped: leads.length - created, errors };
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["leads"] });

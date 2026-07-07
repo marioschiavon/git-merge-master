@@ -1016,6 +1016,9 @@ export type Database = {
           max_leads: number
           max_users: number
           name: string
+          scoring_exclude: string[]
+          scoring_include: string[]
+          scoring_prompt: string | null
           slug: string
           status: Database["public"]["Enums"]["company_status"]
           updated_at: string
@@ -1033,6 +1036,9 @@ export type Database = {
           max_leads?: number
           max_users?: number
           name: string
+          scoring_exclude?: string[]
+          scoring_include?: string[]
+          scoring_prompt?: string | null
           slug: string
           status?: Database["public"]["Enums"]["company_status"]
           updated_at?: string
@@ -1050,6 +1056,9 @@ export type Database = {
           max_leads?: number
           max_users?: number
           name?: string
+          scoring_exclude?: string[]
+          scoring_include?: string[]
+          scoring_prompt?: string | null
           slug?: string
           status?: Database["public"]["Enums"]["company_status"]
           updated_at?: string
@@ -1838,6 +1847,8 @@ export type Database = {
           insights: Json
           lead_id: string
           raw_summary: string | null
+          score: number | null
+          score_breakdown: Json | null
           website_url: string | null
         }
         Insert: {
@@ -1848,6 +1859,8 @@ export type Database = {
           insights?: Json
           lead_id: string
           raw_summary?: string | null
+          score?: number | null
+          score_breakdown?: Json | null
           website_url?: string | null
         }
         Update: {
@@ -1858,6 +1871,8 @@ export type Database = {
           insights?: Json
           lead_id?: string
           raw_summary?: string | null
+          score?: number | null
+          score_breakdown?: Json | null
           website_url?: string | null
         }
         Relationships: [

@@ -149,6 +149,7 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
   const [mapping, setMapping] = useState<Record<string, FieldKey>>({});
   const [listName, setListName] = useState("");
   const [cadenceId, setCadenceId] = useState<string>("");
+  const [enrichLimit, setEnrichLimit] = useState<string>("");
   const [result, setResult] = useState<{ received: number; created: number; skipped: number; errors: { row: number; message: string }[] } | null>(null);
 
   const importLeads = useImportLeads();
@@ -343,7 +344,8 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
       toast({ title: "Falha ao criar lista", description: e?.message || String(e), variant: "destructive" });
       return;
     }
-    const res = await importLeads.mutateAsync({ leads, lead_list_id });
+    const cap = enrichLimit === "" ? null : Math.max(0, Number(enrichLimit) || 0);
+    const res = await importLeads.mutateAsync({ leads, lead_list_id, enrich_limit: cap });
     setResult(res);
   };
 
@@ -510,6 +512,24 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
                         ))}
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/30 p-3">
+                  <Label htmlFor="enrich-cap" className="text-sm">Quantos leads enriquecer agora?</Label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Input
+                      id="enrich-cap"
+                      type="number"
+                      min={0}
+                      placeholder={`Todos (${stats?.total ?? 0})`}
+                      className="max-w-[180px]"
+                      value={enrichLimit}
+                      onChange={(e) => setEnrichLimit(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Deixe em branco para enriquecer todos. Referência: SDR humano trabalha 100–150 leads/mês.
+                      Os demais ficam salvos "em espera" — enriqueça mais depois pela lista de leads.
+                    </p>
                   </div>
                 </div>
               </>

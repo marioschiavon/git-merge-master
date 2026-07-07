@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
     const { data: { user } } = await userClient.auth.getUser();
     if (!user) return json({ error: "Não autorizado" }, 401);
 
-    const { company_id, people, lead_list_id } = await req.json();
+    const { company_id, people, lead_list_id, enrich_limit } = await req.json();
     if (!company_id) return json({ error: "company_id obrigatório" }, 400);
     if (!Array.isArray(people) || people.length === 0) return json({ error: "people vazio" }, 400);
     if (people.length > 100) return json({ error: "máximo 100 por vez" }, 400);
@@ -33,7 +33,12 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    let created = 0, updated = 0, skipped = 0;
+    // Volume control: only the first N NEWLY inserted leads are queued for enrichment.
+    // Beyond that, insert leads with enrichment_status='not_queued' — trigger will skip them.
+    const enrichCap = typeof enrich_limit === "number" && enrich_limit >= 0 ? enrich_limit : null;
+    let enrichedInsertsSoFar = 0;
+
+    let created = 0, updated = 0, skipped = 0, held = 0;
 
     for (const person of people) {
       if (!person?.id) { skipped++; continue; }
@@ -74,11 +79,17 @@ Deno.serve(async (req) => {
         }
       }
 
+      if (enrichCap !== null && enrichedInsertsSoFar >= enrichCap) {
+        (payload as any).enrichment_status = "not_queued";
+      }
       const { error: insErr } = await admin.from("leads").insert(payload);
-      if (insErr) skipped++; else created++;
+      if (insErr) { skipped++; continue; }
+      created++;
+      if ((payload as any).enrichment_status === "not_queued") held++;
+      else enrichedInsertsSoFar++;
     }
 
-    return json({ success: true, created, updated, skipped });
+    return json({ success: true, created, updated, skipped, held });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }
