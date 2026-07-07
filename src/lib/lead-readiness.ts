@@ -43,6 +43,16 @@ export function computeReadiness(
 
   const status = lead.enrichment_status;
 
+  if (status === "not_queued") {
+    return {
+      key: "held",
+      label: "Em espera",
+      cls: "bg-slate-100 text-slate-700 border border-slate-300",
+      tooltip: "Lead importado mas fora do lote atual de enriquecimento. Use 'Enriquecer mais' para liberar.",
+    };
+  }
+
+
   if (status === "pending" || status === "processing") {
     return {
       key: "processing",
