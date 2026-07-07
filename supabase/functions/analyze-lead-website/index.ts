@@ -130,7 +130,7 @@ serve(async (req) => {
     }
 
     // Load OUR company knowledge so the AI knows what WE sell
-    const [knowledgeRes, highlightsRes, aiInstructionsRes] = await Promise.all([
+    const [knowledgeRes, highlightsRes, aiInstructionsRes, companyRes] = await Promise.all([
       supabase.from("company_knowledge").select("title, content")
         .eq("company_id", lead.company_id)
         .not("type", "in", "(highlights,ai_instructions)").limit(10),
@@ -138,13 +138,31 @@ serve(async (req) => {
         .eq("company_id", lead.company_id).eq("type", "highlights").maybeSingle(),
       supabase.from("company_knowledge").select("content")
         .eq("company_id", lead.company_id).eq("type", "ai_instructions").maybeSingle(),
+      supabase.from("companies").select("scoring_prompt, scoring_include, scoring_exclude")
+        .eq("id", lead.company_id).maybeSingle(),
     ]);
     const ourKnowledge = (knowledgeRes.data || []).map((k: any) => `## ${k.title}\n${k.content}`).join("\n\n");
     const ourHighlights = highlightsRes.data?.content || "";
     const ourInstructions = aiInstructionsRes.data?.content || "";
+    const scoringPrompt = (companyRes.data as any)?.scoring_prompt || "";
+    const scoringInclude: string[] = ((companyRes.data as any)?.scoring_include || []).filter(Boolean);
+    const scoringExclude: string[] = ((companyRes.data as any)?.scoring_exclude || []).filter(Boolean);
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+    const scoringBlock = scoringPrompt || scoringInclude.length || scoringExclude.length
+      ? `\n=== CRITÉRIO DE QUALIFICAÇÃO DESTE CLIENTE (aplique com rigor) ===
+${scoringPrompt || "(sem prompt específico; use os critérios abaixo)"}
+${scoringInclude.length ? `\nPalavras/temas que AUMENTAM o score (indicam fit): ${scoringInclude.join(", ")}` : ""}
+${scoringExclude.length ? `\nPalavras/temas que REDUZEM ou ZERAM o score (anti-fit): ${scoringExclude.join(", ")}` : ""}
+
+Regras:
+- Se houver forte presença de termos da lista de exclusão, score deve ser ≤ 20.
+- Cada critério inferido do prompt vira uma entrada em score_breakdown com seu peso.
+- score é a média ponderada consolidada, 0 a 100.
+`
+      : "";
 
     const systemPrompt = `Você é um especialista em inteligência comercial B2B atuando como SDR.
 
@@ -156,7 +174,7 @@ Se as regras acima indicarem que este prospect não tem fit, NÃO force conexão
 ` : ""}=== O QUE NOSSA EMPRESA VENDE (use SEMPRE como referência para ganchos e mensagens) ===
 ${ourKnowledge || "(sem base de conhecimento cadastrada)"}
 ${ourHighlights ? `\n\nDIFERENCIAIS NOSSOS:\n${ourHighlights}` : ""}
-
+${scoringBlock}
 Tarefa: analise o site do PROSPECT e extraia insights estratégicos para uma primeira abordagem altamente personalizada. Em "oportunidades_abordagem", CONECTE EXPLICITAMENTE algo concreto do prospect com o que NÓS vendemos (acima). Nunca invente fato sobre o prospect.
 
 Responda APENAS JSON válido com esta estrutura:
@@ -168,6 +186,10 @@ Responda APENAS JSON válido com esta estrutura:
   "cases": ["cases do prospect, se houver"],
   "pain_points": ["dores prováveis do prospect"],
   "fit_score": "high|medium|low",
+  "score": 0,
+  "score_breakdown": [
+    { "criterion": "nome do critério", "score": 0, "weight": 1, "reason": "evidência específica do site" }
+  ],
   "fit_reason": "por que faz (ou não) sentido nossa solução para este prospect",
   "oportunidades_abordagem": [
     {
@@ -177,7 +199,12 @@ Responda APENAS JSON válido com esta estrutura:
     }
   ],
   "resumo": "2-3 frases sobre o prospect"
-}`;
+}
+
+Regras para "score":
+- Inteiro 0 a 100.
+- Se não houver critério configurado, derive de fit_score: high=80, medium=50, low=20.
+- Nunca omita "score".`;
 
     const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
