@@ -6,6 +6,18 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+function normalizeScore(ins: any): number | null {
+  const raw = ins?.score;
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return Math.max(0, Math.min(100, Math.round(raw)));
+  }
+  const fit = String(ins?.fit_score || "").toLowerCase();
+  if (fit === "high") return 80;
+  if (fit === "medium") return 50;
+  if (fit === "low") return 20;
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -263,14 +275,3 @@ Regras para "score":
   }
 });
 
-function normalizeScore(ins: any): number | null {
-  const raw = ins?.score;
-  if (typeof raw === "number" && Number.isFinite(raw)) {
-    return Math.max(0, Math.min(100, Math.round(raw)));
-  }
-  const fit = String(ins?.fit_score || "").toLowerCase();
-  if (fit === "high") return 80;
-  if (fit === "medium") return 50;
-  if (fit === "low") return 20;
-  return null;
-}
