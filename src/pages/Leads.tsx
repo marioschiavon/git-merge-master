@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useLeads, useSyncLeads, useIntegration, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadLists } from "@/hooks/useLeadLists";
 import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
+import { useEnrichMore } from "@/hooks/useScoring";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
