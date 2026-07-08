@@ -174,7 +174,7 @@ serve(async (req) => {
             .from("leads").select("email").eq("id", approval.lead_id).maybeSingle();
           if (!lead?.email) throw new Error("lead sem email");
           const threadCtx = await getEmailReplyContext(supabase, conversationId);
-          const { error: sendErr } = await supabase.functions.invoke("gmail-send", {
+          const { error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
             body: {
               to: lead.email,
               subject: threadCtx.reply_subject || subject || "Continuando nossa conversa",
@@ -185,7 +185,7 @@ serve(async (req) => {
               conversation_id: conversationId,
               in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
               references: threadCtx.references,
-              gmail_thread_id: threadCtx.gmail_thread_id,
+              provider_thread_id: threadCtx.provider_thread_id,
               extra_metadata: { approval_id, hitl_approved: true },
             },
           });

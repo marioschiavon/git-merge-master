@@ -1,0 +1,1 @@
+ALTER TABLE public.messages RENAME COLUMN gmail_thread_id TO provider_thread_id;

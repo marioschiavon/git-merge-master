@@ -30,7 +30,7 @@ import Integrations from "@/pages/settings/Integrations";
 import SettingsPage from "@/pages/settings/Settings";
 import Intents from "@/pages/settings/Intents";
 import CalcomSettings from "@/pages/settings/CalcomSettings";
-import GmailSettings from "@/pages/settings/Gmail";
+import EmailSettings from "@/pages/settings/Email";
 import Bookings from "@/pages/Bookings";
 import Unsubscribe from "@/pages/Unsubscribe";
 import ResetPassword from "@/pages/ResetPassword";
@@ -90,7 +90,7 @@ const App = () => (
               <Route path="/settings/integrations" element={<Integrations />} />
               <Route path="/settings/intents" element={<Intents />} />
               <Route path="/settings/calcom" element={<CalcomSettings />} />
-              <Route path="/settings/gmail" element={<GmailSettings />} />
+              <Route path="/settings/email" element={<EmailSettings />} />
               <Route path="/bookings" element={<Bookings />} />
             </Route>
             <Route path="*" element={<NotFound />} />

@@ -59,7 +59,7 @@ Deno.serve(async (req) => {
             const subjectBase = (priorMsgs || []).map((m: any) => m.metadata?.subject).find((s: any) => typeof s === "string") || (lead.company_name || lead.name || "Acompanhamento");
             const subject = /^re:/i.test(subjectBase) ? subjectBase : `Re: ${subjectBase}`;
 
-            await supabase.functions.invoke("gmail-send", {
+            await supabase.functions.invoke("send-outbound-email", {
               body: {
                 to: lead.email,
                 subject,

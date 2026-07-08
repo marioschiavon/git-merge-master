@@ -6,14 +6,14 @@
 export interface EmailReplyContext {
   in_reply_to_rfc_id: string | null;
   references: string | null;
-  gmail_thread_id: string | null;
+  provider_thread_id: string | null;
   reply_subject: string | null;
 }
 
 const EMPTY: EmailReplyContext = {
   in_reply_to_rfc_id: null,
   references: null,
-  gmail_thread_id: null,
+  provider_thread_id: null,
   reply_subject: null,
 };
 
@@ -43,7 +43,7 @@ export async function getEmailReplyContext(
     // e o reply saía como thread nova.
     const { data, error } = await supabase
       .from("messages")
-      .select("rfc_message_id, gmail_thread_id, metadata, direction, sent_at")
+      .select("rfc_message_id, provider_thread_id, metadata, direction, sent_at")
       .eq("conversation_id", conversationId)
       .not("rfc_message_id", "is", null)
       .order("sent_at", { ascending: true })
@@ -54,7 +54,7 @@ export async function getEmailReplyContext(
     }
     const rows = (data || []) as Array<{
       rfc_message_id: string | null;
-      gmail_thread_id: string | null;
+      provider_thread_id: string | null;
       metadata: any;
       direction: string | null;
       sent_at: string | null;
@@ -70,9 +70,9 @@ export async function getEmailReplyContext(
     // References: cadeia completa de Message-IDs em ordem cronológica.
     const refs = rows.map((r) => r.rfc_message_id).filter(Boolean).join(" ").trim() || null;
 
-    // gmail_thread_id: usar o da última mensagem que tenha um (geralmente
+    // provider_thread_id: usar o da última mensagem que tenha um (geralmente
     // todas têm o mesmo, mas a inbound mais recente é a fonte de verdade).
-    const threadId = [...rows].reverse().find((r) => r.gmail_thread_id)?.gmail_thread_id || null;
+    const threadId = [...rows].reverse().find((r) => r.provider_thread_id)?.provider_thread_id || null;
 
     // Subject: usar o PRIMEIRO assunto real da thread (ignora "Continuando
     // nossa conversa" e outros placeholders). Procura entre todas as
@@ -92,7 +92,7 @@ export async function getEmailReplyContext(
     return {
       in_reply_to_rfc_id: inReplyTo,
       references: refs,
-      gmail_thread_id: threadId,
+      provider_thread_id: threadId,
       reply_subject: normalizeReplySubject(originalSubject),
     };
   } catch (e) {

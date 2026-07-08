@@ -276,7 +276,7 @@ serve(async (req) => {
           if (currentStep.channel === "email" && lead.email) {
             try {
               const threadCtx = await getEmailReplyContext(supabase, preConversation?.id);
-              const { error: sendError } = await supabase.functions.invoke("gmail-send", {
+              const { error: sendError } = await supabase.functions.invoke("send-outbound-email", {
                 body: {
                   to: lead.email,
                   subject: threadCtx.reply_subject || parsed.subject || `Mensagem para ${lead.name}`,
@@ -287,7 +287,7 @@ serve(async (req) => {
                   conversation_id: preConversation?.id,
                   in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
                   references: threadCtx.references,
-                  gmail_thread_id: threadCtx.gmail_thread_id,
+                  provider_thread_id: threadCtx.provider_thread_id,
                   extra_metadata: { step_order: currentStep.step_order, custom_message: true },
                 },
               });
@@ -560,7 +560,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
         if (currentStep.channel === "email" && lead.email) {
           try {
             const threadCtx = await getEmailReplyContext(supabase, preConversationAi?.id);
-            const { error: sendError } = await supabase.functions.invoke("gmail-send", {
+            const { error: sendError } = await supabase.functions.invoke("send-outbound-email", {
               body: {
                 to: lead.email,
                 subject: threadCtx.reply_subject || parsed.subject || `Mensagem para ${lead.name}`,
@@ -571,7 +571,7 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
                 conversation_id: preConversationAi?.id,
                 in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
                 references: threadCtx.references,
-                gmail_thread_id: threadCtx.gmail_thread_id,
+                provider_thread_id: threadCtx.provider_thread_id,
                 extra_metadata: { step_order: currentStep.step_order, auto_generated: true },
               },
             });

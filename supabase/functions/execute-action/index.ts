@@ -154,7 +154,7 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
       try {
         const threadCtx = await getEmailReplyContext(ctx.supabase, ctx.conversation_id);
         const finalSubject = threadCtx.reply_subject || subject || "Continuando nossa conversa";
-        await ctx.supabase.functions.invoke("gmail-send", {
+        await ctx.supabase.functions.invoke("send-outbound-email", {
           body: {
             to: lead.email,
             subject: finalSubject,
@@ -164,7 +164,7 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
             conversation_id: ctx.conversation_id,
             in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
             references: threadCtx.references,
-            gmail_thread_id: threadCtx.gmail_thread_id,
+            provider_thread_id: threadCtx.provider_thread_id,
           },
         });
         deliveryStatus = "sent";
@@ -330,7 +330,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
           return { sent: false, reason: "hitl_pending", pending_approval: true };
         }
         const threadCtx = await getEmailReplyContext(ctx.supabase, ctx.conversation_id);
-        await ctx.supabase.functions.invoke("gmail-send", {
+        await ctx.supabase.functions.invoke("send-outbound-email", {
           body: {
             to: lead.email,
             subject: threadCtx.reply_subject || reply.subject || "Continuando nossa conversa",
@@ -340,7 +340,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
             conversation_id: ctx.conversation_id,
             in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
             references: threadCtx.references,
-            gmail_thread_id: threadCtx.gmail_thread_id,
+            provider_thread_id: threadCtx.provider_thread_id,
           },
         });
         // `gmail-send` já persiste a mensagem outbound em `messages` com
@@ -522,7 +522,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
     }
 
     const threadCtx = await getEmailReplyContext(ctx.supabase, ctx.conversation_id);
-    const { error } = await ctx.supabase.functions.invoke("gmail-send", {
+    const { error } = await ctx.supabase.functions.invoke("send-outbound-email", {
       body: {
         to: lead.email,
         subject: threadCtx.reply_subject || subject || "Continuando nossa conversa",
@@ -532,7 +532,7 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
         conversation_id: ctx.conversation_id,
         in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
         references: threadCtx.references,
-        gmail_thread_id: threadCtx.gmail_thread_id,
+        provider_thread_id: threadCtx.provider_thread_id,
       },
     });
     if (error) throw new Error(`gmail-send failed: ${error.message}`);

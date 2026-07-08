@@ -4,7 +4,8 @@
 SaaS B2B multi-tenant para automação de SDR. Design clean/light estilo HubSpot. Azul primário HSL(215,90%,50%). Inter font.
 Lovable Cloud habilitado. Multi-tenant com RLS por company_id.
 Idioma do app: Português BR. Perfis: master_admin, company_admin, user.
-Integração real com Pipedrive, WhatsApp, LinkedIn, Email, Twilio, Cal.com.
+Integração real com Pipedrive, WhatsApp (Hook7/Z-API), LinkedIn, Cal.com, Twilio.
+Email via Resend multi-tenant: cada company configura seu próprio sending domain (1 por company em v1). Reputação isolada por cliente. Tabela `company_email_domains`, edge `send-outbound-email`, inbound via `resend-inbound-webhook`.
 
 ## Memories
 - [Multi-tenancy](mem://features/multi-tenancy) — companies, user_roles, company_members tables com RLS e security definer functions
