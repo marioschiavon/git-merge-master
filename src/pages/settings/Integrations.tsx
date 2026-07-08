@@ -329,101 +329,22 @@ function PipedriveDialog({
 }
 
 // ---------------------------------------------------------------------------
-// Gmail dialog
+// Email (Resend) — status hook
 // ---------------------------------------------------------------------------
 
-function useGmailAccount() {
+function useEmailDomain() {
   return useQuery({
-    queryKey: ["gmail_account"],
+    queryKey: ["company_email_domain"],
     queryFn: async () => {
       const { data } = await supabase
-        .from("gmail_account")
-        .select("*")
-        .eq("is_active", true)
+        .from("company_email_domains")
+        .select("id, sending_domain, from_email, status, verified_at")
         .maybeSingle();
       return data;
     },
   });
 }
 
-function GmailDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-}) {
-  const queryClient = useQueryClient();
-  const { data: account, isLoading } = useGmailAccount();
-  const isConnected = !!account;
-
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("gmail-sync-inbox", {
-        body: {},
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      return data;
-    },
-    onSuccess: (data) => {
-      queryClient.invalidateQueries({ queryKey: ["gmail_account"] });
-      const msg = data?.bootstrapped
-        ? `Conta ${data.email} conectada.`
-        : `${data?.processed || 0} respostas processadas (${
-            data?.matched || 0
-          } casadas com leads).`;
-      toast({ title: "Sincronização Gmail", description: msg });
-    },
-    onError: (e: Error) =>
-      toast({ title: "Erro no Gmail", description: e.message, variant: "destructive" }),
-  });
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Gmail</DialogTitle>
-          <DialogDescription>
-            Envia emails das cadências e recebe respostas dos leads dentro de Conversations.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-3 py-2">
-          {isConnected && (
-            <p className="text-xs text-muted-foreground">
-              Conta: <strong>{account!.email}</strong>
-              {account!.last_synced_at && (
-                <> · última sync: {new Date(account!.last_synced_at).toLocaleString("pt-BR")}</>
-              )}
-            </p>
-          )}
-          {!isConnected && (
-            <p className="text-xs text-muted-foreground">
-              Clique em "Inicializar / Sincronizar" para registrar a conta Gmail conectada
-              ao workspace.
-            </p>
-          )}
-          <Button
-            className="w-full"
-            variant={isConnected ? "outline" : "default"}
-            onClick={() => syncMutation.mutate()}
-            disabled={isLoading || syncMutation.isPending}
-          >
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`}
-            />
-            {syncMutation.isPending
-              ? "Sincronizando..."
-              : isConnected
-                ? "Sincronizar agora"
-                : "Inicializar / Sincronizar"}
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Cal.com dialog
