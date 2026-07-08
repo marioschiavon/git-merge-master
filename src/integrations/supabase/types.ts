@@ -2390,11 +2390,11 @@ export type Database = {
           conversation_id: string
           direction: string
           email_provider: string | null
-          gmail_thread_id: string | null
           id: string
           metadata: Json | null
           provider: string | null
           provider_message_id: string | null
+          provider_thread_id: string | null
           rfc_message_id: string | null
           sent_at: string
         }
@@ -2405,11 +2405,11 @@ export type Database = {
           conversation_id: string
           direction?: string
           email_provider?: string | null
-          gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
           provider?: string | null
           provider_message_id?: string | null
+          provider_thread_id?: string | null
           rfc_message_id?: string | null
           sent_at?: string
         }
@@ -2420,11 +2420,11 @@ export type Database = {
           conversation_id?: string
           direction?: string
           email_provider?: string | null
-          gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
           provider?: string | null
           provider_message_id?: string | null
+          provider_thread_id?: string | null
           rfc_message_id?: string | null
           sent_at?: string
         }
