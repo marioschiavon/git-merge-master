@@ -1065,6 +1065,62 @@ export type Database = {
         }
         Relationships: []
       }
+      company_email_domains: {
+        Row: {
+          company_id: string
+          created_at: string
+          dns_records: Json | null
+          from_email: string | null
+          from_name: string | null
+          id: string
+          last_error: string | null
+          reply_to: string | null
+          resend_domain_id: string | null
+          sending_domain: string
+          status: string
+          updated_at: string
+          verified_at: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          dns_records?: Json | null
+          from_email?: string | null
+          from_name?: string | null
+          id?: string
+          last_error?: string | null
+          reply_to?: string | null
+          resend_domain_id?: string | null
+          sending_domain: string
+          status?: string
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          dns_records?: Json | null
+          from_email?: string | null
+          from_name?: string | null
+          id?: string
+          last_error?: string | null
+          reply_to?: string | null
+          resend_domain_id?: string | null
+          sending_domain?: string
+          status?: string
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_email_domains_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_knowledge: {
         Row: {
           company_id: string
@@ -1371,68 +1427,6 @@ export type Database = {
             columns: ["step_id"]
             isOneToOne: false
             referencedRelation: "cadence_steps"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      gmail_account: {
-        Row: {
-          access_token: string | null
-          access_token_expires_at: string | null
-          company_id: string | null
-          connected_at: string | null
-          created_at: string
-          email: string
-          google_user_id: string | null
-          id: string
-          is_active: boolean
-          last_error: string | null
-          last_history_id: string | null
-          last_synced_at: string | null
-          refresh_token_encrypted: string | null
-          scope: string | null
-          updated_at: string
-        }
-        Insert: {
-          access_token?: string | null
-          access_token_expires_at?: string | null
-          company_id?: string | null
-          connected_at?: string | null
-          created_at?: string
-          email: string
-          google_user_id?: string | null
-          id?: string
-          is_active?: boolean
-          last_error?: string | null
-          last_history_id?: string | null
-          last_synced_at?: string | null
-          refresh_token_encrypted?: string | null
-          scope?: string | null
-          updated_at?: string
-        }
-        Update: {
-          access_token?: string | null
-          access_token_expires_at?: string | null
-          company_id?: string | null
-          connected_at?: string | null
-          created_at?: string
-          email?: string
-          google_user_id?: string | null
-          id?: string
-          is_active?: boolean
-          last_error?: string | null
-          last_history_id?: string | null
-          last_synced_at?: string | null
-          refresh_token_encrypted?: string | null
-          scope?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "gmail_account_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
         ]
@@ -2395,7 +2389,7 @@ export type Database = {
           content: string
           conversation_id: string
           direction: string
-          gmail_message_id: string | null
+          email_provider: string | null
           gmail_thread_id: string | null
           id: string
           metadata: Json | null
@@ -2410,7 +2404,7 @@ export type Database = {
           content?: string
           conversation_id: string
           direction?: string
-          gmail_message_id?: string | null
+          email_provider?: string | null
           gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
@@ -2425,7 +2419,7 @@ export type Database = {
           content?: string
           conversation_id?: string
           direction?: string
-          gmail_message_id?: string | null
+          email_provider?: string | null
           gmail_thread_id?: string | null
           id?: string
           metadata?: Json | null
@@ -2951,16 +2945,6 @@ export type Database = {
         Args: { payload: Json; queue_name: string }
         Returns: number
       }
-      get_gmail_oauth_tokens: {
-        Args: { _company_id: string; _passphrase: string }
-        Returns: {
-          access_token: string
-          access_token_expires_at: string
-          email: string
-          refresh_token: string
-          scope: string
-        }[]
-      }
       get_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string }
         Returns: string
@@ -2972,10 +2956,6 @@ export type Database = {
           _user_id: string
         }
         Returns: boolean
-      }
-      mark_gmail_error: {
-        Args: { _company_id: string; _error: string }
-        Returns: undefined
       }
       match_knowledge_chunks: {
         Args: {
@@ -3008,29 +2988,8 @@ export type Database = {
           read_ct: number
         }[]
       }
-      set_gmail_oauth_tokens: {
-        Args: {
-          _access_token: string
-          _access_token_expires_at: string
-          _company_id: string
-          _email: string
-          _google_user_id: string
-          _passphrase: string
-          _refresh_token: string
-          _scope: string
-        }
-        Returns: string
-      }
       set_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string; _token: string }
-        Returns: undefined
-      }
-      update_gmail_access_token: {
-        Args: {
-          _access_token: string
-          _access_token_expires_at: string
-          _company_id: string
-        }
         Returns: undefined
       }
     }
