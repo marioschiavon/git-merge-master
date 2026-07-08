@@ -2283,7 +2283,7 @@ Analise a última mensagem e decida a ação.`,
             let sent = false;
             {
               try {
-                const { error: sendErr } = await supabase.functions.invoke("gmail-send", {
+                const { error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
                   body: {
                     to: normalizedEmail,
                     subject,
@@ -2376,7 +2376,7 @@ Analise a última mensagem e decida a ação.`,
         // Build threading headers from prior Gmail messages on this conversation
         const { data: priorMsgs } = await supabase
           .from("messages")
-          .select("direction, rfc_message_id, gmail_thread_id, metadata, sent_at")
+          .select("direction, rfc_message_id, provider_thread_id, metadata, sent_at")
           .eq("conversation_id", convId)
           .not("rfc_message_id", "is", null)
           .order("sent_at", { ascending: true });
@@ -2391,7 +2391,7 @@ Analise a última mensagem e decida a ação.`,
         // Shared workspace Gmail connector — always try, transactional fallback below
         {
           try {
-            const { data: sendRes, error: sendErr } = await supabase.functions.invoke("gmail-send", {
+            const { data: sendRes, error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
               body: {
                 to: leadData.email,
                 subject: replySubject,
@@ -2405,13 +2405,13 @@ Analise a última mensagem e decida a ação.`,
               },
             });
             if (sendErr) throw sendErr;
-            const gmailMessageId = (sendRes as any)?.gmail_message_id;
+            const gmailMessageId = (sendRes as any)?.provider_message_id;
             // Promote the row inserted by gmail-send with our AI metadata
             if (gmailMessageId) {
               await supabase
                 .from("messages")
                 .update({ ai_suggested: true, metadata: { ...autoReplyMetadata, subject: replySubject, channel: "email", via: "gmail" } })
-                .eq("gmail_message_id", gmailMessageId);
+                .eq("provider_message_id", gmailMessageId);
             }
             sentViaGmail = true;
           } catch (e) {

@@ -655,7 +655,7 @@ Decida a próxima ação.`;
       } else if (channel === "email" && lead.email) {
         try {
           const threadCtx = await getEmailReplyContext(supabase, conversation?.id);
-          const { error: sendError } = await supabase.functions.invoke("gmail-send", {
+          const { error: sendError } = await supabase.functions.invoke("send-outbound-email", {
             body: {
               to: lead.email,
               subject: threadCtx.reply_subject || decision.subject || `Mensagem para ${lead.name}`,
@@ -666,7 +666,7 @@ Decida a próxima ação.`;
               conversation_id: conversation?.id,
               in_reply_to_rfc_id: threadCtx.in_reply_to_rfc_id,
               references: threadCtx.references,
-              gmail_thread_id: threadCtx.gmail_thread_id,
+              provider_thread_id: threadCtx.provider_thread_id,
               extra_metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, hook: decision.hook, attempt: attemptNumber },
             },
           });
