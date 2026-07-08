@@ -1,4 +1,4 @@
 project_id = "plfcbbqzpcbgykfervnp"
 
-[functions.gmail-oauth-callback]
+[functions.resend-inbound-webhook]
 verify_jwt = false
