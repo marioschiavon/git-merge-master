@@ -116,16 +116,16 @@ export function AppSidebar() {
             className={collapsed ? "h-8 w-auto" : "h-8 w-auto"}
           />
         </div>
+        {!collapsed && (
+          <span className="mt-2 font-mono text-[10px] text-sidebar-foreground/50">
+            {APP_VERSION}
+          </span>
+        )}
         {!collapsed && companyName && (
           <Badge variant="outline" className="mt-2 w-fit max-w-full truncate border-sidebar-border/60 bg-sidebar-accent/40 text-xs font-medium text-sidebar-foreground">
             <Building2 className="mr-1 h-3 w-3 shrink-0" />
             <span className="truncate">{companyName}</span>
           </Badge>
-        )}
-        {!collapsed && (
-          <span className="mt-2 font-mono text-[10px] text-sidebar-foreground/50">
-            {APP_VERSION}
-          </span>
         )}
       </SidebarHeader>
 
