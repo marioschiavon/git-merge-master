@@ -1,91 +1,75 @@
+# Ação
 
-## Ação de arquivo
-- Copiar o guia enviado para `docs/guia-liderei-prospeccao.md` (fica versionado junto ao código, sem alterar `.lovable/memory`).
-- Adicionar uma linha no `mem://index.md` apontando para o guia como referência viva de produto.
+Salvar o plano de melhoria da análise de leads (opção A — Firecrawl) como documento versionado, sem alterar código.
 
----
+## Arquivo a criar
 
-## Diagnóstico seção por seção
+`docs/melhoria-analise-lead-firecrawl.md`
 
-Legenda: ✅ pronto · ⚠️ parcial · ❌ falta
+## Conteúdo do documento
 
-### §2 — Base de Conhecimento multi-tenant
-- ✅ **KB Comercial por cliente**: tabela `knowledge_base` com `company_id`, hook `useKnowledge`, tipos `text/url/document/highlights/ai_instructions`, embeddings (`embed-knowledge`), página `/knowledge`.
-- ✅ **RLS por company_id** garante isolamento (memória `mem://features/multi-tenancy`).
-- ⚠️ **Origem "kickoff/discovery"**: hoje entrada é manual (texto/URL/upload). Não há fluxo dedicado para colar transcrição de kickoff e gerar resumo estruturado automaticamente.
-- ❌ **Permissão granular "cliente não pode editar dados do kickoff, mas pode adicionar complementos"**: não existe. Qualquer `company_admin` edita tudo. Falta flag tipo `locked_by_admin` / origem `kickoff` protegida.
-- ⚠️ **KB do Lead (§2.2)**: existe `lead_insights` (proposta_valor, raw_summary, analyzed_at) gerada por `analyze-lead-website`. Cobre site; **LinkedIn e Instagram não são scrapados** — só o que vem do Apollo (headline/summary já embutido no perfil). Instagram não é coletado em lugar nenhum.
+Vai conter, em português:
 
-### §3 — Fluxo operacional ponta a ponta
-| Etapa | Status |
-|---|---|
-| 1. Import (Apollo + CSV) | ✅ `apollo-search`/`apollo-import` + `LeadImportDialog` |
-| 2. Escolha de quantos enriquecer | ❌ **Falta** (ver §4) |
-| 3. Enriquecimento site/LinkedIn/IG | ⚠️ Só site (`analyze-lead-website` + `enrich-lead`); LinkedIn parcial (via Apollo), IG inexistente |
-| 4. Geração da KB individual do lead | ✅ `lead_insights` |
-| 5. Qualificação/Score | ❌ **Falta score numérico configurável** (ver §5) |
-| 6. Filtro aceitar/descartar antes da cadência | ⚠️ Existe `lead-readiness` (Pronto/Revisar/Novo) mas é derivado, não é decisão explícita do usuário com bulk-approve |
-| 7. Geração de mensagens personalizadas | ✅ `generate-pending-first-messages`, `ai-generate-script`, `preview-cadence-messages` usam KB + insights |
-| 8. Disparo cadência WhatsApp | ✅ `cadence-executor` + Z-API/Twilio + `hook7-*` |
+1. **Contexto e diagnóstico**
+   - Feedback do cliente: insights genéricos (resumo, produtos, dores).
+   - Causas identificadas via investigação em `lead_insights` reais:
+     - Fetch simples não executa JS → sites SPA retornam pouco conteúdo.
+     - Só a home é lida.
+     - Prompt não exige evidência → IA inventa produtos plausíveis.
+     - Modelo único `gemini-2.5-flash`, sem fallback.
 
-### §4 — Controle de volume no enriquecimento
-- ❌ **Não implementado**. Hoje `enrichment-cron` roda de 5 em 5 jobs pending sem cap por lista/importação. O usuário não escolhe "enriquecer 200 destes 5.000".
-- Precisa: seletor no `LeadImportDialog` / `ApolloSearch` ("quantos leads enriquecer agora?"), enfileirar só esses N em `lead_enrichment_jobs`, deixar restante como `enrichment_status='not_queued'`, e botão "enriquecer mais N" na lista.
+2. **Escopo da mudança** (só backend, arquivo `supabase/functions/analyze-lead-website/index.ts`)
 
-### §5 — Qualificação e Score
-- ⚠️ Existe apenas `fit_score: high|medium|low` textual retornado por `analyze-lead-website` (prompt genérico global), sem critério configurável por cliente e sem valor numérico 0-100.
-- ⚠️ Existe `min_fit_score` em `agentic_cadences` mas é numérico e não bate com o high/medium/low de hoje — meia-implementação.
-- ❌ **Prompt de score configurável por cliente**: não existe UI nem coluna. Precisa: `companies.scoring_prompt` (texto livre, tipo prompt) + `companies.scoring_keywords_include[]` / `..._exclude[]`.
-- ❌ **Score numérico por lead** persistido em `lead_insights` (ex.: `score`, `score_breakdown jsonb` por critério).
-- ❌ **Revisão em massa antes da cadência**: falta ação bulk "aprovar N leads → enrolar em cadência" / "descartar" na página `/leads` filtrando por score.
+3. **Passos de implementação**
+   - Conectar Firecrawl via `standard_connectors--connect` (`FIRECRAWL_API_KEY`).
+   - Novo helper `scrapeWithFirecrawl(website)`:
+     - `/v2/map` (limit 30) → filtra links por keywords (`sobre|produto|servico|solucao|cliente|case|contato|equipe|empresa`) → até 5 páginas + home.
+     - `/v2/scrape` com `formats: ['markdown','summary']`, `onlyMainContent: true`.
+     - Concatena `[URL]\n<markdown>` e trunca em ~25k chars.
+   - Fallback pro fetch atual se `FIRECRAWL_API_KEY` ausente.
+   - Reescrita "evidence-first" do system prompt:
+     - Cada `produtos`, `diferenciais`, `cases`, `pain_points` precisa de trecho literal (≤120 chars) + `url_origem`.
+     - Sem evidência ⇒ item não pode aparecer (preferir array vazio).
+     - `score_breakdown[].reason` também cita trecho + URL.
+   - Cascata de modelo:
+     1. `google/gemini-2.5-pro`
+     2. `google/gemini-2.5-flash` (429/5xx)
+     3. `openai/gpt-5-mini` (402)
+   - Persistir `scrape_meta` dentro de `lead_insights.insights` (sem schema change):
+     - `pages_scraped: [{ url, chars }]`
+     - `provider: 'firecrawl' | 'fetch'`
+     - `model_used`
 
-### §6 — Geração de mensagens
-- ✅ Combina KB comercial (`highlights`, `ai_instructions`) + insights do lead + objetivo da cadência.
-- ⚠️ Não puxa explicitamente "histórico do que funcionou/não funcionou" (§2.1). Poderia alimentar a partir de `bookings` confirmados / cadências campeãs.
+4. **Fora de escopo**
+   - Não muda UI, hooks, `buildScorePayload` nem fit/score logic.
+   - Não mexe em outras edge functions.
 
-### §7 — Qualidade sobre volume
-- ⚠️ Cadência tem HITL gate, aprovações, `min_fit_score`. Não há guard-rail explícito ligado ao score configurável (porque score não existe).
+5. **Custo/latência estimados**
+   - ~6 créditos Firecrawl por lead.
+   - Latência sobe de ~5s para ~15–25s (análise é async, aceitável).
 
-### §8 — Próximos passos do guia
-- Kickoff Raquel → **fora do app** (operacional).
-- Multi-tenant da KB de scraping → ⚠️ `lead_insights` já é por company via RLS, mas o **prompt de análise em `analyze-lead-website` é global**. Precisa passar a usar `scoring_prompt` e `highlights` da company.
-- Integração Apollo → ✅ pronta (`apollo-connect/search/import/status`).
-- Pipedrive → ✅ confirmado no turno anterior.
-- Cadência WhatsApp para testes → ✅.
-- Campo de critério/score configurável → ❌ (item central).
-- Controle de quantidade a enriquecer → ❌.
+6. **Validação depois de implementar**
+   - Rodar em 3 leads (SPA pesado, WordPress simples, site quebrado).
+   - Conferir `scrape_meta`.
+   - Cada `produtos` / `pain_points` deve ter trecho literal + URL.
+   - Comparar `resumo` novo vs antigo.
 
----
+## Status dos P0 do `guia-liderei-prospeccao.md`
 
-## Gaps priorizados (ordem sugerida de implementação futura)
+Verificado no código:
 
-1. **P0 — Score configurável por cliente + coluna numérica no `lead_insights`**
-   - Coluna `companies.scoring_prompt` (text), `scoring_include` / `scoring_exclude` (text[]).
-   - UI em `/settings` (aba "Qualificação de Leads").
-   - `analyze-lead-website` passa a receber o prompt do cliente e devolve `score` (0-100) + `score_breakdown`.
-   - Migrar `min_fit_score` das cadências para bater com 0-100.
+**P0 #1 — Score configurável por cliente + coluna numérica** — ✅ **Concluído**
+- `companies.scoring_prompt`, `scoring_include`, `scoring_exclude` existem.
+- Hook `useScoring` + UI em `Settings.tsx` (aba Qualificação).
+- `analyze-lead-website` já injeta `scoringBlock` no prompt e devolve `score` (0–100) + `score_breakdown`.
 
-2. **P0 — Controle de volume no enriquecimento**
-   - Campo "Quantos enriquecer agora?" no `LeadImportDialog` e no `ApolloSearch` (default 100–200).
-   - `enrichment_status='not_queued'` para o restante; botão "enriquecer mais N" na `/leads` e na `LeadList`.
+**P0 #2 — Controle de volume no enriquecimento** — ✅ **Concluído**
+- `enrichLimit` no `LeadImportDialog` e `ApolloSearch`.
+- Status `enrichment_status='not_queued'` no `Leads.tsx`.
+- Edge function `enrichment-enqueue-more` para enfileirar mais N.
 
-3. **P1 — Revisão/aprovação em massa antes da cadência**
-   - Filtro por score em `/leads` + ações bulk "Enviar para cadência X" / "Descartar".
+**Conclusão:** os dois P0 estão prontos. A melhoria de Firecrawl (este documento) é evolução do P0 #1 (qualidade dos insights que alimentam o score), mas o P0 em si já está fechado. Próximos gaps do guia são P1 (revisão em massa, scraping LinkedIn/IG).
 
-4. **P1 — Scraping de LinkedIn e Instagram no `enrich-lead`**
-   - Provider (ex.: Apify/ScrapingBee) atrás de secret; fallback grácil se offline.
-   - Merge no `lead_insights` (`linkedin_summary`, `instagram_summary`).
+## Sem alterações de código nesta rodada
 
-5. **P2 — KB de kickoff protegida**
-   - Coluna `knowledge_base.origin` (`kickoff` | `client` | `admin`) + flag `locked`. Policy RLS: `company_admin` só edita `origin != 'kickoff'` a menos que seja `master_admin`.
-   - Ação "Colar transcrição de kickoff" que roda `extract-knowledge` e grava com `origin='kickoff', locked=true`.
-
-6. **P2 — Alimentar KB comercial com "o que funcionou"**
-   - Job periódico que resume cadências com maior taxa de booking e injeta como `type='historical_wins'` nas queries de geração de mensagem.
-
----
-
-## Validação após salvar o guia
-- `docs/guia-liderei-prospeccao.md` renderiza no GitHub.
-- `mem://index.md` referencia o guia.
-- Nenhum código de app é alterado nesta rodada — implementação dos gaps entra em plano separado quando você priorizar.
+Apenas 1 arquivo novo: `docs/melhoria-analise-lead-firecrawl.md`.
