@@ -688,7 +688,12 @@ export default function Integrations() {
 
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
-  const gmailStatus: StatusKey = gmail ? "connected" : "disconnected";
+  const emailStatus: StatusKey =
+    emailDomain?.status === "verified"
+      ? "connected"
+      : emailDomain
+        ? "pending"
+        : "disconnected";
   // Cal.com is configured via env vars; we can't detect from the client. Show pending.
   const calcomStatus: StatusKey = "pending";
 
@@ -705,18 +710,20 @@ export default function Integrations() {
       onAction: () => setPipedriveOpen(true),
     },
     {
-      key: "gmail",
-      name: "Gmail",
+      key: "email",
+      name: "Email (Resend)",
       category: "Email",
       description:
-        "Envia emails das cadências e recebe respostas dos leads dentro de Conversations.",
+        "Cada empresa envia com seu próprio domínio (mail.suaempresa.com). Reputação isolada por cliente.",
       icon: Mail,
-      iconTint: "text-[#EA4335]",
-      status: gmailStatus,
-      operationalLabel: gmail?.email,
-      syncLabel: gmail?.last_synced_at ? relTime(gmail.last_synced_at) : null,
-      onAction: () => navigate("/settings/gmail"),
+      iconTint: "text-primary",
+      status: emailStatus,
+      operationalLabel: emailDomain?.from_email ?? emailDomain?.sending_domain ?? undefined,
+      readinessLabel:
+        emailDomain && emailDomain.status !== "verified" ? "Aguardando verificação DNS" : undefined,
+      onAction: () => navigate("/settings/email"),
     },
+
     {
       key: "cal_com",
       name: "Cal.com",
