@@ -313,24 +313,27 @@ Regras para "score":
       insights = JSON.parse(jsonMatch[1].trim());
     } catch { insights = { resumo: content }; }
 
+    const scorePayload = buildScorePayload(insights);
+    const enrichedInsights = { ...insights, ...scorePayload };
+
     const { data: saved, error: saveError } = await supabase
       .from("lead_insights")
       .upsert({
         lead_id: lead.id, company_id: lead.company_id, website_url: websiteUrl,
-        insights, raw_summary: insights.resumo || content,
-        score: safeNormalizeScore(insights),
-        score_breakdown: Array.isArray(insights?.score_breakdown) ? insights.score_breakdown : null,
+        insights: enrichedInsights, raw_summary: insights.resumo || content,
+        score: scorePayload.score,
+        score_breakdown: scorePayload.score_breakdown,
         analyzed_at: new Date().toISOString(),
       }, { onConflict: "lead_id" }).select().single();
 
     if (saveError) {
       console.error("Save error:", saveError);
-      return new Response(JSON.stringify({ insights, saved: false }), {
+      return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, saved: false }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    return new Response(JSON.stringify({ insights, saved: true, id: saved.id }), {
+    return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, saved: true, id: saved.id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
