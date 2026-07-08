@@ -62,7 +62,7 @@ function useDomain() {
         .from("company_email_domains")
         .select("*")
         .maybeSingle();
-      return (data as DomainRow) ?? null;
+      return (data as unknown as DomainRow) ?? null;
     },
   });
 }
