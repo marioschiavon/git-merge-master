@@ -47,8 +47,41 @@ function safeNormalizeScore(ins: any): number | null {
     return normalizeScore(ins) ?? fallbackScore(ins);
   } catch (e) {
     console.warn("normalizeScore failed, using fallback score:", e);
-    return fallbackScore(ins);
+    try { return fallbackScore(ins); } catch { return null; }
   }
+}
+
+function normalizeFit(ins: any, score: number | null): "high" | "medium" | "low" {
+  const fit = `${ins?.fit_score ?? ""}`.toLowerCase();
+  if (fit.includes("high") || fit.includes("alto")) return "high";
+  if (fit.includes("medium") || fit.includes("médio") || fit.includes("medio")) return "medium";
+  if (fit.includes("low") || fit.includes("baixo")) return "low";
+  if (typeof score === "number") {
+    if (score >= 70) return "high";
+    if (score >= 40) return "medium";
+    return "low";
+  }
+  return "low";
+}
+
+function normalizeBreakdown(ins: any): any[] {
+  try {
+    return Array.isArray(ins?.score_breakdown) ? ins.score_breakdown : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Sempre retorna o mesmo shape { score, fit_score, score_breakdown }
+ * mesmo quando os helpers falharem.
+ */
+function buildScorePayload(ins: any): { score: number | null; fit_score: "high" | "medium" | "low"; score_breakdown: any[] } {
+  let score: number | null = null;
+  try { score = safeNormalizeScore(ins); } catch { score = null; }
+  const fit_score = normalizeFit(ins, score);
+  const score_breakdown = normalizeBreakdown(ins);
+  return { score, fit_score, score_breakdown };
 }
 
 serve(async (req) => {
@@ -280,24 +313,27 @@ Regras para "score":
       insights = JSON.parse(jsonMatch[1].trim());
     } catch { insights = { resumo: content }; }
 
+    const scorePayload = buildScorePayload(insights);
+    const enrichedInsights = { ...insights, ...scorePayload };
+
     const { data: saved, error: saveError } = await supabase
       .from("lead_insights")
       .upsert({
         lead_id: lead.id, company_id: lead.company_id, website_url: websiteUrl,
-        insights, raw_summary: insights.resumo || content,
-        score: safeNormalizeScore(insights),
-        score_breakdown: Array.isArray(insights?.score_breakdown) ? insights.score_breakdown : null,
+        insights: enrichedInsights, raw_summary: insights.resumo || content,
+        score: scorePayload.score,
+        score_breakdown: scorePayload.score_breakdown,
         analyzed_at: new Date().toISOString(),
       }, { onConflict: "lead_id" }).select().single();
 
     if (saveError) {
       console.error("Save error:", saveError);
-      return new Response(JSON.stringify({ insights, saved: false }), {
+      return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, saved: false }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    return new Response(JSON.stringify({ insights, saved: true, id: saved.id }), {
+    return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, saved: true, id: saved.id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
