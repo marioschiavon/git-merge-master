@@ -34,6 +34,7 @@ Deno.serve(async (req) => {
       .eq("user_id", userData.user.id)
       .maybeSingle();
     const companyId = cm?.company_id;
+    console.log("[enrichment-enqueue-more] user", userData.user.id, "company", companyId, "limit", limit, "lead_list_id", lead_list_id);
     if (!companyId) return json({ error: "Empresa não identificada" }, 400);
 
     // Busca leads em espera
@@ -46,6 +47,7 @@ Deno.serve(async (req) => {
       .limit(limit);
     if (lead_list_id) q = q.eq("lead_list_id", lead_list_id);
     const { data: leads, error } = await q;
+    console.log("[enrichment-enqueue-more] query result count=", leads?.length, "error=", error);
     if (error) return json({ error: error.message }, 500);
     const ids = (leads || []).map((l: any) => l.id);
     if (ids.length === 0) return json({ ok: true, released: 0 });
