@@ -1,8 +1,4 @@
-/**
- * Versão do app exibida discretamente na sidebar.
- *
- * Regra de bump:
- * - Fase alpha (atual): +0.01 a cada alteração feita no app.
- * - Só saltar para "1.XX" quando o usuário avisar explicitamente que entrou em produção real.
- */
-export const APP_VERSION = "alpha 0.18";
+// Single source of truth for the app version shown in the sidebar.
+// Bump rule: +0.01 per app change during alpha. Jump to 1.XX only when
+// the user explicitly says it's in production.
+export const APP_VERSION = "alpha 0.19";
