@@ -18,6 +18,39 @@ function normalizeScore(ins: any): number | null {
   return null;
 }
 
+function fallbackScore(ins: any): number | null {
+  const raw = Number(ins?.score);
+  if (Number.isFinite(raw)) return Math.max(0, Math.min(100, Math.round(raw)));
+
+  const fit = `${ins?.fit_score ?? ""}`.toLowerCase();
+  if (fit.includes("high") || fit.includes("alto")) return 80;
+  if (fit.includes("medium") || fit.includes("médio") || fit.includes("medio")) return 50;
+  if (fit.includes("low") || fit.includes("baixo")) return 20;
+
+  const breakdown = Array.isArray(ins?.score_breakdown) ? ins.score_breakdown : [];
+  const weighted = breakdown.reduce((acc: any, item: any) => {
+    const score = Number(item?.score);
+    const weight = Number(item?.weight ?? 1);
+    if (!Number.isFinite(score) || !Number.isFinite(weight) || weight <= 0) return acc;
+    return { total: acc.total + score * weight, weight: acc.weight + weight };
+  }, { total: 0, weight: 0 });
+
+  if (weighted.weight > 0) {
+    return Math.max(0, Math.min(100, Math.round(weighted.total / weighted.weight)));
+  }
+
+  return null;
+}
+
+function safeNormalizeScore(ins: any): number | null {
+  try {
+    return normalizeScore(ins) ?? fallbackScore(ins);
+  } catch (e) {
+    console.warn("normalizeScore failed, using fallback score:", e);
+    return fallbackScore(ins);
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -252,7 +285,7 @@ Regras para "score":
       .upsert({
         lead_id: lead.id, company_id: lead.company_id, website_url: websiteUrl,
         insights, raw_summary: insights.resumo || content,
-        score: normalizeScore(insights),
+        score: safeNormalizeScore(insights),
         score_breakdown: Array.isArray(insights?.score_breakdown) ? insights.score_breakdown : null,
         analyzed_at: new Date().toISOString(),
       }, { onConflict: "lead_id" }).select().single();
