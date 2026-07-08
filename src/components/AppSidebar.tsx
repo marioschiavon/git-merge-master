@@ -22,6 +22,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import leadereiLogo from "@/assets/brand/leaderei-white.png";
+import { APP_VERSION } from "@/lib/version";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
 import { useInboxQueue } from "@/hooks/useHumanInbox";
@@ -120,6 +121,11 @@ export function AppSidebar() {
             <Building2 className="mr-1 h-3 w-3 shrink-0" />
             <span className="truncate">{companyName}</span>
           </Badge>
+        )}
+        {!collapsed && (
+          <span className="mt-2 font-mono text-[10px] text-sidebar-foreground/50">
+            {APP_VERSION}
+          </span>
         )}
       </SidebarHeader>
 
