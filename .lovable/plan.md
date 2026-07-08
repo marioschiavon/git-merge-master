@@ -1,75 +1,42 @@
-# Ação
+# Plano de teste dos P0 usando a company do usuário logado
 
-Salvar o plano de melhoria da análise de leads (opção A — Firecrawl) como documento versionado, sem alterar código.
+Vou rodar teste end-to-end nos dois P0 aproveitando a sessão atual da preview.
 
-## Arquivo a criar
+## P0 #1 — Score configurável por cliente
 
-`docs/melhoria-analise-lead-firecrawl.md`
+1. Descobrir `company_id` do usuário logado via `psql`.
+2. **Migration curta** para preencher `scoring_prompt`, `scoring_include`, `scoring_exclude` na company de teste com um critério real (ex.: fit para SDR/prospecção B2B, incluir "b2b, saas, comercial", excluir "governo, licitação").
+3. Pegar 2 leads com `website` preenchido dessa company via `psql`.
+4. Chamar `analyze-lead-website` via `supabase--curl_edge_functions` para cada lead.
+5. Ler `lead_insights` resultantes via `psql`:
+   - `score` deve ser 0–100.
+   - `score_breakdown` deve refletir os critérios do prompt (não só o fallback high/medium/low).
+   - `insights.fit_reason` deve mencionar os keywords.
+6. Reportar findings (o que funcionou, o que ficou genérico, se o prompt do cliente foi respeitado).
 
-## Conteúdo do documento
+## P0 #2 — Controle de volume no enriquecimento
 
-Vai conter, em português:
+Sem UI aqui (estou em backend), mas dá pra simular:
 
-1. **Contexto e diagnóstico**
-   - Feedback do cliente: insights genéricos (resumo, produtos, dores).
-   - Causas identificadas via investigação em `lead_insights` reais:
-     - Fetch simples não executa JS → sites SPA retornam pouco conteúdo.
-     - Só a home é lida.
-     - Prompt não exige evidência → IA inventa produtos plausíveis.
-     - Modelo único `gemini-2.5-flash`, sem fallback.
+1. Contar leads da company e distribuição de `enrichment_status`.
+2. Se houver leads não enriquecidos, marcar 5 como `pending` e 10 como `not_queued` via migration curta simulando o comportamento do `LeadImportDialog` com `enrichLimit=5`.
+3. Chamar `enrichment-enqueue-more` via curl com `count=3` — deve mover 3 de `not_queued` para `pending`.
+4. Conferir contagem final.
+5. Reportar se o fluxo funciona.
 
-2. **Escopo da mudança** (só backend, arquivo `supabase/functions/analyze-lead-website/index.ts`)
+## O que NÃO vou fazer
 
-3. **Passos de implementação**
-   - Conectar Firecrawl via `standard_connectors--connect` (`FIRECRAWL_API_KEY`).
-   - Novo helper `scrapeWithFirecrawl(website)`:
-     - `/v2/map` (limit 30) → filtra links por keywords (`sobre|produto|servico|solucao|cliente|case|contato|equipe|empresa`) → até 5 páginas + home.
-     - `/v2/scrape` com `formats: ['markdown','summary']`, `onlyMainContent: true`.
-     - Concatena `[URL]\n<markdown>` e trunca em ~25k chars.
-   - Fallback pro fetch atual se `FIRECRAWL_API_KEY` ausente.
-   - Reescrita "evidence-first" do system prompt:
-     - Cada `produtos`, `diferenciais`, `cases`, `pain_points` precisa de trecho literal (≤120 chars) + `url_origem`.
-     - Sem evidência ⇒ item não pode aparecer (preferir array vazio).
-     - `score_breakdown[].reason` também cita trecho + URL.
-   - Cascata de modelo:
-     1. `google/gemini-2.5-pro`
-     2. `google/gemini-2.5-flash` (429/5xx)
-     3. `openai/gpt-5-mini` (402)
-   - Persistir `scrape_meta` dentro de `lead_insights.insights` (sem schema change):
-     - `pages_scraped: [{ url, chars }]`
-     - `provider: 'firecrawl' | 'fetch'`
-     - `model_used`
+- Não vou disparar cadência/WhatsApp real (não tem lead-cobaia).
+- Não vou alterar código de app.
+- Não vou mexer em nenhuma company que não seja a do usuário logado.
 
-4. **Fora de escopo**
-   - Não muda UI, hooks, `buildScorePayload` nem fit/score logic.
-   - Não mexe em outras edge functions.
+## Riscos
 
-5. **Custo/latência estimados**
-   - ~6 créditos Firecrawl por lead.
-   - Latência sobe de ~5s para ~15–25s (análise é async, aceitável).
+- `analyze-lead-website` gasta créditos de IA (~2 chamadas).
+- A migration de teste vai preencher `scoring_prompt` na sua company real — no fim do teste, ofereço reverter para NULL se você preferir.
 
-6. **Validação depois de implementar**
-   - Rodar em 3 leads (SPA pesado, WordPress simples, site quebrado).
-   - Conferir `scrape_meta`.
-   - Cada `produtos` / `pain_points` deve ter trecho literal + URL.
-   - Comparar `resumo` novo vs antigo.
+## Reversibilidade
 
-## Status dos P0 do `guia-liderei-prospeccao.md`
+Todo estado alterado é logado no relatório final e revertível via nova migration se você pedir.
 
-Verificado no código:
-
-**P0 #1 — Score configurável por cliente + coluna numérica** — ✅ **Concluído**
-- `companies.scoring_prompt`, `scoring_include`, `scoring_exclude` existem.
-- Hook `useScoring` + UI em `Settings.tsx` (aba Qualificação).
-- `analyze-lead-website` já injeta `scoringBlock` no prompt e devolve `score` (0–100) + `score_breakdown`.
-
-**P0 #2 — Controle de volume no enriquecimento** — ✅ **Concluído**
-- `enrichLimit` no `LeadImportDialog` e `ApolloSearch`.
-- Status `enrichment_status='not_queued'` no `Leads.tsx`.
-- Edge function `enrichment-enqueue-more` para enfileirar mais N.
-
-**Conclusão:** os dois P0 estão prontos. A melhoria de Firecrawl (este documento) é evolução do P0 #1 (qualidade dos insights que alimentam o score), mas o P0 em si já está fechado. Próximos gaps do guia são P1 (revisão em massa, scraping LinkedIn/IG).
-
-## Sem alterações de código nesta rodada
-
-Apenas 1 arquivo novo: `docs/melhoria-analise-lead-firecrawl.md`.
+Aprova?
