@@ -7,6 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { useImportKickoff } from "@/hooks/useImportKickoff";
+import {
   useKnowledgeItems,
   useCreateKnowledge,
   useDeleteKnowledge,
@@ -30,6 +35,9 @@ import {
   Pencil,
   Star,
   Sparkles,
+  Lock,
+  Trophy,
+  ClipboardPaste,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
@@ -44,8 +52,11 @@ const typeIcons: Record<string, any> = {
   url: Globe,
 };
 
+
 export default function Knowledge() {
   const { data: items = [], isLoading } = useKnowledgeItems();
+  const { isMasterAdmin } = useAuth();
+  const importKickoff = useImportKickoff();
   const createKnowledge = useCreateKnowledge();
   const deleteKnowledge = useDeleteKnowledge();
   const updateKnowledge = useUpdateKnowledge();
@@ -55,6 +66,13 @@ export default function Knowledge() {
   const saveHighlights = useSaveHighlights();
   const { data: aiInstructionsItem } = useAiInstructions();
   const saveAiInstructions = useSaveAiInstructions();
+
+  const [kickoffOpen, setKickoffOpen] = useState(false);
+  const [kickoffText, setKickoffText] = useState("");
+  const [kickoffTitle, setKickoffTitle] = useState("");
+  const hasKickoff = (items || []).some((i: any) => i.origin === "kickoff");
+  const canImportKickoff = isMasterAdmin || !hasKickoff;
+
 
   // Highlights state
   const [highlightsText, setHighlightsText] = useState("");
@@ -157,14 +175,61 @@ export default function Knowledge() {
     });
   };
 
+  const handleImportKickoff = async () => {
+    if (!kickoffText.trim() || kickoffText.trim().length < 100) return;
+    await importKickoff.mutateAsync({ transcript: kickoffText, title: kickoffTitle || undefined });
+    setKickoffOpen(false);
+    setKickoffText("");
+    setKickoffTitle("");
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Base de Conhecimento</h1>
-        <p className="text-muted-foreground">
-          Treine a IA com informações do seu produto para gerar mensagens personalizadas
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Base de Conhecimento</h1>
+          <p className="text-muted-foreground">
+            Treine a IA com informações do seu produto para gerar mensagens personalizadas
+          </p>
+        </div>
+        {canImportKickoff && (
+          <Dialog open={kickoffOpen} onOpenChange={setKickoffOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <ClipboardPaste className="mr-2 h-4 w-4" />
+                Colar transcrição de kickoff
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Importar transcrição de kickoff</DialogTitle>
+                <DialogDescription>
+                  Cole a transcrição completa da reunião de kickoff. A IA extrairá proposta de valor, ICP, dores, histórico e tom. O item resultante fica <strong>protegido</strong> — só o admin da Liderei pode editá-lo depois.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label>Título (opcional)</Label>
+                  <Input value={kickoffTitle} onChange={(e) => setKickoffTitle(e.target.value)} placeholder="Kickoff — [Cliente]" />
+                </div>
+                <div>
+                  <Label>Transcrição</Label>
+                  <Textarea value={kickoffText} onChange={(e) => setKickoffText(e.target.value)} rows={12} placeholder="Cole aqui a transcrição da reunião…" />
+                  <p className="mt-1 text-xs text-muted-foreground">{kickoffText.length} caracteres (mínimo 100).</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setKickoffOpen(false)}>Cancelar</Button>
+                <Button onClick={handleImportKickoff} disabled={importKickoff.isPending || kickoffText.trim().length < 100}>
+                  {importKickoff.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardPaste className="mr-2 h-4 w-4" />}
+                  Importar e proteger
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
+
 
       {/* AI Instructions Card */}
       <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
@@ -305,6 +370,7 @@ export default function Knowledge() {
               onDelete={(id) => deleteKnowledge.mutate(id)}
               onEditContentChange={setEditContent}
               isSaving={updateKnowledge.isPending}
+              isMasterAdmin={isMasterAdmin}
             />
           ))}
         </TabsContent>
@@ -353,6 +419,7 @@ export default function Knowledge() {
               onDelete={(id) => deleteKnowledge.mutate(id)}
               onEditContentChange={setEditContent}
               isSaving={updateKnowledge.isPending}
+              isMasterAdmin={isMasterAdmin}
             />
           ))}
         </TabsContent>
@@ -400,6 +467,7 @@ export default function Knowledge() {
               onDelete={(id) => deleteKnowledge.mutate(id)}
               onEditContentChange={setEditContent}
               isSaving={updateKnowledge.isPending}
+              isMasterAdmin={isMasterAdmin}
             />
           ))}
         </TabsContent>
@@ -418,6 +486,7 @@ function KnowledgeCard({
   onDelete,
   onEditContentChange,
   isSaving,
+  isMasterAdmin,
 }: {
   item: any;
   editingId: string | null;
@@ -428,67 +497,72 @@ function KnowledgeCard({
   onDelete: (id: string) => void;
   onEditContentChange: (v: string) => void;
   isSaving: boolean;
+  isMasterAdmin: boolean;
 }) {
   const Icon = typeIcons[item.type] || BookOpen;
   const isEditing = editingId === item.id;
+  const isKickoff = item.origin === "kickoff";
+  const isHistoricalWins = item.knowledge_type === "historical_wins";
+  const isProtected = (item.locked || isKickoff || isHistoricalWins) && !isMasterAdmin;
 
   return (
-    <Card>
+    <Card className={isProtected ? "border-amber-200/60 bg-amber-50/30" : undefined}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Icon className="h-4 w-4 text-muted-foreground" />
             <h3 className="font-medium text-sm">{item.title}</h3>
             <Badge variant="outline" className="text-xs">
               {typeLabels[item.type]}
             </Badge>
+            {isKickoff && (
+              <Badge variant="outline" className="text-xs bg-amber-100 text-amber-900 border-amber-300 gap-1">
+                <Lock className="h-3 w-3" /> Kickoff (protegido)
+              </Badge>
+            )}
+            {isHistoricalWins && (
+              <Badge variant="outline" className="text-xs bg-emerald-100 text-emerald-900 border-emerald-300 gap-1">
+                <Trophy className="h-3 w-3" /> Aprendizados
+              </Badge>
+            )}
           </div>
           <div className="flex gap-1">
             {isEditing ? (
               <>
-                <Button size="sm" variant="ghost" onClick={onCancelEdit}>
-                  Cancelar
-                </Button>
+                <Button size="sm" variant="ghost" onClick={onCancelEdit}>Cancelar</Button>
                 <Button size="sm" onClick={() => onSave(item.id)} disabled={isSaving}>
-                  <Save className="mr-1 h-3 w-3" />
-                  Salvar
+                  <Save className="mr-1 h-3 w-3" /> Salvar
                 </Button>
               </>
             ) : (
               <>
                 <Button
-                  size="icon"
-                  variant="ghost"
+                  size="icon" variant="ghost"
                   onClick={() => onEdit(item.id, item.content)}
+                  disabled={isProtected}
+                  title={isProtected ? "Item protegido — apenas admin da Liderei pode editar" : "Editar"}
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
                 <Button
-                  size="icon"
-                  variant="ghost"
+                  size="icon" variant="ghost"
                   onClick={() => onDelete(item.id)}
+                  disabled={isProtected}
+                  title={isProtected ? "Item protegido — apenas admin da Liderei pode excluir" : "Excluir"}
                 >
-                  <Trash2 className="h-4 w-4 text-destructive" />
+                  <Trash2 className={`h-4 w-4 ${isProtected ? "text-muted-foreground" : "text-destructive"}`} />
                 </Button>
               </>
             )}
           </div>
         </div>
         {item.source_url && (
-          <p className="text-xs text-muted-foreground mb-2">
-            Fonte: {item.source_url}
-          </p>
+          <p className="text-xs text-muted-foreground mb-2">Fonte: {item.source_url}</p>
         )}
         {isEditing ? (
-          <Textarea
-            value={editContent}
-            onChange={(e) => onEditContentChange(e.target.value)}
-            rows={6}
-          />
+          <Textarea value={editContent} onChange={(e) => onEditContentChange(e.target.value)} rows={6} />
         ) : (
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">
-            {item.content}
-          </p>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">{item.content}</p>
         )}
         <p className="text-xs text-muted-foreground mt-2">
           {new Date(item.created_at).toLocaleDateString("pt-BR")}
@@ -497,3 +571,4 @@ function KnowledgeCard({
     </Card>
   );
 }
+

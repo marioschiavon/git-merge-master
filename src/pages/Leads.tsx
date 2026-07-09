@@ -4,12 +4,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLeads, useSyncLeads, useIntegration, useDeleteLead } from "@/hooks/usePipedrive";
 import { useLeadLists } from "@/hooks/useLeadLists";
 import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
 import { useEnrichMore } from "@/hooks/useScoring";
+import { useCadences } from "@/hooks/useCadences";
+import { useBulkLeadActions } from "@/hooks/useBulkLeadActions";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
@@ -25,7 +29,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles, Send, XCircle } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -43,14 +55,18 @@ const statusLabels: Record<string, string> = {
   converted: "Convertido",
 };
 
-
-
 export default function Leads() {
   const [params, setParams] = useSearchParams();
   const listId = params.get("list");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [minScore, setMinScore] = useState<number>(0);
+  const [onlyEnriched, setOnlyEnriched] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [enrollOpen, setEnrollOpen] = useState(false);
+  const [chosenCadence, setChosenCadence] = useState<string>("");
+
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -67,17 +83,21 @@ export default function Leads() {
   );
   const { data: allLeads = [], isLoading } = useLeads(leadsFilters);
   const { data: lists = [] } = useLeadLists();
+  const { data: cadences = [] } = useCadences();
   const activeList = useMemo(() => lists.find((l) => l.id === listId), [lists, listId]);
-  const leads = useMemo(
-    () => (listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads),
-    [allLeads, listId],
-  );
+  const leads = useMemo(() => {
+    let arr: any[] = listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads;
+    if (onlyEnriched) arr = arr.filter((l: any) => l.enrichment_status === "completed");
+    if (minScore > 0) arr = arr.filter((l: any) => (l.score ?? 0) >= minScore);
+    return arr;
+  }, [allLeads, listId, minScore, onlyEnriched]);
   const leadIds = useMemo(() => leads.map((l: any) => l.id), [leads]);
   const { data: insightsMap = {} } = useLeadInsightsBatch(leadIds);
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
   const isConnected = integration?.status === "active";
   const deleteLead = useDeleteLead();
+  const bulk = useBulkLeadActions();
 
   const clearListFilter = () => {
     const p = new URLSearchParams(params);
@@ -90,6 +110,37 @@ export default function Leads() {
     () => leads.filter((l: any) => l.enrichment_status === "not_queued").length,
     [leads],
   );
+
+  const allChecked = leads.length > 0 && leads.every((l: any) => selectedIds.has(l.id));
+  const someChecked = selectedIds.size > 0;
+
+  const toggleAll = () => {
+    if (allChecked) setSelectedIds(new Set());
+    else setSelectedIds(new Set(leads.map((l: any) => l.id)));
+  };
+  const toggleOne = (id: string) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const activeCadences = useMemo(
+    () => (cadences || []).filter((c: any) => c.status === "active" || c.status === "draft"),
+    [cadences],
+  );
+
+  const handleEnroll = async () => {
+    if (!chosenCadence) return;
+    await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "enroll", cadence_id: chosenCadence });
+    setSelectedIds(new Set());
+    setEnrollOpen(false);
+    setChosenCadence("");
+  };
+  const handleDiscard = async () => {
+    await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "discard" });
+    setSelectedIds(new Set());
+  };
 
   const actionButtons = (
     <div className="flex gap-2 flex-wrap">
@@ -117,11 +168,7 @@ export default function Leads() {
         <Plus className="mr-2 h-4 w-4" /> Novo Lead
       </Button>
       {isConnected && (
-        <Button
-          variant="outline"
-          onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
-        >
+        <Button variant="outline" onClick={() => syncMutation.mutate()} disabled={syncMutation.isPending}>
           <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? "animate-spin" : ""}`} />
           {syncMutation.isPending ? "Sincronizando..." : "Sincronizar"}
         </Button>
@@ -129,7 +176,7 @@ export default function Leads() {
     </div>
   );
 
-  if (!isConnected && leads.length === 0 && !search && statusFilter === "all") {
+  if (!isConnected && leads.length === 0 && !search && statusFilter === "all" && minScore === 0 && !onlyEnriched) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -185,8 +232,8 @@ export default function Leads() {
       )}
 
       {/* Filters */}
-      <div className="flex gap-3">
-        <div className="relative flex-1 max-w-sm">
+      <div className="flex gap-3 flex-wrap items-center">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Buscar por nome, email ou empresa..."
@@ -196,9 +243,7 @@ export default function Leads() {
           />
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]">
-            <SelectValue placeholder="Filtrar status" />
-          </SelectTrigger>
+          <SelectTrigger className="w-[160px]"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos os status</SelectItem>
             <SelectItem value="new">Novo</SelectItem>
@@ -208,7 +253,55 @@ export default function Leads() {
             <SelectItem value="converted">Convertido</SelectItem>
           </SelectContent>
         </Select>
+        <div className="flex items-center gap-2 rounded-md border px-3 py-1.5 min-w-[220px]">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Score ≥</span>
+          <Slider
+            value={[minScore]}
+            min={0} max={100} step={5}
+            onValueChange={(v) => setMinScore(v[0])}
+            className="w-32"
+          />
+          <span className="text-sm font-medium w-8 text-right">{minScore}</span>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <Checkbox checked={onlyEnriched} onCheckedChange={(v) => setOnlyEnriched(!!v)} />
+          Só enriquecidos
+        </label>
       </div>
+
+      {/* Bulk action bar */}
+      {someChecked && (
+        <div className="flex items-center justify-between gap-3 rounded-md border bg-primary/5 px-4 py-2 text-sm">
+          <span className="font-medium">{selectedIds.size} selecionado(s)</span>
+          <div className="flex gap-2">
+            <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
+              <X className="mr-1 h-3 w-3" /> Limpar
+            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button size="sm" variant="outline">
+                  <XCircle className="mr-1 h-3 w-3" /> Descartar
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Descartar {selectedIds.size} lead(s)?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Eles serão marcados como <strong>Desqualificados</strong> e ficarão fora das cadências. Você pode reverter depois editando manualmente cada lead.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleDiscard}>Descartar</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <Button size="sm" onClick={() => setEnrollOpen(true)}>
+              <Send className="mr-1 h-3 w-3" /> Enviar para cadência
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       <Card>
@@ -216,10 +309,14 @@ export default function Leads() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox checked={allChecked} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
+                </TableHead>
                 <TableHead>Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Empresa</TableHead>
                 <TableHead>Website</TableHead>
+                <TableHead>Score</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Origem</TableHead>
                 <TableHead className="w-12"></TableHead>
@@ -228,23 +325,22 @@ export default function Leads() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                 <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    Carregando...
-                  </TableCell>
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell>
                 </TableRow>
               ) : leads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    Nenhum lead encontrado.
-                  </TableCell>
+                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum lead encontrado.</TableCell>
                 </TableRow>
               ) : (
                 leads.map((lead: any) => (
-                  <TableRow
-                    key={lead.id}
-                    className="cursor-pointer"
-                    onClick={() => setSelectedLead(lead)}
-                  >
+                  <TableRow key={lead.id} className="cursor-pointer" onClick={() => setSelectedLead(lead)}>
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={selectedIds.has(lead.id)}
+                        onCheckedChange={() => toggleOne(lead.id)}
+                        aria-label="Selecionar lead"
+                      />
+                    </TableCell>
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <span>{lead.name}</span>
@@ -267,16 +363,25 @@ export default function Leads() {
                           ) : null;
                         })()}
                       </div>
-
                     </TableCell>
                     <TableCell>{lead.email || "—"}</TableCell>
                     <TableCell>{lead.company_name || "—"}</TableCell>
-
                     <TableCell>
                       {lead.website ? (
                         <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate max-w-[150px] inline-block" onClick={(e) => e.stopPropagation()}>
                           {lead.website.replace(/^https?:\/\//, "")}
                         </a>
+                      ) : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {lead.score != null ? (
+                        <Badge variant="secondary" className={
+                          lead.score >= 70 ? "bg-green-100 text-green-800" :
+                          lead.score >= 40 ? "bg-yellow-100 text-yellow-800" :
+                          "bg-red-100 text-red-800"
+                        }>
+                          {lead.score}
+                        </Badge>
                       ) : "—"}
                     </TableCell>
                     <TableCell>
@@ -287,13 +392,7 @@ export default function Leads() {
                     <TableCell>{lead.source || "—"}</TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-muted-foreground hover:text-primary"
-                          title="Editar lead"
-                          onClick={() => setEditingLead(lead)}
-                        >
+                        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary" title="Editar lead" onClick={() => setEditingLead(lead)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
                         <AlertDialog>
@@ -311,10 +410,7 @@ export default function Leads() {
                             </AlertDialogHeader>
                             <AlertDialogFooter>
                               <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                              <AlertDialogAction
-                                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={() => deleteLead.mutate(lead.id)}
-                              >
+                              <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => deleteLead.mutate(lead.id)}>
                                 Excluir
                               </AlertDialogAction>
                             </AlertDialogFooter>
@@ -322,7 +418,6 @@ export default function Leads() {
                         </AlertDialog>
                       </div>
                     </TableCell>
-
                   </TableRow>
                 ))
               )}
@@ -331,19 +426,44 @@ export default function Leads() {
         </CardContent>
       </Card>
 
-      <LeadDetail
-        lead={selectedLead}
-        open={!!selectedLead}
-        onOpenChange={(open) => !open && setSelectedLead(null)}
-      />
+      {/* Enroll Dialog */}
+      <Dialog open={enrollOpen} onOpenChange={setEnrollOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Enviar {selectedIds.size} lead(s) para cadência</DialogTitle>
+            <DialogDescription>
+              Os leads serão inscritos com <strong>status ativo</strong> e a primeira mensagem será gerada pela IA. Leads que já estejam nessa cadência serão ignorados.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Select value={chosenCadence} onValueChange={setChosenCadence}>
+              <SelectTrigger><SelectValue placeholder="Escolha a cadência" /></SelectTrigger>
+              <SelectContent>
+                {activeCadences.length === 0 ? (
+                  <div className="px-3 py-2 text-sm text-muted-foreground">Nenhuma cadência disponível. Crie uma em Cadências.</div>
+                ) : (
+                  activeCadences.map((c: any) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.name} <span className="text-xs text-muted-foreground">({c.status})</span>
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEnrollOpen(false)}>Cancelar</Button>
+            <Button onClick={handleEnroll} disabled={!chosenCadence || bulk.isPending}>
+              {bulk.isPending ? "Enviando..." : "Confirmar envio"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <LeadDetail lead={selectedLead} open={!!selectedLead} onOpenChange={(open) => !open && setSelectedLead(null)} />
       <LeadFormDialog open={createOpen} onOpenChange={setCreateOpen} />
-      <LeadFormDialog
-        open={!!editingLead}
-        onOpenChange={(open) => !open && setEditingLead(null)}
-        lead={editingLead}
-      />
+      <LeadFormDialog open={!!editingLead} onOpenChange={(open) => !open && setEditingLead(null)} lead={editingLead} />
       <LeadImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>
   );
 }
-
