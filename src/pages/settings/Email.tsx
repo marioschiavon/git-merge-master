@@ -186,10 +186,42 @@ export default function EmailSettings() {
       toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
-  const copy = (label: string, value: string) => {
-    navigator.clipboard.writeText(value);
-    setCopied(label);
-    setTimeout(() => setCopied(null), 1500);
+  const copy = async (label: string, value: string) => {
+    let ok = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    if (!ok) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = value;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+      } catch {
+        ok = false;
+      }
+    }
+    if (ok) {
+      setCopied(label);
+      setTimeout(() => setCopied(null), 1500);
+    } else {
+      toast({
+        title: "Não foi possível copiar automaticamente",
+        description: "Selecione o texto e use Ctrl+C (Cmd+C no Mac).",
+        variant: "destructive",
+      });
+    }
   };
 
   const isVerified = domain?.status === "verified";
