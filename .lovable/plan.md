@@ -1,97 +1,68 @@
-# Migração Gmail → Resend (multi-domínio por company)
 
 ## Objetivo
 
-Substituir a integração Gmail (envio + inbox sync) pelo **Resend via connector Lovable**. Cada company cadastra seu próprio sending domain (`mail.clientedele.com`) no Resend, verifica DKIM/SPF no DNS e passa a enviar com o `from` do domínio dela — reputação fica isolada por cliente, `leaderei.com.br` não é mais usado como remetente.
+Deixar a página `/settings/email` autoexplicativa, com passo a passo claro em linguagem simples, para que o cliente final (que muitas vezes não é técnico) consiga configurar o domínio de envio sem dúvidas. Também trocar os defaults do remetente para nomes mais amigáveis.
 
-Respostas dos leads voltam via **Resend Inbound** para o webhook existente.
+## Mudanças nos defaults
 
-## Arquitetura
+- Nome do remetente padrão: **"Atendimento"** (antes: "SDR").
+- Caixa de envio padrão: **"atendimento"** (antes: "contato"), formando por padrão `atendimento@mail.suaempresa.com`.
+- Placeholder do subdomínio segue `mail.suaempresa.com`.
+- Aplicar em `src/pages/settings/Email.tsx` (states iniciais `fromName` e `fromLocal`, e placeholders dos inputs).
+- No backend, `supabase/functions/resend-domain-create/index.ts` também usa `"SDR"` como fallback de `from_name` — trocar para `"Atendimento"` para consistência.
 
-```text
-                  ┌──────────────────────────────────┐
-Company A ─────►  │ email_domains (por company_id)   │
-Company B ─────►  │   sending_domain, resend_domain_id│
-Company C ─────►  │   status, verified_at             │
-                  └──────────────┬───────────────────┘
-                                 │
-    envio ─►  send-outbound-email (edge)  ─►  Resend API (gateway)
-                                                    │
-                                                    ▼
-                                             Cliente recebe
-                                                    │  responde ↩
-                                                    ▼
-    resend-inbound-webhook (edge)  ◄────  Resend Inbound (MX)
-              │
-              ▼
-       inbound-email-webhook (existente: casa com lead, cria message)
-```
+## Passo a passo na UI (novo)
 
-## Escopo
+Adicionar, no topo da página (depois do banner de reputação), um bloco visual **"Como funciona (4 passos)"** com estado dinâmico (cada passo mostra ✓ concluído, ● atual, ○ pendente) baseado em `domain?.status`:
 
-### 1. Conector Resend
-- Linkar o connector `resend` no workspace (via `standard_connectors--connect`), gerando `RESEND_API_KEY` no projeto.
+1. **Escolher um subdomínio de envio** — explicar o que é subdomínio em uma frase ("um endereço filho do seu domínio, ex.: `mail.suaempresa.com`. Não use o domínio raiz para preservar sua reputação").
+2. **Cadastrar o domínio aqui** — clicar em "Criar domínio no Resend"; vamos gerar os registros DNS.
+3. **Adicionar os registros DNS no seu provedor** — copiar os registros da tabela e colar no painel do seu registrador (Registro.br, GoDaddy, Cloudflare, etc.). Passo a passo genérico expandível: "Onde adicionar DNS?" com instruções curtas para os 3-4 provedores mais comuns no Brasil.
+4. **Clicar em 'Verificar DNS'** — o Resend confere e libera envio (pode levar de minutos a algumas horas).
 
-### 2. Nova tabela `company_email_domains`
-Campos: `id`, `company_id` (unique — 1 domínio por company nesta v1), `sending_domain` (ex.: `mail.acme.com`), `from_name`, `from_email` (ex.: `sdr@mail.acme.com`), `reply_to`, `resend_domain_id`, `status` (`pending`/`verifying`/`verified`/`failed`), `dns_records` (jsonb — SPF/DKIM/MX/DMARC retornados pelo Resend), `verified_at`, `last_error`, timestamps.
-RLS: company_admin/master_admin da company; GRANTs padrão.
+Estado dinâmico:
+- Sem `domain` → passo 1 atual.
+- `domain.status = pending|verifying` → passos 1-2 concluídos, passo 3 atual.
+- `domain.status = verified` → todos concluídos, mostrar mensagem "✅ Tudo pronto! Você já pode enviar emails."
 
-### 3. Edge functions Resend (novas)
-- `resend-domain-create` — cria domínio no Resend para a company, salva `resend_domain_id` e registros DNS a exibir.
-- `resend-domain-verify` — dispara verify no Resend, atualiza status.
-- `resend-domain-status` — consulta status atual (usado pelo polling da UI).
-- `resend-domain-delete` — remove domínio do Resend e do banco.
-- `send-outbound-email` — envia via Resend gateway. Recebe `{ lead_id, subject, html, text, thread_headers? }`, resolve o `company_email_domains` da company do lead, envia com `from` correto, persiste `message` outbound com `provider_message_id`.
-- `resend-inbound-webhook` — recebe payload Inbound do Resend (com secret compartilhado), normaliza para o mesmo formato do `inbound-email-webhook` atual e delega (ou reusa `stripQuotedEmail` + matching por lead/thread).
+## Wizard (formulário inicial)
 
-### 4. Substituir chamadas de envio
-Todos os pontos que hoje chamam `gmail-send` passam a chamar `send-outbound-email`:
-- `cadence-executor`
-- `send-outbound-message` (branch email)
-- `generate-reply` / `human-suggest-reply` handoffs de email
-- Qualquer outro caller identificado no `rg gmail-send`.
+Reescrever a seção "Configurar domínio de envio" com:
+- Título maior "Passo 1: Cadastre seu domínio de envio".
+- Texto explicativo curto acima de cada campo em linguagem simples:
+  - **Subdomínio**: "É o endereço técnico usado para enviar. Recomendamos `mail.suaempresa.com`. Se `suaempresa.com` já é seu, basta usar `mail.` na frente."
+  - **Nome do remetente**: "Nome que aparece na caixa de entrada do destinatário. Ex.: Atendimento, Comercial, Equipe Acme."
+  - **Caixa de envio**: "Parte antes do @. Ex.: atendimento, contato, ola. Evite `no-reply` — respostas são bem-vindas."
+- Preview em tempo real: mostrar em destaque `Atendimento <atendimento@mail.suaempresa.com>` conforme o usuário digita, para ele visualizar exatamente o que o destinatário verá.
 
-### 5. UI — nova página `/settings/email` (substitui `/settings/gmail`)
-- Card por company: status do domínio, `from` configurado, botão "Adicionar domínio de envio".
-- Wizard: input `mail.seudominio.com` → cria no Resend → exibe tabela com registros DNS (SPF/DKIM/MX/DMARC) para o cliente configurar no registrar dele → botão "Verificar" (polling status).
-- Configuração de `from_name`, `from_email`, `reply_to`.
-- Estatísticas 7d (enviados/recebidos) reusando `messages` (já existe lógica).
-- Aviso claro: "A reputação de envio pertence ao seu domínio."
-- Link master_admin para `/settings/integrations` ajustado.
+## Tabela DNS mais didática
 
-### 6. Remoção completa do Gmail
-Deletar:
-- Frontend: `src/pages/settings/Gmail.tsx`, hooks/rotas do Gmail em `App.tsx`, card Gmail em `src/pages/settings/Integrations.tsx`, referências em `AppSidebar`.
-- Edge functions: `gmail-connector-status`, `gmail-oauth-start`, `gmail-oauth-callback`, `gmail-send`, `gmail-sync-inbox`.
-- Shared: `_shared/gmail-connector.ts`, `_shared/gmail-oauth.ts`.
-- Banco (migração): drop `gmail_account`, drop RPCs `set_gmail_oauth_tokens`, `get_gmail_oauth_tokens`, `update_gmail_access_token`, `mark_gmail_error`; remover coluna `messages.gmail_message_id` (renomear para `provider_message_id` genérico) e `metadata` mantém.
-- Secrets: remover `GMAIL_TOKEN_PASSPHRASE`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, desconectar connector Google Mail.
-- Cron: qualquer cron que dispare `gmail-sync-inbox`.
+- Título: "Passo 3: Adicione estes registros no DNS do seu domínio".
+- Texto acima da tabela: "Copie cada registro abaixo e cadastre no painel de DNS do seu registrador (onde você comprou o domínio). Cada linha vira uma entrada nova."
+- Adicionar uma seção expansível **"Como fazer no meu provedor?"** com instruções curtas por provedor:
+  - **Registro.br**: painel → Editar Zona DNS → adicionar cada registro (Tipo, Nome, Valor).
+  - **GoDaddy**: Meus Produtos → DNS → Adicionar registro.
+  - **Cloudflare**: DNS → Records → Add record (deixar proxy DESLIGADO/cinza).
+  - **HostGator/Locaweb**: cPanel → Zona DNS → Adicionar registro.
+- Aviso destacado ao lado da tabela: "⚠️ Ao copiar o **Nome**, use exatamente o que aparece aqui. Alguns provedores adicionam o domínio automaticamente — se acontecer duplicação (ex.: `mail.suaempresa.com.suaempresa.com`), remova a parte extra."
+- Manter o texto "Após adicionar os registros, DNS pode levar até 72h (geralmente é bem mais rápido, ~15min a 2h)."
 
-### 7. Webhook Inbound
-- Configurar (manualmente no Resend, uma vez) uma Inbound Route apontando para `https://<projeto>.functions.supabase.co/resend-inbound-webhook`.
-- Instruir cada cliente a adicionar o MX do Resend Inbound no `mail.dominio.com` (aparece no wizard junto com os outros registros).
-- Signing secret `RESEND_INBOUND_SECRET` salvo via `add_secret` (o valor o próprio dev define no dashboard do Resend e cola no Lovable).
+## Botão de verificar
 
-### 8. Docs / memória
-- Atualizar `mem://index.md` — remover menção a Gmail, adicionar "Email via Resend multi-tenant (1 domínio por company, reputação isolada)".
-- README curto em `docs/email-resend-multitenant.md`.
+- Renomear "Verificar DNS" → "Passo 4: Verificar meu DNS" quando ainda não verificado.
+- Ao clicar, se ainda não propagado, toast: "Registros ainda não encontrados. Aguarde alguns minutos e tente de novo — pode levar até 2h em alguns provedores."
 
-### 9. Versionamento
-Bump `APP_VERSION` para `alpha 0.20`.
+## Estados vazios e mensagens de erro
 
-## Ordem de execução
+- Mensagens de erro em português claro (já estão, mas revisar para evitar termos técnicos como "resend_domain_id").
+- Quando `status = verified`, esconder tabela DNS num accordion recolhido "Ver registros DNS configurados" para não poluir a tela.
 
-1. Linkar connector Resend + pedir `RESEND_INBOUND_SECRET`.
-2. Migração DB (nova tabela, drop Gmail).
-3. Edge functions Resend + `send-outbound-email` + `resend-inbound-webhook`.
-4. Trocar callers de `gmail-send` → `send-outbound-email`.
-5. Nova UI `/settings/email` + remoção da UI Gmail.
-6. Deletar edge functions Gmail e shared.
-7. Bump versão.
+## Arquivos afetados
 
-## Fora do escopo (fica para depois)
+- `src/pages/settings/Email.tsx` — reescrita da estrutura visual + defaults.
+- `supabase/functions/resend-domain-create/index.ts` — trocar fallback `"SDR"` por `"Atendimento"`.
 
-- Múltiplos sending domains por company.
-- Webhooks de bounce/complaint (`suppressed_emails`) — pode ser feito em fase 2 usando os eventos do Resend.
-- Migração de histórico Gmail existente (mensagens antigas continuam no banco, campo renomeado para `provider_message_id` mantém compatibilidade).
+## Fora do escopo
+
+- Não mexer em backend de envio, webhook inbound, migração de dados, ou lógica de verificação.
+- Não adicionar suporte a múltiplos domínios por company.
