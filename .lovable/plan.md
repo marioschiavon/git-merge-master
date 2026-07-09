@@ -1,34 +1,46 @@
-## Diagnóstico
+# Ajustes no Manual do Usuário
 
-Confirmei via API do Resend que o domínio `mail.hook7.com.br` está **verified** (todos os 3 registros DNS `verified`). Porém no banco `company_email_domains` ainda consta `status = "verifying"`.
+Duas mudanças no manual (`docs/manual/`), sem tocar em código do app.
 
-**Causa raiz:** o clique em "Verificar DNS" na tela foi feito antes do Resend concluir a checagem (o toast "Ainda propagando" apareceu). O Resend terminou de verificar depois, mas a nossa tela não faz um novo polling automático — o usuário precisaria clicar de novo, e a UX não deixa isso claro.
+## 1. Remover a linha "Rota:" de todos os capítulos
 
-Além disso, mesmo agora, se o usuário clicar de novo, o botão funciona uma vez só; se ele saiu da página, ao voltar precisa clicar de novo.
+Hoje quase todo capítulo abre com algo tipo:
 
-## Plano
+```
+**Rota:** `/settings/integrations`
+**Quando usar:** ...
+```
 
-**1. Corrigir o registro atual (imediato)**
-- Invocar `resend-domain-verify` uma vez agora (via edge function) para sincronizar `mail.hook7.com.br` → `verified`.
+Isso confunde usuário leigo (ele não sabe o que é uma "rota"). Removo **apenas** essa linha em cada arquivo, mantendo "Quando usar" e "Pré-requisitos". Onde a instrução realmente depende do menu, o passo a passo já diz "Vá em **Configurações → Integrações**", então nada de navegação se perde.
 
-**2. Auto-polling no frontend (`src/pages/settings/Email.tsx`)**
-Quando o domínio existe e `status ∈ {"pending", "verifying"}`:
-- Ao montar a página, disparar `resend-domain-verify` automaticamente (1x silenciosamente).
-- Iniciar polling: chamar `resend-domain-verify` a cada 15s, por até 5 min, parando quando `status === "verified"` ou `failed`.
-- Mostrar indicador visual sutil ("Verificando automaticamente...") ao lado do badge, sem toast a cada iteração.
-- Manter o botão manual "Verificar DNS" para o usuário forçar.
+Arquivos afetados (24): `01` até `19` + `03a-03e`.
 
-**3. Melhorar o texto**
-- Trocar o toast "Ainda propagando" por "Estamos verificando em segundo plano — vamos atualizar automaticamente" quando o polling estiver ativo.
+## 2. Revisar a seção de Integrações (sem novos capítulos)
+
+Mantendo apenas os 5 capítulos que já existem (WhatsApp, Email, Apollo, Pipedrive, Cal.com). LinkedIn e Enriquecimento (Apify) ficam de fora por enquanto.
+
+O que muda em cada arquivo:
+
+| Arquivo | O que muda |
+|---|---|
+| `03-integracoes.md` | Reescrita com linguagem mais leiga: o que é uma "integração", tabela das 5 integrações disponíveis, ordem recomendada de conexão e por quê |
+| `03a-whatsapp-hook7.md` | Sem "Rota". Passo a passo mais didático — explica o que é QR-Code e o caminho exato no celular (**WhatsApp → Configurações → Aparelhos conectados → Conectar um aparelho**) |
+| `03b-email-resend.md` | Sem "Rota". Deixar mais claro o que cada tipo de registro (TXT/CNAME/MX) faz, com analogia simples, e passo a passo por provedor DNS |
+| `03c-apollo.md` | Sem "Rota". Caminho exato dentro do Apollo (menu por menu) para gerar a API key |
+| `03d-pipedrive.md` | Sem "Rota". Caminho exato dentro do Pipedrive para gerar o token |
+| `03e-calcom.md` | Sem "Rota". Passo a passo com os nomes de menu atuais do Cal.com |
+
+Todos continuam terminando com **Próximo passo →** no encadeamento atual: 03 → 03a → 03b → 03c → 03d → 03e → 04.
+
+## Fora do escopo
+
+- Nenhum novo capítulo (sem `03f-enriquecimento.md`, sem `03g-linkedin.md`).
+- Sem mudanças em código, edge functions ou banco.
+- Sem screenshots.
+- Continua em **pt-BR**.
 
 ## Detalhes técnicos
 
-- Hook novo `useAutoVerifyDomain(domain)` que:
-  - Retorna cedo se `status === "verified"` ou `failed` ou não há domínio.
-  - Usa `useEffect` + `setInterval(15000)` com contador de tentativas (máx 20).
-  - Em cada tick, `supabase.functions.invoke("resend-domain-verify")` e `queryClient.invalidateQueries(["company_email_domain_full"])`.
-  - Limpa o interval no unmount e ao chegar em estado terminal.
-
-## Escopo excluído
-- Webhook do Resend (fora de escopo — o polling resolve o caso do usuário).
-- Mudança na edge function `resend-domain-verify` (já está correta).
+- Remoção da linha `**Rota:** ...` via `sed` (padrão consistente nos 24 arquivos).
+- Reescrita manual dos 6 arquivos de integração para linguagem mais acessível.
+- `docs/manual/README.md` não muda (sumário permanece igual).
