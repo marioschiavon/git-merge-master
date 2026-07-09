@@ -29,6 +29,9 @@ export function useLeadInsightsBatch(leadIds: string[]) {
   return useQuery({
     queryKey: ["lead_insights_batch", "all"],
     enabled: leadIds.length > 0,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lead_insights")
