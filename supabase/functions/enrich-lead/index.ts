@@ -413,6 +413,46 @@ async function runJob(job_id: string) {
       }
       await Promise.allSettled(tasks);
       steps.apify_scrape = `ran ${tasks.length}`;
+
+      // Step 3.1: gerar resumos IA de LinkedIn e Instagram em lead_insights
+      if (LOVABLE_API_KEY) {
+        try {
+          const { data: profs } = await supabase.from("lead_social_profiles")
+            .select("network, bio, posts_summary, raw")
+            .eq("lead_id", lead.id);
+          const byNet: Record<string, any> = {};
+          for (const p of (profs || [])) byNet[p.network] = p;
+
+          const summarize = async (label: string, source: string) => {
+            if (!source.trim()) return null;
+            try {
+              const s = await callAI([
+                { role: "system", content: `Resuma em PT-BR (máx 500 chars) o perfil ${label} abaixo, destacando: área de atuação, tom de conteúdo, temas frequentes e sinais úteis para uma abordagem comercial. Sem elogios genéricos, sem inventar.` },
+                { role: "user", content: source.slice(0, 4000) },
+              ]);
+              return s.slice(0, 700);
+            } catch { return null; }
+          };
+
+          const li = byNet.linkedin_person || byNet.linkedin_company;
+          const ig = byNet.instagram;
+          const liSrc = li ? [li.bio, JSON.stringify(li.raw || {}).slice(0, 2000)].filter(Boolean).join("\n") : "";
+          const igSrc = ig ? [ig.bio, ig.posts_summary].filter(Boolean).join("\n") : "";
+          const [liSum, igSum] = await Promise.all([
+            liSrc ? summarize("LinkedIn", liSrc) : Promise.resolve(null),
+            igSrc ? summarize("Instagram", igSrc) : Promise.resolve(null),
+          ]);
+          if (liSum || igSum) {
+            await supabase.from("lead_insights").upsert({
+              lead_id: lead.id, company_id: lead.company_id,
+              linkedin_summary: liSum, instagram_summary: igSum,
+            }, { onConflict: "lead_id" });
+            steps.social_summaries = { linkedin: !!liSum, instagram: !!igSum };
+          }
+        } catch (e) {
+          steps.social_summaries = `error: ${e instanceof Error ? e.message : e}`;
+        }
+      }
     }
 
     // Step 3.5: autofill contacts from social profiles (in order: instagram > facebook > linkedin)
