@@ -15,6 +15,7 @@ import {
   Check,
   Trash2,
   Shield,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +29,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -86,6 +92,22 @@ function useEmailStats() {
   });
 }
 
+type StepState = "done" | "current" | "pending";
+
+function computeSteps(domain: DomainRow | null): StepState[] {
+  if (!domain) return ["current", "pending", "pending", "pending"];
+  if (domain.status === "verified") return ["done", "done", "done", "done"];
+  // pending / verifying / failed / others
+  return ["done", "done", "current", "pending"];
+}
+
+const STEP_LABELS = [
+  { title: "Escolha um subdomínio", desc: "Ex.: mail.suaempresa.com — não use o domínio raiz." },
+  { title: "Cadastre aqui", desc: "Vamos gerar os registros de DNS automaticamente." },
+  { title: "Adicione os registros no DNS", desc: "Copie e cole no painel do seu registrador." },
+  { title: "Clique em 'Verificar DNS'", desc: "Liberamos o envio assim que o DNS propagar." },
+];
+
 export default function EmailSettings() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -93,9 +115,11 @@ export default function EmailSettings() {
   const { data: stats } = useEmailStats();
 
   const [sendingDomain, setSendingDomain] = useState("");
-  const [fromName, setFromName] = useState("SDR");
-  const [fromLocal, setFromLocal] = useState("contato");
+  const [fromName, setFromName] = useState("Atendimento");
+  const [fromLocal, setFromLocal] = useState("atendimento");
   const [copied, setCopied] = useState<string | null>(null);
+  const [dnsHelpOpen, setDnsHelpOpen] = useState(false);
+  const [showDnsWhenVerified, setShowDnsWhenVerified] = useState(false);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -113,7 +137,7 @@ export default function EmailSettings() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["company_email_domain_full"] });
       queryClient.invalidateQueries({ queryKey: ["company_email_domain"] });
-      toast({ title: "Domínio criado", description: "Configure os registros DNS abaixo." });
+      toast({ title: "Domínio criado", description: "Agora adicione os registros DNS abaixo." });
     },
     onError: (e: Error) =>
       toast({ title: "Erro", description: e.message, variant: "destructive" }),
@@ -133,11 +157,11 @@ export default function EmailSettings() {
       queryClient.invalidateQueries({ queryKey: ["company_email_domain"] });
       const s = data?.domain?.status;
       toast({
-        title: "Verificação",
+        title: s === "verified" ? "Verificado!" : "Ainda propagando",
         description:
           s === "verified"
-            ? "Domínio verificado! Pronto para enviar."
-            : "Ainda propagando. Tente novamente em alguns minutos.",
+            ? "Tudo pronto — sua empresa já pode enviar emails."
+            : "Registros ainda não encontrados. Aguarde alguns minutos e tente de novo — pode levar até 2h em alguns provedores.",
       });
     },
     onError: (e: Error) =>
@@ -169,6 +193,9 @@ export default function EmailSettings() {
   };
 
   const isVerified = domain?.status === "verified";
+  const steps = computeSteps(domain ?? null);
+  const previewDomain = sendingDomain || "mail.suaempresa.com";
+  const previewFrom = `${fromName || "Atendimento"} <${fromLocal || "atendimento"}@${previewDomain}>`;
 
   return (
     <div className="space-y-6">
@@ -187,7 +214,7 @@ export default function EmailSettings() {
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Email da empresa</h1>
             <p className="text-muted-foreground text-sm">
-              Envie e receba emails usando o domínio da sua empresa via Resend.
+              Envie e receba emails usando o domínio da sua empresa.
             </p>
           </div>
         </div>
@@ -201,7 +228,7 @@ export default function EmailSettings() {
             }
           >
             {isVerified ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
-            {isVerified ? "Verificado" : domain.status}
+            {isVerified ? "Verificado" : "Aguardando DNS"}
           </Badge>
         )}
       </div>
@@ -209,59 +236,132 @@ export default function EmailSettings() {
       <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-sm flex items-start gap-2">
         <Shield className="h-4 w-4 text-primary mt-0.5 shrink-0" />
         <div>
-          <p className="font-medium">Reputação de envio pertence ao seu domínio</p>
+          <p className="font-medium">A reputação de envio pertence ao seu domínio</p>
           <p className="text-muted-foreground mt-1">
             Cada empresa envia com seu próprio domínio (ex.: <code>mail.suaempresa.com</code>).
-            Isso protege a reputação e melhora a entregabilidade.
+            Isso protege sua reputação e melhora a entregabilidade dos emails.
           </p>
         </div>
       </div>
 
+      {/* Passo a passo */}
+      <div className="rounded-xl border bg-card p-5">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">
+          Como funciona (4 passos)
+        </h2>
+        <ol className="space-y-3">
+          {STEP_LABELS.map((s, i) => {
+            const state = steps[i];
+            return (
+              <li key={i} className="flex items-start gap-3">
+                <div
+                  className={
+                    "mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-semibold " +
+                    (state === "done"
+                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                      : state === "current"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground")
+                  }
+                >
+                  {state === "done" ? <Check className="h-3.5 w-3.5" /> : i + 1}
+                </div>
+                <div>
+                  <p
+                    className={
+                      "text-sm font-medium " +
+                      (state === "pending" ? "text-muted-foreground" : "text-foreground")
+                    }
+                  >
+                    {s.title}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{s.desc}</p>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+        {isVerified && (
+          <div className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm text-emerald-800 dark:text-emerald-300 flex items-start gap-2">
+            <CheckCircle2 className="h-4 w-4 mt-0.5" />
+            <span>Tudo pronto! Sua empresa já pode enviar emails pelo Leaderei.</span>
+          </div>
+        )}
+      </div>
+
       {!isLoading && !domain && (
-        <div className="rounded-xl border bg-card p-5 space-y-4">
-          <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-            Configurar domínio de envio
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
+        <div className="rounded-xl border bg-card p-5 space-y-5">
+          <div>
+            <h2 className="text-base font-semibold text-foreground">
+              Passo 1: Cadastre seu domínio de envio
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              Preencha os campos abaixo. É rápido — os detalhes técnicos ficam por nossa conta.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
               <Label htmlFor="sending_domain">Subdomínio de envio</Label>
               <Input
                 id="sending_domain"
                 placeholder="mail.suaempresa.com"
                 value={sendingDomain}
-                onChange={(e) => setSendingDomain(e.target.value)}
+                onChange={(e) => setSendingDomain(e.target.value.toLowerCase().trim())}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Recomendado usar subdomínio (não o domínio principal).
+                É o endereço técnico usado para enviar. Recomendamos <code>mail.suaempresa.com</code>.
+                Se <code>suaempresa.com</code> já é seu, basta usar <code>mail.</code> na frente.
+                Não use o domínio principal — isso protege sua reputação.
               </p>
             </div>
+
             <div>
               <Label htmlFor="from_name">Nome do remetente</Label>
               <Input
                 id="from_name"
-                placeholder="SDR"
+                placeholder="Atendimento"
                 value={fromName}
                 onChange={(e) => setFromName(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground mt-1">
+                Nome que aparece na caixa de entrada de quem recebe. Ex.: Atendimento, Comercial,
+                Equipe Acme.
+              </p>
             </div>
+
             <div>
               <Label htmlFor="from_local">Caixa de envio</Label>
               <div className="flex items-center gap-1">
                 <Input
                   id="from_local"
-                  placeholder="contato"
+                  placeholder="atendimento"
                   value={fromLocal}
-                  onChange={(e) => setFromLocal(e.target.value)}
+                  onChange={(e) => setFromLocal(e.target.value.toLowerCase().trim())}
                 />
-                <span className="text-sm text-muted-foreground">@{sendingDomain || "..."}</span>
+                <span className="text-sm text-muted-foreground whitespace-nowrap">
+                  @{sendingDomain || "mail.suaempresa.com"}
+                </span>
               </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Parte antes do @. Ex.: atendimento, contato, ola. Evite <code>no-reply</code> —
+                respostas são bem-vindas e sinal positivo para provedores.
+              </p>
             </div>
           </div>
+
+          <div className="rounded-md border bg-background p-3">
+            <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">
+              Prévia — como o destinatário vai ver
+            </p>
+            <p className="mt-1 text-sm font-medium text-foreground break-all">{previewFrom}</p>
+          </div>
+
           <Button
             onClick={() => createMutation.mutate()}
             disabled={!sendingDomain || createMutation.isPending}
           >
-            {createMutation.isPending ? "Criando..." : "Criar domínio no Resend"}
+            {createMutation.isPending ? "Criando..." : "Cadastrar domínio e gerar registros DNS"}
           </Button>
         </div>
       )}
@@ -270,104 +370,203 @@ export default function EmailSettings() {
         <>
           <div className="rounded-xl border bg-card p-5 space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Configuração
+              Sua configuração
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
               <InfoRow label="Domínio" value={domain.sending_domain} />
-              <InfoRow label="Remetente" value={`${domain.from_name} <${domain.from_email}>`} />
+              <InfoRow
+                label="Remetente"
+                value={`${domain.from_name ?? "Atendimento"} <${domain.from_email ?? ""}>`}
+              />
               <InfoRow label="Reply-to" value={domain.reply_to ?? "—"} />
-              <InfoRow label="Status" value={domain.status} />
+              <InfoRow
+                label="Status"
+                value={
+                  domain.status === "verified"
+                    ? "Verificado"
+                    : domain.status === "pending"
+                      ? "Aguardando DNS"
+                      : domain.status === "verifying"
+                        ? "Verificando..."
+                        : domain.status === "failed"
+                          ? "Falhou"
+                          : domain.status
+                }
+              />
             </div>
             {domain.last_error && (
               <div className="rounded-md border border-red-500/30 bg-red-500/5 p-3 text-xs flex items-start gap-2">
                 <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5" />
-                <span className="text-muted-foreground font-mono break-all">{domain.last_error}</span>
+                <span className="text-muted-foreground font-mono break-all">
+                  {domain.last_error}
+                </span>
               </div>
             )}
           </div>
 
           {domain.dns_records && domain.dns_records.length > 0 && (
-            <div className="rounded-xl border bg-card">
-              <div className="p-5 border-b">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                  Registros DNS
-                </h2>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Adicione estes registros no DNS do seu domínio ({domain.sending_domain}).
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Tipo</TableHead>
-                      <TableHead>Nome</TableHead>
-                      <TableHead>Valor</TableHead>
-                      <TableHead>TTL</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {domain.dns_records.map((r, i) => (
-                      <TableRow key={i}>
-                        <TableCell className="font-mono text-xs">{r.type}</TableCell>
-                        <TableCell className="font-mono text-xs max-w-[220px]">
-                          <div className="flex items-center gap-1">
-                            <span className="truncate">{r.name}</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={() => copy(`name-${i}`, r.name)}
-                            >
-                              {copied === `name-${i}` ? (
-                                <Check className="h-3 w-3" />
-                              ) : (
-                                <Copy className="h-3 w-3" />
-                              )}
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs max-w-[380px]">
-                          <div className="flex items-center gap-1">
-                            <span className="truncate">{r.value}</span>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 w-6 p-0"
-                              onClick={() => copy(`val-${i}`, r.value)}
-                            >
-                              {copied === `val-${i}` ? (
-                                <Check className="h-3 w-3" />
-                              ) : (
-                                <Copy className="h-3 w-3" />
-                              )}
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{r.ttl ?? "Auto"}</TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="secondary"
+            <>
+              {isVerified && !showDnsWhenVerified ? (
+                <button
+                  className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+                  onClick={() => setShowDnsWhenVerified(true)}
+                >
+                  Ver registros DNS configurados
+                </button>
+              ) : (
+                <div className="rounded-xl border bg-card">
+                  <div className="p-5 border-b space-y-2">
+                    <h2 className="text-base font-semibold text-foreground">
+                      Passo 3: Adicione estes registros no DNS do seu domínio
+                    </h2>
+                    <p className="text-sm text-muted-foreground">
+                      Copie cada registro abaixo e cadastre no painel de DNS do seu registrador
+                      (onde você comprou o domínio <code>{domain.sending_domain}</code>). Cada
+                      linha da tabela vira uma entrada nova.
+                    </p>
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div className="text-muted-foreground">
+                        Ao copiar o campo <b>Nome</b>, use exatamente o que aparece aqui. Alguns
+                        provedores adicionam o domínio automaticamente — se acontecer duplicação
+                        (ex.: <code>mail.suaempresa.com.suaempresa.com</code>), apague a parte
+                        extra.
+                      </div>
+                    </div>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Tipo</TableHead>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Valor</TableHead>
+                          <TableHead>TTL</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {domain.dns_records.map((r, i) => (
+                          <TableRow key={i}>
+                            <TableCell className="font-mono text-xs">{r.type}</TableCell>
+                            <TableCell className="font-mono text-xs max-w-[220px]">
+                              <div className="flex items-center gap-1">
+                                <span className="truncate">{r.name}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => copy(`name-${i}`, r.name)}
+                                >
+                                  {copied === `name-${i}` ? (
+                                    <Check className="h-3 w-3" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell className="font-mono text-xs max-w-[380px]">
+                              <div className="flex items-center gap-1">
+                                <span className="truncate">{r.value}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-6 w-6 p-0"
+                                  onClick={() => copy(`val-${i}`, r.value)}
+                                >
+                                  {copied === `val-${i}` ? (
+                                    <Check className="h-3 w-3" />
+                                  ) : (
+                                    <Copy className="h-3 w-3" />
+                                  )}
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">
+                              {r.ttl ?? "Auto"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="secondary"
+                                className={
+                                  r.status === "verified"
+                                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
+                                    : "bg-muted text-muted-foreground border-transparent"
+                                }
+                              >
+                                {r.status === "verified" ? "verificado" : "pendente"}
+                              </Badge>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  <div className="p-4 border-t">
+                    <Collapsible open={dnsHelpOpen} onOpenChange={setDnsHelpOpen}>
+                      <CollapsibleTrigger asChild>
+                        <button className="flex w-full items-center justify-between text-sm font-medium text-foreground">
+                          <span>Como adicionar DNS no meu provedor?</span>
+                          <ChevronDown
                             className={
-                              r.status === "verified"
-                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
-                                : "bg-muted text-muted-foreground border-transparent"
+                              "h-4 w-4 transition-transform " + (dnsHelpOpen ? "rotate-180" : "")
                             }
-                          >
-                            {r.status ?? "pendente"}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              <div className="p-4 border-t flex items-center gap-2 text-xs text-muted-foreground">
-                <Info className="h-4 w-4" />
-                <span>Após adicionar os registros, DNS pode levar até 72h para propagar.</span>
-              </div>
-            </div>
+                          />
+                        </button>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent className="mt-3 space-y-3 text-sm text-muted-foreground">
+                        <ProviderHelp
+                          name="Registro.br"
+                          steps={[
+                            "Acesse registro.br e entre na sua conta.",
+                            "Vá em Painel → seu domínio → Editar Zona DNS.",
+                            "Para cada linha da tabela acima, clique em 'Novo registro' e preencha Tipo, Nome e Valor.",
+                            "Salve as alterações.",
+                          ]}
+                        />
+                        <ProviderHelp
+                          name="GoDaddy"
+                          steps={[
+                            "Acesse godaddy.com e entre na sua conta.",
+                            "Vá em Meus Produtos → seu domínio → DNS.",
+                            "Clique em 'Adicionar' e preencha Tipo, Nome e Valor para cada linha.",
+                            "Salve.",
+                          ]}
+                        />
+                        <ProviderHelp
+                          name="Cloudflare"
+                          steps={[
+                            "Acesse cloudflare.com e selecione seu domínio.",
+                            "Vá em DNS → Records → Add record.",
+                            "Preencha Tipo, Nome e Valor. Deixe o Proxy DESLIGADO (nuvem cinza).",
+                            "Salve cada registro.",
+                          ]}
+                        />
+                        <ProviderHelp
+                          name="HostGator / Locaweb / cPanel"
+                          steps={[
+                            "Acesse o cPanel do seu provedor de hospedagem.",
+                            "Procure por 'Zona DNS' ou 'Editor de zona'.",
+                            "Adicione um registro novo para cada linha da tabela acima.",
+                            "Salve.",
+                          ]}
+                        />
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </div>
+
+                  <div className="p-4 border-t flex items-center gap-2 text-xs text-muted-foreground">
+                    <Info className="h-4 w-4" />
+                    <span>
+                      Após adicionar, o DNS pode levar até 72h para propagar — mas normalmente é
+                      bem mais rápido (15 minutos a 2 horas).
+                    </span>
+                  </div>
+                </div>
+              )}
+            </>
           )}
 
           <div className="grid gap-3 sm:grid-cols-2">
@@ -383,12 +582,16 @@ export default function EmailSettings() {
               <RefreshCw
                 className={`mr-2 h-4 w-4 ${verifyMutation.isPending ? "animate-spin" : ""}`}
               />
-              {isVerified ? "Verificado" : "Verificar DNS"}
+              {isVerified ? "Verificado" : "Passo 4: Verificar meu DNS"}
             </Button>
             <Button
               variant="outline"
               onClick={() => {
-                if (confirm("Remover configuração de domínio? Envios serão interrompidos.")) {
+                if (
+                  confirm(
+                    "Remover configuração de domínio? Os envios da sua empresa serão interrompidos.",
+                  )
+                ) {
                   deleteMutation.mutate();
                 }
               }}
@@ -429,6 +632,19 @@ function StatCard({
         <Icon className="h-4 w-4 text-muted-foreground" />
       </div>
       <p className="mt-2 text-2xl font-semibold text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function ProviderHelp({ name, steps }: { name: string; steps: string[] }) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <p className="text-sm font-medium text-foreground">{name}</p>
+      <ol className="mt-2 list-decimal list-inside space-y-1 text-xs">
+        {steps.map((s, i) => (
+          <li key={i}>{s}</li>
+        ))}
+      </ol>
     </div>
   );
 }
