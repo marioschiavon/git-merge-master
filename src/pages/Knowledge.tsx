@@ -7,6 +7,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
+} from "@/components/ui/dialog";
+import { useAuth } from "@/hooks/useAuth";
+import { useImportKickoff } from "@/hooks/useImportKickoff";
+import {
   useKnowledgeItems,
   useCreateKnowledge,
   useDeleteKnowledge,
@@ -30,6 +35,9 @@ import {
   Pencil,
   Star,
   Sparkles,
+  Lock,
+  Trophy,
+  ClipboardPaste,
 } from "lucide-react";
 
 const typeLabels: Record<string, string> = {
@@ -43,6 +51,7 @@ const typeIcons: Record<string, any> = {
   document: FileText,
   url: Globe,
 };
+
 
 export default function Knowledge() {
   const { data: items = [], isLoading } = useKnowledgeItems();
