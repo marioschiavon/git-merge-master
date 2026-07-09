@@ -1,80 +1,83 @@
-
 ## Objetivo
 
-Substituir o placeholder de `/settings/team` por uma tela funcional que faz **o que dá para fazer sem depender de integrações**: listar membros da empresa, trocar papel e remover.
+Permitir que **Admin da empresa** gere um **link de convite** copiável na tela Equipe. O convidado abre o link, vê a empresa e o papel pré-definidos, preenche **nome, email e senha**, cria a conta e é automaticamente vinculado à empresa com o papel certo. Sem depender de Email (03b) ou WhatsApp (03a) — o admin compartilha o link pelo canal que preferir.
 
-O fluxo de **convite por email** fica postergado — é um capítulo natural depois de [03b. Email (domínio próprio)](../docs/manual/03b-email-resend.md) estar configurado. Quando chegar lá, entra numa iteração futura.
+Quando as integrações de envio estiverem prontas, dá para plugar o disparo automático por cima desse mesmo fluxo — fica para depois.
 
-## 1. RPC `list_company_members`
+## Fluxo do usuário
 
-Necessário porque o email do usuário mora em `auth.users` e não pode ser lido direto do frontend.
+1. Admin abre **Configurações → Equipe**, clica em **Convidar membro**.
+2. Modal pede só o **papel** (Admin da empresa / Usuário). Sem email — o convite é um link genérico da empresa+papel.
+3. Ao confirmar, o sistema cria o convite e mostra **link + botão Copiar**. O link também fica em **Convites pendentes** (Copiar / Cancelar).
+4. Convidado abre `https://app.leaderei.com.br/invite/<token>`:
+   - Página pública valida o token via RPC.
+   - Mostra: **"Você foi convidado para <Empresa> como <Papel>"**.
+   - Formulário: **nome completo, email, senha, confirmação de senha** (todos editáveis — o email é o que ele vai usar para login).
+   - Submit: cria conta no Auth, chama RPC de aceite, mostra tela de sucesso com botão **Ir para login**.
+5. Estados de erro tratados: token inválido, expirado (>7 dias), já usado, cancelado.
 
-Nova função SECURITY DEFINER `public.list_company_members(_company_id uuid)` retornando:
+## 1. Migração — tabela `company_invites`
 
-- `user_id uuid`
-- `email text`
-- `full_name text`
-- `phone text`
-- `role app_role`
-- `joined_at timestamptz`
+Colunas de domínio:
 
-Autoriza se `auth.uid()` for membro da mesma empresa ou master_admin. Faz join `company_members` + `profiles` + `auth.users`.
+- `company_id` (FK companies)
+- `role` (`app_role`, restrito a `company_admin` / `user`)
+- `token` (uuid único, gerado pelo servidor)
+- `invited_by` (FK auth.users)
+- `expires_at` (default `now() + 7 days`)
+- `accepted_at`, `accepted_by`, `cancelled_at`
 
-## 2. RPC `remove_company_member(_user_id uuid)`
+GRANTs padrão (`authenticated` + `service_role`) + RLS: SELECT/INSERT/UPDATE/DELETE só para company_admin da própria empresa ou master_admin. Sem `anon`. A página pública NÃO lê direto — usa RPC SECURITY DEFINER.
 
-SECURITY DEFINER. Regras:
+## 2. RPCs (SECURITY DEFINER)
 
-- Só company_admin da empresa do alvo (ou master_admin) pode chamar.
-- Não pode remover a si mesmo.
-- Não pode remover o **último** company_admin (impede ficar sem admin).
-- Deleta linha de `company_members` e a role correspondente em `user_roles`.
+**`get_invite_by_token(_token text)`** — retorna `company_name, role, status` (pending / expired / accepted / cancelled / not_found). Executável por `anon` (é o que a página pública precisa).
 
-## 3. RPC `update_company_member_role(_user_id uuid, _new_role app_role)`
+**`create_company_invite(_role app_role)`** — valida caller = company_admin/master_admin, rejeita `master_admin` como role, cria linha com token novo, retorna `{ token, expires_at }`.
 
-SECURITY DEFINER. Regras:
+**`cancel_company_invite(_invite_id uuid)`** — só admin da mesma empresa, marca `cancelled_at`.
 
-- `_new_role` só pode ser `company_admin` ou `user` (nunca `master_admin`).
-- Só company_admin/master_admin pode chamar.
-- Não pode rebaixar a si mesmo se for o último company_admin.
-- Atualiza `company_members.role` e reflete em `user_roles` (remove role antiga, insere nova).
+**`accept_company_invite(_token text, _user_id uuid)`** — chamada logo após signup. Valida token pendente + não expirado. Insere em `company_members` + `user_roles` (`on conflict do nothing`), marca `accepted_at`/`accepted_by`. Retorna `company_id`. Executável por `authenticated`.
 
-## 4. Frontend `src/pages/settings/Team.tsx`
+## 3. Frontend
 
-Reescrever:
+**Nova rota pública** `/invite/:token` → `src/pages/InviteAccept.tsx`:
 
-- Header com título e subtítulo.
-- Card **Membros** com tabela: Nome, Email, Telefone, Papel, Entrou em, Ações.
-  - Papel: `Select` inline (opções: **Admin da empresa** / **Usuário**) — desabilitado se o alvo é o próprio usuário ou se é `master_admin`.
-  - Ações: botão **Remover** com `AlertDialog` de confirmação. Escondido para si mesmo e para master_admin.
-- Alerta informativo no topo (`Alert` do shadcn) explicando: _"Novos membros ainda são adicionados manualmente pela equipe Leaderei. Em breve você poderá convidar por email direto daqui."_
+- `get_invite_by_token` no mount → renderiza loading / inválido / expirado / cancelado / já aceito / pending.
+- Form com validação zod: `full_name` (trim, 2-100), `email` (trim, email, ≤255), `password` (≥6), `confirm` (===password).
+- Submit: `supabase.auth.signUp({ email, password, options: { data: { full_name }, emailRedirectTo: `${origin}/auth` } })` → pega `data.user.id` → `supabase.rpc('accept_company_invite', { _token, _user_id })` → tela de sucesso com **Ir para login** (`/auth`).
+- Se auto-confirm de email estiver desligado no Auth, o accept ainda roda usando o `user.id` retornado; o usuário confirma o email e depois faz login.
 
-Master_admin aparece na lista como badge "Suporte Leaderei" e não é gerenciável.
+**Atualizar `src/pages/settings/Team.tsx`:**
 
-## 5. Hook `src/hooks/useTeam.ts`
+- Botão **Convidar membro** → Dialog só com Select de papel.
+- Após criar: exibe o link com **Copiar** (`navigator.clipboard`).
+- Novo card **Convites pendentes** abaixo de Membros: Papel, Criado em, Expira em, Ações (Copiar link, Cancelar com AlertDialog).
 
-- `useTeamMembers(companyId)` → `supabase.rpc('list_company_members', { _company_id })`.
-- `useUpdateMemberRole()` → chama RPC 3, invalida query.
-- `useRemoveMember()` → chama RPC 2, invalida query.
+**Atualizar `src/hooks/useTeam.ts`:** `usePendingInvites`, `useCreateInvite`, `useCancelInvite`.
 
-Toasts em sucesso/erro.
+**Registrar rota `/invite/:token` em `src/App.tsx`** como rota pública (fora do `AppLayout`, ao lado de `/auth` e `/reset-password`).
 
-## 6. Manual `docs/manual/02-equipe.md`
+## 4. Manual
 
-Atualizar para refletir a realidade:
+Atualizar `docs/manual/02-equipe.md`:
 
-- Explicar papéis (mantém o que já está).
-- Trocar "Passo a passo" de convite por: **"Enquanto o convite por email não está disponível, peça à equipe Leaderei para adicionar o novo membro. Depois de adicionado, você pode ajustar o papel e remover pela tela Equipe."**
-- Nova seção **Gerenciar membros existentes** com o passo a passo real da tela (mudar papel, remover, regra do "último admin").
-- Nota no final: _"Convite por email será liberado após você configurar Email (03b) ou WhatsApp (03a)."_
+- Substituir a nota "convite por email ainda não disponível" por seção **Convidar novo membro**: gerar link → copiar → enviar pelo canal que preferir → convidado se cadastra sozinho (nome/email/senha).
+- Adicionar **Convites pendentes** (copiar de novo, cancelar, validade de 7 dias).
+- Nota final: _"O envio automático por email/WhatsApp entra depois que você configurar 03a/03b."_
 
 ## Fora de escopo
 
-- Sem tabela `company_invites`, sem edge function de envio, sem template de email.
-- Sem alteração em `src/pages/Auth.tsx`.
-- Sem mexer em Supabase Auth settings.
+- Envio automático do link por email/WhatsApp (encaixa depois sobre o mesmo `create_company_invite`).
+- Reenviar convite (por enquanto: cancelar + criar novo).
+- Verificação de domínio corporativo do email.
+- Múltiplas empresas por usuário.
 
 ## Detalhes técnicos
 
-- Todos os textos em português.
-- Confirmação obrigatória em remover.
-- Se a lista tiver só 1 membro, ainda renderiza a tabela (mostra o próprio usuário) — útil para ver o próprio papel.
+- Textos em português.
+- Token = `gen_random_uuid()::text` (36 chars, sem PII).
+- Rota `/invite/:token` **pública**, não passa por `RequireAuth`.
+- `accept_company_invite` roda SECURITY DEFINER porque grava em `company_members`/`user_roles` fora do escopo RLS do usuário recém-criado.
+- Signup usa `emailRedirectTo: ${window.location.origin}/auth`.
+- Se o token já foi aceito ou está expirado, a página bloqueia o cadastro com mensagem clara e link para `/auth`.

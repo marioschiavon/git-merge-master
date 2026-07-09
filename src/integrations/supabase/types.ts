@@ -1127,6 +1127,56 @@ export type Database = {
           },
         ]
       }
+      company_invites: {
+        Row: {
+          accepted_at: string | null
+          accepted_by: string | null
+          cancelled_at: string | null
+          company_id: string
+          created_at: string
+          expires_at: string
+          id: string
+          invited_by: string | null
+          role: Database["public"]["Enums"]["app_role"]
+          token: string
+          updated_at: string
+        }
+        Insert: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          cancelled_at?: string | null
+          company_id: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string | null
+          role: Database["public"]["Enums"]["app_role"]
+          token?: string
+          updated_at?: string
+        }
+        Update: {
+          accepted_at?: string | null
+          accepted_by?: string | null
+          cancelled_at?: string | null
+          company_id?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          invited_by?: string | null
+          role?: Database["public"]["Enums"]["app_role"]
+          token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_invites_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       company_knowledge: {
         Row: {
           company_id: string
@@ -2956,9 +3006,25 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_company_invite: {
+        Args: { _token: string; _user_id: string }
+        Returns: string
+      }
+      cancel_company_invite: {
+        Args: { _invite_id: string }
+        Returns: undefined
+      }
       create_company_and_join: {
         Args: { p_name: string; p_slug?: string }
         Returns: string
+      }
+      create_company_invite: {
+        Args: { _role: Database["public"]["Enums"]["app_role"] }
+        Returns: {
+          expires_at: string
+          id: string
+          token: string
+        }[]
       }
       delete_email: {
         Args: { message_id: number; queue_name: string }
@@ -2972,6 +3038,15 @@ export type Database = {
       get_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string }
         Returns: string
+      }
+      get_invite_by_token: {
+        Args: { _token: string }
+        Returns: {
+          company_id: string
+          company_name: string
+          role: Database["public"]["Enums"]["app_role"]
+          status: string
+        }[]
       }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
       has_role: {
