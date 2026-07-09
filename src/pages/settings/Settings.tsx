@@ -7,9 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Loader2, Target, X } from "lucide-react";
+import { ShieldCheck, Loader2, Target, X, Building2, User } from "lucide-react";
 import { useHitlSettings } from "@/hooks/useApprovals";
 import { useScoringConfig, useUpdateScoringConfig } from "@/hooks/useScoring";
+import { useCompanySettings, type BusinessHours } from "@/hooks/useCompanySettings";
+import { useProfileSettings } from "@/hooks/useProfileSettings";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const scopeLabels: { key: string; label: string; desc: string }[] = [
   { key: "first_message", label: "Primeira mensagem", desc: "Aprovar a primeira mensagem antes de sair em qualquer canal." },
@@ -26,9 +30,11 @@ export default function SettingsPage() {
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Configurações</h1>
-        <p className="text-muted-foreground">Operação, automação e revisão humana.</p>
+        <p className="text-muted-foreground">Empresa, perfil, automação e revisão humana.</p>
       </div>
 
+      <CompanyCard />
+      <ProfileCard />
       <ScoringCard />
 
       <Card>
@@ -259,3 +265,209 @@ function TagField({
     </div>
   );
 }
+
+const TIMEZONES = [
+  { value: "America/Sao_Paulo", label: "Brasília (America/Sao_Paulo)" },
+  { value: "America/Manaus", label: "Manaus (America/Manaus)" },
+  { value: "America/Belem", label: "Belém (America/Belem)" },
+  { value: "America/Fortaleza", label: "Fortaleza (America/Fortaleza)" },
+  { value: "America/Cuiaba", label: "Cuiabá (America/Cuiaba)" },
+  { value: "America/Rio_Branco", label: "Rio Branco (America/Rio_Branco)" },
+  { value: "America/Noronha", label: "Noronha (America/Noronha)" },
+  { value: "UTC", label: "UTC" },
+];
+
+const WEEKDAYS = [
+  { value: 0, label: "Dom" },
+  { value: 1, label: "Seg" },
+  { value: 2, label: "Ter" },
+  { value: 3, label: "Qua" },
+  { value: 4, label: "Qui" },
+  { value: 5, label: "Sex" },
+  { value: 6, label: "Sáb" },
+];
+
+function CompanyCard() {
+  const { data, isLoading, update } = useCompanySettings();
+  const [name, setName] = useState("");
+  const [timezone, setTimezone] = useState("America/Sao_Paulo");
+  const [hours, setHours] = useState<BusinessHours>({ start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] });
+
+  useEffect(() => {
+    if (!data) return;
+    setName(data.name || "");
+    setTimezone(data.timezone || "America/Sao_Paulo");
+    setHours(data.business_hours || { start: "09:00", end: "18:00", days: [1, 2, 3, 4, 5] });
+  }, [data]);
+
+  const toggleDay = (d: number) => {
+    setHours((h) => ({
+      ...h,
+      days: h.days.includes(d) ? h.days.filter((x) => x !== d) : [...h.days, d].sort(),
+    }));
+  };
+
+  const save = () => {
+    update.mutate({ name: name.trim(), timezone, business_hours: hours });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Building2 className="h-5 w-5 text-primary" />
+          <CardTitle>Empresa</CardTitle>
+        </div>
+        <CardDescription>
+          Nome que aparece no rodapé de emails e na apresentação da IA, fuso horário e janela de envio das cadências.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        {isLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <>
+            <div>
+              <Label htmlFor="company-name">Nome da empresa</Label>
+              <Input
+                id="company-name"
+                className="mt-1"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ex.: Leaderei"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                Escreva exatamente como quer aparecer em "Fala, aqui é do time da [Empresa]".
+              </p>
+            </div>
+
+            <div>
+              <Label>Fuso horário</Label>
+              <Select value={timezone} onValueChange={setTimezone}>
+                <SelectTrigger className="mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIMEZONES.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {tz.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Use o fuso onde a maioria dos seus prospects está.
+              </p>
+            </div>
+
+            <div>
+              <Label>Janela de envio</Label>
+              <div className="mt-1 flex flex-wrap items-center gap-3">
+                <Input
+                  type="time"
+                  className="w-32"
+                  value={hours.start}
+                  onChange={(e) => setHours({ ...hours, start: e.target.value })}
+                />
+                <span className="text-sm text-muted-foreground">até</span>
+                <Input
+                  type="time"
+                  className="w-32"
+                  value={hours.end}
+                  onChange={(e) => setHours({ ...hours, end: e.target.value })}
+                />
+              </div>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {WEEKDAYS.map((d) => (
+                  <label key={d.value} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={hours.days.includes(d.value)}
+                      onCheckedChange={() => toggleDay(d.value)}
+                    />
+                    {d.label}
+                  </label>
+                ))}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Fora dessa janela, cadências pausam automaticamente para não enviar de madrugada.
+              </p>
+            </div>
+
+            <div className="flex justify-end">
+              <Button onClick={save} disabled={update.isPending || !name.trim()}>
+                {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Salvar empresa
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProfileCard() {
+  const { data, isLoading, update } = useProfileSettings();
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+
+  useEffect(() => {
+    if (!data) return;
+    setFullName(data.full_name || "");
+    setPhone(data.phone || "");
+  }, [data]);
+
+  const save = () => {
+    update.mutate({ full_name: fullName.trim() || null, phone: phone.trim() || null });
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <User className="h-5 w-5 text-primary" />
+          <CardTitle>Meu perfil</CardTitle>
+        </div>
+        <CardDescription>Seus dados pessoais dentro do Leaderei.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoading ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <>
+            <div>
+              <Label htmlFor="profile-name">Nome completo</Label>
+              <Input
+                id="profile-name"
+                className="mt-1"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="profile-phone">Telefone</Label>
+              <Input
+                id="profile-phone"
+                className="mt-1"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+55 11 91234-5678"
+              />
+            </div>
+            <div>
+              <Label htmlFor="profile-email">Email</Label>
+              <Input id="profile-email" className="mt-1" value={data?.email ?? ""} readOnly disabled />
+            </div>
+            <div className="flex justify-end">
+              <Button onClick={save} disabled={update.isPending}>
+                {update.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Salvar perfil
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
