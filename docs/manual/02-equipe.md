@@ -15,14 +15,29 @@ Gerencia quem tem acesso ao workspace da sua empresa e com qual papel.
 
 ## Convidar novo membro
 
+Só **Admin da empresa** (ou Suporte Leaderei) consegue gerar convites.
+
 1. Vá em **Configurações → Equipe** e clique em **Convidar membro**.
-2. Escolha o **papel** (Admin da empresa ou Usuário) e clique em **Gerar link**.
-3. Copie o link exibido e envie ao convidado pelo canal que preferir (WhatsApp, email pessoal, Slack, etc.).
-4. O convidado abre o link, preenche **nome, email e senha**, e a conta é criada já vinculada à sua empresa com o papel escolhido.
+2. Escolha o **papel** que o convidado terá (Admin da empresa ou Usuário) e clique em **Gerar link**.
+3. O sistema mostra o link do convite. Clique em **Copiar** e envie ao convidado pelo canal que preferir — WhatsApp, email pessoal, Slack, Teams, etc.
+   - Se o botão Copiar não funcionar (ex.: navegador antigo), o link aparece selecionado no campo: use **Ctrl+C** (ou **Cmd+C** no Mac) para copiar manualmente.
+4. O convidado abre o link e vê uma página com o nome da sua empresa e o papel definido. Ele preenche **nome completo, email e senha** (o email é o que ele vai usar para logar).
+5. Ao concluir, aparece a mensagem de sucesso e um botão **Ir para login**. A conta já fica vinculada à sua empresa com o papel escolhido — não precisa de aprovação extra.
 
-O link é válido por **7 dias**. Você pode acompanhar e cancelar convites em **Convites pendentes**, logo abaixo da lista de membros.
+### Convites pendentes
 
-> O envio automático do convite por email ou WhatsApp será liberado depois que você configurar [Email (03b)](./03b-email-resend.md) ou [WhatsApp (03a)](./03a-whatsapp-hook7.md).
+Logo abaixo da lista de membros aparece o card **Convites pendentes** com todos os links ativos:
+
+- **Papel** — papel que o convidado receberá ao aceitar.
+- **Criado em / Expira em** — cada link vale **7 dias**. Depois disso, some da lista automaticamente e para de funcionar.
+- **Copiar link** — pega o mesmo link de novo (útil se você perdeu a mensagem original).
+- **Cancelar** — invalida o link na hora. Se a pessoa tentar abrir depois, vê "Convite cancelado". Para reenviar, gere um novo.
+
+Convites já aceitos ou cancelados deixam de aparecer na lista — o membro passa para a tabela de **Membros** acima.
+
+> Ainda não existe reenviar automático: se precisar de outro link, cancele o antigo e gere um novo.
+
+> O envio automático do convite por email ou WhatsApp entra depois. Por enquanto o link é sempre compartilhado manualmente por você, independente de ter configurado [Email (03b)](./03b-email-resend.md) ou [WhatsApp (03a)](./03a-whatsapp-hook7.md).
 
 ## Gerenciar membros existentes
 
