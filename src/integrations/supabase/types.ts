@@ -2981,6 +2981,17 @@ export type Database = {
         }
         Returns: boolean
       }
+      list_company_members: {
+        Args: { _company_id: string }
+        Returns: {
+          email: string
+          full_name: string
+          joined_at: string
+          phone: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }[]
+      }
       match_knowledge_chunks: {
         Args: {
           p_company_id: string
@@ -3012,8 +3023,16 @@ export type Database = {
           read_ct: number
         }[]
       }
+      remove_company_member: { Args: { _user_id: string }; Returns: undefined }
       set_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string; _token: string }
+        Returns: undefined
+      }
+      update_company_member_role: {
+        Args: {
+          _new_role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
         Returns: undefined
       }
     }

@@ -1,42 +1,80 @@
 
 ## Objetivo
 
-1. Atualizar `docs/manual/01-configuracoes-gerais.md` para refletir tudo que existe hoje na tela `/settings`.
-2. Criar novo capítulo dedicado `docs/manual/01a-qualificacao-leads.md` explicando em detalhe o Score.
+Substituir o placeholder de `/settings/team` por uma tela funcional que faz **o que dá para fazer sem depender de integrações**: listar membros da empresa, trocar papel e remover.
 
-## 1. `01-configuracoes-gerais.md` — reestruturação
+O fluxo de **convite por email** fica postergado — é um capítulo natural depois de [03b. Email (domínio próprio)](../docs/manual/03b-email-resend.md) estar configurado. Quando chegar lá, entra numa iteração futura.
 
-Quatro blocos, na mesma ordem da tela:
+## 1. RPC `list_company_members`
 
-1. **Empresa** — nome, fuso horário, janela de envio (09:00–18:00, dias da semana). Passo a passo curto, dicas e erros comuns.
-2. **Meu perfil** — nome completo, telefone, email (readonly).
-3. **Qualificação de Leads (Score)** — parágrafo curto explicando o que é (critério que a IA usa para dar nota 0–100 a cada lead, com termos que aumentam ou reduzem o score). Frase final aponta para `01a-qualificacao-leads.md`.
-4. **Human-in-the-Loop (revisão humana)** — parágrafo curto explicando que é a chave global que segura mensagens/ações da IA na fila de **Aprovações**, com escopo configurável (primeira mensagem, respostas, passos de cadência, ações sensíveis). Frase final aponta para `11-aprovacoes.md`.
+Necessário porque o email do usuário mora em `auth.users` e não pode ser lido direto do frontend.
 
-Manter padrão dos outros capítulos: **Quando usar**, **Pré-requisitos**, **Dicas**, **Erros comuns**, **Próximo passo →** apontando para `02-equipe.md`.
+Nova função SECURITY DEFINER `public.list_company_members(_company_id uuid)` retornando:
 
-## 2. Novo `01a-qualificacao-leads.md`
+- `user_id uuid`
+- `email text`
+- `full_name text`
+- `phone text`
+- `role app_role`
+- `joined_at timestamptz`
 
-Capítulo dedicado ao Score, em linguagem simples:
+Autoriza se `auth.uid()` for membro da mesma empresa ou master_admin. Faz join `company_members` + `profiles` + `auth.users`.
 
-- **O que é**: a IA lê o site (e enriquecimentos) de cada lead e devolve uma nota de 0 a 100 baseada no critério que você escreve. Serve para você priorizar quem trabalhar primeiro e evitar queimar cadência com quem não é ICP.
-- **Onde fica**: `/settings` → card "Qualificação de Leads (Score)".
-- **Passo a passo**:
-  1. Escrever o **critério** (prompt) em formato de lista objetiva: "Critério 1: tem página X…", "Critério 2: publicação recente sobre Y…", etc.
-  2. Adicionar termos que **AUMENTAM** o score (palavras que confirmam ICP).
-  3. Adicionar termos que **REDUZEM ou ZERAM** o score (palavras que descartam o lead).
-  4. Salvar.
-- **Como a IA usa**: ao analisar o site, ela gera um breakdown por critério dentro do lead e uma nota consolidada.
-- **Exemplos prontos** (2 mini-exemplos ICP diferentes: educação/bolsas e imobiliária popular) para o usuário se guiar.
-- **Dicas**: seja específico, evite critérios subjetivos ("ser bacana"), teste em 5–10 leads e ajuste.
-- **Erros comuns**: critério vago, termos de exclusão contraditórios, esquecer de reprocessar leads antigos após mudar critério.
-- **Próximo passo →** `02-equipe.md`.
+## 2. RPC `remove_company_member(_user_id uuid)`
 
-## 3. Atualizar `docs/manual/README.md`
+SECURITY DEFINER. Regras:
 
-Adicionar linha para o novo capítulo `01a` na lista de capítulos, entre `01` e `02`.
+- Só company_admin da empresa do alvo (ou master_admin) pode chamar.
+- Não pode remover a si mesmo.
+- Não pode remover o **último** company_admin (impede ficar sem admin).
+- Deleta linha de `company_members` e a role correspondente em `user_roles`.
+
+## 3. RPC `update_company_member_role(_user_id uuid, _new_role app_role)`
+
+SECURITY DEFINER. Regras:
+
+- `_new_role` só pode ser `company_admin` ou `user` (nunca `master_admin`).
+- Só company_admin/master_admin pode chamar.
+- Não pode rebaixar a si mesmo se for o último company_admin.
+- Atualiza `company_members.role` e reflete em `user_roles` (remove role antiga, insere nova).
+
+## 4. Frontend `src/pages/settings/Team.tsx`
+
+Reescrever:
+
+- Header com título e subtítulo.
+- Card **Membros** com tabela: Nome, Email, Telefone, Papel, Entrou em, Ações.
+  - Papel: `Select` inline (opções: **Admin da empresa** / **Usuário**) — desabilitado se o alvo é o próprio usuário ou se é `master_admin`.
+  - Ações: botão **Remover** com `AlertDialog` de confirmação. Escondido para si mesmo e para master_admin.
+- Alerta informativo no topo (`Alert` do shadcn) explicando: _"Novos membros ainda são adicionados manualmente pela equipe Leaderei. Em breve você poderá convidar por email direto daqui."_
+
+Master_admin aparece na lista como badge "Suporte Leaderei" e não é gerenciável.
+
+## 5. Hook `src/hooks/useTeam.ts`
+
+- `useTeamMembers(companyId)` → `supabase.rpc('list_company_members', { _company_id })`.
+- `useUpdateMemberRole()` → chama RPC 3, invalida query.
+- `useRemoveMember()` → chama RPC 2, invalida query.
+
+Toasts em sucesso/erro.
+
+## 6. Manual `docs/manual/02-equipe.md`
+
+Atualizar para refletir a realidade:
+
+- Explicar papéis (mantém o que já está).
+- Trocar "Passo a passo" de convite por: **"Enquanto o convite por email não está disponível, peça à equipe Leaderei para adicionar o novo membro. Depois de adicionado, você pode ajustar o papel e remover pela tela Equipe."**
+- Nova seção **Gerenciar membros existentes** com o passo a passo real da tela (mudar papel, remover, regra do "último admin").
+- Nota no final: _"Convite por email será liberado após você configurar Email (03b) ou WhatsApp (03a)."_
 
 ## Fora de escopo
 
-- Capítulo dedicado a HITL (só sinaliza no `01` que o fluxo detalhado está em `11-aprovacoes.md`).
-- Nenhuma mudança de código, banco ou UI.
+- Sem tabela `company_invites`, sem edge function de envio, sem template de email.
+- Sem alteração em `src/pages/Auth.tsx`.
+- Sem mexer em Supabase Auth settings.
+
+## Detalhes técnicos
+
+- Todos os textos em português.
+- Confirmação obrigatória em remover.
+- Se a lista tiver só 1 membro, ainda renderiza a tabela (mostra o próprio usuário) — útil para ver o próprio papel.
