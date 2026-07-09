@@ -55,6 +55,8 @@ const typeIcons: Record<string, any> = {
 
 export default function Knowledge() {
   const { data: items = [], isLoading } = useKnowledgeItems();
+  const { isMasterAdmin } = useAuth();
+  const importKickoff = useImportKickoff();
   const createKnowledge = useCreateKnowledge();
   const deleteKnowledge = useDeleteKnowledge();
   const updateKnowledge = useUpdateKnowledge();
@@ -64,6 +66,13 @@ export default function Knowledge() {
   const saveHighlights = useSaveHighlights();
   const { data: aiInstructionsItem } = useAiInstructions();
   const saveAiInstructions = useSaveAiInstructions();
+
+  const [kickoffOpen, setKickoffOpen] = useState(false);
+  const [kickoffText, setKickoffText] = useState("");
+  const [kickoffTitle, setKickoffTitle] = useState("");
+  const hasKickoff = (items || []).some((i: any) => i.origin === "kickoff");
+  const canImportKickoff = isMasterAdmin || !hasKickoff;
+
 
   // Highlights state
   const [highlightsText, setHighlightsText] = useState("");
