@@ -29,6 +29,9 @@ export function useLeadInsightsBatch(leadIds: string[]) {
   return useQuery({
     queryKey: ["lead_insights_batch", "all"],
     enabled: leadIds.length > 0,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
+    refetchOnWindowFocus: true,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("lead_insights")
@@ -57,6 +60,7 @@ export function useAnalyzeWebsite() {
     },
     onSuccess: (_data, leadId) => {
       qc.invalidateQueries({ queryKey: ["lead_insights", leadId] });
+      qc.invalidateQueries({ queryKey: ["lead_insights_batch"] });
       toast.success("Análise concluída!");
     },
     onError: (e: any) => toast.error(e.message || "Erro ao analisar website"),

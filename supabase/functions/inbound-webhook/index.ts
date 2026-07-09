@@ -196,7 +196,11 @@ serve(async (req) => {
       body = await req.json();
     }
 
-    const { from, content, channel, conversation_id, lead_id, skip_insert, provider, provider_message_id } = body;
+    // Accept `text` as alias for `content` (used by resend-inbound-webhook and other delegators).
+    // Accept `source` as alias for `channel`.
+    const { from, conversation_id, lead_id, skip_insert, provider, provider_message_id } = body;
+    const content = body.content ?? body.text;
+    const channel = body.channel ?? body.source;
 
     if (!content) {
       return new Response(JSON.stringify({ error: "content é obrigatório" }), {
