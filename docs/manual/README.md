@@ -8,7 +8,7 @@ Este manual está organizado na **ordem que um novo usuário deve seguir**. Cada
 
 ```text
 Fase 1 — Configuração inicial
-  01 Configurações gerais      → 02 Equipe      → 03 Integrações
+  01 Configurações gerais → 01a Qualificação de Leads → 02 Equipe → 03 Integrações
   ├─ 03a WhatsApp (Hook7)
   ├─ 03b Email (domínio)
   ├─ 03c Apollo
