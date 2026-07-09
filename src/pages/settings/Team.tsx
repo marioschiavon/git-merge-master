@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -80,26 +80,69 @@ export default function Team() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteRole, setInviteRole] = useState<AppRole>("user");
   const [createdLink, setCreatedLink] = useState<string | null>(null);
+  const createdLinkInputRef = useRef<HTMLInputElement>(null);
 
-  const copy = async (text: string) => {
+  const copy = async (text: string, sourceInput?: HTMLInputElement | null) => {
+    const value = text.trim();
+    let copied = false;
+
+    if (!value) return;
+
     try {
       if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.left = "-9999px";
-        ta.setAttribute("readonly", "");
-        document.body.appendChild(ta);
-        ta.select();
-        const ok = document.execCommand("copy");
-        document.body.removeChild(ta);
-        if (!ok) throw new Error("execCommand failed");
+        await navigator.clipboard.writeText(value);
+        copied = true;
       }
-      toast.success("Link copiado");
     } catch {
-      toast.error("Não foi possível copiar");
+      copied = false;
+    }
+
+    if (!copied) {
+      const input = sourceInput ?? createdLinkInputRef.current;
+      if (input) {
+        input.focus();
+        input.select();
+        input.setSelectionRange(0, value.length);
+      }
+
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+    }
+
+    if (!copied) {
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.left = "0";
+      ta.style.width = "1px";
+      ta.style.height = "1px";
+      ta.style.opacity = "0";
+      ta.setAttribute("readonly", "");
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      ta.setSelectionRange(0, value.length);
+
+      try {
+        copied = document.execCommand("copy");
+      } catch {
+        copied = false;
+      }
+
+      document.body.removeChild(ta);
+    }
+
+    if (copied) {
+      toast.success("Link copiado");
+    } else {
+      const input = sourceInput ?? createdLinkInputRef.current;
+      input?.focus();
+      input?.select();
+      toast.info("Link selecionado. Use Ctrl+C para copiar.");
     }
   };
 
@@ -107,7 +150,6 @@ export default function Team() {
     const res = await createInvite.mutateAsync(inviteRole);
     const url = buildInviteUrl(res.token);
     setCreatedLink(url);
-    await copy(url);
   };
 
   const closeInviteDialog = () => {
@@ -306,8 +348,17 @@ export default function Team() {
             <div className="space-y-2">
               <Label>Link de convite</Label>
               <div className="flex gap-2">
-                <Input value={createdLink} readOnly onFocus={(e) => e.currentTarget.select()} />
-                <Button variant="outline" onClick={() => copy(createdLink)}>
+                <Input
+                  ref={createdLinkInputRef}
+                  value={createdLink}
+                  readOnly
+                  onFocus={(e) => e.currentTarget.select()}
+                />
+                <Button
+                  variant="outline"
+                  onClick={() => copy(createdLink, createdLinkInputRef.current)}
+                  aria-label="Copiar link de convite"
+                >
                   <Copy className="h-4 w-4" />
                 </Button>
               </div>
