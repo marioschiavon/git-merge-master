@@ -297,8 +297,12 @@ export default function EmailSettings() {
                 : "gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-transparent"
             }
           >
-            {isVerified ? <CheckCircle2 className="h-3 w-3" /> : <Circle className="h-3 w-3" />}
-            {isVerified ? "Verificado" : "Aguardando DNS"}
+            {isVerified ? (
+              <CheckCircle2 className="h-3 w-3" />
+            ) : (
+              <RefreshCw className="h-3 w-3 animate-spin" />
+            )}
+            {isVerified ? "Verificado" : "Verificando automaticamente..."}
           </Badge>
         )}
       </div>
