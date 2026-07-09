@@ -1,6 +1,6 @@
 # 02. Equipe
 
-**Quando usar:** quando quiser convidar outros usuários (SDRs, gestores).
+**Quando usar:** para ver quem tem acesso ao workspace da sua empresa, mudar o papel de alguém ou remover um membro.
 **Pré-requisitos:** [01](./01-configuracoes-gerais.md).
 
 ## O que é
@@ -9,20 +9,46 @@ Gerencia quem tem acesso ao workspace da sua empresa e com qual papel.
 
 ## Papéis
 
-- **company_admin** — pode tudo dentro da sua empresa (configurar integrações, criar cadências, ver relatórios).
-- **user** — opera a inbox humana, responde conversas, aprova mensagens. Não configura integrações.
-- **master_admin** — reservado à equipe Liderei. Só ela pode editar itens **protegidos** (kickoff, aprendizados históricos).
+- **Admin da empresa** (`company_admin`) — pode tudo dentro da sua empresa (configurar integrações, criar cadências, ver relatórios, gerenciar equipe).
+- **Usuário** (`user`) — opera a inbox humana, responde conversas, aprova mensagens. Não configura integrações nem gerencia equipe.
+- **Suporte Leaderei** (`master_admin`) — reservado à equipe Leaderei. Só ele pode editar itens **protegidos** (kickoff, aprendizados históricos). Aparece na lista mas não é gerenciável pela empresa.
 
-## Passo a passo
+## Adicionar um novo membro
 
-1. Vá em **Configurações → Equipe**.
-2. Clique **Convidar membro**.
-3. Digite o email da pessoa e escolha o papel.
-4. Envie. Ela receberá um email com link para criar senha.
+> Convite por email direto da tela ainda **não está disponível**. Ele será liberado depois que você configurar [Email (03b)](./03b-email-resend.md) ou [WhatsApp (03a)](./03a-whatsapp-hook7.md) — canais que a plataforma usa para enviar o convite.
+
+**Enquanto isso:** peça à equipe Leaderei para adicionar o novo membro. Depois disso, você pode ajustar o papel e remover pela tela **Configurações → Equipe**.
+
+## Gerenciar membros existentes
+
+Vá em **Configurações → Equipe**. Você verá uma tabela com Nome, Email, Telefone, Papel e data em que a pessoa entrou.
+
+### Mudar o papel de alguém
+
+1. Na linha do membro, clique no seletor da coluna **Papel**.
+2. Escolha **Admin da empresa** ou **Usuário**.
+3. A mudança é salva imediatamente.
+
+Você **não pode** mudar:
+
+- Seu próprio papel (peça a outro admin ou à Leaderei).
+- O papel do Suporte Leaderei.
+- O último Admin da empresa para Usuário — a empresa precisa ter no mínimo um admin ativo.
+
+### Remover um membro
+
+1. Clique no ícone de lixeira na linha do membro.
+2. Confirme na janela que abrir.
+
+O acesso é revogado na hora. Você **não pode** remover:
+
+- A si mesmo.
+- O Suporte Leaderei.
+- O último Admin da empresa.
 
 ## Dicas
 
-- Deixe pelo menos **2 company_admins** para não ficar refém de um único acesso.
-- Para clientes finais atendidos pela Liderei, o master_admin é da Liderei; o cliente entra como company_admin.
+- Deixe pelo menos **2 admins** para não ficar refém de um único acesso.
+- Para clientes finais atendidos pela Leaderei, o Suporte Leaderei é da Leaderei; o cliente entra como Admin da empresa.
 
 **Próximo passo →** [03. Integrações](./03-integracoes.md)
