@@ -59,6 +59,12 @@ Deno.serve(async (req) => {
         );
         if (!existing) return json({ error: msg }, 502);
         resendDomain = await resendJson(`/domains/${existing.id}`);
+      } else if (/plan includes|Upgrade to add more|403/i.test(msg)) {
+        return json({
+          error:
+            "O plano atual do Resend atingiu o limite de domínios. Remova um domínio não utilizado no dashboard do Resend ou faça upgrade do plano para cadastrar mais.",
+          code: "resend_plan_limit",
+        }, 402);
       } else {
         return json({ error: msg }, 502);
       }
