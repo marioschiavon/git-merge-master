@@ -60,6 +60,7 @@ export function useAnalyzeWebsite() {
     },
     onSuccess: (_data, leadId) => {
       qc.invalidateQueries({ queryKey: ["lead_insights", leadId] });
+      qc.invalidateQueries({ queryKey: ["lead_insights_batch"] });
       toast.success("Análise concluída!");
     },
     onError: (e: any) => toast.error(e.message || "Erro ao analisar website"),
