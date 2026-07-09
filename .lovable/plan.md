@@ -1,46 +1,55 @@
-# Ajustes no Manual do Usuário
 
-Duas mudanças no manual (`docs/manual/`), sem tocar em código do app.
+## Objetivo
 
-## 1. Remover a linha "Rota:" de todos os capítulos
+Fazer a tela `/settings` bater com o Manual 01: permitir editar **nome da empresa**, **fuso horário**, **janela de envio** (horário comercial) e **perfil pessoal** (nome, telefone).
 
-Hoje quase todo capítulo abre com algo tipo:
+## Alterações
 
-```
-**Rota:** `/settings/integrations`
-**Quando usar:** ...
-```
+### 1. Banco de dados (migration)
 
-Isso confunde usuário leigo (ele não sabe o que é uma "rota"). Removo **apenas** essa linha em cada arquivo, mantendo "Quando usar" e "Pré-requisitos". Onde a instrução realmente depende do menu, o passo a passo já diz "Vá em **Configurações → Integrações**", então nada de navegação se perde.
+Tabela `companies` — adicionar colunas:
+- `timezone text not null default 'America/Sao_Paulo'`
+- `business_hours jsonb not null default '{"start":"09:00","end":"18:00","days":[1,2,3,4,5]}'::jsonb`  
+  (formato: `start`/`end` em HH:MM, `days` = 0-6 dom-sáb)
 
-Arquivos afetados (24): `01` até `19` + `03a-03e`.
+Tabela `profiles` — adicionar coluna:
+- `phone text`
 
-## 2. Revisar a seção de Integrações (sem novos capítulos)
+Sem novas tabelas, sem mudança em RLS/GRANTs (colunas herdam das políticas existentes).
 
-Mantendo apenas os 5 capítulos que já existem (WhatsApp, Email, Apollo, Pipedrive, Cal.com). LinkedIn e Enriquecimento (Apify) ficam de fora por enquanto.
+### 2. Frontend — nova seção "Empresa" no topo de `src/pages/settings/Settings.tsx`
 
-O que muda em cada arquivo:
+Card **Empresa**:
+- Input: Nome da empresa
+- Select: Fuso horário (lista curta: America/Sao_Paulo, America/Manaus, America/Belem, America/Fortaleza, America/Cuiaba, America/Rio_Branco, America/Noronha, UTC)
+- Janela de envio: 2 inputs `type="time"` (início/fim) + checkboxes dos 7 dias da semana
+- Botão Salvar
 
-| Arquivo | O que muda |
-|---|---|
-| `03-integracoes.md` | Reescrita com linguagem mais leiga: o que é uma "integração", tabela das 5 integrações disponíveis, ordem recomendada de conexão e por quê |
-| `03a-whatsapp-hook7.md` | Sem "Rota". Passo a passo mais didático — explica o que é QR-Code e o caminho exato no celular (**WhatsApp → Configurações → Aparelhos conectados → Conectar um aparelho**) |
-| `03b-email-resend.md` | Sem "Rota". Deixar mais claro o que cada tipo de registro (TXT/CNAME/MX) faz, com analogia simples, e passo a passo por provedor DNS |
-| `03c-apollo.md` | Sem "Rota". Caminho exato dentro do Apollo (menu por menu) para gerar a API key |
-| `03d-pipedrive.md` | Sem "Rota". Caminho exato dentro do Pipedrive para gerar o token |
-| `03e-calcom.md` | Sem "Rota". Passo a passo com os nomes de menu atuais do Cal.com |
+Card **Meu perfil**:
+- Input: Nome completo (grava em `profiles.full_name`)
+- Input: Telefone (grava em `profiles.phone`)
+- Email (readonly, do `auth.user.email`)
+- Botão Salvar
 
-Todos continuam terminando com **Próximo passo →** no encadeamento atual: 03 → 03a → 03b → 03c → 03d → 03e → 04.
+Cards ficam nessa ordem: **Empresa → Meu perfil → HITL → Qualificação de Leads**.
 
-## Fora do escopo
+### 3. Hooks
 
-- Nenhum novo capítulo (sem `03f-enriquecimento.md`, sem `03g-linkedin.md`).
-- Sem mudanças em código, edge functions ou banco.
-- Sem screenshots.
-- Continua em **pt-BR**.
+Criar `src/hooks/useCompanySettings.ts` — `useQuery`+`useMutation` para ler/gravar `companies.{name,timezone,business_hours}` filtrando por `companyId` do `useAuth`.
+
+Criar `src/hooks/useProfileSettings.ts` — mesma coisa para `profiles.{full_name,phone}` filtrando por `user.id`.
+
+Ambos invalidam suas queries no sucesso e disparam `toast.success`.
+
+### 4. Fora de escopo (não faz agora)
+
+- Não plugar `business_hours` no scheduler de cadências (só armazena por enquanto — a lógica que respeita janela de envio nas edge functions é uma segunda fase).
+- Não mexer no manual — ele já descreve o comportamento; após esta implementação o texto passa a bater.
+- Sem alteração em `useAuth`.
 
 ## Detalhes técnicos
 
-- Remoção da linha `**Rota:** ...` via `sed` (padrão consistente nos 24 arquivos).
-- Reescrita manual dos 6 arquivos de integração para linguagem mais acessível.
-- `docs/manual/README.md` não muda (sumário permanece igual).
+- `business_hours` é `jsonb` livre; o form serializa o shape acima. Sem CHECK constraint (validação apenas no cliente).
+- Telefone é texto livre, sem máscara nem validação estrita.
+- Fuso: `<Select>` do shadcn com as opções fixas listadas acima; se o usuário quiser outra, adicionamos depois.
+- Nenhum edge function novo, nenhuma migração de dados.

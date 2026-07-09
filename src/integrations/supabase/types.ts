@@ -1004,6 +1004,7 @@ export type Database = {
       }
       companies: {
         Row: {
+          business_hours: Json
           calcom_default_event_type_id: number | null
           calcom_round_robin_enabled: boolean
           calcom_team_id: number | null
@@ -1021,9 +1022,11 @@ export type Database = {
           scoring_prompt: string | null
           slug: string
           status: Database["public"]["Enums"]["company_status"]
+          timezone: string
           updated_at: string
         }
         Insert: {
+          business_hours?: Json
           calcom_default_event_type_id?: number | null
           calcom_round_robin_enabled?: boolean
           calcom_team_id?: number | null
@@ -1041,9 +1044,11 @@ export type Database = {
           scoring_prompt?: string | null
           slug: string
           status?: Database["public"]["Enums"]["company_status"]
+          timezone?: string
           updated_at?: string
         }
         Update: {
+          business_hours?: Json
           calcom_default_event_type_id?: number | null
           calcom_round_robin_enabled?: boolean
           calcom_team_id?: number | null
@@ -1061,6 +1066,7 @@ export type Database = {
           scoring_prompt?: string | null
           slug?: string
           status?: Database["public"]["Enums"]["company_status"]
+          timezone?: string
           updated_at?: string
         }
         Relationships: []
@@ -2567,6 +2573,7 @@ export type Database = {
           created_at: string
           full_name: string | null
           id: string
+          phone: string | null
           updated_at: string
           user_id: string
         }
@@ -2575,6 +2582,7 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id?: string
+          phone?: string | null
           updated_at?: string
           user_id: string
         }
@@ -2583,6 +2591,7 @@ export type Database = {
           created_at?: string
           full_name?: string | null
           id?: string
+          phone?: string | null
           updated_at?: string
           user_id?: string
         }
