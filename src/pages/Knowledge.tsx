@@ -483,6 +483,7 @@ function KnowledgeCard({
   onDelete,
   onEditContentChange,
   isSaving,
+  isMasterAdmin,
 }: {
   item: any;
   editingId: string | null;
@@ -493,67 +494,72 @@ function KnowledgeCard({
   onDelete: (id: string) => void;
   onEditContentChange: (v: string) => void;
   isSaving: boolean;
+  isMasterAdmin: boolean;
 }) {
   const Icon = typeIcons[item.type] || BookOpen;
   const isEditing = editingId === item.id;
+  const isKickoff = item.origin === "kickoff";
+  const isHistoricalWins = item.knowledge_type === "historical_wins";
+  const isProtected = (item.locked || isKickoff || isHistoricalWins) && !isMasterAdmin;
 
   return (
-    <Card>
+    <Card className={isProtected ? "border-amber-200/60 bg-amber-50/30" : undefined}>
       <CardContent className="p-4">
         <div className="flex items-start justify-between mb-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Icon className="h-4 w-4 text-muted-foreground" />
             <h3 className="font-medium text-sm">{item.title}</h3>
             <Badge variant="outline" className="text-xs">
               {typeLabels[item.type]}
             </Badge>
+            {isKickoff && (
+              <Badge variant="outline" className="text-xs bg-amber-100 text-amber-900 border-amber-300 gap-1">
+                <Lock className="h-3 w-3" /> Kickoff (protegido)
+              </Badge>
+            )}
+            {isHistoricalWins && (
+              <Badge variant="outline" className="text-xs bg-emerald-100 text-emerald-900 border-emerald-300 gap-1">
+                <Trophy className="h-3 w-3" /> Aprendizados
+              </Badge>
+            )}
           </div>
           <div className="flex gap-1">
             {isEditing ? (
               <>
-                <Button size="sm" variant="ghost" onClick={onCancelEdit}>
-                  Cancelar
-                </Button>
+                <Button size="sm" variant="ghost" onClick={onCancelEdit}>Cancelar</Button>
                 <Button size="sm" onClick={() => onSave(item.id)} disabled={isSaving}>
-                  <Save className="mr-1 h-3 w-3" />
-                  Salvar
+                  <Save className="mr-1 h-3 w-3" /> Salvar
                 </Button>
               </>
             ) : (
               <>
                 <Button
-                  size="icon"
-                  variant="ghost"
+                  size="icon" variant="ghost"
                   onClick={() => onEdit(item.id, item.content)}
+                  disabled={isProtected}
+                  title={isProtected ? "Item protegido — apenas admin da Liderei pode editar" : "Editar"}
                 >
                   <Pencil className="h-4 w-4" />
                 </Button>
                 <Button
-                  size="icon"
-                  variant="ghost"
+                  size="icon" variant="ghost"
                   onClick={() => onDelete(item.id)}
+                  disabled={isProtected}
+                  title={isProtected ? "Item protegido — apenas admin da Liderei pode excluir" : "Excluir"}
                 >
-                  <Trash2 className="h-4 w-4 text-destructive" />
+                  <Trash2 className={`h-4 w-4 ${isProtected ? "text-muted-foreground" : "text-destructive"}`} />
                 </Button>
               </>
             )}
           </div>
         </div>
         {item.source_url && (
-          <p className="text-xs text-muted-foreground mb-2">
-            Fonte: {item.source_url}
-          </p>
+          <p className="text-xs text-muted-foreground mb-2">Fonte: {item.source_url}</p>
         )}
         {isEditing ? (
-          <Textarea
-            value={editContent}
-            onChange={(e) => onEditContentChange(e.target.value)}
-            rows={6}
-          />
+          <Textarea value={editContent} onChange={(e) => onEditContentChange(e.target.value)} rows={6} />
         ) : (
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">
-            {item.content}
-          </p>
+          <p className="text-sm text-muted-foreground whitespace-pre-wrap line-clamp-4">{item.content}</p>
         )}
         <p className="text-xs text-muted-foreground mt-2">
           {new Date(item.created_at).toLocaleDateString("pt-BR")}
@@ -562,3 +568,4 @@ function KnowledgeCard({
     </Card>
   );
 }
+
