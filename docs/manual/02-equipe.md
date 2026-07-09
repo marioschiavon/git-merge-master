@@ -13,11 +13,16 @@ Gerencia quem tem acesso ao workspace da sua empresa e com qual papel.
 - **Usuário** (`user`) — opera a inbox humana, responde conversas, aprova mensagens. Não configura integrações nem gerencia equipe.
 - **Suporte Leaderei** (`master_admin`) — reservado à equipe Leaderei. Só ele pode editar itens **protegidos** (kickoff, aprendizados históricos). Aparece na lista mas não é gerenciável pela empresa.
 
-## Adicionar um novo membro
+## Convidar novo membro
 
-> Convite por email direto da tela ainda **não está disponível**. Ele será liberado depois que você configurar [Email (03b)](./03b-email-resend.md) ou [WhatsApp (03a)](./03a-whatsapp-hook7.md) — canais que a plataforma usa para enviar o convite.
+1. Vá em **Configurações → Equipe** e clique em **Convidar membro**.
+2. Escolha o **papel** (Admin da empresa ou Usuário) e clique em **Gerar link**.
+3. Copie o link exibido e envie ao convidado pelo canal que preferir (WhatsApp, email pessoal, Slack, etc.).
+4. O convidado abre o link, preenche **nome, email e senha**, e a conta é criada já vinculada à sua empresa com o papel escolhido.
 
-**Enquanto isso:** peça à equipe Leaderei para adicionar o novo membro. Depois disso, você pode ajustar o papel e remover pela tela **Configurações → Equipe**.
+O link é válido por **7 dias**. Você pode acompanhar e cancelar convites em **Convites pendentes**, logo abaixo da lista de membros.
+
+> O envio automático do convite por email ou WhatsApp será liberado depois que você configurar [Email (03b)](./03b-email-resend.md) ou [WhatsApp (03a)](./03a-whatsapp-hook7.md).
 
 ## Gerenciar membros existentes
 
