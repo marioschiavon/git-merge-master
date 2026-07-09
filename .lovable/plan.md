@@ -1,55 +1,42 @@
 
 ## Objetivo
 
-Fazer a tela `/settings` bater com o Manual 01: permitir editar **nome da empresa**, **fuso horário**, **janela de envio** (horário comercial) e **perfil pessoal** (nome, telefone).
+1. Atualizar `docs/manual/01-configuracoes-gerais.md` para refletir tudo que existe hoje na tela `/settings`.
+2. Criar novo capítulo dedicado `docs/manual/01a-qualificacao-leads.md` explicando em detalhe o Score.
 
-## Alterações
+## 1. `01-configuracoes-gerais.md` — reestruturação
 
-### 1. Banco de dados (migration)
+Quatro blocos, na mesma ordem da tela:
 
-Tabela `companies` — adicionar colunas:
-- `timezone text not null default 'America/Sao_Paulo'`
-- `business_hours jsonb not null default '{"start":"09:00","end":"18:00","days":[1,2,3,4,5]}'::jsonb`  
-  (formato: `start`/`end` em HH:MM, `days` = 0-6 dom-sáb)
+1. **Empresa** — nome, fuso horário, janela de envio (09:00–18:00, dias da semana). Passo a passo curto, dicas e erros comuns.
+2. **Meu perfil** — nome completo, telefone, email (readonly).
+3. **Qualificação de Leads (Score)** — parágrafo curto explicando o que é (critério que a IA usa para dar nota 0–100 a cada lead, com termos que aumentam ou reduzem o score). Frase final aponta para `01a-qualificacao-leads.md`.
+4. **Human-in-the-Loop (revisão humana)** — parágrafo curto explicando que é a chave global que segura mensagens/ações da IA na fila de **Aprovações**, com escopo configurável (primeira mensagem, respostas, passos de cadência, ações sensíveis). Frase final aponta para `11-aprovacoes.md`.
 
-Tabela `profiles` — adicionar coluna:
-- `phone text`
+Manter padrão dos outros capítulos: **Quando usar**, **Pré-requisitos**, **Dicas**, **Erros comuns**, **Próximo passo →** apontando para `02-equipe.md`.
 
-Sem novas tabelas, sem mudança em RLS/GRANTs (colunas herdam das políticas existentes).
+## 2. Novo `01a-qualificacao-leads.md`
 
-### 2. Frontend — nova seção "Empresa" no topo de `src/pages/settings/Settings.tsx`
+Capítulo dedicado ao Score, em linguagem simples:
 
-Card **Empresa**:
-- Input: Nome da empresa
-- Select: Fuso horário (lista curta: America/Sao_Paulo, America/Manaus, America/Belem, America/Fortaleza, America/Cuiaba, America/Rio_Branco, America/Noronha, UTC)
-- Janela de envio: 2 inputs `type="time"` (início/fim) + checkboxes dos 7 dias da semana
-- Botão Salvar
+- **O que é**: a IA lê o site (e enriquecimentos) de cada lead e devolve uma nota de 0 a 100 baseada no critério que você escreve. Serve para você priorizar quem trabalhar primeiro e evitar queimar cadência com quem não é ICP.
+- **Onde fica**: `/settings` → card "Qualificação de Leads (Score)".
+- **Passo a passo**:
+  1. Escrever o **critério** (prompt) em formato de lista objetiva: "Critério 1: tem página X…", "Critério 2: publicação recente sobre Y…", etc.
+  2. Adicionar termos que **AUMENTAM** o score (palavras que confirmam ICP).
+  3. Adicionar termos que **REDUZEM ou ZERAM** o score (palavras que descartam o lead).
+  4. Salvar.
+- **Como a IA usa**: ao analisar o site, ela gera um breakdown por critério dentro do lead e uma nota consolidada.
+- **Exemplos prontos** (2 mini-exemplos ICP diferentes: educação/bolsas e imobiliária popular) para o usuário se guiar.
+- **Dicas**: seja específico, evite critérios subjetivos ("ser bacana"), teste em 5–10 leads e ajuste.
+- **Erros comuns**: critério vago, termos de exclusão contraditórios, esquecer de reprocessar leads antigos após mudar critério.
+- **Próximo passo →** `02-equipe.md`.
 
-Card **Meu perfil**:
-- Input: Nome completo (grava em `profiles.full_name`)
-- Input: Telefone (grava em `profiles.phone`)
-- Email (readonly, do `auth.user.email`)
-- Botão Salvar
+## 3. Atualizar `docs/manual/README.md`
 
-Cards ficam nessa ordem: **Empresa → Meu perfil → HITL → Qualificação de Leads**.
+Adicionar linha para o novo capítulo `01a` na lista de capítulos, entre `01` e `02`.
 
-### 3. Hooks
+## Fora de escopo
 
-Criar `src/hooks/useCompanySettings.ts` — `useQuery`+`useMutation` para ler/gravar `companies.{name,timezone,business_hours}` filtrando por `companyId` do `useAuth`.
-
-Criar `src/hooks/useProfileSettings.ts` — mesma coisa para `profiles.{full_name,phone}` filtrando por `user.id`.
-
-Ambos invalidam suas queries no sucesso e disparam `toast.success`.
-
-### 4. Fora de escopo (não faz agora)
-
-- Não plugar `business_hours` no scheduler de cadências (só armazena por enquanto — a lógica que respeita janela de envio nas edge functions é uma segunda fase).
-- Não mexer no manual — ele já descreve o comportamento; após esta implementação o texto passa a bater.
-- Sem alteração em `useAuth`.
-
-## Detalhes técnicos
-
-- `business_hours` é `jsonb` livre; o form serializa o shape acima. Sem CHECK constraint (validação apenas no cliente).
-- Telefone é texto livre, sem máscara nem validação estrita.
-- Fuso: `<Select>` do shadcn com as opções fixas listadas acima; se o usuário quiser outra, adicionamos depois.
-- Nenhum edge function novo, nenhuma migração de dados.
+- Capítulo dedicado a HITL (só sinaliza no `01` que o fluxo detalhado está em `11-aprovacoes.md`).
+- Nenhuma mudança de código, banco ou UI.
