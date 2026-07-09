@@ -7,9 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ShieldCheck, Loader2, Target, X } from "lucide-react";
+import { ShieldCheck, Loader2, Target, X, Building2, User } from "lucide-react";
 import { useHitlSettings } from "@/hooks/useApprovals";
 import { useScoringConfig, useUpdateScoringConfig } from "@/hooks/useScoring";
+import { useCompanySettings, type BusinessHours } from "@/hooks/useCompanySettings";
+import { useProfileSettings } from "@/hooks/useProfileSettings";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 
 const scopeLabels: { key: string; label: string; desc: string }[] = [
   { key: "first_message", label: "Primeira mensagem", desc: "Aprovar a primeira mensagem antes de sair em qualquer canal." },
