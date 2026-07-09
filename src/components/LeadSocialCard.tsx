@@ -17,6 +17,15 @@ export function LeadSocialCard({ leadId, companyId, enrichmentStatus, hasEnricha
     },
     refetchInterval: isEnriching ? 5000 : false,
   });
+  const { data: insights } = useQuery({
+    queryKey: ["lead_insights_summaries", leadId],
+    queryFn: async () => {
+      const { data } = await supabase.from("lead_insights")
+        .select("linkedin_summary, instagram_summary").eq("lead_id", leadId).maybeSingle();
+      return data || null;
+    },
+    refetchInterval: isEnriching ? 5000 : false,
+  });
 
   const reEnqueue = useMutation({
     mutationFn: async () => {
@@ -71,6 +80,26 @@ export function LeadSocialCard({ leadId, companyId, enrichmentStatus, hasEnricha
         {!hasEnrichableSource && profiles.length === 0 && (
           <div className="text-xs rounded border border-amber-300 bg-amber-50 text-amber-900 p-2">
             Nada para enriquecer: adicione ao lead ao menos um site ou uma URL de rede social (Instagram, Facebook, LinkedIn) e clique em <span className="font-medium">Reprocessar</span>.
+          </div>
+        )}
+        {(insights?.linkedin_summary || insights?.instagram_summary) && (
+          <div className="space-y-2 rounded-md border bg-muted/30 p-2">
+            {insights?.linkedin_summary && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                  <Linkedin className="h-3 w-3" /> Resumo LinkedIn (IA)
+                </p>
+                <p className="text-xs whitespace-pre-wrap">{insights.linkedin_summary}</p>
+              </div>
+            )}
+            {insights?.instagram_summary && (
+              <div>
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+                  <Instagram className="h-3 w-3" /> Resumo Instagram (IA)
+                </p>
+                <p className="text-xs whitespace-pre-wrap">{insights.instagram_summary}</p>
+              </div>
+            )}
           </div>
         )}
         {profiles.length === 0 && hasEnrichableSource ? (
