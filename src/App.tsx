@@ -37,6 +37,7 @@ import ResetPassword from "@/pages/ResetPassword";
 import Onboarding from "@/pages/Onboarding";
 import NotFound from "@/pages/NotFound";
 import ApolloSearch from "@/pages/ApolloSearch";
+import InviteAccept from "@/pages/InviteAccept";
 
 const queryClient = new QueryClient({
   defaultOptions: {
