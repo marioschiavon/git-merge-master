@@ -1,6 +1,5 @@
 # 11. Aprovações
 
-**Rota:** `/approvals`
 **Quando usar:** para revisar mensagens geradas pela IA antes de sair — modo mais seguro no início.
 **Pré-requisitos:** cadência configurada em modo "Com aprovação".
 

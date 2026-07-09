@@ -1,6 +1,5 @@
 # 04. Base de Conhecimento
 
-**Rota:** `/knowledge`
 **Quando usar:** antes de escrever cadências — a IA usa a base para gerar mensagens personalizadas.
 **Pré-requisitos:** [03](./03-integracoes.md).
 

@@ -1,6 +1,5 @@
 # 02. Equipe
 
-**Rota:** `/settings/team`
 **Quando usar:** quando quiser convidar outros usuários (SDRs, gestores).
 **Pré-requisitos:** [01](./01-configuracoes-gerais.md).
 

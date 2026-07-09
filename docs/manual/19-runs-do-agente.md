@@ -1,6 +1,5 @@
 # 19. Runs do Agente
 
-**Rota:** `/agent-runs`
 **Quando usar:** auditoria — quando você quer saber por que a IA fez algo específico.
 **Pré-requisitos:** agente SDR ativo em pelo menos um lead.
 

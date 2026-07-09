@@ -1,6 +1,5 @@
 # 08. Leads
 
-**Rota:** `/leads`
 **Quando usar:** revisar, filtrar, qualificar e disparar leads em massa para cadência.
 **Pré-requisitos:** [07](./07-buscar-apollo.md) ou leads importados por CSV.
 

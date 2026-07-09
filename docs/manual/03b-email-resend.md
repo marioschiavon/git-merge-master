@@ -1,6 +1,5 @@
 # 03b. Email (domínio próprio)
 
-**Rota:** `/settings/email`
 **Quando usar:** você vai enviar emails de prospecção com o **seu domínio** (`atendimento@suaempresa.com.br`).
 **Pré-requisitos:** acesso ao painel DNS do seu domínio (Registro.br, GoDaddy, Cloudflare, cPanel etc.).
 

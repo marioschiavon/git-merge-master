@@ -1,6 +1,5 @@
 # 18. Relatórios
 
-**Rota:** `/reports`
 **Quando usar:** análises mais fundo — por cadência, por SDR, por lista, por período.
 **Pré-requisitos:** [17](./17-dashboard.md).
 

@@ -1,6 +1,5 @@
 # 05. Scripts IA
 
-**Rota:** `/scripts`
 **Quando usar:** para criar/versionar templates que a IA usa como ponto de partida em cadências.
 **Pré-requisitos:** [04](./04-base-de-conhecimento.md).
 

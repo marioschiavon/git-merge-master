@@ -1,6 +1,5 @@
 # 03a. WhatsApp via Hook7
 
-**Rota:** `/settings/integrations` → card **WhatsApp (Hook7)**
 **Quando usar:** você vai enviar mensagens de WhatsApp na cadência.
 **Pré-requisitos:** um número dedicado à prospecção (idealmente novo, não pessoal).
 

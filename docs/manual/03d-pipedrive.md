@@ -1,6 +1,5 @@
 # 03d. Pipedrive (opcional)
 
-**Rota:** `/settings/integrations` → **Pipedrive**
 **Quando usar:** se seu time comercial já vive no Pipedrive e você quer sincronizar leads/negócios.
 **Pré-requisitos:** conta Pipedrive com API token.
 

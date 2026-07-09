@@ -1,6 +1,5 @@
 # 03e. Cal.com
 
-**Rota:** `/settings/calcom`
 **Quando usar:** sempre que sua cadência oferece **reunião** (na prática, quase todas).
 **Pré-requisitos:** conta Cal.com com pelo menos 1 tipo de evento configurado.
 

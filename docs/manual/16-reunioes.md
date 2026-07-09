@@ -1,6 +1,5 @@
 # 16. Reuniões
 
-**Rota:** `/bookings`
 **Quando usar:** ver a agenda de reuniões geradas pela IA.
 **Pré-requisitos:** [03e. Cal.com conectado](./03e-calcom.md).
 

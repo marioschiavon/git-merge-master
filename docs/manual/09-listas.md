@@ -1,6 +1,5 @@
 # 09. Listas
 
-**Rota:** `/leads/lists`
 **Quando usar:** para agrupar leads por campanha/ICP/importação.
 **Pré-requisitos:** [08](./08-leads.md).
 

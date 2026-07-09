@@ -1,6 +1,5 @@
 # 14. Inbox humana
 
-**Rota:** `/inbox`
 **Quando usar:** quando a IA escala uma conversa para você — dúvida complexa, cliente irritado, negociação.
 **Pré-requisitos:** [13](./13-conversas.md).
 

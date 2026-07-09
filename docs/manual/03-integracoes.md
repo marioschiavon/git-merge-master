@@ -1,6 +1,5 @@
 # 03. Integrações (visão geral)
 
-**Rota:** `/settings/integrations`
 **Quando usar:** **antes** de qualquer criação de cadência ou lead — sem integrações, cadências não disparam.
 **Pré-requisitos:** [02](./02-equipe.md).
 

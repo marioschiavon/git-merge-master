@@ -1,6 +1,5 @@
 # 03c. Apollo
 
-**Rota:** `/settings/integrations` → **Apollo**
 **Quando usar:** para buscar leads B2B com dados de LinkedIn e telefone.
 **Pré-requisitos:** conta Apollo com API key ativa.
 
