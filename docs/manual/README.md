@@ -31,6 +31,7 @@ Fase 4 — Análise
 
 - [00 — Primeiros passos](./00-primeiros-passos.md)
 - [01 — Configurações gerais](./01-configuracoes-gerais.md)
+  - [01a — Qualificação de Leads (Score)](./01a-qualificacao-leads.md)
 - [02 — Equipe](./02-equipe.md)
 - [03 — Integrações (visão geral)](./03-integracoes.md)
   - [03a — WhatsApp via Hook7](./03a-whatsapp-hook7.md)
