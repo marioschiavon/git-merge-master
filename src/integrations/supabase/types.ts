@@ -1129,7 +1129,10 @@ export type Database = {
           embedded_at: string | null
           file_path: string | null
           id: string
+          knowledge_type: string
+          locked: boolean
           needs_embedding: boolean
+          origin: string
           source_url: string | null
           title: string
           type: string
@@ -1142,7 +1145,10 @@ export type Database = {
           embedded_at?: string | null
           file_path?: string | null
           id?: string
+          knowledge_type?: string
+          locked?: boolean
           needs_embedding?: boolean
+          origin?: string
           source_url?: string | null
           title: string
           type?: string
@@ -1155,7 +1161,10 @@ export type Database = {
           embedded_at?: string | null
           file_path?: string | null
           id?: string
+          knowledge_type?: string
+          locked?: boolean
           needs_embedding?: boolean
+          origin?: string
           source_url?: string | null
           title?: string
           type?: string
@@ -1839,7 +1848,9 @@ export type Database = {
           created_at: string | null
           id: string
           insights: Json
+          instagram_summary: string | null
           lead_id: string
+          linkedin_summary: string | null
           raw_summary: string | null
           score: number | null
           score_breakdown: Json | null
@@ -1851,7 +1862,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           insights?: Json
+          instagram_summary?: string | null
           lead_id: string
+          linkedin_summary?: string | null
           raw_summary?: string | null
           score?: number | null
           score_breakdown?: Json | null
@@ -1863,7 +1876,9 @@ export type Database = {
           created_at?: string | null
           id?: string
           insights?: Json
+          instagram_summary?: string | null
           lead_id?: string
+          linkedin_summary?: string | null
           raw_summary?: string | null
           score?: number | null
           score_breakdown?: Json | null
