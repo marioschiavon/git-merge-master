@@ -161,12 +161,50 @@ export default function EmailSettings() {
         description:
           s === "verified"
             ? "Tudo pronto — sua empresa já pode enviar emails."
-            : "Registros ainda não encontrados. Aguarde alguns minutos e tente de novo — pode levar até 2h em alguns provedores.",
+            : "Estamos verificando automaticamente em segundo plano — a tela atualiza sozinha assim que o DNS propagar.",
       });
     },
     onError: (e: Error) =>
       toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
+
+  // Auto-poll silencioso enquanto o domínio ainda não está verificado.
+  const pollAttemptsRef = useRef(0);
+  const isPollingStatus = domain && (domain.status === "pending" || domain.status === "verifying");
+  useEffect(() => {
+    if (!isPollingStatus) {
+      pollAttemptsRef.current = 0;
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled) return;
+      pollAttemptsRef.current += 1;
+      try {
+        await supabase.functions.invoke("resend-domain-verify", { body: {} });
+      } catch {
+        // ignora erros no polling silencioso
+      }
+      if (!cancelled) {
+        queryClient.invalidateQueries({ queryKey: ["company_email_domain_full"] });
+      }
+    };
+    // primeira tentativa imediata (rápida, ao abrir a página)
+    tick();
+    const interval = setInterval(() => {
+      if (pollAttemptsRef.current >= 20) {
+        clearInterval(interval);
+        return;
+      }
+      tick();
+    }, 15000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPollingStatus]);
+
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
