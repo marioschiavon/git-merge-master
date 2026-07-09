@@ -1,0 +1,1455 @@
+<title>Manual do Leaderei</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Guia completo, em linguagem simples, para configurar e usar o Leaderei do zero.">
+<style>
+  :root{
+    --bg:#f6f7fb;
+    --bg-elevated:#ffffff;
+    --text:#1c2033;
+    --text-muted:#5b6178;
+    --border:#e4e6f0;
+    --primary:#4f46e5;
+    --primary-hover:#4338ca;
+    --primary-soft:#eef0ff;
+    --accent:#0ea5a4;
+    --accent-soft:#e6fbfa;
+    --warn:#b45309;
+    --warn-soft:#fef3e0;
+    --danger:#be123c;
+    --danger-soft:#fde8ee;
+    --code-bg:#eef0f7;
+    --shadow: 0 1px 2px rgba(20,20,50,.04), 0 8px 24px rgba(20,20,50,.06);
+    --radius: 14px;
+    --sidebar-w: 300px;
+  }
+  :root[data-theme="dark"]{
+    --bg:#12131c;
+    --bg-elevated:#1a1c29;
+    --text:#e8e9f2;
+    --text-muted:#9497b0;
+    --border:#2a2d3f;
+    --primary:#8b85ff;
+    --primary-hover:#a29cff;
+    --primary-soft:#232244;
+    --accent:#39d0cf;
+    --accent-soft:#123433;
+    --warn:#f2b756;
+    --warn-soft:#3a2c10;
+    --danger:#ff7597;
+    --danger-soft:#3a1523;
+    --code-bg:#20222f;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.4);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#12131c;
+      --bg-elevated:#1a1c29;
+      --text:#e8e9f2;
+      --text-muted:#9497b0;
+      --border:#2a2d3f;
+      --primary:#8b85ff;
+      --primary-hover:#a29cff;
+      --primary-soft:#232244;
+      --accent:#39d0cf;
+      --accent-soft:#123433;
+      --warn:#f2b756;
+      --warn-soft:#3a2c10;
+      --danger:#ff7597;
+      --danger-soft:#3a1523;
+      --code-bg:#20222f;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.4);
+    }
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{ color:var(--primary); }
+
+  /* ---------- Layout ---------- */
+  .app{
+    display:grid;
+    grid-template-columns: var(--sidebar-w) minmax(0,1fr);
+    min-height:100vh;
+  }
+  .sidebar{
+    position:sticky;
+    top:0;
+    height:100vh;
+    overflow-y:auto;
+    border-right:1px solid var(--border);
+    background:var(--bg-elevated);
+    padding:20px 16px 40px;
+  }
+  .sidebar-head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:4px 6px 16px;
+  }
+  .logo{
+    width:34px;height:34px;border-radius:10px;
+    background:linear-gradient(135deg,var(--primary),var(--accent));
+    display:flex;align-items:center;justify-content:center;
+    color:#fff;font-weight:700;font-size:15px;flex:none;
+  }
+  .sidebar-head h1{ font-size:15px; margin:0; line-height:1.2;}
+  .sidebar-head span{ font-size:12px; color:var(--text-muted); }
+
+  .search-box{
+    width:100%;
+    padding:9px 12px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--text);
+    font-size:13px;
+    margin-bottom:14px;
+  }
+  .search-box:focus{ outline:2px solid var(--primary); outline-offset:1px;}
+
+  .toc-phase{
+    font-size:11px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color:var(--text-muted);
+    font-weight:700;
+    margin:18px 8px 6px;
+  }
+  .toc-phase:first-of-type{ margin-top:4px; }
+  nav.toc a{
+    display:flex;
+    gap:8px;
+    align-items:baseline;
+    text-decoration:none;
+    color:var(--text);
+    font-size:13.5px;
+    padding:7px 8px;
+    border-radius:9px;
+    margin:1px 0;
+  }
+  nav.toc a:hover{ background:var(--primary-soft); }
+  nav.toc a.active{ background:var(--primary-soft); color:var(--primary); font-weight:600; }
+  nav.toc a .num{ color:var(--text-muted); font-variant-numeric: tabular-nums; font-size:12px; min-width:20px;}
+  nav.toc a.sub{ padding-left:26px; font-size:12.8px; }
+  nav.toc a.sub .num{ opacity:.7; }
+
+  main{
+    min-width:0;
+    padding: 48px clamp(20px, 5vw, 72px) 120px;
+    max-width:920px;
+  }
+
+  .theme-toggle{
+    position:fixed;
+    top:18px;
+    right:18px;
+    z-index:20;
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    box-shadow:var(--shadow);
+    border-radius:999px;
+    padding:8px 14px;
+    font-size:13px;
+    color:var(--text);
+    cursor:pointer;
+  }
+
+  .mobile-toggle{ display:none; }
+  .overlay{ display:none; }
+
+  /* ---------- Hero ---------- */
+  .hero{
+    background: linear-gradient(135deg, var(--primary-soft), var(--accent-soft));
+    border:1px solid var(--border);
+    border-radius: 20px;
+    padding: 40px clamp(20px,4vw,48px);
+    margin-bottom:44px;
+  }
+  .hero .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:12.5px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+    color:var(--primary); margin-bottom:14px;
+  }
+  .hero h1{ font-size:clamp(28px,4vw,38px); margin:0 0 12px; letter-spacing:-.02em;}
+  .hero p{ font-size:16px; color:var(--text-muted); max-width:60ch; margin:0 0 20px;}
+  .hero .rule{
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    border-left:4px solid var(--accent);
+    border-radius:12px;
+    padding:14px 18px;
+    font-size:14.5px;
+    display:flex; gap:10px;
+  }
+
+  .checklist{
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:22px 24px;
+    margin-top:22px;
+    box-shadow:var(--shadow);
+  }
+  .checklist h3{ margin-top:0; font-size:15px;}
+  .checklist ul{ margin:0; padding-left:0; list-style:none;}
+  .checklist li{
+    display:flex; gap:10px; align-items:flex-start;
+    padding:7px 0; font-size:14.5px; border-bottom:1px dashed var(--border);
+  }
+  .checklist li:last-child{ border-bottom:none; }
+  .checklist li .box{
+    flex:none; width:18px;height:18px;margin-top:2px;border-radius:5px;
+    border:2px solid var(--primary);
+  }
+
+  /* ---------- Phase section headers ---------- */
+  .phase-header{
+    display:flex; align-items:center; gap:14px;
+    margin: 64px 0 8px;
+  }
+  .phase-header .pnum{
+    flex:none; width:40px;height:40px;border-radius:12px;
+    background:var(--primary); color:#fff; font-weight:700;
+    display:flex;align-items:center;justify-content:center; font-size:16px;
+  }
+  .phase-header h2{ margin:0; font-size:22px; }
+  .phase-header p{ margin:2px 0 0; color:var(--text-muted); font-size:14px;}
+  .phase-divider{ height:1px; background:var(--border); margin: 18px 0 32px; }
+
+  /* ---------- Doc cards ---------- */
+  article.doc{
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding: 28px clamp(18px,3vw,34px) 32px;
+    margin-bottom:26px;
+    scroll-margin-top: 24px;
+  }
+  article.doc.sub{
+    margin-left: clamp(0px,3vw,28px);
+    border-left:3px solid var(--accent);
+  }
+  .doc-title{
+    display:flex; flex-wrap:wrap; align-items:center; gap:10px;
+    margin-bottom:6px;
+  }
+  .doc-title h3{ margin:0; font-size:20px; letter-spacing:-.01em;}
+  .badge{
+    font-size:11.5px; font-weight:700; padding:3px 10px; border-radius:999px;
+    letter-spacing:.02em;
+  }
+  .badge.required{ background:var(--danger-soft); color:var(--danger); }
+  .badge.recommended{ background:var(--warn-soft); color:var(--warn); }
+  .badge.optional{ background:var(--code-bg); color:var(--text-muted); }
+
+  .meta-row{
+    display:flex; flex-wrap:wrap; gap:8px 22px;
+    font-size:13px; color:var(--text-muted);
+    margin: 10px 0 18px;
+    padding-bottom:16px;
+    border-bottom:1px solid var(--border);
+  }
+  .meta-row b{ color:var(--text); font-weight:600; }
+  .meta-row code{ background:var(--code-bg); padding:1px 7px; border-radius:6px; font-size:12.5px;}
+
+  .doc h4{
+    font-size:13px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--primary); margin:22px 0 10px;
+  }
+  .doc h4:first-of-type{ margin-top:0; }
+  .doc p{ margin:0 0 12px; font-size:14.8px; }
+  .doc ol, .doc ul{ margin:0 0 4px; padding-left:22px; font-size:14.8px; }
+  .doc li{ margin-bottom:8px; }
+  .doc pre{
+    background:var(--code-bg); border-radius:10px; padding:14px 16px;
+    overflow-x:auto; font-size:13.2px; margin:10px 0 16px;
+  }
+  .doc code{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  .doc table{ width:100%; border-collapse:collapse; margin:12px 0 18px; font-size:13.8px; }
+  .doc th, .doc td{ text-align:left; padding:9px 12px; border-bottom:1px solid var(--border); }
+  .doc th{ color:var(--text-muted); font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.02em; }
+
+  .callout{
+    border-radius:12px; padding:14px 16px; font-size:14px; margin:14px 0 18px;
+    display:flex; gap:10px;
+  }
+  .callout .icon{ flex:none; font-size:17px; line-height:1.3; }
+  .callout.tip{ background:var(--accent-soft); }
+  .callout.warn{ background:var(--warn-soft); }
+  .callout.danger{ background:var(--danger-soft); }
+  .callout p{ margin:0; }
+  .callout p + p{ margin-top:8px; }
+
+  .glossary-hint{
+    font-size:12.5px; color:var(--text-muted); cursor:help;
+    border-bottom:1px dashed var(--text-muted);
+  }
+
+  .next-step{
+    margin-top:20px; padding-top:16px; border-top:1px solid var(--border);
+    font-size:14px; display:flex; align-items:center; gap:8px;
+  }
+  .next-step a{ font-weight:600; text-decoration:none; }
+  .next-step a:hover{ text-decoration:underline; }
+
+  /* ---------- Glossary ---------- */
+  .glossary-grid{
+    display:grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr));
+    gap:14px; margin-top:8px;
+  }
+  .gterm{
+    background:var(--bg-elevated); border:1px solid var(--border); border-radius:12px;
+    padding:14px 16px; box-shadow:var(--shadow);
+  }
+  .gterm b{ display:block; font-size:14.5px; margin-bottom:4px; color:var(--primary);}
+  .gterm span{ font-size:13.5px; color:var(--text-muted); }
+
+  footer.manual-footer{
+    text-align:center; padding:50px 20px 10px; color:var(--text-muted); font-size:13.5px;
+  }
+
+  .back-top{
+    position:fixed; right:22px; bottom:22px; z-index:20;
+    background:var(--primary); color:#fff; border:none;
+    width:44px;height:44px;border-radius:50%;
+    box-shadow:var(--shadow); cursor:pointer; font-size:16px;
+    display:none; align-items:center; justify-content:center;
+  }
+  .back-top.show{ display:flex; }
+
+  ::-webkit-scrollbar{ width:10px; height:10px; }
+  ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:10px; }
+
+  @media (max-width: 900px){
+    .app{ grid-template-columns: 1fr; }
+    .sidebar{
+      position:fixed; z-index:30; inset:0 30% 0 0; width:auto;
+      transform: translateX(-100%);
+      transition: transform .25s ease;
+      box-shadow: var(--shadow);
+    }
+    .sidebar.open{ transform:translateX(0); }
+    .mobile-toggle{
+      display:flex; position:fixed; top:16px; left:16px; z-index:25;
+      align-items:center;justify-content:center;
+      width:42px;height:42px;border-radius:12px;
+      background:var(--bg-elevated); border:1px solid var(--border);
+      box-shadow:var(--shadow); font-size:18px; cursor:pointer;
+    }
+    .theme-toggle{ right:16px; top:16px; }
+    main{ padding-top:80px; }
+    .overlay{
+      display:none; position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:28;
+    }
+    .overlay.show{ display:block; }
+  }
+
+  @media print{
+    .sidebar, .theme-toggle, .mobile-toggle, .back-top, .overlay{ display:none !important; }
+    .app{ display:block; }
+    article.doc{ break-inside:avoid; box-shadow:none; }
+  }
+</style>
+
+<div class="app">
+  <button class="mobile-toggle" onclick="toggleSidebar()">☰</button>
+  <div class="overlay" onclick="toggleSidebar()"></div>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <div class="logo">L</div>
+      <div>
+        <h1>Manual do Leaderei</h1>
+        <span>Guia completo, passo a passo</span>
+      </div>
+    </div>
+    <input class="search-box" id="searchBox" type="text" placeholder="Buscar no manual…" oninput="filterToc()">
+
+    <nav class="toc" id="tocNav">
+      <div class="toc-phase">Comece aqui</div>
+      <a href="#primeiros-passos" class="num">00</a>
+
+      <div class="toc-phase">Fase 1 · Configuração inicial</div>
+      <a href="#configuracoes-gerais"><span class="num">01</span> Configurações gerais</a>
+      <a href="#equipe"><span class="num">02</span> Equipe</a>
+      <a href="#integracoes"><span class="num">03</span> Integrações</a>
+      <a href="#whatsapp" class="sub"><span class="num">03a</span> WhatsApp</a>
+      <a href="#email" class="sub"><span class="num">03b</span> Email</a>
+      <a href="#apollo" class="sub"><span class="num">03c</span> Apollo</a>
+      <a href="#pipedrive" class="sub"><span class="num">03d</span> Pipedrive</a>
+      <a href="#calcom" class="sub"><span class="num">03e</span> Cal.com</a>
+      <a href="#base-conhecimento"><span class="num">04</span> Base de Conhecimento</a>
+      <a href="#scripts-ia"><span class="num">05</span> Scripts IA</a>
+      <a href="#intents-acoes"><span class="num">06</span> Intents & Ações</a>
+
+      <div class="toc-phase">Fase 2 · Operação</div>
+      <a href="#buscar-apollo"><span class="num">07</span> Buscar no Apollo</a>
+      <a href="#leads"><span class="num">08</span> Leads</a>
+      <a href="#listas"><span class="num">09</span> Listas</a>
+      <a href="#cadencias"><span class="num">10</span> Cadências</a>
+      <a href="#aprovacoes"><span class="num">11</span> Aprovações</a>
+      <a href="#acompanhamento"><span class="num">12</span> Acompanhamento</a>
+
+      <div class="toc-phase">Fase 3 · Relacionamento</div>
+      <a href="#conversas"><span class="num">13</span> Conversas</a>
+      <a href="#inbox-humana"><span class="num">14</span> Inbox humana</a>
+      <a href="#anotacoes"><span class="num">15</span> Anotações</a>
+      <a href="#reunioes"><span class="num">16</span> Reuniões</a>
+
+      <div class="toc-phase">Fase 4 · Análise</div>
+      <a href="#dashboard"><span class="num">17</span> Dashboard</a>
+      <a href="#relatorios"><span class="num">18</span> Relatórios</a>
+      <a href="#runs-agente"><span class="num">19</span> Runs do Agente</a>
+
+      <div class="toc-phase">Referência</div>
+      <a href="#glossario">📖 Glossário de termos</a>
+    </nav>
+  </aside>
+
+  <main>
+    <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙 Modo escuro</button>
+
+    <header class="hero" id="primeiros-passos">
+      <div class="eyebrow">📘 Manual do Leaderei</div>
+      <h1>Bem-vindo(a) ao Leaderei</h1>
+      <p>Sua plataforma de prospecção B2B com Inteligência Artificial. Este manual explica, em linguagem simples, tudo o que você precisa fazer — na ordem certa — para colocar a ferramenta para trabalhar por você.</p>
+
+      <p>O Leaderei faz três coisas, na prática:</p>
+      <ol style="font-size:15px; max-width:62ch;">
+        <li><b>Traz contatos em potencial</b> (chamados de <i>leads</i>) — do Apollo ou de uma lista sua.</li>
+        <li><b>Pesquisa e avalia cada contato</b> automaticamente (site, LinkedIn, Instagram) e dá uma nota de aderência.</li>
+        <li><b>Conversa</b> por WhatsApp e/ou email seguindo uma sequência de mensagens, responde dúvidas com IA e marca reuniões sozinho.</li>
+      </ol>
+
+      <div class="rule">
+        <span>⭐</span>
+        <div><b>Regra de ouro:</b> qualidade sempre acima de volume. Prefira 30 contatos bem escolhidos e com mensagens sob medida do que 500 disparos genéricos. Volume descontrolado gera spam, bane seu número de WhatsApp e queima a reputação do seu domínio de email.</div>
+      </div>
+
+      <div class="checklist">
+        <h3>✅ Checklist do primeiro dia</h3>
+        <ul>
+          <li><span class="box"></span> Configurar dados da empresa e do seu perfil — <a href="#configuracoes-gerais">passo 01</a></li>
+          <li><span class="box"></span> Convidar quem vai operar o sistema — <a href="#equipe">passo 02</a></li>
+          <li><span class="box"></span> Conectar o WhatsApp — <a href="#whatsapp">passo 03a</a></li>
+          <li><span class="box"></span> Configurar o domínio de email — <a href="#email">passo 03b</a></li>
+          <li><span class="box"></span> Conectar o Apollo (fonte de contatos) — <a href="#apollo">passo 03c</a></li>
+          <li><span class="box"></span> Conectar o Cal.com (agenda) — <a href="#calcom">passo 03e</a></li>
+          <li><span class="box"></span> Preencher a Base de Conhecimento — <a href="#base-conhecimento">passo 04</a></li>
+          <li><span class="box"></span> Criar 1 cadência de teste com 3 passos — <a href="#cadencias">passo 10</a></li>
+        </ul>
+      </div>
+    </header>
+
+    <!-- ============ FASE 1 ============ -->
+    <div class="phase-header">
+      <div class="pnum">1</div>
+      <div><h2>Configuração inicial</h2><p>Feita uma vez, no começo — é a base de tudo.</p></div>
+    </div>
+    <div class="phase-divider"></div>
+
+    <article class="doc" id="configuracoes-gerais">
+      <div class="doc-title"><h3>01 · Configurações gerais</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> menu lateral → <code>Configurações</code></span>
+        <span><b>Quando usar:</b> primeira coisa a fazer depois de entrar</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>É onde ficam os dados básicos da sua empresa dentro do Leaderei: nome, fuso horário, horário comercial (usado pelas sequências de mensagens para não enviar nada de madrugada) e as informações do seu perfil pessoal.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Abra o menu lateral <b>Configurações</b>.</li>
+        <li>Confira o <b>nome da empresa</b> — é o que aparece no rodapé dos emails e no topo do menu.</li>
+        <li>Ajuste o <b>fuso horário</b> e a <b>janela de envio</b> (ex.: 09:00–18:00, de segunda a sexta). Fora desse horário, as sequências de mensagens pausam sozinhas.</li>
+        <li>Confira e atualize seu perfil (nome, telefone).</li>
+        <li>Salve.</li>
+      </ol>
+
+      <h4>Dicas</h4>
+      <ul>
+        <li>O nome da empresa é usado pela IA para se apresentar. Escreva exatamente como você quer que apareça em: "Fala, aqui é do time da <b>[Empresa]</b>".</li>
+        <li>Se você tem clientes em fusos horários diferentes, use o fuso onde estiver a <b>maioria dos seus contatos</b> — não necessariamente o seu.</li>
+      </ul>
+
+      <div class="callout warn">
+        <span class="icon">⚠️</span>
+        <div>
+          <p><b>Erros comuns:</b></p>
+          <p>Deixar a janela de envio aberta 24 horas por dia — isso faz o sistema mandar mensagem às 3h da manhã e pode banir o número de WhatsApp.</p>
+          <p>Escrever o nome da empresa todo em maiúsculas ("LEADEREI") — a IA usa o texto exatamente como está escrito.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#equipe">Próximo passo: 02. Equipe</a></div>
+    </article>
+
+    <article class="doc" id="equipe">
+      <div class="doc-title"><h3>02 · Equipe</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Equipe</code></span>
+        <span><b>Quando usar:</b> ao convidar outras pessoas para usar o sistema</span>
+        <span><b>Antes disso:</b> <a href="#configuracoes-gerais">passo 01</a></span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>É a tela que controla quem tem acesso ao espaço de trabalho da sua empresa e o que cada pessoa pode fazer.</p>
+
+      <h4>Os três tipos de acesso (papéis)</h4>
+      <table>
+        <tr><th>Papel</th><th>O que pode fazer</th></tr>
+        <tr><td><b>Admin da empresa</b></td><td>Pode tudo dentro da sua empresa: configurar integrações, criar sequências de mensagens, ver relatórios.</td></tr>
+        <tr><td><b>Usuário</b></td><td>Responde conversas e aprova mensagens no dia a dia. Não mexe em configurações de integrações.</td></tr>
+        <tr><td><b>Admin master</b></td><td>Reservado à equipe da Liderei (quem fornece o sistema). Só ela edita itens marcados como "protegidos".</td></tr>
+      </table>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Vá em <b>Configurações → Equipe</b>.</li>
+        <li>Clique em <b>Convidar membro</b>.</li>
+        <li>Digite o email da pessoa e escolha o papel dela.</li>
+        <li>Envie o convite. A pessoa recebe um email com um link para criar a senha dela.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Deixe pelo menos <b>duas pessoas como admin da empresa</b>, para não depender de um único acesso caso alguém saia de férias ou troque de função.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#integracoes">Próximo passo: 03. Integrações</a></div>
+    </article>
+
+    <article class="doc" id="integracoes">
+      <div class="doc-title"><h3>03 · Integrações (visão geral)</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Integrações</code></span>
+        <span><b>Quando usar:</b> antes de importar qualquer contato ou criar uma sequência de mensagens</span>
+        <span><b>Antes disso:</b> <a href="#equipe">passo 02</a></span>
+      </div>
+
+      <h4>O que são "integrações" e por que vêm primeiro</h4>
+      <p>Uma <span class="glossary-hint" title="Uma conexão entre o Leaderei e outro sistema que você já usa, como WhatsApp, seu email ou o Apollo.">integração</span> é simplesmente uma conexão entre o Leaderei e uma ferramenta que você já usa — seu WhatsApp, seu email, o Apollo, etc. Não adianta importar 1.000 contatos antes de conectar os canais de conversa: você teria mil contatos parados, sem ninguém para falar com eles. A ordem certa é:</p>
+      <ol>
+        <li>Conectar os canais de envio (<b>WhatsApp</b> e/ou <b>email</b>).</li>
+        <li>Conectar a fonte de contatos (<b>Apollo</b>) ou preparar uma planilha própria.</li>
+        <li>Configurar o agendamento de reuniões (<b>Cal.com</b>).</li>
+        <li>Só então importar contatos e criar as sequências de mensagens.</li>
+      </ol>
+
+      <h4>Integrações disponíveis</h4>
+      <table>
+        <tr><th>Integração</th><th>Para que serve</th><th>Preciso configurar?</th></tr>
+        <tr><td><a href="#whatsapp">WhatsApp (Hook7)</a></td><td>Enviar e receber mensagens de WhatsApp</td><td><span class="badge required">Obrigatória se usar WhatsApp</span></td></tr>
+        <tr><td><a href="#email">Email (domínio próprio)</a></td><td>Enviar e receber email pelo seu próprio domínio</td><td><span class="badge required">Obrigatória se usar Email</span></td></tr>
+        <tr><td><a href="#apollo">Apollo</a></td><td>Buscar e importar contatos B2B</td><td><span class="badge recommended">Recomendada</span></td></tr>
+        <tr><td><a href="#pipedrive">Pipedrive</a></td><td>Sincronizar contatos e negócios com seu CRM</td><td><span class="badge optional">Opcional</span></td></tr>
+        <tr><td><a href="#calcom">Cal.com</a></td><td>Agendar reuniões automaticamente</td><td><span class="badge required">Obrigatória se oferece reunião</span></td></tr>
+      </table>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Abra <b>Configurações → Integrações</b>.</li>
+        <li>Você verá um cartão para cada integração. Verde = conectado, cinza = ainda não conectado.</li>
+        <li>Clique em <b>Conectar</b> no cartão desejado e siga o guia específico (linkado acima).</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Mesmo que você só vá prospectar por <b>WhatsApp</b>, vale configurar o email também — a IA o usa como canal reserva quando o número de WhatsApp está temporariamente indisponível.</p></div>
+      </div>
+
+      <div class="next-step">➡️ Continue com: <a href="#whatsapp">03a. WhatsApp</a> · <a href="#email">03b. Email</a> · <a href="#apollo">03c. Apollo</a> · <a href="#pipedrive">03d. Pipedrive</a> · <a href="#calcom">03e. Cal.com</a></div>
+    </article>
+
+    <article class="doc sub" id="whatsapp">
+      <div class="doc-title"><h3>03a · WhatsApp via Hook7</h3> <span class="badge required">Obrigatória se usar WhatsApp</span></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Integrações</code> → cartão WhatsApp</span>
+        <span><b>Quando usar:</b> se você vai mandar mensagens de WhatsApp</span>
+        <span><b>Você vai precisar de:</b> um número de celular só para prospecção (de preferência novo, não o seu pessoal)</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>"Hook7" é o nome do serviço interno que conecta o Leaderei ao WhatsApp. Ele guarda a conexão do seu WhatsApp com segurança, mostra o código para você escanear e recebe automaticamente as respostas dos contatos.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Vá em <b>Configurações → Integrações → WhatsApp</b> e clique em <b>Gerenciar instância</b>.</li>
+        <li>Clique em <b>Criar instância</b> (isto é, "criar uma conexão nova").</li>
+        <li>Um <b>QR-Code</b> (código de barras quadrado) vai aparecer na tela. No celular do número dedicado, abra o WhatsApp → <b>Aparelhos conectados → Conectar um aparelho</b> e aponte a câmera para o código.</li>
+        <li>Em poucos segundos o status muda para <b>Conectado</b>.</li>
+        <li>Clique em <b>Testar conexão</b> — o sistema manda uma mensagem de teste para o próprio número, só para confirmar que está tudo certo.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p><b>Use um chip só para isso</b>, não o seu WhatsApp pessoal. Se o número acabar sendo bloqueado pelo WhatsApp, você não perde seus contatos e conversas pessoais.</p>
+          <p>Comece devagar: <b>30 a 50 mensagens por dia</b>. O WhatsApp costuma bloquear números novos que mandam muita mensagem de uma vez.</p>
+          <p>Não desligue o celular da internet — ele precisa ficar online para o sistema funcionar.</p>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <span class="icon">⚠️</span>
+        <div>
+          <p><b>Erros comuns:</b></p>
+          <p><b>O código expirou:</b> clique em "Gerar novo" e escaneie em até 60 segundos.</p>
+          <p><b>Apareceu "desconectado" depois de 24h:</b> o WhatsApp desconecta aparelhos que ficam muito tempo parados — basta escanear o código de novo.</p>
+          <p><b>As mensagens não estão saindo:</b> confira se o horário atual está dentro da janela de envio configurada em <a href="#configuracoes-gerais">Configurações gerais</a>.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#email">Próximo passo: 03b. Email</a></div>
+    </article>
+
+    <article class="doc sub" id="email">
+      <div class="doc-title"><h3>03b · Email (domínio próprio)</h3> <span class="badge required">Obrigatória se usar Email</span></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Email</code></span>
+        <span><b>Quando usar:</b> se você vai mandar emails de prospecção usando o email da sua própria empresa</span>
+        <span><b>Você vai precisar de:</b> acesso ao painel do seu domínio (o site onde você registrou seu endereço .com.br — ex.: Registro.br, GoDaddy, Cloudflare)</span>
+      </div>
+
+      <h4>O que é (em termos simples)</h4>
+      <p>Cada empresa configura seu próprio "canal" de envio de email, geralmente algo como <code>envio.suaempresa.com.br</code>. Isso é importante porque garante que sua reputação de envio (o quanto o Gmail e o Outlook confiam em você) fica separada da de outros clientes do Leaderei — se alguém mandar spam, não afeta você.</p>
+
+      <h4>Passo a passo em 4 etapas</h4>
+
+      <p><b>1. Preencher os dados</b></p>
+      <ul>
+        <li><b>Nome do remetente</b>: o nome que aparece para quem recebe o email. Padrão sugerido: <i>Atendimento</i>. Pode ser também "Comercial" ou "Equipe [Empresa]" — evite usar "SDR", pois o cliente não sabe o que isso significa.</li>
+        <li><b>Prefixo do email</b>: a parte antes do @. Padrão sugerido: <i>atendimento</i>. Evite usar "no-reply" (não responda) — isso faz as pessoas responderem menos.</li>
+        <li><b>Domínio de envio</b>: sugerimos usar um subdomínio, por exemplo <code>envio.suaempresa.com.br</code>, em vez do domínio principal do site.</li>
+      </ul>
+      <p>Você verá uma prévia em tempo real, tipo: <code>Atendimento &lt;atendimento@envio.suaempresa.com.br&gt;</code>.</p>
+
+      <p><b>2. Cadastrar</b></p>
+      <p>Clique em <b>Cadastrar domínio</b>. O sistema vai gerar de 3 a 5 <span class="glossary-hint" title="Pequenos códigos técnicos que você cola no painel do seu provedor de domínio. Eles provam para o Gmail/Outlook que é realmente você enviando o email — sem eles, seus emails caem em spam ou nem chegam.">registros DNS</span> — pense neles como "códigos de verificação" que provam que o domínio é realmente seu.</p>
+
+      <p><b>3. Copiar os registros para o seu provedor de domínio</b></p>
+      <p>Cada linha tem um botão <b>Copiar</b>. Cole cada uma no painel de onde você registrou seu site, seguindo a tabela abaixo:</p>
+      <table>
+        <tr><th>Onde você registrou o domínio</th><th>Para onde ir</th></tr>
+        <tr><td>Registro.br</td><td>Painel → seu domínio → <b>DNS</b> → Editar zona</td></tr>
+        <tr><td>GoDaddy</td><td>Meus produtos → domínio → <b>DNS</b> → <b>Adicionar</b></td></tr>
+        <tr><td>Cloudflare</td><td>Site → <b>DNS</b> → <b>Add record</b></td></tr>
+        <tr><td>cPanel (HostGator/Locaweb)</td><td>Zone Editor → <b>+ Add Record</b></td></tr>
+      </table>
+      <p>Para cada linha, copie e cole exatamente três coisas:</p>
+      <ul>
+        <li><b>Tipo</b> (TXT, CNAME ou MX)</li>
+        <li><b>Host / Nome</b> — normalmente só a palavra <code>envio</code>, <u>não</u> o domínio inteiro</li>
+        <li><b>Valor</b> — o texto grande, sem espaços extras, quebras de linha ou aspas</li>
+      </ul>
+
+      <p><b>4. Verificar</b></p>
+      <p>Volte à tela do Leaderei e clique em <b>Verificar DNS</b>. Se tudo estiver certo, o status muda para <b>Verificado ✅</b> em poucos segundos.</p>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p>A propagação (o tempo até a internet "aprender" sobre as mudanças) pode levar de <b>5 minutos a 1 hora</b>. Se der erro na primeira tentativa, espere um pouco e clique em Verificar de novo.</p>
+          <p>Não use o mesmo domínio em duas contas diferentes do Leaderei — isso causa conflito.</p>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <span class="icon">⚠️</span>
+        <div>
+          <p><b>Erros comuns:</b></p>
+          <p>Colar o valor com aspas junto — remova as aspas antes de colar.</p>
+          <p>Colocar o domínio inteiro (<code>envio.suaempresa.com.br</code>) no campo "Host" — o certo é colocar só <code>envio</code>.</p>
+          <p>Esquecer o registro <b>MX</b> — sem ele, as respostas dos contatos não voltam para a plataforma.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#apollo">Próximo passo: 03c. Apollo</a></div>
+    </article>
+
+    <article class="doc sub" id="apollo">
+      <div class="doc-title"><h3>03c · Apollo</h3> <span class="badge recommended">Recomendada</span></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Integrações</code> → Apollo</span>
+        <span><b>Quando usar:</b> para buscar contatos com dados de LinkedIn e telefone</span>
+        <span><b>Você vai precisar de:</b> uma conta no Apollo com "chave de API" ativa</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Apollo é um serviço externo que funciona como uma grande lista de contatos de empresas do mundo todo, com nome, cargo, LinkedIn, email e telefone. A partir dele você faz buscas (por segmento, cargo, região) e importa os resultados direto para dentro do Leaderei.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Dentro do Apollo, vá em <b>Settings → API</b> e copie sua <span class="glossary-hint" title="Uma espécie de senha longa e única que permite que dois sistemas conversem entre si automaticamente, sem precisar de login manual toda vez.">chave de API</span> (uma sequência de letras e números que funciona como uma senha de conexão entre sistemas).</li>
+        <li>No Leaderei: <b>Configurações → Integrações → Apollo → Conectar</b>.</li>
+        <li>Cole a chave e salve.</li>
+        <li>O status muda para <b>Ativo</b>.</li>
+      </ol>
+
+      <div class="callout warn">
+        <span class="icon">⚠️</span>
+        <div><p>Essa chave é sensível: quem tiver acesso a ela pode fazer buscas em seu nome e consumir seu limite de uso. Não compartilhe com quem não precisa.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#pipedrive">Próximo passo: 03d. Pipedrive (opcional)</a> ou <a href="#calcom">03e. Cal.com</a></div>
+    </article>
+
+    <article class="doc sub" id="pipedrive">
+      <div class="doc-title"><h3>03d · Pipedrive</h3> <span class="badge optional">Opcional</span></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Integrações</code> → Pipedrive</span>
+        <span><b>Quando usar:</b> se sua equipe comercial já usa o Pipedrive (um sistema de CRM) no dia a dia</span>
+        <span><b>Você vai precisar de:</b> conta no Pipedrive com token de API</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Um <span class="glossary-hint" title="Sistema onde a equipe de vendas guarda contatos, negociações e o andamento de cada venda. Pipedrive é um exemplo de CRM.">CRM</span> como o Pipedrive é onde muitas equipes de vendas já organizam seus negócios. Essa integração sincroniza automaticamente os contatos e negociações do Leaderei com o Pipedrive, nos dois sentidos. Quando uma reunião é marcada, um negócio é criado automaticamente no Pipedrive.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>No Pipedrive: <b>Settings → Personal → API</b> → copie o token.</li>
+        <li>No Leaderei: <b>Integrações → Pipedrive → Conectar</b>, cole o token.</li>
+        <li>Escolha o <b>funil de vendas</b> e a <b>etapa inicial</b> para novos negócios.</li>
+        <li>Clique em <b>Sincronizar agora</b> para trazer os contatos que já existem.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Essa sincronização não é obrigatória — o Leaderei funciona normalmente sem o Pipedrive. Se você usa outro CRM (HubSpot, RD Station), fale com a equipe da Liderei sobre integrações personalizadas.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#calcom">Próximo passo: 03e. Cal.com</a></div>
+    </article>
+
+    <article class="doc sub" id="calcom">
+      <div class="doc-title"><h3>03e · Cal.com</h3> <span class="badge required">Obrigatória se oferece reunião</span></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Cal.com</code></span>
+        <span><b>Quando usar:</b> sempre que sua sequência de mensagens oferece uma reunião (o que vale para quase todas)</span>
+        <span><b>Você vai precisar de:</b> conta no Cal.com com pelo menos um tipo de evento configurado</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Cal.com é o sistema que cuida da sua agenda de reuniões. Quando um contato demonstra interesse, a IA oferece <b>2 horários reais</b> disponíveis, com uma reserva temporária de <b>2 horas</b> — se ele confirmar, a reunião é criada automaticamente no Cal.com. Se ele não responder, os horários voltam a ficar livres.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>No Cal.com, crie um evento (ex.: "Diagnóstico 30min") e configure sua disponibilidade.</li>
+        <li>Gere uma chave de API em Cal.com → <b>Settings → Developer</b>.</li>
+        <li>No Leaderei: <b>Configurações → Cal.com → Conectar</b>, cole a chave.</li>
+        <li>Escolha o <b>tipo de evento</b> padrão que a IA vai oferecer nas conversas.</li>
+        <li>Salve.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p>Deixe um intervalo de descanso ("buffer") entre reuniões no Cal.com para não travar sua agenda.</p>
+          <p>Configure o mesmo fuso horário no Cal.com e nas configurações gerais do Leaderei.</p>
+        </div>
+      </div>
+
+      <div class="callout warn">
+        <span class="icon">⚠️</span>
+        <div>
+          <p><b>Erros comuns:</b></p>
+          <p>Deixar o evento como <b>privado</b> no Cal.com — assim a IA não consegue oferecê-lo. Deixe público.</p>
+          <p>Disponibilizar só 30 minutos de horário por dia — praticamente nunca vai sobrar vaga livre.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#base-conhecimento">Próximo passo: 04. Base de Conhecimento</a></div>
+    </article>
+
+    <article class="doc" id="base-conhecimento">
+      <div class="doc-title"><h3>04 · Base de Conhecimento</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Base de Conhecimento</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> antes de criar sequências de mensagens — a IA usa esse conteúdo para escrever mensagens personalizadas</span>
+        <span><b>Antes disso:</b> <a href="#integracoes">passo 03</a></span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>É o "cérebro comercial" da IA sobre a <b>sua empresa</b>. Sem essa informação, as mensagens ficam genéricas e sem graça. A base tem 4 partes:</p>
+
+      <p><b>1. Instruções de Abordagem da IA</b> (fica no topo)</p>
+      <p>Explica como a IA deve se posicionar, quando pode criar "ganchos" (comparações e conexões com o negócio do contato) e o que ela <u>nunca</u> deve fazer.</p>
+      <pre>Exemplo: "Só faça gancho quando o contato for um salão de beleza.
+NUNCA conecte nosso produto a problemas de articulação."</pre>
+
+      <p><b>2. Destaques para Prospecção</b></p>
+      <p>Fatos de peso que a IA pode usar como argumento: matérias na imprensa, prêmios, patentes, casos de sucesso marcantes.</p>
+      <pre>Exemplo: "Empresa com patente mundial, matéria na revista Época em 2025."</pre>
+
+      <p><b>3. Itens de conhecimento (Texto / Documento / URL)</b></p>
+      <p>Blocos de conteúdo por tema — proposta de valor, perguntas frequentes, casos de sucesso, produtos. Você pode adicionar quantos quiser.</p>
+
+      <p><b>4. Itens protegidos</b> — só a equipe da Liderei edita</p>
+      <ul>
+        <li><b>🔒 Kickoff (protegido)</b> — o resumo estruturado da primeira reunião com sua empresa (o que vocês vendem, para quem, dores do cliente ideal, histórico).</li>
+        <li><b>🏆 Aprendizados</b> — atualizado automaticamente com base nas sequências de mensagens que mais geraram reuniões marcadas.</li>
+      </ul>
+
+      <h4>Passo a passo</h4>
+      <p><b>Adicionar um item comum</b></p>
+      <ol>
+        <li>Escolha a aba (Texto / Documento / URL).</li>
+        <li>Preencha o título e o conteúdo (ou envie um PDF, ou cole um link).</li>
+        <li>Clique em <b>Adicionar</b> — a IA aprende o conteúdo automaticamente.</li>
+      </ol>
+
+      <p><b>Importar a transcrição da reunião de kickoff</b></p>
+      <ol>
+        <li>Clique em <b>Colar transcrição de kickoff</b> (no canto superior).</li>
+        <li>Cole o texto completo da reunião (mínimo de 100 caracteres).</li>
+        <li>Clique em <b>Importar e proteger</b>. A IA extrai automaticamente a proposta, o perfil de cliente ideal, as dores e o histórico, organizados em tópicos.</li>
+        <li>O item aparece marcado como <b>Kickoff (protegido)</b>. Depois disso, só um admin da Liderei pode editá-lo.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p>Menos é mais: <b>10 itens curtos e específicos</b> rendem mais do que 40 documentos longos.</p>
+          <p>Nas Instruções de Abordagem, seja bem explícito sobre o que a IA <u>não</u> deve fazer — isso evita muitos erros.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#scripts-ia">Próximo passo: 05. Scripts IA</a></div>
+    </article>
+
+    <article class="doc" id="scripts-ia">
+      <div class="doc-title"><h3>05 · Scripts IA</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Scripts IA</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para criar modelos de mensagem reutilizáveis</span>
+        <span><b>Antes disso:</b> <a href="#base-conhecimento">passo 04</a></span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Scripts são modelos de mensagem com "campos variáveis" (como <code>{{nome}}</code>, <code>{{empresa}}</code>) que a IA personaliza para cada contato usando a Base de Conhecimento. Diferente de deixar a IA escrever totalmente livre, o script mantém uma estrutura mais consistente entre as mensagens.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Vá em <b>Scripts IA → Novo script</b>.</li>
+        <li>Escolha o <b>canal</b> (WhatsApp/Email) e o <b>objetivo</b> (apresentação, follow-up, quebra-gelo).</li>
+        <li>Escreva a mensagem base com os campos variáveis:
+          <pre>Oi {{primeiro_nome}}, vi que a {{empresa}} está expandindo em {{cidade}}.
+Faz sentido bater um papo de 15min?</pre>
+        </li>
+        <li>Clique em <b>Gerar variações IA</b> — o sistema cria 3 versões diferentes, com base nas Instruções de Abordagem e nos Destaques que você cadastrou.</li>
+        <li>Aprove, edite ou descarte cada variação.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p>Mensagens curtas (2 a 4 linhas) recebem muito mais resposta.</p>
+          <p>Uma pergunta objetiva no final quase sempre funciona melhor do que uma frase apenas declarativa.</p>
+          <p>Evite escrever "espero que esteja bem" — todo mundo escreve isso, ninguém lê.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#intents-acoes">Próximo passo: 06. Intents & Ações</a></div>
+    </article>
+
+    <article class="doc" id="intents-acoes">
+      <div class="doc-title"><h3>06 · Intents & Ações</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Configurações → Intents & Ações</code></span>
+        <span><b>Quando usar:</b> para decidir o que a IA faz quando o contato responde de um jeito ou de outro</span>
+        <span><b>Antes disso:</b> <a href="#scripts-ia">passo 05</a></span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Uma <b>intent</b> (intenção) é o tipo de resposta que o contato deu — por exemplo "quer agendar", "pediu mais informação", "não é quem decide", "respondeu não". Uma <b>ação</b> é o que o sistema faz em seguida — por exemplo, oferecer horários no Cal.com, marcar como qualificado, ou arquivar a conversa.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Abra <b>Configurações → Intents & Ações</b>.</li>
+        <li>Você verá a lista de intenções já ativas, com exemplos de treinamento.</li>
+        <li>Para cada uma, escolha a <b>ação padrão</b> (ex.: "quer agendar" → "oferecer horários").</li>
+        <li>Você pode adicionar exemplos manuais sempre que perceber que a IA classificou algo errado.</li>
+      </ol>
+
+      <h4>Intenções padrão já configuradas</h4>
+      <table>
+        <tr><th>O contato...</th><th>O sistema faz</th></tr>
+        <tr><td>Quer agendar reunião</td><td>Oferece 2 horários + reserva por 2h</td></tr>
+        <tr><td>Pediu mais informação</td><td>Envia um caso de sucesso e pergunta sobre reunião</td></tr>
+        <tr><td>Disse que não é quem decide</td><td>Pergunta por uma indicação e agradece</td></tr>
+        <tr><td>Respondeu negativamente</td><td>Encerra a sequência e marca como "não qualificado"</td></tr>
+        <tr><td>Perguntou sobre preço</td><td>Encaminha para um humano responder</td></tr>
+      </table>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p><b>Na dúvida, encaminhe para um humano.</b> Deixe respostas ambíguas caindo na <a href="#inbox-humana">Inbox humana</a> — é melhor um humano decidir do que a IA errar. Revise mensalmente: novas intenções vão aparecendo com o uso.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#buscar-apollo">Próximo passo: 07. Buscar contatos no Apollo</a></div>
+    </article>
+
+    <!-- ============ FASE 2 ============ -->
+    <div class="phase-header">
+      <div class="pnum">2</div>
+      <div><h2>Operação</h2><p>O dia a dia: trazer contatos e colocar as conversas para rodar.</p></div>
+    </div>
+    <div class="phase-divider"></div>
+
+    <article class="doc" id="buscar-apollo">
+      <div class="doc-title"><h3>07 · Buscar contatos no Apollo</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Buscar no Apollo</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> toda vez que precisar de uma nova leva de contatos</span>
+        <span><b>Antes disso:</b> <a href="#apollo">Apollo conectado (03c)</a></span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>É a tela onde você busca contatos direto do Apollo, dentro do próprio Leaderei, e os importa como leads.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Abra <b>Buscar no Apollo</b>.</li>
+        <li>Preencha os filtros: cargo, empresa, ramo de atuação, país/cidade, tamanho da empresa.</li>
+        <li>Clique em <b>Buscar</b>. A prévia mostra até 25 resultados.</li>
+        <li>Ajuste <b>quantos contatos importar</b> — evite puxar 5.000 de uma vez.</li>
+        <li>Escolha uma <a href="#listas">lista</a> de destino ou crie uma na hora.</li>
+        <li>Clique em <b>Importar</b>. Cada contato entra com o processo de pesquisa automática ainda pendente.</li>
+      </ol>
+
+      <h4>Quanto importar de cada vez?</h4>
+      <ul>
+        <li>Uma pessoa trabalhando sozinha consegue lidar bem com <b>100 a 150 contatos por mês</b>.</li>
+        <li>Importe cerca de <b>200 por vez</b> — depois da triagem, sobram uns 100 bons.</li>
+        <li>Se a lista está muito variada, importe <b>50 primeiro</b> para calibrar antes de trazer o resto.</li>
+      </ul>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p><b>Combine filtros</b> — buscar só por cargo traz muito resultado ruim junto.</p>
+          <p>Se você já tem uma lista pronta (planilha .csv), pule esta etapa e use <b>Importar planilha</b> na tela de <a href="#leads">Leads</a>.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#leads">Próximo passo: 08. Leads</a></div>
+    </article>
+
+    <article class="doc" id="leads">
+      <div class="doc-title"><h3>08 · Leads</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Leads</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para revisar, filtrar, qualificar e enviar contatos em massa para uma sequência</span>
+        <span><b>Antes disso:</b> <a href="#buscar-apollo">passo 07</a> ou uma planilha importada</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>É a tela central de gestão de contatos ("leads"). Cada contato tem:</p>
+      <ul>
+        <li><b>Nota (0 a 100)</b> — quanto maior, mais parecido com o perfil de cliente ideal da sua empresa.</li>
+        <li><b>Status</b> — Novo, Contatado, Qualificado, Desqualificado, Convertido.</li>
+        <li><b>Situação da pesquisa automática</b> — não iniciada, pendente, em andamento, concluída ou com falha.</li>
+        <li><b>Redes sociais já analisadas</b> (LinkedIn, Instagram, Facebook) com resumos escritos por IA.</li>
+      </ul>
+
+      <h4>Filtros disponíveis</h4>
+      <ul>
+        <li><b>Busca</b> por nome, email ou empresa.</li>
+        <li><b>Status</b>.</li>
+        <li><b>Nota mínima</b> (barra de 0 a 100) — mostra só contatos acima de um certo valor.</li>
+        <li><b>Só enriquecidos</b> — esconde os que ainda não terminaram a pesquisa automática.</li>
+      </ul>
+
+      <h4>Ações em lote</h4>
+      <ol>
+        <li>Marque a caixinha dos contatos desejados (ou a caixinha do topo para marcar todos da página).</li>
+        <li>Uma barra aparece com o número de selecionados e dois botões:
+          <ul>
+            <li><b>Enviar para cadência</b> → escolha a sequência ativa → confirme. Contatos que já estão inscritos são ignorados automaticamente.</li>
+            <li><b>Descartar</b> → marca todos como "Desqualificado".</li>
+          </ul>
+        </li>
+      </ol>
+      <p><b>Fluxo recomendado para triagem:</b> filtre "Só enriquecidos" + "Nota ≥ 60" → selecione todos → <b>Enviar para cadência</b>. O restante você descarta ou deixa para revisar depois.</p>
+
+      <h4>Sobre a pesquisa automática ("enriquecimento")</h4>
+      <p>Contatos novos entram como "pendentes" e o sistema pesquisa tudo sozinho, em segundo plano: site, redes sociais, formas de contato, resumo por IA. Se você importou muitos contatos de uma vez e o processamento está limitado, aparece o botão <b>Enriquecer mais (N)</b>, que libera mais contatos da fila de espera.</p>
+
+      <div class="callout warn">
+        <span class="icon">⚠️</span>
+        <div>
+          <p><b>Erros comuns:</b></p>
+          <p>Mandar a sequência de mensagens <u>antes</u> da pesquisa automática terminar — as mensagens saem genéricas. Use o filtro "Só enriquecidos".</p>
+          <p>Descartar contatos em massa sem revisar — você pode perder bons contatos por causa de um erro na nota.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#listas">Próximo passo: 09. Listas</a></div>
+    </article>
+
+    <article class="doc" id="listas">
+      <div class="doc-title"><h3>09 · Listas</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Leads → Listas</code></span>
+        <span><b>Quando usar:</b> para agrupar contatos por campanha, perfil de cliente ou data de importação</span>
+        <span><b>Antes disso:</b> <a href="#leads">passo 08</a></span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Listas são como "pastas" para organizar contatos. Cada contato pertence a uma lista (ou a nenhuma). Uma sequência de mensagens pode ficar vinculada a uma lista, e sempre que um contato novo entra nela, ele já entra automaticamente na sequência ligada.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Vá em <b>Listas → Nova lista</b>.</li>
+        <li>Dê um nome (ex.: "SP Beleza — Trimestre 1") e, se quiser, uma descrição.</li>
+        <li><b>Sequência padrão</b> (opcional): se você preencher isso, os contatos dessa lista entram automaticamente na sequência assim que a pesquisa automática terminar.</li>
+        <li>Salve.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Crie uma lista por <b>campanha</b> ou <b>perfil de cliente</b>, não por status — o status já existe individualmente em cada contato. Se você importa uma planilha por mês, mantenha uma lista por mês para ter métricas mais claras.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#cadencias">Próximo passo: 10. Cadências</a></div>
+    </article>
+
+    <article class="doc" id="cadencias">
+      <div class="doc-title"><h3>10 · Cadências</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Cadências</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para criar a sequência de mensagens que a IA vai enviar a cada contato</span>
+        <span><b>Antes disso:</b> <a href="#listas">passo 09</a>, integrações prontas, Base de Conhecimento preenchida</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Uma cadência é uma sequência de passos (WhatsApp/Email), com um intervalo de dias entre eles e regras para parar quando o contato responde. A IA gera a <b>primeira mensagem</b> de cada contato na hora, usando o que você configurou na Base de Conhecimento.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li><b>Cadências → Nova cadência</b>.</li>
+        <li>Preencha nome, canal principal e objetivo (ex.: agendar uma reunião).</li>
+        <li>Adicione os passos, por exemplo:
+          <ul>
+            <li>Passo 1 — WhatsApp — dia 0 — apresentação.</li>
+            <li>Passo 2 — Email — dia 2 — follow-up com um caso de sucesso.</li>
+            <li>Passo 3 — WhatsApp — dia 5 — mensagem curta de retomada.</li>
+          </ul>
+        </li>
+        <li>Escolha o modo de funcionamento:
+          <ul>
+            <li><b>Simulação</b> — não envia nada de verdade, só mostra o que enviaria. Ótimo para testar antes.</li>
+            <li><b>Automático</b> — envia direto, sem revisão humana.</li>
+            <li><b>Com aprovação</b> — a primeira mensagem de cada contato cai na fila de <a href="#aprovacoes">Aprovações</a> antes de sair.</li>
+          </ul>
+        </li>
+        <li>Ative o reengajamento (opcional): se o contato não responder em X dias, o sistema retoma o contato.</li>
+        <li>Salve como <b>Rascunho</b> ou já deixe <b>Ativa</b>.</li>
+      </ol>
+
+      <h4>Como os contatos entram numa cadência</h4>
+      <ol>
+        <li><b>Automático pela lista</b> — se a lista tem uma cadência padrão, contatos novos entram sozinhos.</li>
+        <li><b>Em lote pela tela de Leads</b> — selecione os contatos e clique em "Enviar para cadência".</li>
+        <li><b>Manual</b> — dentro do próprio contato, use o botão "Inscrever em cadência".</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p>Comece <b>sempre em modo Simulação</b> por 1 dia. Revise as mensagens que seriam geradas. Só depois ative de verdade.</p>
+          <p>Use no máximo 4 a 5 passos — cadências muito longas irritam quem recebe.</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#aprovacoes">Próximo passo: 11. Aprovações</a></div>
+    </article>
+
+    <article class="doc" id="aprovacoes">
+      <div class="doc-title"><h3>11 · Aprovações</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Aprovações</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para revisar mensagens antes de irem para o contato — o jeito mais seguro no começo</span>
+        <span><b>Antes disso:</b> uma cadência configurada no modo "Com aprovação"</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>É a fila de mensagens que a IA já preparou, mas está segurando para você revisar antes de mandar. Um número no menu lateral mostra quantas estão esperando.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Abra <b>Aprovações</b>. Cada cartão mostra: o contato, o canal e uma prévia da mensagem.</li>
+        <li>Você pode:
+          <ul>
+            <li><b>Aprovar</b> → a mensagem sai imediatamente.</li>
+            <li><b>Editar e aprovar</b> → ajusta o texto e libera.</li>
+            <li><b>Rejeitar</b> → a mensagem é descartada e a cadência pula para o próximo passo.</li>
+          </ul>
+        </li>
+        <li>Também existe um botão "Aprovar todas" para agilizar.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div>
+          <p>Nos <b>primeiros dias</b>, aprove tudo manualmente para calibrar o tom da IA.</p>
+          <p>Quando as mensagens estiverem consistentemente boas, mude a cadência para <b>Automático</b> com um limite diário (ex.: até 30 mensagens aprovadas automaticamente por dia).</p>
+        </div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#acompanhamento">Próximo passo: 12. Acompanhamento</a></div>
+    </article>
+
+    <article class="doc" id="acompanhamento">
+      <div class="doc-title"><h3>12 · Acompanhamento de cadências</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Cadências → Acompanhamento</code></span>
+        <span><b>Quando usar:</b> para acompanhar em tempo real o que cada sequência de mensagens está fazendo</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Um painel operacional com uma linha por cadência ativa e as métricas do dia/semana: inscritos, mensagens enviadas, respostas, reuniões marcadas, taxas.</p>
+
+      <h4>O que observar</h4>
+      <ul>
+        <li><b>Taxa de resposta</b> — se estiver abaixo de 5%, a mensagem está genérica demais ou o público está errado.</li>
+        <li><b>Taxa de reunião</b> — o principal indicador de sucesso.</li>
+        <li><b>Erros de envio</b> — muito "telefone ausente" ou "não está no WhatsApp" sinaliza problema na pesquisa automática.</li>
+        <li><b>Fila pausada</b> — geralmente é a janela de envio fechada ou o WhatsApp desconectado.</li>
+      </ul>
+
+      <p>Clique numa cadência para ver a lista de contatos inscritos com o progresso individual de cada um (em qual passo está, última mensagem, próximo envio).</p>
+
+      <div class="next-step">➡️ <a href="#conversas">Próximo passo: 13. Conversas</a></div>
+    </article>
+
+    <!-- ============ FASE 3 ============ -->
+    <div class="phase-header">
+      <div class="pnum">3</div>
+      <div><h2>Relacionamento</h2><p>Acompanhar e assumir conversas quando for preciso.</p></div>
+    </div>
+    <div class="phase-divider"></div>
+
+    <article class="doc" id="conversas">
+      <div class="doc-title"><h3>13 · Conversas</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Conversas</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para ler e navegar por toda a troca de mensagens (WhatsApp + Email) de cada contato</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Um "inbox unificado", só para leitura e busca. Cada conversa mostra a linha do tempo completa: quem enviou o quê e quando, incluindo as mensagens automáticas da IA e as respostas do contato.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Filtre por canal, status ou período.</li>
+        <li>Clique numa conversa para ver os detalhes: nota do contato, resumo feito pela IA, últimas intenções identificadas.</li>
+        <li>Use a busca para achar uma palavra-chave dentro do conteúdo.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p><b>Diferença importante:</b> "Conversas" é só para leitura e consulta. A <a href="#inbox-humana">Inbox humana</a> é onde você responde manualmente quando precisa assumir o controle.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#inbox-humana">Próximo passo: 14. Inbox humana</a></div>
+    </article>
+
+    <article class="doc" id="inbox-humana">
+      <div class="doc-title"><h3>14 · Inbox humana</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Inbox</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> quando a IA passa uma conversa para você — dúvida complexa, cliente insatisfeito, negociação</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>É a fila de conversas em que a IA "pediu ajuda" a um humano. Situações que caem aqui automaticamente:</p>
+      <ul>
+        <li>O contato perguntou sobre preço ou está negociando.</li>
+        <li>Já foram três ou mais trocas de mensagem sem chegar a um acordo.</li>
+        <li>O contato precisa claramente de atenção humana (ex.: fez uma reclamação).</li>
+      </ul>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Abra <b>Inbox humana</b>. Conversas com prazo vencido aparecem em vermelho primeiro.</li>
+        <li>Selecione uma conversa. Do lado direito, um assistente sugere uma resposta com o contexto do contato.</li>
+        <li>Você pode:
+          <ul>
+            <li><b>Responder manualmente</b> (texto livre).</li>
+            <li><b>Aceitar a sugestão da IA</b> e mandar como está.</li>
+            <li><b>Oferecer horários</b> de reunião direto pela tela.</li>
+            <li><b>Devolver para o agente</b> — a sequência automática retoma de onde parou.</li>
+          </ul>
+        </li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Trate essa fila como prioridade — um prazo vencido aqui pode significar um contato perdido. Se a mesma dúvida aparece com frequência, adicione um item na <a href="#base-conhecimento">Base de Conhecimento</a> para a IA aprender a responder sozinha da próxima vez.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#anotacoes">Próximo passo: 15. Anotações</a></div>
+    </article>
+
+    <article class="doc" id="anotacoes">
+      <div class="doc-title"><h3>15 · Anotações</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Anotações</code> (ou dentro do próprio contato)</span>
+        <span><b>Quando usar:</b> para registrar aprendizados sobre um contato ou uma decisão que a IA deve respeitar depois</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>São anotações internas por contato — não aparecem para ele. A IA lê essas anotações antes de gerar as próximas mensagens, então uma nota como "não é quem decide, focar no Bruno" muda o comportamento dela.</p>
+
+      <h4>Passo a passo</h4>
+      <ol>
+        <li>Abra <b>Anotações</b> (ou o cartão de anotação dentro de um contato).</li>
+        <li>Escreva a nota. Marque se ela:
+          <ul>
+            <li><b>Vale só para esse contato</b>.</li>
+            <li><b>Vale para a empresa toda</b> — vira contexto para outros contatos da mesma empresa.</li>
+          </ul>
+        </li>
+        <li>Salve.</li>
+      </ol>
+
+      <h4>Exemplos de boas anotações</h4>
+      <ul>
+        <li>"Cliente pediu para não ser contatado até fevereiro de 2026."</li>
+        <li>"A empresa comprou de um concorrente — abordar como possível upgrade."</li>
+        <li>"Prefere WhatsApp, ignora email."</li>
+      </ul>
+
+      <div class="next-step">➡️ <a href="#reunioes">Próximo passo: 16. Reuniões</a></div>
+    </article>
+
+    <article class="doc" id="reunioes">
+      <div class="doc-title"><h3>16 · Reuniões</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Reuniões</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para ver a agenda de reuniões marcadas pela IA</span>
+        <span><b>Antes disso:</b> <a href="#calcom">Cal.com conectado (03e)</a></span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Lista de todas as reuniões marcadas pelo Leaderei: futuras, canceladas, remarcadas. Cada cartão mostra o contato, data/hora, link do Cal.com e status.</p>
+
+      <h4>O que dá para fazer</h4>
+      <ul>
+        <li><b>Reagendar</b> — abre a seleção de novos horários e avisa o contato automaticamente.</li>
+        <li><b>Cancelar</b> — cancela no Cal.com e notifica.</li>
+        <li><b>Adicionar convidados</b> — inclui outras pessoas no evento (ex.: sócio, responsável técnico).</li>
+        <li><b>Ver conversa</b> — vai direto para a conversa com esse contato.</li>
+      </ul>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Um lembrete no dia da reunião reduz muito as faltas — a IA já faz isso por padrão, mas dá para ajustar em <a href="#intents-acoes">Intents & Ações</a>. Reuniões com convidados extras têm mais chance de fechar negócio.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#dashboard">Próximo passo: 17. Dashboard</a></div>
+    </article>
+
+    <!-- ============ FASE 4 ============ -->
+    <div class="phase-header">
+      <div class="pnum">4</div>
+      <div><h2>Análise</h2><p>Entender o que está funcionando e o que precisa ajustar.</p></div>
+    </div>
+    <div class="phase-divider"></div>
+
+    <article class="doc" id="dashboard">
+      <div class="doc-title"><h3>17 · Dashboard</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> tela inicial ao entrar no sistema</span>
+        <span><b>Quando usar:</b> visão rápida e geral, todos os dias</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>A tela inicial com os números mais importantes dos últimos 7 ou 30 dias:</p>
+      <ul>
+        <li>Contatos novos.</li>
+        <li>Pesquisa automática concluída / com falha.</li>
+        <li>Mensagens enviadas (por canal).</li>
+        <li>Taxa de resposta.</li>
+        <li>Reuniões marcadas e realizadas.</li>
+        <li>Funil por status.</li>
+      </ul>
+
+      <h4>Como usar</h4>
+      <ul>
+        <li>Compare 7 dias com 30 dias para perceber tendências.</li>
+        <li>Se mais de 20% da pesquisa automática está falhando, revise as credenciais das integrações.</li>
+        <li>Se a taxa de resposta está caindo semana a semana, o script pode estar saturando — troque o texto.</li>
+      </ul>
+
+      <div class="next-step">➡️ <a href="#relatorios">Próximo passo: 18. Relatórios</a></div>
+    </article>
+
+    <article class="doc" id="relatorios">
+      <div class="doc-title"><h3>18 · Relatórios</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Relatórios</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para analisar mais a fundo — por cadência, por pessoa, por lista, por período</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Relatórios detalhados, com filtros e exportação para planilha (.csv).</p>
+
+      <h4>Relatórios disponíveis</h4>
+      <ul>
+        <li><b>Desempenho por cadência</b> — mensagens, respostas, reuniões, taxas.</li>
+        <li><b>Desempenho por lista</b> — para comparar diferentes perfis de cliente.</li>
+        <li><b>Motivos de perda</b> — distribuição das respostas negativas.</li>
+        <li><b>Reuniões realizadas x marcadas</b> — taxa de falta.</li>
+        <li><b>Volume por dia</b> — para ajustar a janela de envio.</li>
+      </ul>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Exporte em .csv e leve para sua ferramenta de análise se precisar cruzar com o funil de vendas. Um relatório mensal por pessoa ajuda no cálculo de comissões.</p></div>
+      </div>
+
+      <div class="next-step">➡️ <a href="#runs-agente">Próximo passo: 19. Runs do Agente</a></div>
+    </article>
+
+    <article class="doc" id="runs-agente">
+      <div class="doc-title"><h3>19 · Runs do Agente</h3></div>
+      <div class="meta-row">
+        <span><b>Onde encontrar:</b> <code>Runs do Agente</code>, no menu lateral</span>
+        <span><b>Quando usar:</b> para entender por que a IA fez algo específico</span>
+      </div>
+
+      <h4>O que é</h4>
+      <p>Toda vez que a IA "pensa" sobre um contato, ela gera um registro (chamado de "run") com: o que ela recebeu como informação, quais ferramentas usou, a decisão final e o texto gerado. É o seu histórico de auditoria — como uma caixa-preta que você pode abrir quando quiser entender uma decisão.</p>
+
+      <h4>Como usar</h4>
+      <ol>
+        <li>Filtre por contato ou por período.</li>
+        <li>Clique em um registro para ver o passo a passo do raciocínio da IA.</li>
+        <li>Se algo saiu errado, você consegue entender exatamente em qual ponto.</li>
+      </ol>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Use esses registros para calibrar o sistema: se a IA confundiu a mesma intenção várias vezes sobre um assunto, adicione instruções específicas na <a href="#base-conhecimento">Base de Conhecimento</a>. Registros antigos podem ser apagados após 90 dias — exporte antes se quiser guardar.</p></div>
+      </div>
+
+      <div class="next-step">🎉 Você chegou ao fim do manual!</div>
+    </article>
+
+    <!-- ============ GLOSSÁRIO ============ -->
+    <div class="phase-header">
+      <div class="pnum">📖</div>
+      <div><h2>Glossário de termos</h2><p>Palavras técnicas que aparecem no manual, explicadas em linguagem simples.</p></div>
+    </div>
+    <div class="phase-divider"></div>
+
+    <div class="glossary-grid" id="glossario">
+      <div class="gterm"><b>API / Chave de API</b><span>Forma de dois sistemas de computador "conversarem" entre si automaticamente. A chave de API funciona como uma senha especial só para isso.</span></div>
+      <div class="gterm"><b>DNS</b><span>O "catálogo telefônico" da internet — traduz endereços como suaempresa.com.br para a localização real do site/email. Registros DNS são pequenos códigos que você cadastra lá.</span></div>
+      <div class="gterm"><b>SPF, DKIM, MX</b><span>Tipos de registros DNS que provam ao Gmail/Outlook que é você mesmo enviando o email, evitando que ele caia em spam.</span></div>
+      <div class="gterm"><b>CRM</b><span>Sistema onde a equipe de vendas guarda contatos e o andamento de cada negociação (ex.: Pipedrive, HubSpot).</span></div>
+      <div class="gterm"><b>Lead</b><span>Um contato em potencial — uma pessoa ou empresa que ainda não é cliente, mas pode virar.</span></div>
+      <div class="gterm"><b>ICP (Perfil de Cliente Ideal)</b><span>A descrição do tipo de empresa/pessoa que mais faz sentido para o seu negócio abordar.</span></div>
+      <div class="gterm"><b>SDR</b><span>A pessoa responsável pelo primeiro contato com um lead, antes de passar para o time de vendas.</span></div>
+      <div class="gterm"><b>Enriquecimento</b><span>O processo automático em que o sistema pesquisa mais informações sobre um contato (site, LinkedIn, Instagram) e resume tudo para você.</span></div>
+      <div class="gterm"><b>Score (nota)</b><span>Um número de 0 a 100 que mostra o quanto aquele contato se parece com o cliente ideal da sua empresa.</span></div>
+      <div class="gterm"><b>Cadência</b><span>A sequência de mensagens (WhatsApp/Email) programada para ser enviada a um contato ao longo de vários dias.</span></div>
+      <div class="gterm"><b>Intent (intenção)</b><span>A categoria da resposta que um contato deu — por exemplo, "quer agendar" ou "respondeu não".</span></div>
+      <div class="gterm"><b>Webhook</b><span>Um "aviso automático" que um sistema manda para outro assim que algo acontece — por exemplo, quando um contato responde uma mensagem.</span></div>
+      <div class="gterm"><b>KPI</b><span>Um indicador-chave: um número específico usado para acompanhar se as coisas estão indo bem (ex.: taxa de resposta).</span></div>
+      <div class="gterm"><b>Funil</b><span>A representação visual de quantos contatos estão em cada etapa do processo, do primeiro contato até a venda.</span></div>
+      <div class="gterm"><b>CSV</b><span>Um tipo de arquivo de planilha simples (como o Excel), usado para importar ou exportar listas de contatos.</span></div>
+      <div class="gterm"><b>QR-Code</b><span>Aquele código quadrado que você escaneia com a câmera do celular para conectar o WhatsApp ao sistema.</span></div>
+    </div>
+
+    <footer class="manual-footer">
+      Se algo mudar na plataforma, a equipe da Liderei atualiza este manual e você recebe um aviso.<br>
+      Boas prospecções! 🚀
+    </footer>
+  </main>
+</div>
+
+<button class="back-top" id="backTop" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+<script>
+  function toggleSidebar(){
+    document.getElementById('sidebar').classList.toggle('open');
+    document.querySelector('.overlay').classList.toggle('show');
+  }
+
+  function toggleTheme(){
+    const root = document.documentElement;
+    const current = root.getAttribute('data-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    let next;
+    if(!current){ next = prefersDark ? 'light' : 'dark'; }
+    else { next = current === 'dark' ? 'light' : 'dark'; }
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('leaderei-manual-theme', next);
+    updateThemeLabel(next);
+  }
+  function updateThemeLabel(mode){
+    const btn = document.getElementById('themeToggle');
+    const isDark = mode === 'dark' || (!mode && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    btn.textContent = isDark ? '☀️ Modo claro' : '🌙 Modo escuro';
+  }
+  (function initTheme(){
+    const saved = localStorage.getItem('leaderei-manual-theme');
+    if(saved){ document.documentElement.setAttribute('data-theme', saved); }
+    updateThemeLabel(saved);
+  })();
+
+  function filterToc(){
+    const q = document.getElementById('searchBox').value.trim().toLowerCase();
+    const links = document.querySelectorAll('#tocNav a');
+    const phases = document.querySelectorAll('#tocNav .toc-phase');
+    links.forEach(a => {
+      const text = a.textContent.toLowerCase();
+      a.style.display = (!q || text.includes(q)) ? '' : 'none';
+    });
+    phases.forEach(p => {
+      let el = p.nextElementSibling;
+      let anyVisible = false;
+      while(el && !el.classList.contains('toc-phase')){
+        if(el.tagName === 'A' && el.style.display !== 'none') anyVisible = true;
+        el = el.nextElementSibling;
+      }
+      p.style.display = (!q || anyVisible) ? '' : 'none';
+    });
+  }
+
+  // Active link highlighting
+  const sections = document.querySelectorAll('main article.doc, main header.hero, .glossary-grid');
+  const navLinks = document.querySelectorAll('#tocNav a');
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if(entry.isIntersecting){
+        const id = entry.target.id;
+        navLinks.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + id));
+      }
+    });
+  }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+  sections.forEach(s => { if(s.id) io.observe(s); });
+
+  // Close mobile sidebar on link click
+  navLinks.forEach(a => a.addEventListener('click', () => {
+    if(window.innerWidth <= 900){ toggleSidebar(); }
+  }));
+
+  // Back to top button
+  window.addEventListener('scroll', () => {
+    document.getElementById('backTop').classList.toggle('show', window.scrollY > 500);
+  });
+</script>
