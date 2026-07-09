@@ -1,55 +1,80 @@
 
 ## Objetivo
 
-Fazer a tela `/settings` bater com o Manual 01: permitir editar **nome da empresa**, **fuso horário**, **janela de envio** (horário comercial) e **perfil pessoal** (nome, telefone).
+Substituir o placeholder de `/settings/team` por uma tela funcional que faz **o que dá para fazer sem depender de integrações**: listar membros da empresa, trocar papel e remover.
 
-## Alterações
+O fluxo de **convite por email** fica postergado — é um capítulo natural depois de [03b. Email (domínio próprio)](../docs/manual/03b-email-resend.md) estar configurado. Quando chegar lá, entra numa iteração futura.
 
-### 1. Banco de dados (migration)
+## 1. RPC `list_company_members`
 
-Tabela `companies` — adicionar colunas:
-- `timezone text not null default 'America/Sao_Paulo'`
-- `business_hours jsonb not null default '{"start":"09:00","end":"18:00","days":[1,2,3,4,5]}'::jsonb`  
-  (formato: `start`/`end` em HH:MM, `days` = 0-6 dom-sáb)
+Necessário porque o email do usuário mora em `auth.users` e não pode ser lido direto do frontend.
 
-Tabela `profiles` — adicionar coluna:
+Nova função SECURITY DEFINER `public.list_company_members(_company_id uuid)` retornando:
+
+- `user_id uuid`
+- `email text`
+- `full_name text`
 - `phone text`
+- `role app_role`
+- `joined_at timestamptz`
 
-Sem novas tabelas, sem mudança em RLS/GRANTs (colunas herdam das políticas existentes).
+Autoriza se `auth.uid()` for membro da mesma empresa ou master_admin. Faz join `company_members` + `profiles` + `auth.users`.
 
-### 2. Frontend — nova seção "Empresa" no topo de `src/pages/settings/Settings.tsx`
+## 2. RPC `remove_company_member(_user_id uuid)`
 
-Card **Empresa**:
-- Input: Nome da empresa
-- Select: Fuso horário (lista curta: America/Sao_Paulo, America/Manaus, America/Belem, America/Fortaleza, America/Cuiaba, America/Rio_Branco, America/Noronha, UTC)
-- Janela de envio: 2 inputs `type="time"` (início/fim) + checkboxes dos 7 dias da semana
-- Botão Salvar
+SECURITY DEFINER. Regras:
 
-Card **Meu perfil**:
-- Input: Nome completo (grava em `profiles.full_name`)
-- Input: Telefone (grava em `profiles.phone`)
-- Email (readonly, do `auth.user.email`)
-- Botão Salvar
+- Só company_admin da empresa do alvo (ou master_admin) pode chamar.
+- Não pode remover a si mesmo.
+- Não pode remover o **último** company_admin (impede ficar sem admin).
+- Deleta linha de `company_members` e a role correspondente em `user_roles`.
 
-Cards ficam nessa ordem: **Empresa → Meu perfil → HITL → Qualificação de Leads**.
+## 3. RPC `update_company_member_role(_user_id uuid, _new_role app_role)`
 
-### 3. Hooks
+SECURITY DEFINER. Regras:
 
-Criar `src/hooks/useCompanySettings.ts` — `useQuery`+`useMutation` para ler/gravar `companies.{name,timezone,business_hours}` filtrando por `companyId` do `useAuth`.
+- `_new_role` só pode ser `company_admin` ou `user` (nunca `master_admin`).
+- Só company_admin/master_admin pode chamar.
+- Não pode rebaixar a si mesmo se for o último company_admin.
+- Atualiza `company_members.role` e reflete em `user_roles` (remove role antiga, insere nova).
 
-Criar `src/hooks/useProfileSettings.ts` — mesma coisa para `profiles.{full_name,phone}` filtrando por `user.id`.
+## 4. Frontend `src/pages/settings/Team.tsx`
 
-Ambos invalidam suas queries no sucesso e disparam `toast.success`.
+Reescrever:
 
-### 4. Fora de escopo (não faz agora)
+- Header com título e subtítulo.
+- Card **Membros** com tabela: Nome, Email, Telefone, Papel, Entrou em, Ações.
+  - Papel: `Select` inline (opções: **Admin da empresa** / **Usuário**) — desabilitado se o alvo é o próprio usuário ou se é `master_admin`.
+  - Ações: botão **Remover** com `AlertDialog` de confirmação. Escondido para si mesmo e para master_admin.
+- Alerta informativo no topo (`Alert` do shadcn) explicando: _"Novos membros ainda são adicionados manualmente pela equipe Leaderei. Em breve você poderá convidar por email direto daqui."_
 
-- Não plugar `business_hours` no scheduler de cadências (só armazena por enquanto — a lógica que respeita janela de envio nas edge functions é uma segunda fase).
-- Não mexer no manual — ele já descreve o comportamento; após esta implementação o texto passa a bater.
-- Sem alteração em `useAuth`.
+Master_admin aparece na lista como badge "Suporte Leaderei" e não é gerenciável.
+
+## 5. Hook `src/hooks/useTeam.ts`
+
+- `useTeamMembers(companyId)` → `supabase.rpc('list_company_members', { _company_id })`.
+- `useUpdateMemberRole()` → chama RPC 3, invalida query.
+- `useRemoveMember()` → chama RPC 2, invalida query.
+
+Toasts em sucesso/erro.
+
+## 6. Manual `docs/manual/02-equipe.md`
+
+Atualizar para refletir a realidade:
+
+- Explicar papéis (mantém o que já está).
+- Trocar "Passo a passo" de convite por: **"Enquanto o convite por email não está disponível, peça à equipe Leaderei para adicionar o novo membro. Depois de adicionado, você pode ajustar o papel e remover pela tela Equipe."**
+- Nova seção **Gerenciar membros existentes** com o passo a passo real da tela (mudar papel, remover, regra do "último admin").
+- Nota no final: _"Convite por email será liberado após você configurar Email (03b) ou WhatsApp (03a)."_
+
+## Fora de escopo
+
+- Sem tabela `company_invites`, sem edge function de envio, sem template de email.
+- Sem alteração em `src/pages/Auth.tsx`.
+- Sem mexer em Supabase Auth settings.
 
 ## Detalhes técnicos
 
-- `business_hours` é `jsonb` livre; o form serializa o shape acima. Sem CHECK constraint (validação apenas no cliente).
-- Telefone é texto livre, sem máscara nem validação estrita.
-- Fuso: `<Select>` do shadcn com as opções fixas listadas acima; se o usuário quiser outra, adicionamos depois.
-- Nenhum edge function novo, nenhuma migração de dados.
+- Todos os textos em português.
+- Confirmação obrigatória em remover.
+- Se a lista tiver só 1 membro, ainda renderiza a tabela (mostra o próprio usuário) — útil para ver o próprio papel.
