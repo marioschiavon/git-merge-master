@@ -30,9 +30,11 @@ export default function SettingsPage() {
     <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Configurações</h1>
-        <p className="text-muted-foreground">Operação, automação e revisão humana.</p>
+        <p className="text-muted-foreground">Empresa, perfil, automação e revisão humana.</p>
       </div>
 
+      <CompanyCard />
+      <ProfileCard />
       <ScoringCard />
 
       <Card>
