@@ -30,8 +30,8 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const sending_domain: string = (body?.sending_domain || "").toLowerCase().trim();
-    const from_name: string = (body?.from_name || "SDR").trim();
-    const from_local: string = (body?.from_local || "contato").trim().toLowerCase();
+    const from_name: string = (body?.from_name || "Atendimento").trim();
+    const from_local: string = (body?.from_local || "atendimento").trim().toLowerCase();
     const reply_to: string | null = body?.reply_to || null;
 
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(sending_domain)) {
