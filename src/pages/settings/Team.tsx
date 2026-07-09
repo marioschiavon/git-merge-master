@@ -83,7 +83,20 @@ export default function Team() {
 
   const copy = async (text: string) => {
     try {
-      await navigator.clipboard.writeText(text);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        ta.setAttribute("readonly", "");
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        if (!ok) throw new Error("execCommand failed");
+      }
       toast.success("Link copiado");
     } catch {
       toast.error("Não foi possível copiar");
