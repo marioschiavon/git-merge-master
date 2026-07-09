@@ -175,14 +175,61 @@ export default function Knowledge() {
     });
   };
 
+  const handleImportKickoff = async () => {
+    if (!kickoffText.trim() || kickoffText.trim().length < 100) return;
+    await importKickoff.mutateAsync({ transcript: kickoffText, title: kickoffTitle || undefined });
+    setKickoffOpen(false);
+    setKickoffText("");
+    setKickoffTitle("");
+  };
+
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Base de Conhecimento</h1>
-        <p className="text-muted-foreground">
-          Treine a IA com informações do seu produto para gerar mensagens personalizadas
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Base de Conhecimento</h1>
+          <p className="text-muted-foreground">
+            Treine a IA com informações do seu produto para gerar mensagens personalizadas
+          </p>
+        </div>
+        {canImportKickoff && (
+          <Dialog open={kickoffOpen} onOpenChange={setKickoffOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline">
+                <ClipboardPaste className="mr-2 h-4 w-4" />
+                Colar transcrição de kickoff
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle>Importar transcrição de kickoff</DialogTitle>
+                <DialogDescription>
+                  Cole a transcrição completa da reunião de kickoff. A IA extrairá proposta de valor, ICP, dores, histórico e tom. O item resultante fica <strong>protegido</strong> — só o admin da Liderei pode editá-lo depois.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3">
+                <div>
+                  <Label>Título (opcional)</Label>
+                  <Input value={kickoffTitle} onChange={(e) => setKickoffTitle(e.target.value)} placeholder="Kickoff — [Cliente]" />
+                </div>
+                <div>
+                  <Label>Transcrição</Label>
+                  <Textarea value={kickoffText} onChange={(e) => setKickoffText(e.target.value)} rows={12} placeholder="Cole aqui a transcrição da reunião…" />
+                  <p className="mt-1 text-xs text-muted-foreground">{kickoffText.length} caracteres (mínimo 100).</p>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setKickoffOpen(false)}>Cancelar</Button>
+                <Button onClick={handleImportKickoff} disabled={importKickoff.isPending || kickoffText.trim().length < 100}>
+                  {importKickoff.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ClipboardPaste className="mr-2 h-4 w-4" />}
+                  Importar e proteger
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
+
 
       {/* AI Instructions Card */}
       <Card className="border-primary/30 bg-gradient-to-br from-primary/5 to-transparent">
