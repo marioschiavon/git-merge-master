@@ -1,6 +1,5 @@
 # 17. Dashboard
 
-**Rota:** `/dashboard`
 **Quando usar:** visão executiva rápida, todo dia.
 **Pré-requisitos:** operação rodando.
 

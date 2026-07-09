@@ -1,6 +1,5 @@
 # 13. Conversas
 
-**Rota:** `/conversations`
 **Quando usar:** ver e navegar em toda a troca de mensagens (WhatsApp + Email) por lead.
 **Pré-requisitos:** cadências rodando com respostas.
 

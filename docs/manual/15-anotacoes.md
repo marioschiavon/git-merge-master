@@ -1,6 +1,5 @@
 # 15. Anotações
 
-**Rota:** `/annotations`
 **Quando usar:** para registrar aprendizados sobre um lead ou marcar uma decisão que a IA deve respeitar depois.
 **Pré-requisitos:** ter leads em conversa.
 

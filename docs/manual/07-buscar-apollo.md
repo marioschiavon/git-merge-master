@@ -1,6 +1,5 @@
 # 07. Buscar leads no Apollo
 
-**Rota:** `/apollo`
 **Quando usar:** cada vez que precisa de uma nova leva de leads.
 **Pré-requisitos:** [03c. Apollo conectado](./03c-apollo.md).
 

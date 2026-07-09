@@ -1,6 +1,5 @@
 # 01. Configurações gerais
 
-**Rota:** `/settings`
 **Quando usar:** primeira coisa depois de entrar.
 **Pré-requisitos:** conta criada.
 

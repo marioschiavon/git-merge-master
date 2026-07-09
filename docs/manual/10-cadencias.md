@@ -1,6 +1,5 @@
 # 10. Cadências
 
-**Rota:** `/cadences`
 **Quando usar:** criar a sequência de mensagens que a IA vai enviar a cada lead.
 **Pré-requisitos:** [09](./09-listas.md), integrações prontas, base de conhecimento preenchida.
 

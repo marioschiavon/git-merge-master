@@ -1,6 +1,5 @@
 # 12. Acompanhamento de cadências
 
-**Rota:** `/cadences/dashboard`
 **Quando usar:** para saber, em tempo real, o que cada cadência está fazendo.
 **Pré-requisitos:** cadências ativas.
 

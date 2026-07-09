@@ -1,6 +1,5 @@
 # 06. Intents & Ações
 
-**Rota:** `/settings/intents`
 **Quando usar:** para decidir o que a IA faz quando o lead responde X, Y ou Z.
 **Pré-requisitos:** [05](./05-scripts-ia.md).
 
