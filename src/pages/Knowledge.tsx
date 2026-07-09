@@ -370,6 +370,7 @@ export default function Knowledge() {
               onDelete={(id) => deleteKnowledge.mutate(id)}
               onEditContentChange={setEditContent}
               isSaving={updateKnowledge.isPending}
+              isMasterAdmin={isMasterAdmin}
             />
           ))}
         </TabsContent>
@@ -418,6 +419,7 @@ export default function Knowledge() {
               onDelete={(id) => deleteKnowledge.mutate(id)}
               onEditContentChange={setEditContent}
               isSaving={updateKnowledge.isPending}
+              isMasterAdmin={isMasterAdmin}
             />
           ))}
         </TabsContent>
@@ -465,6 +467,7 @@ export default function Knowledge() {
               onDelete={(id) => deleteKnowledge.mutate(id)}
               onEditContentChange={setEditContent}
               isSaving={updateKnowledge.isPending}
+              isMasterAdmin={isMasterAdmin}
             />
           ))}
         </TabsContent>
