@@ -402,10 +402,14 @@ function CalcomDialog({
 
   const handleConnect = async () => {
     if (!apiKey.trim()) return;
-    await connect.mutateAsync({ api_key: apiKey.trim(), booking_link: bookingLink.trim() });
-    setApiKey("");
-    setTestResult(null);
-    refetch();
+    try {
+      await connect.mutateAsync({ api_key: apiKey.trim(), booking_link: bookingLink.trim() });
+      setApiKey("");
+      setTestResult(null);
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Falha ao conectar", description: e.message, variant: "destructive" });
+    }
   };
 
   return (
@@ -478,6 +482,9 @@ function CalcomDialog({
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
               />
+              <p className="text-xs text-muted-foreground">
+                Cole apenas a chave secreta (<code>cal_live_...</code> ou <code>cal_...</code>), sem <code>Bearer</code>.
+              </p>
               <p className="text-xs text-muted-foreground">
                 <a
                   href="https://app.cal.com/settings/developer/api-keys"

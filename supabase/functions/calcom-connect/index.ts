@@ -3,7 +3,7 @@
 // returns the webhook URL + secret for the user to paste into Cal.com.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { corsHeaders, jsonResponse, CALCOM_EVENT_TYPES_API_VERSION } from "../_shared/calcom.ts";
+import { corsHeaders, jsonResponse, CALCOM_EVENT_TYPES_API_VERSION, normalizeCalcomApiKey } from "../_shared/calcom.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -20,7 +20,7 @@ serve(async (req) => {
     if (!userData?.user) return jsonResponse({ error: "Unauthorized" }, 401);
 
     const body = await req.json().catch(() => ({}));
-    const apiKey = String(body.api_key || "").trim();
+    const apiKey = normalizeCalcomApiKey(body.api_key);
     const bookingLink = String(body.booking_link || "").trim();
     if (!apiKey) return jsonResponse({ error: "api_key obrigatório" }, 400);
 
@@ -36,7 +36,7 @@ serve(async (req) => {
       return jsonResponse({ error: "Apenas admins da empresa podem conectar" }, 403);
     }
 
-    // Validate the API key via v1 /me (personal API keys don't work on /v2/me).
+    // Validate with the v2 API key flow. /v2/me is OAuth-only; event-types accepts API keys.
     const meRes = await fetch("https://api.cal.com/v2/event-types", {
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -45,7 +45,10 @@ serve(async (req) => {
     });
     if (!meRes.ok) {
       const t = await meRes.text();
-      return jsonResponse({ error: `Cal.com rejeitou a API key (${meRes.status}): ${t.slice(0, 200)}` }, 400);
+      const message = meRes.status === 401
+        ? "Cal.com rejeitou a API key: token inválido. Gere/copie uma API key em Cal.com → Settings → Security → API Keys e cole apenas a chave (cal_live_... ou cal_...), sem o prefixo Bearer."
+        : `Cal.com rejeitou a API key (${meRes.status}): ${t.slice(0, 200)}`;
+      return jsonResponse({ error: message }, 400);
     }
     const meJson = await meRes.json();
     const firstEt = (meJson?.data?.eventTypes || meJson?.data || [])[0];

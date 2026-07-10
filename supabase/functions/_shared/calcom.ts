@@ -9,9 +9,19 @@ export const CALCOM_BOOKINGS_API_VERSION = "2024-08-13";
 export const CALCOM_EVENT_TYPES_API_VERSION = "2024-06-14";
 export const CALCOM_SLOTS_API_VERSION = "2024-09-04";
 
+export function normalizeCalcomApiKey(input?: string | null): string {
+  let key = String(input || "").trim();
+  key = key.replace(/^authorization\s*:\s*/i, "").trim();
+  key = key.replace(/^bearer\s+/i, "").trim();
+  key = key.replace(/^api[_ -]?key\s*[:=]\s*/i, "").trim();
+  key = key.replace(/^['"`]|['"`]$/g, "").trim();
+  return key.replace(/\s+/g, "");
+}
+
 export function calcomHeaders(apiKey: string, version = CALCOM_BOOKINGS_API_VERSION) {
+  const normalizedKey = normalizeCalcomApiKey(apiKey);
   return {
-    Authorization: `Bearer ${apiKey}`,
+    Authorization: `Bearer ${normalizedKey}`,
     "cal-api-version": version,
     "Content-Type": "application/json",
   };
@@ -32,7 +42,7 @@ export class CalcomError extends Error {
 }
 
 function resolveKey(apiKey?: string | null): string {
-  const k = apiKey || Deno.env.get("CALCOM_API_KEY");
+  const k = normalizeCalcomApiKey(apiKey || Deno.env.get("CALCOM_API_KEY"));
   if (!k) throw new Error("Cal.com API key not configured");
   return k;
 }
