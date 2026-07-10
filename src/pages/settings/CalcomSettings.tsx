@@ -11,10 +11,10 @@ import { toast } from "sonner";
 import {
   useCalcomEventTypes, useSyncEventTypes, useUpdateEventType,
   useCalcomWebhookLog, useCompanyCalcomSettings, useUpdateCompanyCalcomSettings,
+  useCalcomConnection,
 } from "@/hooks/useCalcom";
 
-const PROJECT_REF = "pqrslnydcrpjelpzdnyp";
-const WEBHOOK_URL = `https://${PROJECT_REF}.supabase.co/functions/v1/calcom-webhook`;
+const PROJECT_REF = import.meta.env.VITE_SUPABASE_PROJECT_ID as string | undefined;
 
 export default function CalcomSettings() {
   const { data: eventTypes, isLoading: loadingTypes } = useCalcomEventTypes();
@@ -23,10 +23,16 @@ export default function CalcomSettings() {
   const { data: webhookLog, isLoading: loadingLog } = useCalcomWebhookLog();
   const { data: settings } = useCompanyCalcomSettings();
   const saveSettings = useUpdateCompanyCalcomSettings();
+  const { data: conn } = useCalcomConnection();
   const [teamId, setTeamId] = useState<string>("");
   const [defaultEt, setDefaultEt] = useState<string>("");
 
+  const WEBHOOK_URL = conn?.slug && PROJECT_REF
+    ? `https://${PROJECT_REF}.supabase.co/functions/v1/calcom-webhook/${conn.slug}`
+    : "(conecte o Cal.com em Integrações para gerar a URL)";
+
   const copyWebhook = () => {
+    if (!conn?.slug) return;
     navigator.clipboard.writeText(WEBHOOK_URL);
     toast.success("URL copiada");
   };
