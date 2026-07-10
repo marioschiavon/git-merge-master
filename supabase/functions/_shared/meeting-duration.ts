@@ -1,7 +1,7 @@
 // Returns the default Cal.com meeting duration (minutes) for a company, or null
 // if not configured. Prefers live data from the Cal.com API, falling back to
 // the cached calcom_event_types table.
-import { fetchEventTypeLengthMinutes, resolveEventTypeId } from "./calcom.ts";
+import { fetchEventTypeLengthMinutes, resolveEventTypeId, tryGetCompanyCalcomCreds } from "./calcom.ts";
 
 export async function getMeetingDurationMinutes(
   supabase: any,
@@ -9,7 +9,8 @@ export async function getMeetingDurationMinutes(
 ): Promise<number | null> {
   // 1. Try live Cal.com API first (always fresh).
   try {
-    const apiKey = Deno.env.get("CALCOM_API_KEY");
+    const creds = await tryGetCompanyCalcomCreds(supabase, companyId);
+    const apiKey = creds?.apiKey;
     if (apiKey) {
       let eventTypeId: number | null = null;
       const { data: comp } = await supabase
