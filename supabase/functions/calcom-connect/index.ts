@@ -37,13 +37,19 @@ serve(async (req) => {
     }
 
     // Validate the API key via v1 /me (personal API keys don't work on /v2/me).
-    const meRes = await fetch(`https://api.cal.com/v1/me?apiKey=${encodeURIComponent(apiKey)}`);
+    const meRes = await fetch("https://api.cal.com/v2/event-types", {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
+      },
+    });
     if (!meRes.ok) {
       const t = await meRes.text();
       return jsonResponse({ error: `Cal.com rejeitou a API key (${meRes.status}): ${t.slice(0, 200)}` }, 400);
     }
     const meJson = await meRes.json();
-    const calUser = meJson?.user || meJson?.data || meJson;
+    const firstEt = (meJson?.data?.eventTypes || meJson?.data || [])[0];
+    const calUser = firstEt?.owner || firstEt?.user || firstEt?.users?.[0] || {};
 
     // Persist encrypted (SECURITY DEFINER function enforces role check).
     const service_client = createClient(url, service);
@@ -65,10 +71,15 @@ serve(async (req) => {
     // Sync event types immediately
     let syncedCount = 0;
     try {
-      const etRes = await fetch(`https://api.cal.com/v1/event-types?apiKey=${encodeURIComponent(apiKey)}`);
+      const etRes = await fetch("https://api.cal.com/v2/event-types", {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
+        },
+      });
       if (etRes.ok) {
         const etJson = await etRes.json();
-        const list: any[] = etJson.event_types || etJson.data?.eventTypes || etJson.data || [];
+        const list: any[] = etJson.data?.eventTypes || etJson.data || [];
         const rows = list.map((et) => ({
           company_id: member.company_id,
           calcom_id: et.id,
