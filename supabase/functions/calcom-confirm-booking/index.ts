@@ -128,7 +128,7 @@ serve(async (req) => {
     // Cancel other slot reservations
     for (const hold of otherHolds) {
       if (hold.cal_booking_uid) {
-        await cancelCalcomReservation(hold.cal_booking_uid);
+        await cancelCalcomReservation(hold.cal_booking_uid, CALCOM_API_KEY);
       }
 
       // Update hold status to cancelled
