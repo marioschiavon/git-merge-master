@@ -277,7 +277,7 @@ async function runJob(job_id: string) {
     const DEFAULT_ACTORS: Record<string, { actor_id: string; enabled: boolean }> = {
       instagram:        { actor_id: "apify/instagram-scraper",             enabled: true },
       facebook:         { actor_id: "apify/facebook-pages-scraper",        enabled: true },
-      linkedin_person:  { actor_id: "dev_fusion/linkedin-profile-scraper", enabled: true },
+      linkedin_person:  { actor_id: "harvestapi/linkedin-profile-scraper", enabled: true },
       linkedin_company: { actor_id: "apimaestro/linkedin-company",         enabled: true },
     };
     const platformActors: Record<string, { actor_id: string; enabled: boolean }> = {
@@ -401,7 +401,7 @@ async function runJob(job_id: string) {
       }
       if (actorOn("linkedin_person") && lead.linkedin_url) {
         tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, actorFor("linkedin_person"), { profileUrls: [lead.linkedin_url] });
+          const r = await runApifyActor(apifyToken, actorFor("linkedin_person"), { profileScraperMode: "Full", queries: [lead.linkedin_url], profileUrls: [lead.linkedin_url] });
           if (r) await upsertProfile("linkedin_person", handleFromUrl(lead.linkedin_url, "linkedin\\.com/in"), lead.linkedin_url, r);
         })());
       }

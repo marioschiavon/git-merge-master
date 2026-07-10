@@ -1,18 +1,40 @@
-# Corrigir "Failed to send a request to the Edge Function" ao conectar Cal.com
+# Trocar LinkedIn (pessoa) para `harvestapi/linkedin-profile-scraper`
 
-## Diagnóstico
+## Mudanças de código
 
-As três edge functions novas criadas na implementação multi-tenant (`calcom-connect`, `calcom-test-connection`, `calcom-disconnect`) existem no repositório mas **nunca foram invocadas** — os logs estão vazios ("No logs found"). Isso indica que ainda não subiram para o runtime da Lovable Cloud, então o cliente recebe erro de rede genérico (`Failed to send a request to the Edge Function`) porque a URL retorna 404 no edge.
+1. **`src/pages/master/PlatformSettings.tsx`** (linha 280 do bloco `DEFAULT_ACTORS`)
+   - `linkedin_person.actor_id`: `dev_fusion/linkedin-profile-scraper` → `harvestapi/linkedin-profile-scraper`
 
-## Ação
+2. **`supabase/functions/enrich-lead/index.ts`** (linha 280 do bloco `DEFAULT_ACTORS` interno)
+   - Mesmo swap do default.
+   - Linha 404: input do actor passa a incluir os dois formatos aceitos pelo harvestapi para máxima compatibilidade:
+     ```ts
+     { profileScraperMode: "Full", queries: [lead.linkedin_url], profileUrls: [lead.linkedin_url] }
+     ```
 
-1. Forçar deploy imediato das três functions via `supabase--deploy_edge_functions`:
-   - `calcom-connect`
-   - `calcom-test-connection`
-   - `calcom-disconnect`
-2. Após o deploy, testar `calcom-test-connection` com uma chave inválida via `supabase--curl_edge_functions` para confirmar que a function responde (esperado: 400 com mensagem "Cal.com rejeitou a API key").
-3. Se der erro de boot, ler `supabase--edge_function_logs` e ajustar o código (import quebrado, secret faltando, etc.).
+3. **Parser (`upsertProfile`, linha 358)** — já cobre o output do harvestapi:
+   - `bio` lê `biography || description || about` → harvestapi retorna `about` ✅
+   - `followers` lê `followersCount || followers` → harvestapi retorna `followers` (number) ✅
+   - Sem mudança necessária no mapeamento.
 
-## Fora do escopo
+## Migração dos tenants existentes
 
-Nenhuma mudança de código, banco, RLS, UI ou documentação — só deploy + smoke test das functions já escritas.
+Empresas que já salvaram `platform_settings.apify_actors` com o valor antigo continuarão usando `dev_fusion/…`. Rodar migration única para atualizar o JSON quando ainda estiver no default antigo:
+
+```sql
+UPDATE public.platform_settings
+SET apify_actors = jsonb_set(
+  apify_actors,
+  '{linkedin_person,actor_id}',
+  '"harvestapi/linkedin-profile-scraper"'
+)
+WHERE apify_actors->'linkedin_person'->>'actor_id' = 'dev_fusion/linkedin-profile-scraper';
+```
+
+## Deploy e validação
+
+1. Redeploy `enrich-lead`.
+2. Em **Master → Platform Settings** confirmar que LinkedIn (pessoa) mostra o novo default.
+3. Smoke test: reprocessar 1 lead com `linkedin_url` e conferir em `lead_social_profiles` (network=`linkedin_person`) que `bio`, `followers` e `raw` foram preenchidos.
+
+Nada muda para Instagram/Facebook/LinkedIn empresa.
