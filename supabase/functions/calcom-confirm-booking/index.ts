@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { insertBookingSystemMessage } from "../_shared/booking-messages.ts";
-import { cancelCalcomReservation, upsertBookingFromCalcom } from "../_shared/calcom.ts";
+import { cancelCalcomReservation, upsertBookingFromCalcom, resolveEventTypeId, getCompanyCalcomCreds } from "../_shared/calcom.ts";
 import { formatBRTLong } from "../_shared/datetime.ts";
 
 const corsHeaders = {
@@ -10,25 +10,6 @@ const corsHeaders = {
 };
 
 const CALCOM_BOOKINGS_API_VERSION = "2024-08-13";
-const CALCOM_SLOTS_API_VERSION = "2024-09-04";
-const CALCOM_EVENT_TYPES_API_VERSION = "2024-06-14";
-
-async function resolveEventTypeId(apiKey: string): Promise<number> {
-  const manualId = Deno.env.get("CALCOM_EVENT_TYPE_ID");
-  if (manualId && !isNaN(Number(manualId))) return Number(manualId);
-
-  const res = await fetch("https://api.cal.com/v2/event-types", {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
-    },
-  });
-  if (!res.ok) throw new Error(`Failed to fetch event types: ${res.status}`);
-  const json = await res.json();
-  const eventTypes = json.data?.eventTypes || json.data || [];
-  if (!eventTypes.length) throw new Error("No event types found");
-  return eventTypes[0].id;
-}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -37,9 +18,6 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
-
-    const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
-    if (!CALCOM_API_KEY) throw new Error("CALCOM_API_KEY not configured");
 
     const body = await req.json();
     const { lead_id, selected_slot_hold_id, force_placeholder, guest_emails } = body;
