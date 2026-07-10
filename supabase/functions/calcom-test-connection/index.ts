@@ -1,13 +1,13 @@
 // Validates a Cal.com API key without persisting it. Used by the UI before
 // the user clicks "Connect".
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { corsHeaders, jsonResponse, CALCOM_EVENT_TYPES_API_VERSION } from "../_shared/calcom.ts";
+import { corsHeaders, jsonResponse, CALCOM_EVENT_TYPES_API_VERSION, normalizeCalcomApiKey } from "../_shared/calcom.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
     const body = await req.json().catch(() => ({}));
-    const apiKey = String(body.api_key || "").trim();
+    const apiKey = normalizeCalcomApiKey(body.api_key);
     if (!apiKey) return jsonResponse({ error: "api_key obrigatório" }, 400);
 
     // Validate via /v2/event-types — personal API keys authenticate with Bearer
@@ -20,7 +20,10 @@ serve(async (req) => {
     });
     if (!etRes.ok) {
       const t = await etRes.text();
-      return jsonResponse({ ok: false, error: `Cal.com ${etRes.status}: ${t.slice(0, 200)}` }, 200);
+      const message = etRes.status === 401
+        ? "Cal.com rejeitou a API key: token inválido. Gere/copie uma API key em Cal.com → Settings → Security → API Keys e cole apenas a chave (cal_live_... ou cal_...), sem o prefixo Bearer."
+        : `Cal.com ${etRes.status}: ${t.slice(0, 200)}`;
+      return jsonResponse({ ok: false, error: message }, 200);
     }
     const etJson = await etRes.json();
     const list: any[] = etJson.data?.eventTypes || etJson.data || [];
