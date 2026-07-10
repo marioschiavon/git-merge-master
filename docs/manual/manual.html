@@ -498,7 +498,7 @@
       <div class="doc-title"><h3>02 · Equipe</h3></div>
       <div class="meta-row">
         <span><b>Onde encontrar:</b> <code>Configurações → Equipe</code></span>
-        <span><b>Quando usar:</b> ao convidar outras pessoas para usar o sistema</span>
+        <span><b>Quando usar:</b> para ver quem tem acesso, convidar alguém, mudar o papel de uma pessoa ou remover um membro</span>
         <span><b>Antes disso:</b> <a href="#configuracoes-gerais">passo 01</a></span>
       </div>
 
@@ -508,22 +508,72 @@
       <h4>Os três tipos de acesso (papéis)</h4>
       <table>
         <tr><th>Papel</th><th>O que pode fazer</th></tr>
-        <tr><td><b>Admin da empresa</b></td><td>Pode tudo dentro da sua empresa: configurar integrações, criar sequências de mensagens, ver relatórios.</td></tr>
-        <tr><td><b>Usuário</b></td><td>Responde conversas e aprova mensagens no dia a dia. Não mexe em configurações de integrações.</td></tr>
-        <tr><td><b>Admin master</b></td><td>Reservado à equipe da Liderei (quem fornece o sistema). Só ela edita itens marcados como "protegidos".</td></tr>
+        <tr><td><b>Admin da empresa</b></td><td>Pode tudo dentro da sua empresa: configurar integrações, criar sequências de mensagens, ver relatórios e gerenciar a equipe.</td></tr>
+        <tr><td><b>Usuário</b></td><td>Opera a inbox humana, responde conversas e aprova mensagens no dia a dia. Não configura integrações nem gerencia a equipe.</td></tr>
+        <tr><td><b>Suporte Leaderei</b></td><td>Reservado à equipe da Leaderei (quem fornece o sistema). Só ela edita itens marcados como "protegidos". Aparece na lista, mas não pode ser gerenciado pela empresa.</td></tr>
       </table>
 
-      <h4>Passo a passo</h4>
+      <h4>Como convidar um novo membro</h4>
+      <p>Só quem é <b>Admin da empresa</b> (ou Suporte Leaderei) consegue gerar convites.</p>
       <ol>
-        <li>Vá em <b>Configurações → Equipe</b>.</li>
-        <li>Clique em <b>Convidar membro</b>.</li>
-        <li>Digite o email da pessoa e escolha o papel dela.</li>
-        <li>Envie o convite. A pessoa recebe um email com um link para criar a senha dela.</li>
+        <li>Vá em <b>Configurações → Equipe</b> e clique em <b>Convidar membro</b>.</li>
+        <li>Escolha o <b>papel</b> que a pessoa convidada vai ter (Admin da empresa ou Usuário) e clique em <b>Gerar link</b>.</li>
+        <li>O sistema mostra o link do convite. Clique em <b>Copiar</b> e envie pelo canal que preferir — WhatsApp, email pessoal, Slack, Teams etc.
+          <ul><li>Se o botão Copiar não funcionar (ex.: navegador antigo), o link aparece selecionado no campo: use <b>Ctrl+C</b> (ou <b>Cmd+C</b> no Mac) para copiar manualmente.</li></ul>
+        </li>
+        <li>A pessoa convidada abre o link e vê uma página com o nome da sua empresa e o papel definido. Ela preenche <b>nome completo, email e senha</b> (o email é o que ela vai usar para entrar no sistema).</li>
+        <li>Ao concluir, aparece uma mensagem de sucesso com o botão <b>Ir para login</b>. A conta já entra vinculada à sua empresa, com o papel escolhido — não precisa de nenhuma aprovação extra.</li>
       </ol>
+
+      <h4>Convites pendentes</h4>
+      <p>Logo abaixo da lista de membros aparece o cartão <b>Convites pendentes</b>, com todos os links ainda ativos:</p>
+      <ul>
+        <li><b>Papel</b> — o papel que a pessoa vai receber ao aceitar o convite.</li>
+        <li><b>Criado em / Expira em</b> — cada link vale <b>7 dias</b>. Depois disso, some da lista automaticamente e para de funcionar.</li>
+        <li><b>Copiar link</b> — pega o mesmo link de novo (útil se você perdeu a mensagem original).</li>
+        <li><b>Cancelar</b> — invalida o link na hora. Se a pessoa tentar abrir depois, vê "Convite cancelado". Para reenviar, é preciso gerar um novo.</li>
+      </ul>
+      <p>Convites já aceitos ou cancelados somem dessa lista — a pessoa passa a aparecer na tabela de <b>Membros</b>, logo acima.</p>
 
       <div class="callout tip">
         <span class="icon">💡</span>
-        <div><p>Deixe pelo menos <b>duas pessoas como admin da empresa</b>, para não depender de um único acesso caso alguém saia de férias ou troque de função.</p></div>
+        <div>
+          <p>Ainda não existe reenvio automático: se precisar de outro link, cancele o antigo e gere um novo.</p>
+          <p>O envio automático do convite por email ou WhatsApp chega em uma atualização futura. Por enquanto, o link é sempre compartilhado manualmente por você — mesmo que <a href="#email">Email (03b)</a> ou <a href="#whatsapp">WhatsApp (03a)</a> já estejam configurados.</p>
+        </div>
+      </div>
+
+      <h4>Gerenciar membros existentes</h4>
+      <p>Vá em <b>Configurações → Equipe</b>. Você verá uma tabela com Nome, Email, Telefone, Papel e a data em que cada pessoa entrou.</p>
+
+      <p><b>Mudar o papel de alguém</b></p>
+      <ol>
+        <li>Na linha da pessoa, clique no seletor da coluna <b>Papel</b>.</li>
+        <li>Escolha <b>Admin da empresa</b> ou <b>Usuário</b>.</li>
+        <li>A mudança é salva imediatamente.</li>
+      </ol>
+      <p>Você <b>não pode</b> mudar:</p>
+      <ul>
+        <li>O seu próprio papel (peça a outro admin ou à Leaderei).</li>
+        <li>O papel do Suporte Leaderei.</li>
+        <li>O último Admin da empresa para Usuário — a empresa precisa ter, no mínimo, um admin ativo.</li>
+      </ul>
+
+      <p><b>Remover um membro</b></p>
+      <ol>
+        <li>Clique no ícone de lixeira na linha da pessoa.</li>
+        <li>Confirme na janela que abrir.</li>
+      </ol>
+      <p>O acesso é revogado na hora. Você <b>não pode</b> remover:</p>
+      <ul>
+        <li>Você mesmo.</li>
+        <li>O Suporte Leaderei.</li>
+        <li>O último Admin da empresa.</li>
+      </ul>
+
+      <div class="callout tip">
+        <span class="icon">💡</span>
+        <div><p>Deixe pelo menos <b>2 admins</b> para não ficar refém de um único acesso. Para clientes finais atendidos pela Leaderei, o Suporte Leaderei é da própria Leaderei; o cliente entra como Admin da empresa.</p></div>
       </div>
 
       <div class="next-step">➡️ <a href="#integracoes">Próximo passo: 03. Integrações</a></div>
