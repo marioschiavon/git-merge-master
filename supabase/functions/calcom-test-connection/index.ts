@@ -10,31 +10,28 @@ serve(async (req) => {
     const apiKey = String(body.api_key || "").trim();
     if (!apiKey) return jsonResponse({ error: "api_key obrigatório" }, 400);
 
-    // Personal API keys (cal_live_/cal_test_) authenticate via v1 (?apiKey=)
-    // — /v2/me only accepts OAuth managed-user tokens.
-    const meRes = await fetch(`https://api.cal.com/v1/me?apiKey=${encodeURIComponent(apiKey)}`);
-    if (!meRes.ok) {
-      const t = await meRes.text();
-      return jsonResponse({ ok: false, error: `Cal.com ${meRes.status}: ${t.slice(0, 200)}` }, 200);
+    // Validate via /v2/event-types — personal API keys authenticate with Bearer
+    // on v2. /v2/me is OAuth-only (managed users), so we can't use it here.
+    const etRes = await fetch("https://api.cal.com/v2/event-types", {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
+      },
+    });
+    if (!etRes.ok) {
+      const t = await etRes.text();
+      return jsonResponse({ ok: false, error: `Cal.com ${etRes.status}: ${t.slice(0, 200)}` }, 200);
     }
-    const meJson = await meRes.json();
-    const calUser = meJson?.user || meJson?.data || meJson;
-
-    // Also list event types so the UI can offer them as default.
-    let eventTypes: Array<{ id: number; title: string; slug?: string; length?: number }> = [];
-    try {
-      const etRes = await fetch(`https://api.cal.com/v1/event-types?apiKey=${encodeURIComponent(apiKey)}`);
-      if (etRes.ok) {
-        const etJson = await etRes.json();
-        const list: any[] = etJson.event_types || etJson.data?.eventTypes || etJson.data || [];
-        eventTypes = list.map((et: any) => ({
-          id: et.id,
-          title: et.title || et.slug || `Event ${et.id}`,
-          slug: et.slug,
-          length: et.length || et.lengthInMinutes,
-        }));
-      }
-    } catch { /* ignore */ }
+    const etJson = await etRes.json();
+    const list: any[] = etJson.data?.eventTypes || etJson.data || [];
+    const eventTypes = list.map((et: any) => ({
+      id: et.id,
+      title: et.title || et.slug || `Event ${et.id}`,
+      slug: et.slug,
+      length: et.length || et.lengthInMinutes,
+    }));
+    const first = list[0];
+    const calUser = first?.owner || first?.user || first?.users?.[0] || {};
 
     return jsonResponse({
       ok: true,
