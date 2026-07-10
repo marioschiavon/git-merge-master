@@ -829,8 +829,8 @@ export default function Integrations() {
       : emailDomain
         ? "pending"
         : "disconnected";
-  // Cal.com is configured via env vars; we can't detect from the client. Show pending.
-  const calcomStatus: StatusKey = "pending";
+  const { data: calcomConn } = useCalcomConnection();
+  const calcomStatus: StatusKey = calcomConn?.connected ? "connected" : "disconnected";
 
   const providers: Array<ProviderCardProps & { key: string }> = [
     {
