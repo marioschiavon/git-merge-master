@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { calcomFetch, CalcomError, corsHeaders, jsonResponse } from "../_shared/calcom.ts";
+import { calcomFetch, CalcomError, corsHeaders, jsonResponse, tryGetCompanyCalcomCreds } from "../_shared/calcom.ts";
 import {
   buildIdempotencyKey,
   claimCalendarAction,
@@ -55,10 +55,12 @@ serve(async (req) => {
 
     try {
       let alreadyCancelled = false;
+      const companyCreds = existing?.company_id ? await tryGetCompanyCalcomCreds(supabase, existing.company_id) : null;
       try {
         await calcomFetch(`/v2/bookings/${booking_uid}/cancel`, {
           method: "POST",
           body: JSON.stringify({ cancellationReason: reason || "Cliente cancelou" }),
+          apiKey: companyCreds?.apiKey,
         });
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);

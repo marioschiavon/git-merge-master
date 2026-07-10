@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { CalcomError, calcomFetch, corsHeaders, jsonResponse, upsertBookingFromCalcom } from "../_shared/calcom.ts";
+import { CalcomError, calcomFetch, corsHeaders, jsonResponse, upsertBookingFromCalcom, tryGetCompanyCalcomCreds } from "../_shared/calcom.ts";
 import {
   buildIdempotencyKey,
   claimCalendarAction,
@@ -73,8 +73,9 @@ serve(async (req) => {
     // ── Pre-flight: validate booking still exists on Cal.com ──────────
     // If the uid is unknown or already cancelled, mark locally and signal the
     // caller to fall back to book_slot. Avoids 4xx loops from stale UIDs.
+    const companyCreds = prev?.company_id ? await tryGetCompanyCalcomCreds(supabase, prev.company_id) : null;
     try {
-      const fresh = await calcomFetch(`/v2/bookings/${booking_uid}`);
+      const fresh = await calcomFetch(`/v2/bookings/${booking_uid}`, { apiKey: companyCreds?.apiKey });
       const freshData = fresh?.data ?? fresh;
       const status = String(freshData?.status ?? "").toLowerCase();
       if (status === "cancelled" || status === "rejected") {
@@ -135,6 +136,7 @@ serve(async (req) => {
       const result = await calcomFetch(`/v2/bookings/${booking_uid}/reschedule`, {
         method: "POST",
         body: JSON.stringify({ start, reschedulingReason: reason || "Cliente solicitou remarcação" }),
+        apiKey: companyCreds?.apiKey,
       });
       const data = result.data || result;
 
