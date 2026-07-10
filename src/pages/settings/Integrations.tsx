@@ -42,6 +42,7 @@ import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
 import { WhatsAppManagerDialog } from "@/components/WhatsAppManagerDialog";
 import { ApolloConnectDialog } from "@/components/ApolloConnectDialog";
 import { useApolloStatus } from "@/hooks/useApollo";
+import { useCalcomConnection, useCalcomConnect, useCalcomDisconnect, useCalcomTestConnection } from "@/hooks/useCalcom";
 import { Sparkles } from "lucide-react";
 
 const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
@@ -357,41 +358,175 @@ function CalcomDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const { data: conn, refetch } = useCalcomConnection();
+  const test = useCalcomTestConnection();
+  const connect = useCalcomConnect();
+  const disconnect = useCalcomDisconnect();
+  const [apiKey, setApiKey] = useState("");
+  const [bookingLink, setBookingLink] = useState("");
+  const [testResult, setTestResult] = useState<{ email?: string; username?: string; eventTypes: number } | null>(null);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) {
+      setApiKey("");
+      setTestResult(null);
+      setBookingLink(conn?.booking_link || "");
+    }
+  }, [open, conn?.booking_link]);
+
+  const projectRef = import.meta.env.VITE_SUPABASE_PROJECT_ID as string | undefined;
+  const webhookUrl = conn?.slug && projectRef
+    ? `https://${projectRef}.supabase.co/functions/v1/calcom-webhook/${conn.slug}`
+    : "";
+
+  const copy = async (text: string, field: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 1500);
+    } catch { /* ignore */ }
+  };
+
+  const handleTest = async () => {
+    if (!apiKey.trim()) return;
+    try {
+      const r = await test.mutateAsync({ api_key: apiKey.trim() });
+      setTestResult({ email: r.cal_user?.email, username: r.cal_user?.username, eventTypes: r.event_types?.length || 0 });
+      toast({ title: "Conexão OK", description: `Autenticado como ${r.cal_user?.email || r.cal_user?.username || "usuário Cal.com"} • ${r.event_types?.length || 0} tipos de evento` });
+    } catch (e: any) {
+      setTestResult(null);
+      toast({ title: "Falha ao testar", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleConnect = async () => {
+    if (!apiKey.trim()) return;
+    await connect.mutateAsync({ api_key: apiKey.trim(), booking_link: bookingLink.trim() });
+    setApiKey("");
+    setTestResult(null);
+    refetch();
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Cal.com</DialogTitle>
           <DialogDescription>
-            Agendamento inteligente — reserva 2 slots automaticamente e oferece ao prospect.
+            Conecte a conta Cal.com desta empresa. Agendamento inteligente reserva 2 slots e oferece ao prospect automaticamente.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-3 py-2 text-xs text-muted-foreground">
-          <p>
-            As credenciais do Cal.com são configuradas como variáveis de ambiente no backend.
-            Você precisa de: <strong>API Key</strong>, <strong>Event Type ID</strong> e{" "}
-            <strong>Link de agendamento</strong>.
-          </p>
-          <p>
-            <a
-              href="https://app.cal.com/settings/developer/api-keys"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-primary hover:underline"
-            >
-              Onde encontrar minha API Key? <ExternalLink className="h-3 w-3" />
-            </a>
-          </p>
-          <div className="rounded-md border bg-muted/40 p-3 space-y-1">
-            <p>✅ <strong>CALCOM_API_KEY</strong> — Sua API Key do Cal.com</p>
-            <p>✅ <strong>CALCOM_BOOKING_LINK</strong> — Link público de agendamento</p>
-            <p>
-              ℹ️ <strong>CALCOM_EVENT_TYPE_ID</strong> — <em>Opcional.</em> Detectado
-              automaticamente via API.
-            </p>
+        {conn?.connected ? (
+          <div className="space-y-3 py-2 text-sm">
+            <div className="rounded-md border bg-emerald-500/5 p-3 space-y-1">
+              <p className="font-medium text-emerald-700 dark:text-emerald-400">Cal.com conectado</p>
+              <p className="text-xs text-muted-foreground">
+                Conectado em {conn.connected_at ? new Date(conn.connected_at).toLocaleString("pt-BR") : "-"}
+              </p>
+              {conn.last_error && (
+                <p className="text-xs text-destructive">Último erro: {conn.last_error}</p>
+              )}
+            </div>
+
+            {webhookUrl && (
+              <div className="space-y-2 rounded-md border bg-muted/40 p-3 text-xs">
+                <p className="font-medium">Webhook (cole no Cal.com → Settings → Developer → Webhooks)</p>
+                <div className="flex items-center gap-2 rounded bg-background px-2 py-1 font-mono text-[11px] break-all">
+                  <span className="flex-1">{webhookUrl}</span>
+                  <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => copy(webhookUrl, "url")}>
+                    {copiedField === "url" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  </Button>
+                </div>
+                {conn.webhook_secret && (
+                  <>
+                    <p className="pt-2 font-medium">Secret (HMAC-SHA256)</p>
+                    <div className="flex items-center gap-2 rounded bg-background px-2 py-1 font-mono text-[11px] break-all">
+                      <span className="flex-1">{conn.webhook_secret}</span>
+                      <Button variant="ghost" size="sm" className="h-6 px-2" onClick={() => copy(conn.webhook_secret!, "secret")}>
+                        {copiedField === "secret" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                      </Button>
+                    </div>
+                  </>
+                )}
+                <p className="pt-2 text-muted-foreground">
+                  Selecione os eventos: <code>BOOKING_CREATED, BOOKING_RESCHEDULED, BOOKING_CANCELLED, BOOKING_NO_SHOW_UPDATED, MEETING_ENDED</code>.
+                </p>
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => disconnect.mutate()}
+                disabled={disconnect.isPending}
+              >
+                <Unplug className="mr-2 h-4 w-4" />
+                Desconectar
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="space-y-3 py-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="cal-key">API Key do Cal.com</Label>
+              <Input
+                id="cal-key"
+                type="password"
+                placeholder="cal_live_..."
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                <a
+                  href="https://app.cal.com/settings/developer/api-keys"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                >
+                  Gerar API key no Cal.com <ExternalLink className="h-3 w-3" />
+                </a>
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="cal-link">Link público de agendamento (opcional)</Label>
+              <Input
+                id="cal-link"
+                placeholder="https://cal.com/seunome/30min"
+                value={bookingLink}
+                onChange={(e) => setBookingLink(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Usado como fallback quando o agente sugere marcação manual.
+              </p>
+            </div>
+
+            {testResult && (
+              <div className="rounded-md border bg-emerald-500/5 p-2 text-xs">
+                ✅ Autenticado como <strong>{testResult.email || testResult.username}</strong> · {testResult.eventTypes} tipos de evento
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={handleConnect}
+                disabled={!apiKey.trim() || connect.isPending}
+              >
+                <Plug className="mr-2 h-4 w-4" />
+                {connect.isPending ? "Conectando..." : "Conectar"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleTest}
+                disabled={!apiKey.trim() || test.isPending}
+              >
+                {test.isPending ? "Testando..." : "Testar conexão"}
+              </Button>
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
