@@ -20,14 +20,26 @@ async function verifySignature(secret: string, signature: string | null, rawBody
   }
 }
 
-// SDR-initiated bookings use a placeholder attendee email of the form
-// `noreply+<lead_uuid>@<domain>` when the lead has no real email. Extract the
-// UUID so we can link the booking back to its lead even when the webhook
-// arrives before/without an explicit linkage in the bookings row.
 function extractLeadIdFromPlaceholder(email: string | null | undefined): string | null {
   if (!email) return null;
   const m = String(email).toLowerCase().match(/^noreply\+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})@/);
   return m ? m[1] : null;
+}
+
+/**
+ * Extract the company slug from the request path. The webhook URL format is:
+ *   /functions/v1/calcom-webhook/{slug}
+ * When no slug is supplied (legacy setup) we fall back to the global secret.
+ */
+function extractSlug(req: Request): string | null {
+  try {
+    const u = new URL(req.url);
+    const parts = u.pathname.split("/").filter(Boolean);
+    // ["functions","v1","calcom-webhook","<slug>"] — take everything after calcom-webhook
+    const idx = parts.indexOf("calcom-webhook");
+    if (idx >= 0 && parts[idx + 1]) return decodeURIComponent(parts[idx + 1]);
+  } catch { /* ignore */ }
+  return null;
 }
 
 serve(async (req) => {
@@ -37,7 +49,21 @@ serve(async (req) => {
   const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   const rawBody = await req.text();
   const signature = req.headers.get("x-cal-signature-256") || req.headers.get("X-Cal-Signature-256");
-  const secret = Deno.env.get("CALCOM_WEBHOOK_SECRET") || "";
+
+  // Resolve company + secret from URL slug (multi-tenant), falling back to
+  // per-booking lookup / global secret (legacy).
+  const slug = extractSlug(req);
+  let slugCompanyId: string | null = null;
+  let secret = "";
+  if (slug) {
+    const { data: comp } = await supabase
+      .from("companies").select("id, calcom_webhook_secret").eq("slug", slug).maybeSingle();
+    if (comp) {
+      slugCompanyId = comp.id;
+      secret = comp.calcom_webhook_secret || "";
+    }
+  }
+  if (!secret) secret = Deno.env.get("CALCOM_WEBHOOK_SECRET") || "";
   const sigValid = secret ? await verifySignature(secret, signature, rawBody) : false;
 
   let payload: any = {};
@@ -49,19 +75,23 @@ serve(async (req) => {
   const attendeeEmail = bookingPayload.attendees?.[0]?.email;
 
   // Identify company/lead
-  let company_id: string | undefined;
+  let company_id: string | undefined = slugCompanyId || undefined;
   let lead_id: string | undefined;
   if (bookingUid) {
     const { data: existing } = await supabase.from("bookings").select("company_id, lead_id").eq("calcom_booking_uid", bookingUid).maybeSingle();
-    company_id = existing?.company_id;
+    if (!company_id) company_id = existing?.company_id;
     lead_id = existing?.lead_id;
   }
   if (!company_id && attendeeEmail) {
     const { data: lead } = await supabase.from("leads").select("id, company_id").eq("email", attendeeEmail).limit(1).maybeSingle();
     if (lead) { company_id = lead.company_id; lead_id = lead.id; }
   }
+  if (!lead_id && attendeeEmail && company_id) {
+    const { data: lead } = await supabase.from("leads").select("id").eq("email", attendeeEmail).eq("company_id", company_id).limit(1).maybeSingle();
+    if (lead) lead_id = lead.id;
+  }
   // Fallback: SDR placeholder email `noreply+<lead_id>@...` → resolve lead via UUID.
-  if (!company_id) {
+  if (!company_id || !lead_id) {
     const placeholderLeadId = extractLeadIdFromPlaceholder(attendeeEmail);
     if (placeholderLeadId) {
       const { data: lead } = await supabase
@@ -70,9 +100,8 @@ serve(async (req) => {
         .eq("id", placeholderLeadId)
         .maybeSingle();
       if (lead) {
-        company_id = lead.company_id;
-        lead_id = lead.id;
-        // Re-link the existing booking row (if any) so future events stay linked.
+        company_id = company_id || lead.company_id;
+        lead_id = lead_id || lead.id;
         if (bookingUid) {
           await supabase
             .from("bookings")
@@ -99,13 +128,6 @@ serve(async (req) => {
   }
 
   try {
-    // ── Phase 5: reconciliation mode ────────────────────────────────
-    // Try to locate a calendar_actions row that originated this booking. If
-    // present, this webhook is just an echo of an SDR-initiated action — we
-    // mark it reconciled and do NOT send any new outbound to the lead
-    // (the agent already confirmed synchronously in the tool loop).
-    // Orphan events (no calendar_actions) are treated as bookings created
-    // directly via the public Cal.com link and recorded with source='webhook'.
     let originatingAction: { id: string; action_type: string } | null = null;
     if (bookingUid) {
       const { data: action } = await supabase
@@ -120,7 +142,6 @@ serve(async (req) => {
     }
     const isOrphan = !originatingAction;
 
-    // Capture previous scheduled_at BEFORE upsert (for reschedule events)
     let previousScheduledAt: string | null = null;
     if (bookingUid) {
       const { data: prev } = await supabase
@@ -133,7 +154,6 @@ serve(async (req) => {
 
     const booking = await upsertBookingFromCalcom(supabase, bookingPayload, { company_id, lead_id });
 
-    // Update status + source based on event type and whether it's orphan.
     if (booking) {
       let newStatus: string | null = null;
       switch (eventType) {
@@ -145,7 +165,6 @@ serve(async (req) => {
       }
       const patch: Record<string, unknown> = {};
       if (newStatus) patch.status = newStatus;
-      // Stamp source only on creation (don't overwrite on later updates).
       if (eventType === "BOOKING_CREATED") {
         patch.source = isOrphan ? "webhook" : "sdr_agent";
       }
@@ -154,7 +173,6 @@ serve(async (req) => {
       }
     }
 
-    // Mark calendar_actions reconciled.
     if (originatingAction) {
       await supabase
         .from("calendar_actions")
@@ -162,7 +180,6 @@ serve(async (req) => {
         .eq("id", originatingAction.id);
     }
 
-    // Insert system message in the lead's conversation (internal audit trail).
     const eventMap: Record<string, BookingEventType> = {
       BOOKING_CREATED: "booking_created",
       BOOKING_RESCHEDULED: "booking_rescheduled",
@@ -182,9 +199,6 @@ serve(async (req) => {
       });
     }
 
-    // Enqueue follow-up actions. For SDR-initiated events the agent already
-    // handled the outbound — webhook only enqueues outbounds when the lead
-    // acted directly on Cal.com.
     if (company_id && lead_id) {
       const { data: convRow } = await supabase
         .from("conversations")
@@ -209,9 +223,6 @@ serve(async (req) => {
         }
       };
 
-      // Detect who initiated this webhook event (lead vs. organizer/SDR/app).
-      // The attendee email is often a placeholder (noreply+<uuid>@...), so we
-      // resolve the real lead email from the leads table when possible.
       let realLeadEmailLower = "";
       if (lead_id) {
         const { data: leadRow } = await supabase
@@ -226,9 +237,6 @@ serve(async (req) => {
         bookingPayload.cancelledBy ||
         ""
       ).toString().toLowerCase();
-      // Only treat as "organizer cancelled" when the email matches the organizer
-      // AND is clearly NOT the lead. This avoids a false positive when the lead's
-      // own email happens to match the organizer's (e.g. internal testing).
       const sameEmailAsLead =
         !!cancelledByEmail &&
         (cancelledByEmail === realLeadEmailLower || cancelledByEmail === attendeeEmailLower);
@@ -239,28 +247,20 @@ serve(async (req) => {
         !sameEmailAsLead;
       const cancelledByLead = !cancelledByOrganizer;
 
-
       switch (eventType) {
         case "BOOKING_CREATED":
-          // SDR-initiated bookings already got a synchronous confirmation
-          // from the agent loop (Phase 2B). Only orphan bookings — created
-          // by the lead through the public Cal.com link — need an outbound.
           if (isOrphan) {
             await enqueue("send_booking_confirmation", { booking_uid: bookingUid });
           }
-          // Lead-score update is always valid (idempotent on backend).
           await enqueue("update_lead_score", { delta: 30, reason: "meeting_booked" });
           break;
         case "BOOKING_RESCHEDULED":
-          // No outbound: SDR loop already confirmed, or lead saw confirmation
-          // on Cal.com when rescheduling themselves.
           break;
         case "BOOKING_CANCELLED": {
           if (!cancelledByLead) {
             console.log(`calcom-webhook: cancellation initiated by organizer (${cancelledByEmail}), skipping follow-up.`);
             break;
           }
-          // Internal-stamp check (5min window) — eco of our own cancel.
           if (bookingUid) {
             const { data: bk } = await supabase
               .from("bookings")
@@ -274,7 +274,6 @@ serve(async (req) => {
               break;
             }
           }
-          // Idempotency: skip if already enqueued for this booking in the last 24h.
           const since = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
           const { data: existing } = await supabase
             .from("lead_action_queue")
@@ -303,7 +302,6 @@ serve(async (req) => {
           break;
       }
     }
-
 
     await supabase.from("calcom_webhook_log").update({ processed: true, processed_at: new Date().toISOString() }).eq("id", logRow!.id);
     return jsonResponse({ success: true });
