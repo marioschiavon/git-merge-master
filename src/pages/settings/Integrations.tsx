@@ -868,8 +868,10 @@ export default function Integrations() {
       icon: SiCalendly,
       iconTint: "text-foreground",
       status: calcomStatus,
-      operationalLabel: "Config via variáveis de ambiente",
-      readinessLabel: "Verifique CALCOM_API_KEY",
+      operationalLabel: calcomConn?.connected ? "Conta conectada" : undefined,
+      syncLabel: calcomConn?.connected_at ? relTime(calcomConn.connected_at) : null,
+      readinessLabel: calcomConn?.connected ? undefined : "Cole a API key da sua empresa",
+      errorMessage: calcomConn?.last_error || null,
       onAction: () => setCalcomOpen(true),
     },
     {
