@@ -36,19 +36,14 @@ serve(async (req) => {
       return jsonResponse({ error: "Apenas admins da empresa podem conectar" }, 403);
     }
 
-    // Validate the API key by calling Cal.com /v2/me
-    const meRes = await fetch("https://api.cal.com/v2/me", {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
-      },
-    });
+    // Validate the API key via v1 /me (personal API keys don't work on /v2/me).
+    const meRes = await fetch(`https://api.cal.com/v1/me?apiKey=${encodeURIComponent(apiKey)}`);
     if (!meRes.ok) {
       const t = await meRes.text();
       return jsonResponse({ error: `Cal.com rejeitou a API key (${meRes.status}): ${t.slice(0, 200)}` }, 400);
     }
     const meJson = await meRes.json();
-    const calUser = meJson?.data || meJson;
+    const calUser = meJson?.user || meJson?.data || meJson;
 
     // Persist encrypted (SECURITY DEFINER function enforces role check).
     const service_client = createClient(url, service);
