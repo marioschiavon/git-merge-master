@@ -106,9 +106,15 @@ export default function CalcomSettings() {
                 <Input readOnly value={WEBHOOK_URL} />
                 <Button variant="outline" size="icon" onClick={copyWebhook}><Copy className="h-4 w-4" /></Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                O secret de validação HMAC já está salvo (<code>CALCOM_WEBHOOK_SECRET</code>). Use o mesmo valor no painel do Cal.com.
-              </p>
+              {conn?.webhook_secret ? (
+                <p className="text-xs text-muted-foreground">
+                  Secret HMAC-SHA256 desta empresa: <code className="break-all">{conn.webhook_secret}</code>. Cole o mesmo valor no painel do Cal.com.
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Conecte o Cal.com em <strong>Integrações</strong> para gerar a URL e o secret desta empresa.
+                </p>
+              )}
             </CardContent>
           </Card>
 
