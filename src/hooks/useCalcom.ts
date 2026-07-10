@@ -142,3 +142,79 @@ export function useUpdateCompanyCalcomSettings() {
     onError: (e: any) => toast.error(e.message),
   });
 }
+
+/** Whether this company has its own Cal.com API key configured. */
+export function useCalcomConnection() {
+  const { companyId } = useAuth();
+  return useQuery({
+    queryKey: ["calcom_connection", companyId],
+    queryFn: async () => {
+      if (!companyId) return null;
+      const { data, error } = await supabase
+        .from("companies")
+        .select("id, slug, calcom_booking_link, calcom_webhook_secret, calcom_connected_at, calcom_last_error")
+        .eq("id", companyId)
+        .maybeSingle();
+      if (error) throw error;
+      // Whether the encrypted key exists: infer from calcom_connected_at (col not selectable via anon).
+      return {
+        connected: !!data?.calcom_connected_at,
+        slug: data?.slug ?? null,
+        booking_link: (data as any)?.calcom_booking_link ?? null,
+        webhook_secret: (data as any)?.calcom_webhook_secret ?? null,
+        connected_at: data?.calcom_connected_at ?? null,
+        last_error: (data as any)?.calcom_last_error ?? null,
+      };
+    },
+    enabled: !!companyId,
+  });
+}
+
+export function useCalcomTestConnection() {
+  return useMutation({
+    mutationFn: async (params: { api_key: string }) => {
+      const { data, error } = await supabase.functions.invoke("calcom-test-connection", { body: params });
+      if (error) throw error;
+      if (!data?.ok) throw new Error(data?.error || "Validação falhou");
+      return data as { ok: boolean; cal_user?: any; event_types?: Array<{ id: number; title: string; slug?: string; length?: number }> };
+    },
+  });
+}
+
+export function useCalcomConnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (params: { api_key: string; booking_link?: string }) => {
+      const { data, error } = await supabase.functions.invoke("calcom-connect", { body: params });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { success: boolean; webhook_url: string; webhook_secret: string; event_types_synced: number; cal_user?: any };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["calcom_connection"] });
+      qc.invalidateQueries({ queryKey: ["calcom_event_types"] });
+      qc.invalidateQueries({ queryKey: ["company_calcom_settings"] });
+      toast.success("Cal.com conectado");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}
+
+export function useCalcomDisconnect() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("calcom-disconnect", { body: {} });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["calcom_connection"] });
+      qc.invalidateQueries({ queryKey: ["calcom_event_types"] });
+      toast.success("Cal.com desconectado");
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+}
+
