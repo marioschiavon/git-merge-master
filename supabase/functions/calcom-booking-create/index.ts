@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { calcomFetch, corsHeaders, jsonResponse, upsertBookingFromCalcom } from "../_shared/calcom.ts";
+import { calcomFetch, corsHeaders, jsonResponse, upsertBookingFromCalcom, tryGetCompanyCalcomCreds } from "../_shared/calcom.ts";
 import {
   buildIdempotencyKey,
   claimCalendarAction,
@@ -109,7 +109,8 @@ serve(async (req) => {
     }
 
     try {
-      const result = await calcomFetch("/v2/bookings", { method: "POST", body: JSON.stringify(calBody) });
+      const companyCreds = lead?.company_id ? await tryGetCompanyCalcomCreds(supabase, lead.company_id) : null;
+      const result = await calcomFetch("/v2/bookings", { method: "POST", body: JSON.stringify(calBody), apiKey: companyCreds?.apiKey });
       const data = result.data || result;
 
       const booking = await upsertBookingFromCalcom(supabase, data, {

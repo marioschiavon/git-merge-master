@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { formatBRTLong } from "../_shared/datetime.ts";
-import { resolveEventTypeId } from "../_shared/calcom.ts";
+import { resolveEventTypeId, getCompanyCalcomCreds } from "../_shared/calcom.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -90,15 +90,19 @@ serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, serviceKey);
 
-    const CALCOM_API_KEY = Deno.env.get("CALCOM_API_KEY");
-    if (!CALCOM_API_KEY) {
-      throw new Error("Cal.com secret not configured (CALCOM_API_KEY)");
-    }
-
-    const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY);
-
     const body = await req.json();
     const { company_id, lead_id, enrollment_id, conversation_id, preferred_channel, check_datetime, exclude_datetimes, exclude_dates, start_after, end_before } = body;
+
+    if (!company_id || !lead_id) {
+      return new Response(JSON.stringify({ error: "company_id and lead_id are required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Resolve per-company Cal.com credentials (falls back to global env).
+    const { apiKey: CALCOM_API_KEY, defaultEventTypeId } = await getCompanyCalcomCreds(supabase, company_id);
+    const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY, defaultEventTypeId);
 
     // Parse exclusion list (array of ISO datetime strings to skip)
     const excludeSet = new Set<number>();
@@ -119,14 +123,6 @@ serve(async (req) => {
         if (key) excludeDateSet.add(key);
       }
       console.log(`Excluding ${excludeDateSet.size} previously offered dates (day-level)`);
-    }
-
-
-    if (!company_id || !lead_id) {
-      return new Response(JSON.stringify({ error: "company_id and lead_id are required" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
     }
 
     // Load already-active holds for this lead so we never insert/reserve duplicates.

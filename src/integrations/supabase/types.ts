@@ -1005,9 +1005,14 @@ export type Database = {
       companies: {
         Row: {
           business_hours: Json
+          calcom_api_key_encrypted: string | null
+          calcom_booking_link: string | null
+          calcom_connected_at: string | null
           calcom_default_event_type_id: number | null
+          calcom_last_error: string | null
           calcom_round_robin_enabled: boolean
           calcom_team_id: number | null
+          calcom_webhook_secret: string | null
           created_at: string
           enrichment_settings: Json
           hitl_enabled: boolean
@@ -1027,9 +1032,14 @@ export type Database = {
         }
         Insert: {
           business_hours?: Json
+          calcom_api_key_encrypted?: string | null
+          calcom_booking_link?: string | null
+          calcom_connected_at?: string | null
           calcom_default_event_type_id?: number | null
+          calcom_last_error?: string | null
           calcom_round_robin_enabled?: boolean
           calcom_team_id?: number | null
+          calcom_webhook_secret?: string | null
           created_at?: string
           enrichment_settings?: Json
           hitl_enabled?: boolean
@@ -1049,9 +1059,14 @@ export type Database = {
         }
         Update: {
           business_hours?: Json
+          calcom_api_key_encrypted?: string | null
+          calcom_booking_link?: string | null
+          calcom_connected_at?: string | null
           calcom_default_event_type_id?: number | null
+          calcom_last_error?: string | null
           calcom_round_robin_enabled?: boolean
           calcom_team_id?: number | null
+          calcom_webhook_secret?: string | null
           created_at?: string
           enrichment_settings?: Json
           hitl_enabled?: boolean
@@ -3014,6 +3029,10 @@ export type Database = {
         Args: { _invite_id: string }
         Returns: undefined
       }
+      clear_calcom_api_key: {
+        Args: { _company_id: string }
+        Returns: undefined
+      }
       create_company_and_join: {
         Args: { p_name: string; p_slug?: string }
         Returns: string
@@ -3034,6 +3053,10 @@ export type Database = {
       enqueue_email: {
         Args: { payload: Json; queue_name: string }
         Returns: number
+      }
+      get_calcom_api_key: {
+        Args: { _company_id: string; _passphrase: string }
+        Returns: string
       }
       get_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string }
@@ -3098,7 +3121,20 @@ export type Database = {
           read_ct: number
         }[]
       }
+      regenerate_calcom_webhook_secret: {
+        Args: { _company_id: string }
+        Returns: string
+      }
       remove_company_member: { Args: { _user_id: string }; Returns: undefined }
+      set_calcom_api_key: {
+        Args: {
+          _api_key: string
+          _booking_link: string
+          _company_id: string
+          _passphrase: string
+        }
+        Returns: undefined
+      }
       set_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string; _token: string }
         Returns: undefined

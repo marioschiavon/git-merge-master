@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { calcomFetch, CALCOM_EVENT_TYPES_API_VERSION, corsHeaders, jsonResponse } from "../_shared/calcom.ts";
+import { corsHeaders, jsonResponse, CALCOM_EVENT_TYPES_API_VERSION, getCompanyCalcomCreds } from "../_shared/calcom.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -10,7 +10,18 @@ serve(async (req) => {
     const company_id: string | undefined = body.company_id;
     if (!company_id) return jsonResponse({ error: "company_id required" }, 400);
 
-    const json = await calcomFetch("/v2/event-types", { version: CALCOM_EVENT_TYPES_API_VERSION });
+    const { apiKey } = await getCompanyCalcomCreds(supabase, company_id);
+    const res = await fetch("https://api.cal.com/v2/event-types", {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "cal-api-version": CALCOM_EVENT_TYPES_API_VERSION,
+      },
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Cal.com /v2/event-types ${res.status}: ${t.slice(0, 200)}`);
+    }
+    const json = await res.json();
     const list: any[] = json.data?.eventTypes || json.data || [];
 
     const rows = list.map((et) => ({
