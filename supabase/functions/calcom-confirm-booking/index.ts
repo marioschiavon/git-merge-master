@@ -58,7 +58,7 @@ serve(async (req) => {
     // Get lead info for booking
     const { data: lead } = await supabase
       .from("leads")
-      .select("name, email, company_name")
+      .select("name, email, company_name, company_id")
       .eq("id", lead_id)
       .single();
 
@@ -79,8 +79,10 @@ serve(async (req) => {
       }
     }
 
-    // Resolve event type ID
-    const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY);
+    // Resolve per-company Cal.com credentials + event type
+    const companyId = lead?.company_id || selectedHold.company_id;
+    const { apiKey: CALCOM_API_KEY, defaultEventTypeId } = await getCompanyCalcomCreds(supabase, companyId);
+    const eventTypeId = await resolveEventTypeId(CALCOM_API_KEY, defaultEventTypeId);
 
     // Create definitive booking on Cal.com
     console.log("Creating booking for slot:", selectedHold.slot_datetime);
