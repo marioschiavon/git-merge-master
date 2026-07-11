@@ -78,7 +78,7 @@ export async function sendWhatsAppViaHook7(
   if (!token) return { ok: false, error: "Token da instância indisponível" };
 
   const base = await getHook7BaseUrl(admin);
-  const url = `${base}/message/sendText/${encodeURIComponent(instance.external_name)}`;
+  const url = `${base}/send/text`;
 
   try {
     const res = await fetch(url, {
