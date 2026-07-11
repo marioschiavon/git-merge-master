@@ -853,7 +853,7 @@ export default function Integrations() {
     },
     {
       key: "email",
-      name: "Email (Resend)",
+      name: "Email",
       category: "Email",
       description:
         "Cada empresa envia com seu próprio domínio (mail.suaempresa.com). Reputação isolada por cliente.",

@@ -1,40 +1,52 @@
-# Trocar LinkedIn (pessoa) para `harvestapi/linkedin-profile-scraper`
+Plano ajustado com o payload correto do Hook7 (endpoint `/send/text`, não `/message/sendText/{instance}`). Provavelmente é essa a causa principal do WhatsApp não estar enviando.
 
-## Mudanças de código
+## 1. WhatsApp: corrigir endpoint Hook7
 
-1. **`src/pages/master/PlatformSettings.tsx`** (linha 280 do bloco `DEFAULT_ACTORS`)
-   - `linkedin_person.actor_id`: `dev_fusion/linkedin-profile-scraper` → `harvestapi/linkedin-profile-scraper`
+**Diagnóstico atualizado:** `supabase/functions/_shared/hook7-whatsapp.ts` (linha 81) faz `POST {base}/message/sendText/{external_name}` com body `{ number, text }`. Isso não bate com a API Hook7 real, que é:
 
-2. **`supabase/functions/enrich-lead/index.ts`** (linha 280 do bloco `DEFAULT_ACTORS` interno)
-   - Mesmo swap do default.
-   - Linha 404: input do actor passa a incluir os dois formatos aceitos pelo harvestapi para máxima compatibilidade:
-     ```ts
-     { profileScraperMode: "Full", queries: [lead.linkedin_url], profileUrls: [lead.linkedin_url] }
-     ```
-
-3. **Parser (`upsertProfile`, linha 358)** — já cobre o output do harvestapi:
-   - `bio` lê `biography || description || about` → harvestapi retorna `about` ✅
-   - `followers` lê `followersCount || followers` → harvestapi retorna `followers` (number) ✅
-   - Sem mudança necessária no mapeamento.
-
-## Migração dos tenants existentes
-
-Empresas que já salvaram `platform_settings.apify_actors` com o valor antigo continuarão usando `dev_fusion/…`. Rodar migration única para atualizar o JSON quando ainda estiver no default antigo:
-
-```sql
-UPDATE public.platform_settings
-SET apify_actors = jsonb_set(
-  apify_actors,
-  '{linkedin_person,actor_id}',
-  '"harvestapi/linkedin-profile-scraper"'
-)
-WHERE apify_actors->'linkedin_person'->>'actor_id' = 'dev_fusion/linkedin-profile-scraper';
+```
+POST /send/text
+Body: { number, text, delay?, id?, mentionAll?, mentionedJid?, quoted? }
 ```
 
-## Deploy e validação
+O `external_name` da instância provavelmente vai no header (`apikey` = token da instância já identifica), então nada de path param. Isso explica por que 0 mensagens WhatsApp saíram em 7 dias — as tentativas devem estar devolvendo 404 e talvez nem estejam sendo logadas em `messages`.
 
-1. Redeploy `enrich-lead`.
-2. Em **Master → Platform Settings** confirmar que LinkedIn (pessoa) mostra o novo default.
-3. Smoke test: reprocessar 1 lead com `linkedin_url` e conferir em `lead_social_profiles` (network=`linkedin_person`) que `bio`, `followers` e `raw` foram preenchidos.
+**Fix em `hook7-whatsapp.ts`:**
+- `url` passa a ser `${base}/send/text` (sem `external_name` no path).
+- Body permanece `{ number, text }`.
+- Mesma mudança aplicada ao `checkPhoneExistsOnWhatsApp` (validar endpoint correto do Hook7 para lookup de número — se não houver, remover a checagem ou marcar como sempre `exists=true`).
+- Deploy de `send-outbound-message`, `cadence-executor`, `approval-execute`, `cadence-agent-decide`, `slot-expiry-followup`, `execute-action`, `inbound-webhook`, `zapi-webhook` (todos que importam o helper).
 
-Nada muda para Instagram/Facebook/LinkedIn empresa.
+**Validação:** enviar mensagem manual pelo Inbox humano → conferir logs de `send-outbound-message` e `messages.metadata.delivery_status='delivered'`.
+
+## 2. Score de qualificação não funciona
+
+**Diagnóstico confirmado:** `analyze-lead-website` grava score em `lead_insights.score`, mas a UI (`src/pages/Leads.tsx`) lê `lead.score` da tabela `leads` — que está zerado nos 688 leads (avg=0).
+
+**Fix:**
+- Em `supabase/functions/analyze-lead-website/index.ts`, após o upsert em `lead_insights`, adicionar:
+  ```ts
+  await supabase.from("leads")
+    .update({ score: scorePayload.score, fit_score: scorePayload.fit_score })
+    .eq("id", lead.id);
+  ```
+- Backfill único via SQL: `UPDATE leads l SET score = li.score, fit_score = li.fit_score FROM lead_insights li WHERE li.lead_id = l.id AND li.score IS NOT NULL;` (checar se `leads.fit_score` existe; senão, só `score`).
+
+## 3. Retirar "Edit with Lovable" do rodapé
+
+Chamar `publish_settings--set_badge_visibility` com `hide_badge=true`. Requer plano Pro (o projeto já usa domínio custom, então deve estar OK; se a chamada falhar por plano, aviso).
+
+## 4. Whitelabel: remover "Resend" da UI
+
+Em `src/pages/settings/Integrations.tsx`:
+- Linha 333: `// Email (Resend) — status hook` → `// Email — status hook`
+- Linha 856: card `name: "Email (Resend)"` → `name: "Email"`
+
+Varrer restante de `src/**` por menções visíveis a "Resend" e trocar por "Email" mantendo nomes só em código de infra que o usuário não vê. Manuais em `docs/manual/03b-email-resend.md` ficam como estão (documentação técnica) salvo pedido explícito.
+
+## Ordem de execução
+
+1. Fix Hook7 endpoint + redeploy das funções que usam.
+2. Fix score + backfill.
+3. Whitelabel Resend.
+4. Ocultar badge Lovable.
