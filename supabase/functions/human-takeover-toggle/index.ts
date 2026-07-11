@@ -86,6 +86,30 @@ Deno.serve(async (req) => {
         metadata: { conversation_id, actor: "human", action: "takeover_off", user_id: userId },
       });
 
+      // Despausa o enrollment se estava pausado por causa do takeover
+      if (conv.cadence_enrollment_id) {
+        const { data: resumed } = await admin
+          .from("cadence_enrollments")
+          .update({
+            status: "active",
+            paused_reason: null,
+            next_execution_at: now,
+          })
+          .eq("id", conv.cadence_enrollment_id)
+          .eq("paused_reason", "human_takeover")
+          .select("id")
+          .maybeSingle();
+        if (resumed) {
+          await admin.from("lead_activities").insert({
+            company_id: conv.company_id,
+            lead_id: conv.lead_id,
+            type: "system",
+            description: "▶️ Cadência retomada após devolução para a IA",
+            metadata: { conversation_id, enrollment_id: conv.cadence_enrollment_id, actor: "human", user_id: userId },
+          });
+        }
+      }
+
       if (resume_agent && conv.lead_id) {
         // Reenfileira o agente em modo live para responder se houver inbound pendente
         const scheduledAt = new Date(Date.now() + 2_000).toISOString();
