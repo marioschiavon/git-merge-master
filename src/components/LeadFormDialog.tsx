@@ -169,16 +169,9 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
                   <FormMessage />
                 </FormItem>
               )} />
-              <FormField control={form.control} name="phone" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Telefone</FormLabel>
-                  <FormControl><Input placeholder="+5511999998888" {...field} /></FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
               <FormField control={form.control} name="whatsapp" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>WhatsApp</FormLabel>
+                  <FormLabel>Telefone (WhatsApp)</FormLabel>
                   <FormControl><Input placeholder="+5511999998888" {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
