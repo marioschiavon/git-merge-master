@@ -9,6 +9,10 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const log = (tag: string, data: Record<string, unknown>) => {
+  console.log(`[human-takeover-toggle] ${tag} ${JSON.stringify(data)}`);
+};
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   try {
@@ -25,19 +29,29 @@ Deno.serve(async (req) => {
     }
     const userId = userData.user.id;
 
-    const { conversation_id, enable, reason, resume_agent } = await req.json();
+    const body = await req.json();
+    const { conversation_id, enable, reason, resume_agent } = body;
+    log("received", { conversation_id, enable, reason, resume_agent, userId });
+
     if (!conversation_id || typeof enable !== "boolean") {
       return new Response(JSON.stringify({ error: "conversation_id e enable são obrigatórios" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const { data: conv, error: convErr } = await userClient
       .from("conversations")
-      .select("id, lead_id, company_id, cadence_enrollment_id")
+      .select("id, lead_id, company_id, cadence_enrollment_id, human_takeover")
       .eq("id", conversation_id)
       .maybeSingle();
     if (convErr || !conv) {
+      log("conv_not_found", { conversation_id, error: convErr?.message });
       return new Response(JSON.stringify({ error: "Conversa não encontrada" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
+    log("conv_loaded", {
+      conversation_id,
+      lead_id: conv.lead_id,
+      cadence_enrollment_id: conv.cadence_enrollment_id,
+      was_human_takeover: conv.human_takeover,
+    });
 
     const now = new Date().toISOString();
     if (enable) {
@@ -47,21 +61,23 @@ Deno.serve(async (req) => {
         human_taken_by: userId,
         human_takeover_reason: reason || "manual",
       }).eq("id", conversation_id);
+      log("enabled_human", { conversation_id });
 
-      // Cancela runs pendentes do debounce para esse lead
       if (conv.lead_id) {
-        await admin.from("pending_inbound_runs")
+        const { data: cancelled } = await admin.from("pending_inbound_runs")
           .update({ status: "cancelled", last_error: "human_takeover" })
           .eq("lead_id", conv.lead_id)
-          .in("status", ["pending", "running"]);
+          .in("status", ["pending", "running"])
+          .select("lead_id");
+        log("cancelled_pending_runs", { count: cancelled?.length ?? 0 });
       }
-      // Pausa enrollment vinculado para não disparar passo de cadência
       if (conv.cadence_enrollment_id) {
-        await admin.from("cadence_enrollments").update({
+        const { data: paused } = await admin.from("cadence_enrollments").update({
           status: "paused",
           paused_reason: "human_takeover",
           next_execution_at: null,
-        }).eq("id", conv.cadence_enrollment_id);
+        }).eq("id", conv.cadence_enrollment_id).select("id, status, paused_reason");
+        log("paused_enrollment", { paused });
       }
       await admin.from("lead_activities").insert({
         company_id: conv.company_id,
@@ -77,6 +93,7 @@ Deno.serve(async (req) => {
         human_taken_by: null,
         human_takeover_reason: null,
       }).eq("id", conversation_id);
+      log("disabled_human", { conversation_id });
 
       await admin.from("lead_activities").insert({
         company_id: conv.company_id,
@@ -86,9 +103,16 @@ Deno.serve(async (req) => {
         metadata: { conversation_id, actor: "human", action: "takeover_off", user_id: userId },
       });
 
-      // Despausa o enrollment se estava pausado por causa do takeover
+      // Inspeciona enrollment antes de despausar
       if (conv.cadence_enrollment_id) {
-        const { data: resumed } = await admin
+        const { data: currentEnr } = await admin
+          .from("cadence_enrollments")
+          .select("id, status, paused_reason, current_step, next_execution_at")
+          .eq("id", conv.cadence_enrollment_id)
+          .maybeSingle();
+        log("enrollment_state_before_resume", { currentEnr });
+
+        const { data: resumed, error: resumeErr } = await admin
           .from("cadence_enrollments")
           .update({
             status: "active",
@@ -97,8 +121,10 @@ Deno.serve(async (req) => {
           })
           .eq("id", conv.cadence_enrollment_id)
           .eq("paused_reason", "human_takeover")
-          .select("id")
+          .select("id, status, paused_reason, next_execution_at")
           .maybeSingle();
+        log("resume_enrollment_result", { resumed, error: resumeErr?.message });
+
         if (resumed) {
           await admin.from("lead_activities").insert({
             company_id: conv.company_id,
@@ -108,12 +134,37 @@ Deno.serve(async (req) => {
             metadata: { conversation_id, enrollment_id: conv.cadence_enrollment_id, actor: "human", user_id: userId },
           });
         }
+      } else {
+        log("no_enrollment_linked", { conversation_id });
+      }
+
+      // Verifica última mensagem inbound para decidir se há algo para o SDR responder
+      if (conv.lead_id) {
+        const { data: lastInbound } = await admin
+          .from("messages")
+          .select("id, sent_at, direction, content")
+          .eq("conversation_id", conversation_id)
+          .eq("direction", "inbound")
+          .order("sent_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const { data: lastMsg } = await admin
+          .from("messages")
+          .select("id, sent_at, direction")
+          .eq("conversation_id", conversation_id)
+          .order("sent_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        log("last_messages", {
+          last_inbound: lastInbound ? { id: lastInbound.id, sent_at: lastInbound.sent_at } : null,
+          last_any: lastMsg ? { id: lastMsg.id, sent_at: lastMsg.sent_at, direction: lastMsg.direction } : null,
+          has_inbound_to_reply: !!lastInbound,
+        });
       }
 
       if (resume_agent && conv.lead_id) {
-        // Reenfileira o agente em modo live para responder se houver inbound pendente
         const scheduledAt = new Date(Date.now() + 2_000).toISOString();
-        await admin.from("pending_inbound_runs").upsert({
+        const { data: upserted, error: upsertErr } = await admin.from("pending_inbound_runs").upsert({
           lead_id: conv.lead_id,
           company_id: conv.company_id,
           conversation_id,
@@ -122,13 +173,16 @@ Deno.serve(async (req) => {
           status: "pending",
           claimed_at: null,
           last_error: null,
-        }, { onConflict: "lead_id" });
+        }, { onConflict: "lead_id" }).select("lead_id, status, scheduled_at");
+        log("enqueued_pending_run", { upserted, error: upsertErr?.message, scheduledAt });
+      } else {
+        log("skipped_enqueue", { resume_agent, has_lead: !!conv.lead_id });
       }
     }
 
     return new Response(JSON.stringify({ ok: true }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
-    console.error("human-takeover-toggle error:", e);
+    console.error("[human-takeover-toggle] fatal:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
