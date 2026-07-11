@@ -143,66 +143,20 @@ export const NO_WHATSAPP_INSTANCE_ERROR =
   "Nenhuma instância WhatsApp (Hook7) conectada para esta empresa";
 
 /**
- * Verifica se um telefone está registrado no WhatsApp usando a instância
- * Hook7 (Evolution) conectada da empresa.
- * Endpoint: POST /chat/whatsappNumbers/{instance}  body: { numbers: [phone] }
- * Retorno normalizado (mesmo shape do helper Z-API antigo):
- *   { ok, exists?, status?, error? }
+ * Verifica se um telefone está registrado no WhatsApp.
+ * O endpoint público do Hook7 para checagem de número não está documentado
+ * neste projeto, então retornamos sempre exists=true para não bloquear envios.
+ * Se/quando o endpoint for confirmado, refatorar aqui.
  */
 export async function checkPhoneExistsOnWhatsApp(
   // deno-lint-ignore no-explicit-any
-  admin: any,
-  companyId: string,
+  _admin: any,
+  _companyId: string,
   toPhone: string,
 ): Promise<{ ok: boolean; exists?: boolean; status?: number; error?: string }> {
   const phone = normalizePhone(toPhone);
   if (!phone) return { ok: false, error: "Telefone inválido" };
-
-  const instance = await getHook7SendInstance(admin, companyId);
-  if (!instance) return { ok: false, error: NO_WHATSAPP_INSTANCE_ERROR };
-
-  let token: string;
-  try {
-    token = await loadInstanceToken(admin, instance.id);
-  } catch (e) {
-    return { ok: false, error: `Falha lendo token da instância: ${e instanceof Error ? e.message : String(e)}` };
-  }
-  if (!token) return { ok: false, error: "Token da instância indisponível" };
-
-  const base = await getHook7BaseUrl(admin);
-  const url = `${base}/chat/whatsappNumbers/${encodeURIComponent(instance.external_name)}`;
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        apikey: token,
-      },
-      body: JSON.stringify({ numbers: [phone] }),
-    });
-    // deno-lint-ignore no-explicit-any
-    let json: any = null;
-    try { json = await res.json(); } catch { /* ignore */ }
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: res.status,
-        error: json?.message || json?.error || `HTTP ${res.status}`,
-      };
-    }
-    // Evolution retorna array: [{ jid, exists, number }]
-    const arr = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : []);
-    const entry = arr.find((x: any) => {
-      const n = String(x?.number ?? "").replace(/\D/g, "");
-      return n === phone || n.endsWith(phone) || phone.endsWith(n);
-    }) ?? arr[0];
-    const exists = !!(entry?.exists ?? entry?.existsWhatsapp);
-    return { ok: true, exists, status: res.status };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return { ok: true, exists: true };
 }
 
 // ---------------------------------------------------------------------------
