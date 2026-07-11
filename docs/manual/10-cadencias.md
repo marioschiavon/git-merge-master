@@ -17,8 +17,10 @@ Uma cadência é uma sequência de **passos** (WhatsApp/Email), com intervalos e
    - Passo 3 — WhatsApp — dia 5 — quebra-gelo curto.
 4. Escolha **modo**:
    - **Simulação** — não envia nada, só mostra o que enviaria (ótimo para calibrar).
-   - **Automático** — envia sem aprovação humana.
-   - **Com aprovação** — a primeira mensagem cai em [Aprovações](./11-aprovacoes.md) antes de sair.
+   - **Automático** — envia sem aprovação humana (só funciona se HITL estiver desligado para o escopo).
+   - **Com aprovação** — cada mensagem cai em [Aprovações](./11-aprovacoes.md) antes de sair.
+
+> ⚠️ **HITL ligado por padrão:** toda empresa nova tem aprovação humana ativa. Enquanto estiver ligada, **todo passo de cadência** gera um item em [Aprovações](./11-aprovacoes.md), mesmo que a cadência esteja em modo "Automático". Desligue em **Configurações → Empresa** quando quiser disparo direto.
 5. Ative reengajamento (opcional): se o lead não responder em N dias, retoma.
 6. Salve como **Rascunho** ou **Ativa**.
 

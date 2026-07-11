@@ -15,6 +15,10 @@ Dados básicos da sua empresa dentro do Leaderei: nome, fuso horário, horário 
 4. Confira/atualize seu perfil (nome, telefone).
 5. Salve.
 
+## Aprovação humana (HITL)
+
+Toda empresa nova entra com **HITL ativado por padrão** — nenhuma mensagem da IA sai sem revisão humana. Você pode desligar global ou por escopo (`first_message`, `sdr_reply`, `cadence_step`, `sensitive_action`) nesta mesma tela, mas recomendamos manter ligado até calibrar tom e cadências. Detalhes em [11. Aprovações](./11-aprovacoes.md).
+
 ## Dicas
 
 - O nome da empresa é usado pela IA para se apresentar. Escreva exatamente como você quer que apareça em "Fala, aqui é do time da **[Empresa]**".
