@@ -333,6 +333,11 @@ Regras para "score":
       });
     }
 
+    // Sincroniza score na tabela leads (UI lê de lá)
+    if (typeof scorePayload.score === "number") {
+      await supabase.from("leads").update({ score: scorePayload.score }).eq("id", lead.id);
+    }
+
     return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, saved: true, id: saved.id }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
