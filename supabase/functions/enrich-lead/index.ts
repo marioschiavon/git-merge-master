@@ -635,8 +635,29 @@ async function runJob(job_id: string) {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { job_id } = await req.json();
-    if (!job_id) return new Response(JSON.stringify({ error: "job_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const body = await req.json().catch(() => ({}));
+    let { job_id } = body || {};
+    const { lead_id, force } = body || {};
+
+    // Suporta gatilho manual: cria job on-the-fly quando só houver lead_id
+    if (!job_id && lead_id) {
+      const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
+      const { data: lead } = await supabase.from("leads").select("id, company_id").eq("id", lead_id).maybeSingle();
+      if (!lead) return new Response(JSON.stringify({ error: "lead not found" }), { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // Cancela jobs presos
+      if (force) {
+        await supabase.from("lead_enrichment_jobs")
+          .update({ status: "failed", error: "superseded by force run", updated_at: new Date().toISOString() })
+          .eq("lead_id", lead_id).in("status", ["pending", "processing"]);
+      }
+      const { data: job, error } = await supabase.from("lead_enrichment_jobs")
+        .insert({ lead_id, company_id: lead.company_id }).select("id").single();
+      if (error || !job) return new Response(JSON.stringify({ error: error?.message || "job insert failed" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      await supabase.from("leads").update({ enrichment_status: "pending" }).eq("id", lead_id);
+      job_id = job.id;
+    }
+
+    if (!job_id) return new Response(JSON.stringify({ error: "job_id or lead_id required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
     // Run in background so request returns immediately (avoids client/cron timeouts)
     // @ts-ignore EdgeRuntime is provided at runtime
