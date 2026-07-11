@@ -1,0 +1,1 @@
+ALTER TABLE public.companies ALTER COLUMN hitl_enabled SET DEFAULT true; UPDATE public.companies SET hitl_enabled = true WHERE hitl_enabled = false;
