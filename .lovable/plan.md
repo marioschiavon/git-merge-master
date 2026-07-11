@@ -1,32 +1,43 @@
-## Problema
+## Causa raiz
 
-Quando o operador liga o modo Humano, `human-takeover-toggle` pausa o `cadence_enrollments` com `paused_reason='human_takeover'`. Ao desligar (devolver para a IA), a função **não** despausa o enrollment — ela só limpa o flag `human_takeover` na conversa e enfileira um `pending_inbound_runs`.
+O lead responde → `inbound-webhook` insere uma linha em `pending_inbound_runs` com `status=pending` e `scheduled_at = now + 12s` (debounce). Uma função cron (`sdr-debounce-tick`) deveria varrer essa tabela a cada ~10s, "reclamar" a linha e invocar `sdr-agent`.
 
-Consequências:
-- Sem nova mensagem inbound do lead, o `sdr-agent` invocado pelo debounce não tem gatilho para gerar reply.
-- O `cadence-executor` também não avança porque o enrollment continua `status='paused'`.
-- Resultado: nada aparece nas aprovações nem sai mensagem nova.
+Confirmei no banco:
 
-## Correção
+- `SELECT * FROM cron.job` → **vazio**. Nenhum cron agendado.
+- `pending_inbound_runs` tem várias linhas em `status=pending`, `scheduled_at` no passado, `attempts=0`, `claimed_at=null` — ou seja, nunca foram processadas.
 
-### 1. `supabase/functions/human-takeover-toggle/index.ts` — branch `enable=false`
+Por isso a IA nunca responde: o gatilho existe, a fila é enfileirada, mas ninguém dispara o tick. O toggle Humano→IA também depende disso (ele faz upsert em `pending_inbound_runs`).
 
-Ao devolver para a IA, se o enrollment vinculado estiver pausado com `paused_reason='human_takeover'`, despausá-lo:
+## O que fazer
 
-- `UPDATE cadence_enrollments SET status='active', paused_reason=NULL, next_execution_at=now() WHERE id = conv.cadence_enrollment_id AND paused_reason='human_takeover'`
-- Manter o `upsert` em `pending_inbound_runs` só quando `resume_agent=true` (já existe).
-- Registrar em `lead_activities` que a cadência foi retomada.
+Criar o cron job `sdr-debounce-tick` chamando a edge function a cada ~15s (pg_cron aceita `'15 seconds'`). Também vale re-checar/agendar os demais crons se estiverem faltando (`cadence-executor`, `intent-cron`, `expire-slot-holds`, `enrichment-cron`, `referral-followup-cron`, `slot-expiry-followup`, `cadence-reengage-cron`) — mas o foco desta correção é o `sdr-debounce-tick`.
 
-Isso garante que:
-- Se havia inbound pendente do lead, o `sdr-agent` roda pelo debounce e gera reply (com aprovação se HITL ligado).
-- Se não havia inbound novo, o `cadence-executor` pega o enrollment ativo e agenda/gera o próximo passo normalmente.
+### Passo único (via `supabase--insert` porque contém URL/anon key do projeto)
 
-### 2. Validação
+```sql
+select cron.schedule(
+  'sdr-debounce-tick',
+  '15 seconds',
+  $$
+  select net.http_post(
+    url := 'https://<project>.supabase.co/functions/v1/sdr-debounce-tick',
+    headers := '{"Content-Type":"application/json","apikey":"<ANON_KEY>"}'::jsonb,
+    body := '{}'::jsonb
+  );
+  $$
+);
+```
 
-- Via Playwright: enviar msg como humano numa conversa de teste, devolver para a IA, aguardar ~15s, conferir que aparece nova mensagem/aprovação.
-- Conferir em `cadence_enrollments` que `status` voltou para `active` e `paused_reason` está nulo.
+Garantir `create extension if not exists pg_cron;` e `pg_net` antes.
 
-## Fora de escopo
+## Validação
 
-- Alterações de UI em Conversas.
-- Mudanças na lógica do agente ou do executor.
+1. `SELECT * FROM cron.job` mostra a linha `sdr-debounce-tick`.
+2. Após ~30s, `pending_inbound_runs` das linhas antigas viram `status=done` (ou `running`/`failed`) e `claimed_at` preenchido.
+3. No preview: enviar mensagem no modo Humano → devolver para IA → em até ~30s aparece uma nova resposta / aprovação da IA.
+4. Ver logs de `sdr-debounce-tick` com invocações regulares.
+
+## Escopo
+
+Só criação do cron. Não altero `sdr-agent`, `inbound-webhook`, nem UI.
