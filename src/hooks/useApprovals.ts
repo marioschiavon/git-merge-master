@@ -175,10 +175,18 @@ export function useHitlSettings() {
     mutationFn: async (patch: { hitl_enabled?: boolean; hitl_scopes?: Record<string, boolean> }) => {
       const companyId = query.data?.id;
       if (!companyId) throw new Error("sem empresa");
-      const { error } = await supabase.from("companies").update(patch).eq("id", companyId);
+      const { data, error } = await supabase
+        .from("companies")
+        .update(patch)
+        .eq("id", companyId)
+        .select("id, hitl_enabled, hitl_scopes")
+        .maybeSingle();
       if (error) throw error;
+      if (!data) throw new Error("Você não tem permissão para alterar estas preferências");
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      qc.setQueryData(["hitl-settings"], data);
       qc.invalidateQueries({ queryKey: ["hitl-settings"] });
       toast.success("Preferências salvas");
     },

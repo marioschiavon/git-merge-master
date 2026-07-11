@@ -37,13 +37,23 @@ export function useUpdateScoringConfig() {
   return useMutation({
     mutationFn: async (patch: Partial<ScoringConfig>) => {
       if (!companyId) throw new Error("Empresa não identificada");
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("companies")
         .update(patch as any)
-        .eq("id", companyId);
+        .eq("id", companyId)
+        .select("scoring_prompt, scoring_include, scoring_exclude")
+        .maybeSingle();
       if (error) throw error;
+      if (!data) throw new Error("Você não tem permissão para alterar o critério de qualificação");
+      const row = data as any;
+      return {
+        scoring_prompt: row.scoring_prompt ?? null,
+        scoring_include: Array.isArray(row.scoring_include) ? row.scoring_include : [],
+        scoring_exclude: Array.isArray(row.scoring_exclude) ? row.scoring_exclude : [],
+      } satisfies ScoringConfig;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      qc.setQueryData(["company-scoring", companyId], data);
       qc.invalidateQueries({ queryKey: ["company-scoring"] });
       toast({ title: "Critério de qualificação salvo" });
     },
