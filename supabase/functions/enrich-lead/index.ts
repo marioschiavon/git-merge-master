@@ -104,8 +104,16 @@ function handleFromUrl(url: string, prefix: string): string | null {
   return m ? m[1] : null;
 }
 
+const RECENCY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+function withinWindow(ts: any): boolean {
+  if (!ts) return false;
+  const t = typeof ts === "number" ? ts : Date.parse(String(ts));
+  if (!Number.isFinite(t)) return false;
+  return (Date.now() - t) <= RECENCY_WINDOW_MS;
+}
+
 function normalizeInstagramPosts(raw: any[]): any[] {
-  return (raw || []).slice(0, 30).map((p: any) => ({
+  return (raw || []).map((p: any) => ({
     caption: (p.caption || "").slice(0, 600),
     hashtags: p.hashtags || [],
     mentions: p.mentions || [],
@@ -114,10 +122,14 @@ function normalizeInstagramPosts(raw: any[]): any[] {
     timestamp: p.timestamp || null,
     url: p.url || (p.shortCode ? `https://instagram.com/p/${p.shortCode}` : null),
     type: p.type || p.productType || null,
-  })).filter((p) => p.caption || p.url);
+  }))
+    .filter((p) => (p.caption || p.url) && withinWindow(p.timestamp))
+    .sort((a, b) => Date.parse(b.timestamp || "0") - Date.parse(a.timestamp || "0"))
+    .slice(0, 30);
 }
 
 function summarizePosts(posts: any[]): string {
+  if (!posts.length) return "Sem publicações nos últimos 90 dias.";
   return posts.slice(0, 12).map((p) => {
     const date = p.timestamp ? new Date(p.timestamp).toISOString().slice(0, 10) : "—";
     const tags = (p.hashtags || []).slice(0, 5).map((t: string) => `#${t}`).join(" ");
