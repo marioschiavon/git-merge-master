@@ -309,9 +309,8 @@ function CreateCadenceDialog({ form, setForm, onCreate, isPending }: {
                 <Input
                   type="number"
                   min={1}
-                  max={20}
                   value={form.reengage_max_attempts}
-                  onChange={(e) => setForm({ ...form, reengage_max_attempts: Math.max(1, Math.min(20, Number(e.target.value) || 1)) })}
+                  onChange={(e) => setForm({ ...form, reengage_max_attempts: Math.max(1, Number(e.target.value) || 1) })}
                 />
               </div>
             </div>
