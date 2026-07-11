@@ -101,7 +101,7 @@ serve(async (req) => {
 
     const { data: lead, error: leadError } = await supabase
       .from("leads")
-      .select("id, name, company_name, website, company_id, email, phone, whatsapp, whatsapp_source")
+      .select("id, name, company_name, website, company_id, email, phone, whatsapp, whatsapp_source, score")
       .eq("id", lead_id).single();
 
     if (leadError || !lead) {
@@ -114,6 +114,7 @@ serve(async (req) => {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    const oldScore: number | null = typeof lead.score === "number" ? lead.score : null;
 
     let websiteUrl = lead.website.trim();
     if (!websiteUrl.startsWith("http")) websiteUrl = `https://${websiteUrl}`;
