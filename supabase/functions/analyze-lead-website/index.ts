@@ -315,7 +315,58 @@ Regras para "score":
     } catch { insights = { resumo: content }; }
 
     const scorePayload = buildScorePayload(insights);
-    const enrichedInsights = { ...insights, ...scorePayload };
+
+    // === Guardrail server-side de Qualificação ===
+    const haystack = `${pageContent}\n${insights?.resumo || ""}\n${JSON.stringify(insights || {})}`.toLowerCase();
+    const matchedInclude: string[] = [];
+    const matchedExclude: string[] = [];
+    for (const term of scoringInclude) {
+      if (term && haystack.includes(String(term).toLowerCase())) matchedInclude.push(term);
+    }
+    for (const term of scoringExclude) {
+      if (term && haystack.includes(String(term).toLowerCase())) matchedExclude.push(term);
+    }
+
+    let antiFitApplied = false;
+    if (matchedExclude.length > 0) {
+      // Anti-fit rígido: teto de 20 e fit=low, sobrescreve o que a IA disse.
+      if ((scorePayload.score ?? 100) > 20) scorePayload.score = 20;
+      scorePayload.fit_score = "low";
+      antiFitApplied = true;
+      scorePayload.score_breakdown = [
+        ...scorePayload.score_breakdown,
+        ...matchedExclude.map((t) => ({
+          criterion: `anti-fit:${t}`, score: 0, weight: 3,
+          reason: `Termo de exclusão da Qualificação detectado no conteúdo: "${t}"`,
+        })),
+      ];
+    }
+    if (matchedInclude.length > 0 && !antiFitApplied) {
+      scorePayload.score_breakdown = [
+        ...scorePayload.score_breakdown,
+        ...matchedInclude.map((t) => ({
+          criterion: `match:${t}`, score: 80, weight: 2,
+          reason: `Termo pró-fit da Qualificação encontrado: "${t}"`,
+        })),
+      ];
+    }
+
+    const newScore = scorePayload.score;
+    const scoreChanged = oldScore !== newScore;
+    let reason: string;
+    if (antiFitApplied) reason = `Score limitado a ${newScore} — anti-fit: ${matchedExclude.join(", ")}`;
+    else if (scoreChanged) reason = `Score recalculado com Qualificação atual (${oldScore ?? "—"} → ${newScore ?? "—"})`;
+    else reason = `Sem sinal novo — score mantido em ${newScore ?? "—"}`;
+
+    console.log("[analyze-lead-website] scoring", {
+      lead_id: lead.id, company_id: lead.company_id,
+      hadScoringPrompt: !!scoringPrompt,
+      scoringInclude, scoringExclude,
+      matchedInclude, matchedExclude,
+      oldScore, newScore, antiFitApplied,
+    });
+
+    const enrichedInsights = { ...insights, ...scorePayload, matched_include: matchedInclude, matched_exclude: matchedExclude };
 
     const { data: saved, error: saveError } = await supabase
       .from("lead_insights")
@@ -329,17 +380,24 @@ Regras para "score":
 
     if (saveError) {
       console.error("Save error:", saveError);
-      return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, saved: false }), {
+      return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, old_score: oldScore, new_score: newScore, score_changed: scoreChanged, reason, anti_fit: antiFitApplied, saved: false }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Sincroniza score na tabela leads (UI lê de lá)
-    if (typeof scorePayload.score === "number") {
+    // Sincroniza score na tabela leads (UI lê de lá) — só grava se mudou
+    if (typeof scorePayload.score === "number" && scoreChanged) {
       await supabase.from("leads").update({ score: scorePayload.score }).eq("id", lead.id);
     }
 
-    return new Response(JSON.stringify({ insights: enrichedInsights, ...scorePayload, saved: true, id: saved.id }), {
+    return new Response(JSON.stringify({
+      insights: enrichedInsights,
+      ...scorePayload,
+      old_score: oldScore, new_score: newScore, score_changed: scoreChanged,
+      reason, anti_fit: antiFitApplied,
+      matched_include: matchedInclude, matched_exclude: matchedExclude,
+      saved: true, id: saved.id,
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
