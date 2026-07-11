@@ -67,37 +67,30 @@ async function embedDocument(doc: {
   const chunks = chunkText(text);
   if (chunks.length === 0) return { knowledge_id: doc.id, chunks: 0 };
 
-  // Embed in batches of 20 to avoid huge requests
-  const batchSize = 20;
-  const rows: Array<Record<string, unknown>> = [];
+  // Embed and insert per-batch to keep memory usage low
+  const batchSize = 8;
   for (let i = 0; i < chunks.length; i += batchSize) {
     const batch = chunks.slice(i, i + batchSize);
     const emb = await createEmbedding({ input: batch });
-    for (let j = 0; j < batch.length; j++) {
-      rows.push({
+    const insertRows = batch.map((chunk, j) => {
+      const e = emb.data[j].embedding as unknown as number[];
+      return {
         company_id: doc.company_id,
         knowledge_id: doc.id,
-        chunk: batch[j],
-        embedding: emb.data[j].embedding as unknown as string,
+        chunk,
+        embedding: `[${(e as number[]).join(",")}]`,
         metadata: {
           title: doc.title,
           type: doc.type,
           source_url: doc.source_url,
           chunk_index: i + j,
         },
-        token_count: Math.ceil(batch[j].length / 4),
-      });
-    }
+        token_count: Math.ceil(chunk.length / 4),
+      };
+    });
+    const { error } = await supabase.from("knowledge_chunks").insert(insertRows);
+    if (error) throw error;
   }
-
-  // pgvector requires the vector as a string literal "[v1,v2,...]"
-  const insertRows = rows.map((r) => {
-    const e = r.embedding as unknown as number[];
-    return { ...r, embedding: `[${e.join(",")}]` };
-  });
-
-  const { error } = await supabase.from("knowledge_chunks").insert(insertRows);
-  if (error) throw error;
 
   await supabase
     .from("company_knowledge")
