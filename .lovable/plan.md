@@ -1,43 +1,32 @@
-## Causa raiz
+# Verificação de grupos + HITL global
 
-O lead responde → `inbound-webhook` insere uma linha em `pending_inbound_runs` com `status=pending` e `scheduled_at = now + 12s` (debounce). Uma função cron (`sdr-debounce-tick`) deveria varrer essa tabela a cada ~10s, "reclamar" a linha e invocar `sdr-agent`.
+## 1. Grupos no WhatsApp — verificação
 
-Confirmei no banco:
+Já verifiquei no código e no banco:
 
-- `SELECT * FROM cron.job` → **vazio**. Nenhum cron agendado.
-- `pending_inbound_runs` tem várias linhas em `status=pending`, `scheduled_at` no passado, `attempts=0`, `claimed_at=null` — ou seja, nunca foram processadas.
+**Entrada (inbound):** `supabase/functions/hook7-webhook/index.ts` já ignora explicitamente qualquer mensagem cujo `Chat` termine em `@g.us`, `@broadcast` ou `@newsletter`, ou tenha `IsGroup=true`. Nenhum lead/conversation é criado a partir de grupo.
 
-Por isso a IA nunca responde: o gatilho existe, a fila é enfileirada, mas ninguém dispara o tick. O toggle Humano→IA também depende disso (ele faz upsert em `pending_inbound_runs`).
+**Saída (outbound):** Os disparos usam sempre o telefone do lead (`leads.phone` / `leads.whatsapp`), que é normalizado para `+55...` na importação. Não existe caminho no código que envie para JID de grupo.
 
-## O que fazer
+**Confirmação no banco:**
+- Nenhuma `conversation` com telefone contendo `@g.us` ou `broadcast`.
+- Todas as mensagens `hook7` gravadas têm `IsGroup=false` (100% 1:1, `s.whatsapp.net` ou `lid`).
 
-Criar o cron job `sdr-debounce-tick` chamando a edge function a cada ~15s (pg_cron aceita `'15 seconds'`). Também vale re-checar/agendar os demais crons se estiverem faltando (`cadence-executor`, `intent-cron`, `expire-slot-holds`, `enrichment-cron`, `referral-followup-cron`, `slot-expiry-followup`, `cadence-reengage-cron`) — mas o foco desta correção é o `sdr-debounce-tick`.
+**Conclusão:** conversas para grupos **não estão sendo enviadas nem recebidas**. Sistema OK.
 
-### Passo único (via `supabase--insert` porque contém URL/anon key do projeto)
+## 2. Ativar HITL em todas as empresas
+
+Hoje só a empresa **Hook7** está com `hitl_enabled=true`. As outras 3 (Leaderei, leadereitestehenrique, S7) estão com HITL desligado.
+
+Vou rodar um UPDATE ligando `hitl_enabled=true` em todas as empresas, mantendo os `hitl_scopes` já configurados (todos os 4 escopos: `first_message`, `sdr_reply`, `cadence_step`, `sensitive_action` já estão `true` em todas).
 
 ```sql
-select cron.schedule(
-  'sdr-debounce-tick',
-  '15 seconds',
-  $$
-  select net.http_post(
-    url := 'https://<project>.supabase.co/functions/v1/sdr-debounce-tick',
-    headers := '{"Content-Type":"application/json","apikey":"<ANON_KEY>"}'::jsonb,
-    body := '{}'::jsonb
-  );
-  $$
-);
+UPDATE public.companies SET hitl_enabled = true WHERE hitl_enabled = false;
 ```
 
-Garantir `create extension if not exists pg_cron;` e `pg_net` antes.
+Efeito: toda mensagem gerada pela IA (primeira mensagem, resposta SDR, passo de cadência, ação sensível) passa a exigir aprovação humana antes de sair, em todas as empresas.
 
-## Validação
+## Detalhes técnicos
 
-1. `SELECT * FROM cron.job` mostra a linha `sdr-debounce-tick`.
-2. Após ~30s, `pending_inbound_runs` das linhas antigas viram `status=done` (ou `running`/`failed`) e `claimed_at` preenchido.
-3. No preview: enviar mensagem no modo Humano → devolver para IA → em até ~30s aparece uma nova resposta / aprovação da IA.
-4. Ver logs de `sdr-debounce-tick` com invocações regulares.
-
-## Escopo
-
-Só criação do cron. Não altero `sdr-agent`, `inbound-webhook`, nem UI.
+- Apenas 1 statement de dados (`supabase--insert`), sem alteração de schema.
+- Nenhum código alterado — o gate HITL (`_shared/hitl-gate.ts`) já lê `companies.hitl_enabled` em tempo real.
