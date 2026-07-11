@@ -1,11 +1,13 @@
 # 11. Aprovações
 
 **Quando usar:** para revisar mensagens geradas pela IA antes de sair — modo mais seguro no início.
-**Pré-requisitos:** cadência configurada em modo "Com aprovação".
+**Pré-requisitos:** nenhum. Toda empresa nova já entra com aprovação humana **ativada por padrão**.
+
+> **Padrão do sistema:** HITL (Human-in-the-Loop) vem **ligado** em todos os escopos — `first_message`, `sdr_reply`, `cadence_step` e `sensitive_action`. Enquanto estiver ligado, **nada é enviado pela IA** sem passar por esta tela. Para desligar (global ou por escopo), vá em **Configurações → Empresa → Aprovação humana**.
 
 ## O que é
 
-Fila de mensagens que a IA gerou mas está segurando para revisão humana. Aparece um badge com contador no menu lateral.
+Fila de mensagens que a IA gerou mas está segurando para revisão humana. Aparece um badge com contador no menu lateral. Cobre: primeira mensagem de cadência, respostas do SDR, passos seguintes de cadência e ações sensíveis (agendamento, cancelamento etc.).
 
 ## Passo a passo
 

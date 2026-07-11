@@ -21,6 +21,7 @@ Para tudo isso funcionar, existe uma ordem de configuração. **Pule etapas por 
 - [ ] Conectar Apollo ([03c](./03c-apollo.md))
 - [ ] Conectar Cal.com ([03e](./03e-calcom.md))
 - [ ] Preencher Base de Conhecimento — inclusive kickoff ([04](./04-base-de-conhecimento.md))
+- [ ] Revisar HITL — vem **ligado por padrão**; só desligue quando confiar na cadência ([11](./11-aprovacoes.md))
 - [ ] Criar 1 cadência de teste com 3 passos ([10](./10-cadencias.md))
 
 **Próximo passo →** [01. Configurações gerais](./01-configuracoes-gerais.md)

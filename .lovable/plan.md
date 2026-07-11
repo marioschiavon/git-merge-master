@@ -1,32 +1,24 @@
-# Verificação de grupos + HITL global
+# Atualizar manual: HITL ativado por padrão
 
-## 1. Grupos no WhatsApp — verificação
+## Contexto
+Acabamos de definir `companies.hitl_enabled = true` como padrão para toda nova empresa. O manual atual (`docs/manual/11-aprovacoes.md` e menções em `01-configuracoes-gerais.md`) ainda pode dar a entender que HITL é opt-in.
 
-Já verifiquei no código e no banco:
+## Mudanças no manual
 
-**Entrada (inbound):** `supabase/functions/hook7-webhook/index.ts` já ignora explicitamente qualquer mensagem cujo `Chat` termine em `@g.us`, `@broadcast` ou `@newsletter`, ou tenha `IsGroup=true`. Nenhum lead/conversation é criado a partir de grupo.
+1. **`docs/manual/11-aprovacoes.md`**
+   - Adicionar nota no topo: "Por padrão, toda nova empresa entra com HITL **ativado** em todos os escopos (`first_message`, `sdr_reply`, `cadence_step`, `sensitive_action`). Nada é enviado pela IA sem aprovação humana até você desligar explicitamente."
+   - Explicar como desligar (por escopo ou global) em Configurações → Empresa.
+   - Reforçar: enquanto HITL estiver ligado, cadências não disparam sozinhas — as mensagens ficam em Aprovações.
 
-**Saída (outbound):** Os disparos usam sempre o telefone do lead (`leads.phone` / `leads.whatsapp`), que é normalizado para `+55...` na importação. Não existe caminho no código que envie para JID de grupo.
+2. **`docs/manual/01-configuracoes-gerais.md`**
+   - Adicionar seção curta "Aprovação humana (HITL)" descrevendo o default ligado e apontando para `11-aprovacoes.md`.
 
-**Confirmação no banco:**
-- Nenhuma `conversation` com telefone contendo `@g.us` ou `broadcast`.
-- Todas as mensagens `hook7` gravadas têm `IsGroup=false` (100% 1:1, `s.whatsapp.net` ou `lid`).
+3. **`docs/manual/00-primeiros-passos.md`**
+   - Incluir bullet no checklist: "Revisar HITL (vem ligado por padrão) — desligue apenas quando confiar na configuração da cadência."
 
-**Conclusão:** conversas para grupos **não estão sendo enviadas nem recebidas**. Sistema OK.
+4. **`docs/manual/10-cadencias.md`**
+   - Adicionar aviso: "Se HITL estiver ligado (padrão), cada passo gera um item em Aprovações antes de sair."
 
-## 2. Ativar HITL em todas as empresas
-
-Hoje só a empresa **Hook7** está com `hitl_enabled=true`. As outras 3 (Leaderei, leadereitestehenrique, S7) estão com HITL desligado.
-
-Vou rodar um UPDATE ligando `hitl_enabled=true` em todas as empresas, mantendo os `hitl_scopes` já configurados (todos os 4 escopos: `first_message`, `sdr_reply`, `cadence_step`, `sensitive_action` já estão `true` em todas).
-
-```sql
-UPDATE public.companies SET hitl_enabled = true WHERE hitl_enabled = false;
-```
-
-Efeito: toda mensagem gerada pela IA (primeira mensagem, resposta SDR, passo de cadência, ação sensível) passa a exigir aprovação humana antes de sair, em todas as empresas.
-
-## Detalhes técnicos
-
-- Apenas 1 statement de dados (`supabase--insert`), sem alteração de schema.
-- Nenhum código alterado — o gate HITL (`_shared/hitl-gate.ts`) já lê `companies.hitl_enabled` em tempo real.
+## Fora de escopo
+- Nenhuma mudança de código/backend — o default no banco já foi aplicado na migration anterior.
+- Não mexer no `manual.html` gerado (é build).
