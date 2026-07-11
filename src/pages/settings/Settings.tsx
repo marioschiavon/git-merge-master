@@ -12,6 +12,7 @@ import { useHitlSettings } from "@/hooks/useApprovals";
 import { useScoringConfig, useUpdateScoringConfig } from "@/hooks/useScoring";
 import { useCompanySettings, type BusinessHours } from "@/hooks/useCompanySettings";
 import { useProfileSettings } from "@/hooks/useProfileSettings";
+import { useAuth } from "@/hooks/useAuth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 
@@ -24,7 +25,11 @@ const scopeLabels: { key: string; label: string; desc: string }[] = [
 
 export default function SettingsPage() {
   const { data: company, isLoading, update } = useHitlSettings();
+  const { isCompanyAdmin, isMasterAdmin } = useAuth();
+  const canEditCompany = isCompanyAdmin || isMasterAdmin;
   const scopes = (company?.hitl_scopes || {}) as Record<string, boolean>;
+  const hitlEnabled = !!company?.hitl_enabled;
+  const savingHitl = update.isPending;
 
   return (
     <div className="space-y-6 max-w-3xl">
@@ -57,19 +62,21 @@ export default function SettingsPage() {
                 <div>
                   <Label className="text-base">Revisão humana antes de enviar</Label>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Chave global. Desligue quando se sentir confiante para deixar tudo automatizado.
+                    {canEditCompany
+                      ? "Chave global. Desligue quando se sentir confiante para deixar tudo automatizado."
+                      : "Apenas administradores da empresa podem alterar esta configuração."}
                   </p>
                 </div>
                 <Switch
-                  checked={!!company?.hitl_enabled}
+                  checked={hitlEnabled}
                   onCheckedChange={(v) => update.mutate({ hitl_enabled: v })}
-                  disabled={update.isPending}
+                  disabled={savingHitl || !canEditCompany}
                 />
               </div>
 
               <Separator />
 
-              <div className={`space-y-3 ${company?.hitl_enabled ? "" : "opacity-50 pointer-events-none"}`}>
+              <div className={`space-y-3 ${hitlEnabled ? "" : "opacity-70"}`}>
                 <p className="text-sm font-medium">Escopo</p>
                 {scopeLabels.map((s) => (
                   <div key={s.key} className="flex items-start justify-between gap-3">
@@ -80,12 +87,17 @@ export default function SettingsPage() {
                     <Switch
                       checked={scopes[s.key] !== false}
                       onCheckedChange={(v) =>
-                        update.mutate({ hitl_scopes: { ...scopes, [s.key]: v } })
+                        update.mutate({ hitl_enabled: true, hitl_scopes: { ...scopes, [s.key]: v } })
                       }
-                      disabled={update.isPending || !company?.hitl_enabled}
+                      disabled={savingHitl || !canEditCompany}
                     />
                   </div>
                 ))}
+                {!hitlEnabled && canEditCompany && (
+                  <p className="text-xs text-muted-foreground">
+                    Alterar qualquer escopo ativa a revisão humana automaticamente.
+                  </p>
+                )}
               </div>
             </>
           )}

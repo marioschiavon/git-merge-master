@@ -1,39 +1,18 @@
-## Problema
+## Plano
 
-Em **Configurações → Human-in-the-Loop**, os switches não persistem. Ao clicar, o toast "Preferências salvas" aparece, mas o valor volta ao estado anterior (parece "não configurável").
+1. **Corrigir a permissão real de edição da empresa**
+   - Adicionar uma migration com `GRANT SELECT, UPDATE ON public.companies TO authenticated` e `GRANT ALL ON public.companies TO service_role`.
+   - Manter a regra de segurança já criada: somente `company_admin` da própria empresa e `master_admin` podem alterar.
 
-## Causa raiz
+2. **Ajustar a tela de Configurações para não parecer bloqueada indevidamente**
+   - Usar o papel do usuário logado para diferenciar quem pode editar.
+   - Para usuários sem permissão, mostrar os controles como somente leitura com uma mensagem clara.
+   - Para admins, deixar o Human-in-the-Loop clicável e salvar normalmente.
 
-A tabela `companies` tem RLS com apenas duas policies:
+3. **Evitar falso “salvo com sucesso”**
+   - No hook de salvamento, exigir retorno da linha atualizada e tratar “0 linhas alteradas” como erro de permissão.
+   - Atualizar o cache local após salvar para a tela refletir o novo estado imediatamente.
 
-- `SELECT` para membros da empresa (`id = get_user_company_id(auth.uid())`)
-- `ALL` só para `master_admin`
-
-**Não existe policy de `UPDATE` para `company_admin`**. Quando o hook `useHitlSettings.update` faz `supabase.from("companies").update(patch).eq("id", companyId)`, o Postgres bloqueia silenciosamente (0 linhas afetadas, sem erro) — por isso o toast de sucesso aparece mas nada muda.
-
-O mesmo bug afeta o `CompanyCard` (nome, fuso, business hours) e provavelmente qualquer outro update client-side em `companies` feito por company_admin não-master.
-
-## Correção
-
-Migration única adicionando policy `UPDATE` em `public.companies` para `company_admin` da própria empresa:
-
-```sql
-CREATE POLICY "Company admins can update their company"
-ON public.companies
-FOR UPDATE
-TO authenticated
-USING (
-  id = public.get_user_company_id(auth.uid())
-  AND public.has_role(auth.uid(), 'company_admin'::app_role)
-)
-WITH CHECK (
-  id = public.get_user_company_id(auth.uid())
-  AND public.has_role(auth.uid(), 'company_admin'::app_role)
-);
-```
-
-Escopo: apenas a migration. Sem mudanças em UI ou hooks — o código cliente já está correto, só faltava o direito no banco.
-
-## Observação
-
-Usuários `user` (não-admin) continuam sem poder editar — o que é o comportamento esperado. Se você quiser que qualquer membro possa mexer no HITL, é só me avisar e ajusto a policy.
+4. **Validar**
+   - Conferir via backend que a tabela `companies` tem `UPDATE` para usuários autenticados.
+   - Testar no preview se o switch de Human-in-the-Loop fica clicável para admin e se persiste ao recarregar.

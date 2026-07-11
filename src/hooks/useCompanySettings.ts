@@ -47,14 +47,28 @@ export function useCompanySettings() {
   const update = useMutation({
     mutationFn: async (patch: Partial<Pick<CompanySettings, "name" | "timezone" | "business_hours">>) => {
       if (!companyId) throw new Error("Sem empresa");
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from("companies")
         .update(patch as any)
-        .eq("id", companyId);
+        .eq("id", companyId)
+        .select("id, name, timezone, business_hours")
+        .maybeSingle();
       if (error) throw error;
+      if (!data) throw new Error("Você não tem permissão para alterar as configurações da empresa");
+      return {
+        id: data.id,
+        name: data.name,
+        timezone: data.timezone ?? "America/Sao_Paulo",
+        business_hours: (data.business_hours as unknown as BusinessHours) ?? {
+          start: "09:00",
+          end: "18:00",
+          days: [1, 2, 3, 4, 5],
+        },
+      } satisfies CompanySettings;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success("Configurações da empresa salvas");
+      qc.setQueryData(["company-settings", companyId], data);
       qc.invalidateQueries({ queryKey: ["company-settings", companyId] });
       qc.invalidateQueries({ queryKey: ["company-name", companyId] });
     },
