@@ -116,21 +116,46 @@ export function LeadSocialCard({ leadId, companyId, enrichmentStatus, hasEnricha
                   </div>
                   {p.url && <a href={p.url} target="_blank" rel="noreferrer" className="text-xs text-primary hover:underline truncate block">{p.url}</a>}
                   {p.bio && <p className="text-xs text-muted-foreground line-clamp-3 mt-1">{p.bio}</p>}
-                  {p.network === "instagram" && Array.isArray(p.recent_posts) && p.recent_posts.length > 0 && (
-                    <div className="mt-2 space-y-1 border-t pt-2">
-                      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Últimos posts ({p.recent_posts.length})</p>
-                      {p.recent_posts.slice(0, 5).map((post: any, i: number) => (
-                        <div key={i} className="text-xs">
-                          <p className="line-clamp-2 text-foreground/80">{post.caption || "(sem legenda)"}</p>
-                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                            {post.timestamp && <span>{new Date(post.timestamp).toLocaleDateString("pt-BR")}</span>}
-                            {post.likes != null && <span>♥ {post.likes}</span>}
-                            {post.comments != null && <span>💬 {post.comments}</span>}
-                            {post.url && <a href={post.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">Ver post →</a>}
+                  {p.network === "instagram" && (
+                    (() => {
+                      const NINETY_D = 90 * 24 * 60 * 60 * 1000;
+                      const all = Array.isArray(p.recent_posts) ? p.recent_posts : [];
+                      const recent = all.filter((post: any) => {
+                        const t = post?.timestamp ? Date.parse(post.timestamp) : NaN;
+                        return Number.isFinite(t) && (Date.now() - t) <= NINETY_D;
+                      });
+                      const latest = all
+                        .map((post: any) => (post?.timestamp ? Date.parse(post.timestamp) : NaN))
+                        .filter((t: number) => Number.isFinite(t))
+                        .sort((a: number, b: number) => b - a)[0];
+                      if (recent.length === 0) {
+                        return (
+                          <div className="mt-2 border-t pt-2">
+                            <Badge variant="outline" className="text-[10px]">
+                              Sem posts nos últimos 90 dias{latest ? ` · último em ${new Date(latest).toLocaleDateString("pt-BR")}` : ""}
+                            </Badge>
                           </div>
+                        );
+                      }
+                      return (
+                        <div className="mt-2 space-y-1 border-t pt-2">
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            Últimos posts ({recent.length}) · últimos 90 dias
+                          </p>
+                          {recent.slice(0, 5).map((post: any, i: number) => (
+                            <div key={i} className="text-xs">
+                              <p className="line-clamp-2 text-foreground/80">{post.caption || "(sem legenda)"}</p>
+                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                {post.timestamp && <span>{new Date(post.timestamp).toLocaleDateString("pt-BR")}</span>}
+                                {post.likes != null && <span>♥ {post.likes}</span>}
+                                {post.comments != null && <span>💬 {post.comments}</span>}
+                                {post.url && <a href={post.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">Ver post →</a>}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })()
                   )}
                 </div>
               </div>
