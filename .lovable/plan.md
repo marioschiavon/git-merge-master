@@ -1,80 +1,75 @@
+## Diagnóstico
 
-## Problema
+- **Score:** só é escrito em `leads.score` pela função `analyze-lead-website` (botão "Analisar Website" em `LeadDetailContent.tsx:403`). O prompt já injeta `scoring_prompt`/`scoring_include`/`scoring_exclude` da empresa (`analyze-lead-website/index.ts` linhas 235-285), mas hoje não há log/feedback do que a IA usou, e o front não distingue "score recalculado" de "score inalterado".
+- **Scrap Apify:** dispara em `enrich-lead` (`index.ts:369-411`) já checando `lead.instagram_url` / `linkedin_url` / `linkedin_company_url`. Porém só nasce job pelo trigger `enqueue_lead_enrichment` na criação — **editar a URL depois não refaz o scrap**, e o botão "Analisar" só chama `analyze-lead-website`.
+- **Filtro de data:** **inexistente**. `normalizeInstagramPosts` e `summarizePosts` só cortam por quantidade (`slice(0, 30)` / `slice(0, 12)`); LinkedIn/Facebook idem. `build-first-message.ts` e `preview-cadence-messages/index.ts` também não filtram.
 
-Os logs mostram `[hook7-webhook] evento desconhecido { event: "Message" }` — o webhook está descartando **todas** as mensagens recebidas do lead. A causa é um descasamento entre os nomes/estrutura dos eventos que o Hook7 realmente envia e os que nosso código espera.
+## O que vou fazer
 
-O `hook7-webhook` atual foi escrito assumindo payload no estilo Evolution API cru (`event: "MESSAGE"`, `data.key.remoteJid`, `data.message.conversation`, `event: "CONNECTION"`), mas o Hook7 (que já roda em produção no **Leaderei Foundation**) envia:
+### 1. Score sempre alinhado à Qualificação da empresa
 
-- Eventos: `Message`, `Receipt`, `Connected`, `PairSuccess`, `LoggedOut`, `SendMessage`, `ChatPresence`
-- Payload de mensagem: `data.Info.{ID, IsFromMe, Chat, Sender, SenderAlt, RecipientAlt, PushName, Timestamp, IsGroup}` e texto em `data.Message.conversation` ou `data.Message.extendedTextMessage.text`
+O ponto central desta rodada. Em `supabase/functions/analyze-lead-website/index.ts`:
 
-Resultado: mensagens do lead nunca criam `messages` inbound → SDR nunca é acionado → cadência não avança na resposta.
+- **Guardrail server-side:** se a empresa tiver `scoring_prompt` / `scoring_include` / `scoring_exclude` cadastrados e a IA devolver `score` sem `score_breakdown` referenciando esses critérios, **rejeitar e reprocessar** com uma segunda tentativa exigindo breakdown por critério. Se ainda vier vazio, força `score = null` + `fit_score = "low"` e `fit_reason` explicando que faltou evidência para os critérios definidos.
+- **Anti-fit rígido:** se qualquer termo de `scoring_exclude` aparecer no conteúdo do site OU no `raw_summary`, teto de `score = 20` e `fit_score = "low"`, mesmo que a IA discorde. Isso vai para o backend, não confia na IA.
+- **Pró-fit rastreável:** para cada termo de `scoring_include` encontrado no conteúdo, adicionar entrada em `score_breakdown` com `criterion: "match:<termo>"`, `reason: "<trecho literal ≤120 chars>"`, `url_origem`.
+- **`score_changed` no retorno:** a resposta da edge passa a incluir `old_score`, `new_score`, `score_changed` (boolean) e `reason` ("recalculado com Qualificação atual" ou "sem sinal novo — mantido"). Sobrescreve `leads.score` sempre (o usuário confirmou "só quando houver dado novo" — o "novo" aqui inclui **mudança em `companies.scoring_*`** desde a última análise; comparamos `lead_insights.analyzed_at` com `companies.updated_at`).
+- **Log detalhado** dos critérios usados, termos batidos e resposta bruta da IA em `console.log` para inspeção via edge function logs.
+- Front (`useLeadInsights.ts` + `LeadDetailContent.tsx`): toast diferenciando "Score atualizado: X → Y" / "Nenhum sinal novo — score mantido em X" / "Score bloqueado por anti-fit: <termo>".
 
-## O que fazer
+### 2. Scrap automático de Instagram / LinkedIn
 
-Reescrever a lógica de eventos do `supabase/functions/hook7-webhook/index.ts` seguindo o Foundation (`ab6c70f9-…/supabase/functions/hook7-webhook/index.ts`), adaptando ao schema deste projeto (`company_id`, colunas `messages.content/channel/provider/provider_message_id/direction`, `leads.phone / whatsapp`, `conversations`).
+Encadear o scrap em três gatilhos (todos escolhidos pelo usuário):
 
-### 1. Switch de eventos (nomes corretos)
+**a) Criação/importação** — já funciona via trigger `enqueue_lead_enrichment`, mantém.
 
-```text
-Message       → handleMessage()   // grava inbound + dispara IA
-Receipt       → handleReceipt()   // marca outbound como delivered/read
-Connected     → handleConnected() // atualiza hook7_instances
-PairSuccess   → handlePairSuccess()
-LoggedOut     → handleLoggedOut()
-SendMessage   → ignorar (Message com IsFromMe:true já cobre)
-ChatPresence  → ignorar
-default       → ignorar (log)
+**b) URL alterada depois** — nova migration com trigger `BEFORE UPDATE ON public.leads`:
+```sql
+IF NEW.instagram_url IS DISTINCT FROM OLD.instagram_url
+   OR NEW.linkedin_url IS DISTINCT FROM OLD.linkedin_url
+   OR NEW.linkedin_company_url IS DISTINCT FROM OLD.linkedin_company_url
+   OR NEW.facebook_url IS DISTINCT FROM OLD.facebook_url THEN
+  NEW.enrichment_status := 'pending';
+END IF;
 ```
+O trigger `enqueue_lead_enrichment` existente cuida do resto. Em `enrich-lead/index.ts`, quando o job for de "URL mudou", pular website_analysis inteiro e rodar só o Apify das redes com URL nova (comparando com `lead_social_profiles.source_url`).
 
-Manter o envelope de auth atual (secret na URL + `instanceId` + `instanceToken` conferidos com `loadInstanceToken`) e o retorno sempre 200.
+**c) Botão "Analisar"** — `LeadDetailContent.tsx` passa a invocar `analyze-lead-website` **e** `enrich-lead` em paralelo com `{ force: true }`. Novo parâmetro `force` em `enrich-lead` ignora cache do Apify e refaz o scrap das redes preenchidas. Score depois consome os posts frescos.
 
-### 2. `handleMessage` (o ponto principal do bug do usuário)
+### 3. Filtro de recência — últimos 90 dias
 
-- Ler `data.Info`. Descartar quando `Info.IsGroup === true` ou `Chat` termina em `@g.us`, `@broadcast`, `@newsletter`, ou `status@broadcast`.
-- Dedup por `Info.ID` via `messages.provider_message_id` (provider='hook7').
-- Definir `isOutbound = Info.IsFromMe === true`. O "outro lado" é `RecipientAlt || Chat` no outbound, e `Sender || SenderAlt` no inbound. Extrair dígitos com `stripJid` (parte antes de `@` e de `:`).
-- Extrair texto de `data.Message.conversation` ou `data.Message.extendedTextMessage.text`. Ignorar se vazio (mídia sem texto — fora do escopo desta correção).
-- Localizar lead por telefone dentro da `company_id` da instância. Se não achar, **criar lead novo** com `phone`, `name = Info.PushName || '+<digits>'`, marcar `enrichment_status='not_queued'` para não disparar enrichment automaticamente, e sinalizar via metadata que veio de inbound WhatsApp desconhecido (para revisão manual — mesma ideia do `needs_review` do Foundation, usando os campos que existirem no schema atual).
-- Achar/criar `conversations` (company_id, lead_id, channel='whatsapp').
-- Inserir `messages`:
-  ```
-  { conversation_id, content: text, channel: 'whatsapp',
-    direction: isOutbound ? 'outbound' : 'inbound',
-    provider: 'hook7', provider_message_id: Info.ID,
-    metadata: { hook7: { info: Info, instance_id } },
-    sent_at: Info.Timestamp || now() }
-  ```
-- Se for `inbound`, encaminhar para `inbound-webhook` com `skip_insert: true` (como já está hoje) para acionar classify-intent / SDR / cadência.
+Aplicado em três pontos:
 
-### 3. `handleReceipt`
+**a) `enrich-lead/index.ts`** — `normalizeInstagramPosts` e handlers LinkedIn (`postedAt`/`postedDate`) e Facebook (`time`):
+```ts
+const NINETY_DAYS_MS = 90 * 24 * 60 * 60 * 1000;
+const cutoff = Date.now() - NINETY_DAYS_MS;
+const recent = (raw || [])
+  .map(p => ({ ...p, _ts: p.timestamp ? Date.parse(p.timestamp) : 0 }))
+  .filter(p => p._ts >= cutoff)
+  .sort((a, b) => b._ts - a._ts)
+  .slice(0, 30);
+```
+Se ficar zero, gravar `recent_posts: []` e `posts_summary: "Sem publicações nos últimos 90 dias."` em vez de misturar posts velhos.
 
-- Se `state`/`data.Type` for `read` ou `delivered`, dar update em `messages` (`direction='outbound'`, `provider='hook7'`, `provider_message_id in data.MessageIDs`) gravando o status dentro de `metadata.delivery_status` e `metadata.delivery_status_at` (nosso schema não tem coluna dedicada, então usamos metadata).
+**b) `summarizePosts()`** — recebe já filtrado; ignorar itens com `_ts=0`.
 
-### 4. `handleConnected` / `handlePairSuccess` / `handleLoggedOut`
+**c) `_shared/build-first-message.ts` e `preview-cadence-messages/index.ts`** — aplicar mesmo filtro antes do `slice(0, 3)` como salvaguarda para dados antigos ainda em `lead_social_profiles`.
 
-- Atualizar `hook7_instances` (`status`, `phone_number`, `connected_profile_name`, `last_connected_at`), respeitando uma janela de graça de 5 minutos se o usuário tiver desconectado manualmente. `LoggedOut` com `Reason=403` → `status='banned'`, `Reason>=500` → `status='error'`, caso contrário `disconnected`.
+### 4. Sinalização visual
 
-### 5. Filtro de grupo/broadcast
-
-Extrair `stripJid()` e o teste `/@(g\.us|broadcast|newsletter)$/i` como helpers no topo do arquivo — igual Foundation.
-
-### 6. Sem mudanças fora deste arquivo
-
-- `_shared/hook7-whatsapp.ts` (outbound `/send/text`) já está ok.
-- `_shared/hook7.ts`, `hook7-instance-manage`, `hook7-test-connection` não mudam.
-- Não alteramos schema do banco — reaproveitamos `provider`, `provider_message_id`, `metadata`.
-- `webhook_events` continua best-effort dentro de try/catch.
-
-## Verificação
-
-Após o build:
-1. Enviar uma mensagem do próprio celular pareado para outro lead → deve aparecer como `outbound` (via evento `Message` com `IsFromMe:true`) sem duplicar o outbound do `send/text`.
-2. Pedir ao lead para responder → conferir logs (`supabase--edge_function_logs hook7-webhook`) sem "evento desconhecido"; conferir no Supabase que a linha `messages` inbound foi criada e que `pending_inbound_runs` / SDR foi acionado.
-3. Desconectar/reconectar a instância → conferir que `hook7_instances.status` reflete `connected`/`disconnected` corretamente.
+`LeadSocialCard.tsx`: mostrar data do post mais recente por rede e badge "Sem posts recentes (últimos 90 dias)" quando `recent_posts` vazio.
 
 ## Detalhes técnicos
 
-- Arquivo único alterado: `supabase/functions/hook7-webhook/index.ts` (reescrita completa dos handlers de evento, mantendo autenticação e path `/{secret}/{company-slug}`).
-- Não altera contratos de outras funções nem tabelas — apenas passa a gravar `messages.provider='hook7'` no inbound (formato que o `send-outbound-message` já usa no outbound Hook7).
-- Referência: projeto `Leaderei Foundation`, arquivo `supabase/functions/hook7-webhook/index.ts` (função `handleMessage` e cia).
+- **Migration:** trigger `BEFORE UPDATE ON public.leads` que zera `enrichment_status → 'pending'` quando URL de rede muda.
+- **Arquivos editados:**
+  - `supabase/functions/analyze-lead-website/index.ts` — reforço de Qualificação, anti-fit, `score_changed`, logs, comparação com `companies.updated_at`.
+  - `supabase/functions/enrich-lead/index.ts` — janela 90d em IG/LI/FB, modo `force`, escopo por rede quando disparado por mudança de URL.
+  - `supabase/functions/_shared/build-first-message.ts` — filtro 90d.
+  - `supabase/functions/preview-cadence-messages/index.ts` — filtro 90d.
+  - `src/hooks/useLeadInsights.ts` — expor `score_changed`, `old_score`, `new_score`, `reason`.
+  - `src/components/LeadDetailContent.tsx` — botão "Analisar" chama `analyze-lead-website` + `enrich-lead` (force); toast com resultado real.
+  - `src/components/LeadSocialCard.tsx` — badge "sem posts nos últimos 90 dias" + data do último post.
+- **Deploy:** redeployar `analyze-lead-website`, `enrich-lead`, `preview-cadence-messages`.
+- Fora de escopo: mexer em `enrichment_settings.apify_scrape`, refatorar `sdr-agent`, migrar shape dos arrays de insights.
