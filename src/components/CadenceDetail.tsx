@@ -806,9 +806,8 @@ function ReengageSettings({ cadence, onSave, saving }: { cadence: any; onSave: (
               <Input
                 type="number"
                 min={1}
-                max={20}
                 value={maxAttempts}
-                onChange={(e) => setMaxAttempts(Math.max(1, Math.min(20, Number(e.target.value) || 1)))}
+                onChange={(e) => setMaxAttempts(Math.max(1, Number(e.target.value) || 1))}
               />
             </div>
           </div>
