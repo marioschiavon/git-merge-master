@@ -2,18 +2,38 @@
 // Path: /functions/v1/hook7-webhook/{secret}/{company-slug}
 // Sempre retorna 200 — Hook7 não deve reenviar por erros nossos.
 //
-// Nesta fase de switchover, tratamos apenas eventos de CONEXÃO
-// (para sincronizar status/número/nome do perfil após leitura do QR).
-// Ingestão de mensagens e criação de leads órfãos serão incrementadas
-// numa fase seguinte, seguindo o padrão do Leaderei Foundation.
+// Aligned com o formato real do Hook7 (Evolution-Go), conforme implantado
+// no Leaderei Foundation. Eventos suportados:
+//   Message       → grava messages (inbound/outbound) + dispara pipeline IA
+//   Receipt       → atualiza status delivered/read do outbound
+//   Connected     → hook7_instances.status='connected'
+//   PairSuccess   → idem
+//   LoggedOut     → disconnected/banned/error
+//   SendMessage   → ignorado (Message com IsFromMe:true já cobre)
+//   ChatPresence  → ignorado
+//   default       → ignorado (log)
 
-import {
-  loadInstanceToken,
-  serviceClient,
-} from "../_shared/hook7.ts";
+import { loadInstanceToken, serviceClient } from "../_shared/hook7.ts";
 
 function ok200() {
-  return new Response("", { status: 200 });
+  return new Response(JSON.stringify({ ok: true }), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function stripJid(jid: string | null | undefined): string | null {
+  if (!jid || typeof jid !== "string") return null;
+  const beforeAt = jid.split("@")[0];
+  const beforeColon = beforeAt.split(":")[0];
+  const digits = beforeColon.replace(/\D/g, "");
+  return digits || null;
+}
+
+function isGroupLikeJid(jid: string): boolean {
+  if (!jid) return false;
+  if (jid === "status@broadcast") return true;
+  return /@(g\.us|broadcast|newsletter)$/i.test(jid);
 }
 
 function brVariants(d: string): string[] {
@@ -29,105 +49,247 @@ function brVariants(d: string): string[] {
 }
 
 // deno-lint-ignore no-explicit-any
-async function handleInboundMessage(admin: any, instance: any, company: any, body: any): Promise<boolean> {
-  const d = body?.data ?? body ?? {};
-  // Formato Hook7 (semelhante Evolution API): { key: { remoteJid, fromMe, id }, message: { conversation | extendedTextMessage.text } }
-  const key = d.key ?? {};
-  const fromMe = key?.fromMe === true || d?.fromMe === true;
-  if (fromMe) return false;
-  const remoteJid: string = String(key?.remoteJid ?? d?.remoteJid ?? d?.from ?? "");
-  const messageId: string | null = key?.id ?? d?.id ?? d?.messageId ?? null;
-  const text: string =
-    d?.message?.conversation ??
-    d?.message?.extendedTextMessage?.text ??
-    d?.text?.message ??
-    d?.body ??
-    "";
-  if (!remoteJid || !text) return false;
-
-  const fromDigits = remoteJid.split("@")[0].replace(/\D/g, "");
-  if (!fromDigits) return false;
-  const fromPhone = `+${fromDigits}`;
-
-  // Dedup por provider_message_id
-  if (messageId) {
-    const { data: dup } = await admin
-      .from("messages")
-      .select("id")
-      .eq("provider", "hook7")
-      .eq("provider_message_id", String(messageId))
-      .maybeSingle();
-    if (dup) return true;
-  }
-
-  // Localiza lead por telefone dentro da company
+async function findLeadByPhone(admin: any, companyId: string, digits: string): Promise<any | null> {
+  const variants = brVariants(digits);
   const { data: leads } = await admin
     .from("leads")
-    .select("id, phone, whatsapp")
-    .eq("company_id", company.id)
+    .select("id, phone, whatsapp, status, enrichment_status")
+    .eq("company_id", companyId)
     .or("phone.not.is.null,whatsapp.not.is.null");
-  const fromVariants = brVariants(fromDigits);
   const lead = (leads || []).find((l: any) => {
     const cands = [l.whatsapp, l.phone]
       .filter(Boolean)
-      .flatMap((p: string) => brVariants(p.replace(/\D/g, "")));
+      .flatMap((p: string) => brVariants(String(p).replace(/\D/g, "")));
     return cands.some((c) =>
-      fromVariants.some((f) => c === f || c.endsWith(f.slice(-10)) || f.endsWith(c.slice(-10))),
+      variants.some((f) => c === f || c.endsWith(f.slice(-10)) || f.endsWith(c.slice(-10))),
     );
   });
-  if (!lead) {
-    console.warn("[hook7-webhook] lead não encontrado", { fromPhone, company: company.id });
-    return false;
+  return lead || null;
+}
+
+// deno-lint-ignore no-explicit-any
+async function handleMessage(admin: any, instance: any, company: any, data: any): Promise<"processed" | "ignored"> {
+  const info = data?.Info;
+  if (!info) return "ignored";
+
+  const chatJid: string = String(info.Chat || info.Sender || "");
+  if (info.IsGroup === true || isGroupLikeJid(chatJid)) {
+    console.log("[hook7-webhook] ignored group/broadcast/newsletter", { chatJid });
+    return "ignored";
   }
 
-  // Conversation: reaproveita a mais recente do lead
+  const externalId: string | null = info.ID ? String(info.ID) : null;
+  if (!externalId) return "ignored";
+
+  // Dedup por provider_message_id
+  const { data: existing } = await admin
+    .from("messages")
+    .select("id")
+    .eq("provider", "hook7")
+    .eq("provider_message_id", externalId)
+    .maybeSingle();
+  if (existing) return "ignored";
+
+  const isOutbound = info.IsFromMe === true;
+  const otherJid = isOutbound ? (info.RecipientAlt || info.Chat) : (info.Sender || info.SenderAlt);
+  const otherDigits = stripJid(otherJid);
+  if (!otherDigits) return "ignored";
+
+  const text: string | null =
+    data?.Message?.conversation ??
+    data?.Message?.extendedTextMessage?.text ??
+    null;
+  if (!text) {
+    console.log("[hook7-webhook] message sem texto (mídia?) ignorada", { externalId });
+    return "ignored";
+  }
+
+  const ts: string = info.Timestamp || new Date().toISOString();
+  const pushName: string | null = typeof info.PushName === "string" && info.PushName ? info.PushName : null;
+  const phoneFormatted = `+${otherDigits}`;
+
+  // Encontra ou cria lead
+  let lead = await findLeadByPhone(admin, company.id, otherDigits);
+  if (!lead) {
+    const { data: newLead, error: leadErr } = await admin
+      .from("leads")
+      .insert({
+        company_id: company.id,
+        name: pushName || phoneFormatted,
+        phone: phoneFormatted,
+        whatsapp: phoneFormatted,
+        source: "whatsapp_inbound",
+        enrichment_status: "not_queued",
+      })
+      .select("id, status, enrichment_status")
+      .single();
+    if (leadErr) {
+      console.error("[hook7-webhook] lead insert failed", { error: leadErr.message });
+      return "processed";
+    }
+    lead = newLead;
+  }
+
+  // Conversation whatsapp para este lead
   let { data: conv } = await admin
     .from("conversations")
     .select("id")
+    .eq("company_id", company.id)
     .eq("lead_id", lead.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
+    .eq("channel", "whatsapp")
     .maybeSingle();
   if (!conv) {
-    const { data: newConv } = await admin
+    const { data: newConv, error: convErr } = await admin
       .from("conversations")
-      .insert({ lead_id: lead.id, company_id: company.id, channel: "whatsapp" })
+      .insert({ company_id: company.id, lead_id: lead.id, channel: "whatsapp" })
       .select("id")
       .single();
+    if (convErr) {
+      console.error("[hook7-webhook] conversation insert failed", { error: convErr.message });
+      return "processed";
+    }
     conv = newConv;
   }
 
-  await admin.from("messages").insert({
-    conversation_id: conv!.id,
+  const { error: msgErr } = await admin.from("messages").insert({
+    conversation_id: conv.id,
     content: text,
-    direction: "inbound",
     channel: "whatsapp",
+    direction: isOutbound ? "outbound" : "inbound",
     ai_suggested: false,
-    metadata: { hook7_message_id: messageId, from: fromPhone, instance_id: instance.id },
     provider: "hook7",
-    provider_message_id: messageId ? String(messageId) : null,
-  });
-
-  // Encaminha para pipeline (intenção, IA) pulando insert duplicado
-  const invokeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/inbound-webhook`;
-  fetch(invokeUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+    provider_message_id: externalId,
+    sent_at: ts,
+    metadata: {
+      hook7: {
+        instance_id: instance.id,
+        info,
+        push_name: pushName,
+        from: phoneFormatted,
+        delivery_status: isOutbound ? "sent" : null,
+      },
     },
-    body: JSON.stringify({
-      lead_id: lead.id,
-      conversation_id: conv!.id,
-      content: text,
-      channel: "whatsapp",
-      skip_insert: true,
-      provider: "hook7",
-      provider_message_id: messageId ? String(messageId) : null,
-    }),
-  }).catch((e) => console.error("[hook7-webhook] inbound forward error:", e));
+  });
+  if (msgErr) {
+    if (!String(msgErr.message || "").toLowerCase().includes("duplicate")) {
+      console.error("[hook7-webhook] message insert failed", { error: msgErr.message });
+    }
+    return "processed";
+  }
 
-  return true;
+  // Dispara pipeline apenas para inbound
+  if (!isOutbound) {
+    const invokeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/inbound-webhook`;
+    fetch(invokeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      },
+      body: JSON.stringify({
+        lead_id: lead.id,
+        conversation_id: conv.id,
+        content: text,
+        channel: "whatsapp",
+        skip_insert: true,
+        provider: "hook7",
+        provider_message_id: externalId,
+      }),
+    }).catch((e) => console.error("[hook7-webhook] inbound forward error:", e));
+  }
+
+  return "processed";
+}
+
+// deno-lint-ignore no-explicit-any
+async function handleReceipt(admin: any, instance: any, data: any, state: any) {
+  const status = String(state || data?.Type || "").toLowerCase();
+  if (!["read", "delivered"].includes(status)) return;
+  const messageIds = data?.MessageIDs;
+  if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+
+  const ts: string = data?.Timestamp || new Date().toISOString();
+
+  // Nosso schema não tem coluna dedicada; guardamos em metadata.
+  const { data: rows } = await admin
+    .from("messages")
+    .select("id, metadata")
+    .eq("provider", "hook7")
+    .eq("direction", "outbound")
+    .in("provider_message_id", messageIds.map(String));
+
+  for (const row of rows || []) {
+    const meta = (row.metadata && typeof row.metadata === "object") ? row.metadata : {};
+    const hook7 = (meta as any).hook7 && typeof (meta as any).hook7 === "object" ? (meta as any).hook7 : {};
+    const nextMeta = {
+      ...meta,
+      hook7: {
+        ...hook7,
+        delivery_status: status,
+        delivery_status_at: ts,
+        instance_id: instance.id,
+      },
+    };
+    await admin.from("messages").update({ metadata: nextMeta }).eq("id", row.id);
+  }
+}
+
+// deno-lint-ignore no-explicit-any
+function withinUserDisconnectWindow(instance: any): boolean {
+  const t = instance?.user_disconnected_at ? new Date(instance.user_disconnected_at).getTime() : 0;
+  return t > 0 && Date.now() - t < 5 * 60 * 1000;
+}
+
+// deno-lint-ignore no-explicit-any
+async function handleConnected(admin: any, instance: any, data: any) {
+  if (withinUserDisconnectWindow(instance)) {
+    console.log("[hook7-webhook] ignoring Connected after user_disconnect", { instanceId: instance.id });
+    return;
+  }
+  const phone = stripJid(data?.jid);
+  const patch: Record<string, any> = {
+    status: "connected",
+    last_connected_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (phone) patch.phone_number = phone;
+  if (data?.pushName) patch.connected_profile_name = data.pushName;
+  await admin.from("hook7_instances").update(patch).eq("id", instance.id);
+}
+
+// deno-lint-ignore no-explicit-any
+async function handlePairSuccess(admin: any, instance: any, data: any) {
+  if (withinUserDisconnectWindow(instance)) {
+    console.log("[hook7-webhook] ignoring PairSuccess after user_disconnect", { instanceId: instance.id });
+    return;
+  }
+  const phone =
+    stripJid(data?.jid) || stripJid(data?.JID) || stripJid(data?.ID) || stripJid(data?.id);
+  const profileName = data?.pushName ?? data?.PushName ?? data?.businessName ?? null;
+  const patch: Record<string, any> = {
+    status: "connected",
+    last_connected_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  if (phone) patch.phone_number = phone;
+  if (profileName) patch.connected_profile_name = profileName;
+  await admin.from("hook7_instances").update(patch).eq("id", instance.id);
+}
+
+// deno-lint-ignore no-explicit-any
+async function handleLoggedOut(admin: any, instance: any, data: any) {
+  const reason = Number(data?.Reason);
+  let newStatus = "disconnected";
+  if (reason === 403) newStatus = "banned";
+  else if (reason >= 500) newStatus = "error";
+  await admin
+    .from("hook7_instances")
+    .update({
+      status: newStatus,
+      last_error: reason ? `LoggedOut reason=${reason}` : null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", instance.id);
 }
 
 Deno.serve(async (req) => {
@@ -178,18 +340,15 @@ Deno.serve(async (req) => {
 
     const { data: instance } = await admin
       .from("hook7_instances")
-      .select("id, company_id, archived_at, status")
+      .select("id, company_id, archived_at, status, user_disconnected_at")
       .eq("external_id", instanceExtId)
       .eq("company_id", company.id)
       .maybeSingle();
     if (!instance || instance.archived_at) {
-      console.warn("[hook7-webhook] instância não encontrada/arquivada", {
-        instanceExtId,
-      });
+      console.warn("[hook7-webhook] instância não encontrada/arquivada", { instanceExtId });
       return ok200();
     }
 
-    // Valida token da instância contra o armazenado (criptografado)
     try {
       const stored = await loadInstanceToken(admin, instance.id);
       if (stored !== instanceToken) {
@@ -201,63 +360,40 @@ Deno.serve(async (req) => {
       return ok200();
     }
 
-    // -------- Handler por evento --------
-    let processStatus: "processed" | "ignored" | "failed" = "ignored";
+    let processStatus: "processed" | "ignored" | "failed" = "processed";
     try {
-      if (event === "CONNECTION" || event === "connection.update") {
-        const d = body?.data ?? {};
-        const state: string = String(d.State ?? d.state ?? "").toLowerCase();
-        const name: string | null =
-          typeof d.Name === "string" && d.Name.length > 0 ? d.Name : null;
-        const phone: string | null =
-          typeof d.PhoneNumber === "string" && d.PhoneNumber.length > 0
-            ? d.PhoneNumber
-            : (typeof d.Number === "string" ? d.Number : null);
-        const connected =
-          d.Connected === true || state.includes("connected") ||
-          state === "open";
-        const loggedOut =
-          d.LoggedOut === true || state.includes("logged_out") ||
-          state === "close" || state === "closed";
-
-        // deno-lint-ignore no-explicit-any
-        const patch: Record<string, any> = {
-          updated_at: new Date().toISOString(),
-        };
-        if (connected) {
-          patch.status = "connected";
-          patch.last_connected_at = new Date().toISOString();
-          if (name) patch.connected_profile_name = name;
-          if (phone) patch.phone_number = phone;
-        } else if (loggedOut) {
-          patch.status = "disconnected";
+      switch (event) {
+        case "Message": {
+          const res = await handleMessage(admin, instance, company, body.data);
+          processStatus = res;
+          break;
         }
-        if (Object.keys(patch).length > 1) {
-          await admin
-            .from("hook7_instances")
-            .update(patch)
-            .eq("id", instance.id);
-        }
-        processStatus = "processed";
-      } else if (event === "MESSAGE" || event === "messages.upsert") {
-        const handled = await handleInboundMessage(admin, instance, company, body);
-        processStatus = handled ? "processed" : "ignored";
-      } else if (event === "READ_RECEIPT" || event === "SEND_MESSAGE") {
-        // Não temos ainda ganchos de status para outbound Hook7 além do próprio
-        // retorno HTTP do sendText. Deixa como ignorado.
-        processStatus = "ignored";
-      } else {
-        console.log("[hook7-webhook] evento desconhecido", { event });
+        case "Receipt":
+          await handleReceipt(admin, instance, body.data, body.state);
+          break;
+        case "Connected":
+          await handleConnected(admin, instance, body.data);
+          break;
+        case "PairSuccess":
+          await handlePairSuccess(admin, instance, body.data);
+          break;
+        case "LoggedOut":
+          await handleLoggedOut(admin, instance, body.data);
+          break;
+        case "ChatPresence":
+        case "SendMessage":
+          processStatus = "ignored";
+          break;
+        default:
+          processStatus = "ignored";
+          console.log("[hook7-webhook] evento desconhecido", { event });
       }
     } catch (err) {
       processStatus = "failed";
-      console.error("[hook7-webhook] handler error", {
-        event,
-        error: String(err),
-      });
+      console.error("[hook7-webhook] handler error", { event, error: String(err) });
     }
 
-    // Auditoria best-effort (só grava se existir tabela webhook_events)
+    // Auditoria best-effort
     try {
       await admin.from("webhook_events").insert({
         source: "hook7",
@@ -266,7 +402,7 @@ Deno.serve(async (req) => {
         process_status: processStatus,
         event_type: event,
       });
-    } catch { /* tabela pode não existir ainda — ignora */ }
+    } catch { /* tabela pode não existir — ignora */ }
 
     return ok200();
   } catch (e) {
