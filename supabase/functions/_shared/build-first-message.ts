@@ -76,11 +76,16 @@ export async function buildFirstMessage(input: FirstMessageInput): Promise<First
       if (p.bio) lines.push(`Bio: ${String(p.bio).slice(0, 400)}`);
       if (p.posts_summary) lines.push(`Resumo de posts: ${String(p.posts_summary).slice(0, 800)}`);
       if (Array.isArray(p.recent_posts) && p.recent_posts.length > 0) {
-        const top = p.recent_posts.slice(0, 3).map((rp: any, i: number) => {
+        const NINETY_D = 90 * 24 * 60 * 60 * 1000;
+        const recent = p.recent_posts.filter((rp: any) => {
+          const t = rp?.timestamp ? Date.parse(rp.timestamp) : NaN;
+          return Number.isFinite(t) && (Date.now() - t) <= NINETY_D;
+        });
+        const top = recent.slice(0, 3).map((rp: any, i: number) => {
           const cap = rp?.caption || rp?.text || rp?.title || "";
           return `  ${i + 1}. ${String(cap).slice(0, 200)}`;
         }).filter((s: string) => s.trim().length > 4).join("\n");
-        if (top.trim()) lines.push(`Últimos posts:\n${top}`);
+        if (top.trim()) lines.push(`Últimos posts (últimos 90 dias):\n${top}`);
       }
       parts.push(lines.join("\n"));
     }

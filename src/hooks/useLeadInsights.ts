@@ -51,17 +51,41 @@ export function useAnalyzeWebsite() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (leadId: string) => {
-      const { data, error } = await supabase.functions.invoke("analyze-lead-website", {
-        body: { lead_id: leadId },
-      });
+      // Roda em paralelo: análise (score) + re-scrap forçado das redes.
+      const [analyzeRes, enrichRes] = await Promise.allSettled([
+        supabase.functions.invoke("analyze-lead-website", { body: { lead_id: leadId } }),
+        supabase.functions.invoke("enrich-lead", { body: { lead_id: leadId, force: true } }),
+      ]);
+      if (analyzeRes.status === "rejected") throw analyzeRes.reason;
+      const { data, error } = analyzeRes.value;
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      return data;
+      return {
+        ...data,
+        _enrich_ok: enrichRes.status === "fulfilled",
+      };
     },
-    onSuccess: (_data, leadId) => {
+    onSuccess: (data: any, leadId) => {
       qc.invalidateQueries({ queryKey: ["lead_insights", leadId] });
       qc.invalidateQueries({ queryKey: ["lead_insights_batch"] });
-      toast.success("Análise concluída!");
+      qc.invalidateQueries({ queryKey: ["lead_social_profiles", leadId] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
+
+      const oldS = data?.old_score;
+      const newS = data?.new_score;
+      const antiFit = data?.anti_fit;
+      const excluded: string[] = data?.matched_exclude || [];
+      if (antiFit) {
+        toast.warning(`Score bloqueado por anti-fit: ${excluded.join(", ")}`, {
+          description: `Score fixado em ${newS ?? "—"} pela Qualificação da empresa.`,
+        });
+      } else if (oldS !== newS) {
+        toast.success(`Score atualizado: ${oldS ?? "—"} → ${newS ?? "—"}`, {
+          description: "Recalculado com a Qualificação atual.",
+        });
+      } else {
+        toast.info(`Nenhum sinal novo — score mantido em ${newS ?? "—"}`);
+      }
     },
     onError: (e: any) => toast.error(e.message || "Erro ao analisar website"),
   });
