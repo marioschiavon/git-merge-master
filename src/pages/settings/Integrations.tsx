@@ -45,8 +45,6 @@ import { useApolloStatus } from "@/hooks/useApollo";
 import { useCalcomConnection, useCalcomConnect, useCalcomDisconnect, useCalcomTestConnection } from "@/hooks/useCalcom";
 import { Sparkles } from "lucide-react";
 
-const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-void SUPABASE_PROJECT_ID;
 
 // ---------------------------------------------------------------------------
 // Brand icons
