@@ -52,7 +52,15 @@ export default function PlatformSettings() {
       if (error) throw error;
       return data as {
         apify: { token_configured: boolean };
-        resend: { api_key_configured: boolean; lovable_api_key_configured: boolean };
+        resend: {
+          key_configured: boolean;
+          key_source: "db" | "connector" | "none";
+          db_key_configured: boolean;
+          connector_key_configured: boolean;
+          passphrase_configured: boolean;
+          connected_at: string | null;
+          lovable_api_key_configured: boolean;
+        };
         hook7: {
           apikey_configured: boolean;
           webhook_configured: boolean;
@@ -219,17 +227,60 @@ export default function PlatformSettings() {
 }
 
 // ---------------------------------------------------------------------------
-// Resend (Email) — chave master gerenciada via connector do workspace
+// Resend (Email) — chave master gerenciada 100% pela UI
 // ---------------------------------------------------------------------------
 
 function ResendCard({
   status,
 }: {
-  status?: { api_key_configured: boolean; lovable_api_key_configured: boolean };
+  status?: {
+    key_configured: boolean;
+    key_source: "db" | "connector" | "none";
+    db_key_configured: boolean;
+    connector_key_configured: boolean;
+    passphrase_configured: boolean;
+    connected_at: string | null;
+    lovable_api_key_configured: boolean;
+  };
 }) {
-  const apiOk = !!status?.api_key_configured;
+  const qc = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const keyOk = !!status?.key_configured;
+  const dbOk = !!status?.db_key_configured;
+  const connectorOk = !!status?.connector_key_configured;
+  const passOk = !!status?.passphrase_configured;
   const lovableOk = !!status?.lovable_api_key_configured;
-  const allOk = apiOk && lovableOk;
+  const allOk = keyOk && lovableOk && passOk;
+
+  const source = status?.key_source ?? "none";
+  const sourceLabel =
+    source === "db" ? "Banco (UI)" : source === "connector" ? "Connector (legado)" : "Não configurada";
+
+  const saveKey = useMutation({
+    mutationFn: async () => {
+      const clean = apiKey.trim();
+      if (clean.length < 8) throw new Error("Chave muito curta");
+      const { data, error } = await supabase.functions.invoke("resend-master-set", {
+        body: { api_key: clean },
+      });
+      if (error) throw error;
+      return data as { ok: boolean; domain_count?: number; message: string };
+    },
+    onSuccess: (r) => {
+      toast({
+        title: r.ok ? "Chave salva" : "Falha ao salvar",
+        description: r.message,
+        variant: r.ok ? "default" : "destructive",
+      });
+      if (r.ok) {
+        setApiKey("");
+        qc.invalidateQueries({ queryKey: ["platform_settings_status"] });
+      }
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
 
   const testConn = useMutation({
     mutationFn: async () => {
@@ -243,8 +294,21 @@ function ResendCard({
         description: r.message,
         variant: r.ok ? "default" : "destructive",
       }),
-    onError: (e: any) =>
-      toast({ title: "Erro", description: e.message, variant: "destructive" }),
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const clearKey = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("resend-master-clear");
+      if (error) throw error;
+      return data as { ok: boolean; message: string };
+    },
+    onSuccess: () => {
+      toast({ title: "Chave removida" });
+      setConfirmClear(false);
+      qc.invalidateQueries({ queryKey: ["platform_settings_status"] });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
   });
 
   return (
@@ -263,30 +327,70 @@ function ResendCard({
           </Badge>
         </div>
         <CardDescription>
-          Conta Resend master de produção. Os domínios de todas as empresas são cadastrados e verificados aqui.
-          A chave é gerenciada como <strong>connector do workspace</strong> — não é um secret manual e nunca aparece na UI.
-          Para trocar ou rotacionar, use "Gerenciar conector".
+          Conta Resend master de produção — os domínios de todas as empresas são cadastrados e
+          verificados aqui. A chave fica criptografada no banco e é gerenciada 100% por esta tela.
+          Após salvar, a chave nunca mais é exibida; para trocar, cole a nova e salve por cima.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <StatusPill label="Chave Resend (connector)" ok={apiOk} envName="RESEND_API_KEY" />
+        <div className="grid gap-2 sm:grid-cols-3">
+          <StatusPill
+            label={`Chave Resend · ${sourceLabel}`}
+            ok={keyOk}
+            envName={dbOk ? "platform_settings.resend_api_key_encrypted" : "RESEND_API_KEY"}
+          />
+          <StatusPill label="Passphrase (cripto)" ok={passOk} envName="RESEND_KEY_PASSPHRASE" />
           <StatusPill label="Lovable API Key" ok={lovableOk} envName="LOVABLE_API_KEY" />
         </div>
 
-        <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
-          <p><strong className="text-foreground">Como trocar a chave:</strong></p>
-          <ol className="list-decimal ml-4 space-y-0.5">
-            <li>Gere uma nova API key (Full Access) na conta Resend master do cliente.</li>
-            <li>Abra o painel de conectores do workspace e reconecte o Resend com a nova chave.</li>
-            <li>Volte aqui e clique em "Testar conexão" para validar.</li>
-          </ol>
+        {status?.connected_at && (
+          <p className="text-[11px] text-muted-foreground">
+            Última atualização da chave: {new Date(status.connected_at).toLocaleString("pt-BR")}
+          </p>
+        )}
+
+        {connectorOk && !dbOk && (
+          <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs">
+            Existe uma chave legada vinda do connector do workspace. Cole a chave master abaixo
+            para migrar tudo para o gerenciamento pela UI.
+          </div>
+        )}
+
+        <div className="space-y-2 border rounded-md p-3">
+          <Label htmlFor="resend-api-key" className="text-sm font-medium">
+            {dbOk ? "Substituir chave Resend" : "Nova chave Resend"}
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="resend-api-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="re_..."
+              className="font-mono text-xs"
+              disabled={!passOk}
+            />
+            <Button
+              onClick={() => saveKey.mutate()}
+              disabled={saveKey.isPending || !passOk || apiKey.trim().length < 8}
+            >
+              {saveKey.isPending ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Salvando…</>
+              ) : (
+                <>Salvar chave</>
+              )}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Antes de salvar, a chave é validada com <code>GET /domains</code> na Resend. Se rejeitada, nada é gravado.
+          </p>
         </div>
 
         <div className="flex gap-2 flex-wrap">
           <Button
             onClick={() => testConn.mutate()}
-            disabled={testConn.isPending || !apiOk || !lovableOk}
+            disabled={testConn.isPending || !keyOk || !lovableOk}
             variant="outline"
           >
             {testConn.isPending ? (
@@ -295,16 +399,25 @@ function ResendCard({
               <>Testar conexão</>
             )}
           </Button>
-          <a
-            href="https://lovable.dev/settings/workspace"
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1"
-          >
-            <Button variant="secondary" size="default" type="button">
-              Gerenciar conector <ExternalLink className="h-3 w-3 ml-1" />
+          {dbOk && !confirmClear && (
+            <Button variant="ghost" onClick={() => setConfirmClear(true)}>
+              Remover chave
             </Button>
-          </a>
+          )}
+          {dbOk && confirmClear && (
+            <>
+              <Button
+                variant="destructive"
+                onClick={() => clearKey.mutate()}
+                disabled={clearKey.isPending}
+              >
+                {clearKey.isPending ? "Removendo…" : "Confirmar remoção"}
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmClear(false)}>
+                Cancelar
+              </Button>
+            </>
+          )}
           <a
             href="https://resend.com/domains"
             target="_blank"
@@ -318,6 +431,7 @@ function ResendCard({
     </Card>
   );
 }
+
 
 // ---------------------------------------------------------------------------
 // Hook7 (WhatsApp) — configuração da plataforma
