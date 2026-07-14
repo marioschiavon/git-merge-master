@@ -14,6 +14,40 @@
 //   default       → ignorado (log)
 
 import { loadInstanceToken, serviceClient } from "../_shared/hook7.ts";
+import { base64ByteLength, downloadHook7Media, extractAudioRef, type AudioRef } from "../_shared/hook7-media.ts";
+import { extensionFromMimetype, transcribeAudio } from "../_shared/transcribe-audio.ts";
+
+// deno-lint-ignore no-explicit-any
+async function uploadAudioToStorage(
+  admin: any,
+  companyId: string,
+  conversationId: string,
+  providerMessageId: string,
+  base64: string,
+  mimetype: string | null,
+): Promise<string | null> {
+  try {
+    const clean = base64.replace(/^data:[^;]+;base64,/, "");
+    const bin = atob(clean);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const ext = extensionFromMimetype(mimetype);
+    const path = `${companyId}/${conversationId}/${providerMessageId}.${ext}`;
+    const contentType = mimetype && mimetype.includes("/") ? mimetype.split(";")[0].trim() : `audio/${ext === "m4a" ? "mp4" : ext}`;
+    const { error } = await admin.storage.from("whatsapp-audio").upload(path, bytes, {
+      contentType,
+      upsert: true,
+    });
+    if (error) {
+      console.warn("[hook7-webhook] falha ao subir áudio para storage:", error.message);
+      return null;
+    }
+    return path;
+  } catch (e) {
+    console.warn("[hook7-webhook] exceção ao subir áudio para storage:", String(e));
+    return null;
+  }
+}
 
 function ok200() {
   return new Response(JSON.stringify({ ok: true }), {
@@ -95,13 +129,72 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
   const otherDigits = stripJid(otherJid);
   if (!otherDigits) return "ignored";
 
-  const text: string | null =
+  let text: string | null =
     data?.Message?.conversation ??
     data?.Message?.extendedTextMessage?.text ??
     null;
+
+  // Áudio: baixa via Hook7, transcreve e usa o texto como content da mensagem.
+  let audioMeta: Record<string, unknown> | null = null;
+  let transcriptionFailed = false;
   if (!text) {
-    console.log("[hook7-webhook] message sem texto (mídia?) ignorada", { externalId });
-    return "ignored";
+    const audioRef: AudioRef | null = extractAudioRef(data);
+    if (!audioRef) {
+      console.log("[hook7-webhook] message sem texto e sem áudio (mídia não suportada) ignorada", { externalId });
+      return "ignored";
+    }
+    // Só processamos áudio inbound. Áudios enviados pela própria instância não precisam de transcrição.
+    if (info.IsFromMe === true) {
+      console.log("[hook7-webhook] áudio outbound ignorado (sem transcrição)", { externalId });
+      return "ignored";
+    }
+    try {
+      const media = await downloadHook7Media(admin, instance, externalId, data?.Message, audioRef);
+      const bytes = base64ByteLength(media.base64);
+      let storagePath: string | null = null;
+      try {
+        const stt = await transcribeAudio({ base64: media.base64, mimetype: media.mimetype });
+        text = stt.text;
+        audioMeta = {
+          seconds: audioRef.seconds,
+          mimetype: media.mimetype ?? audioRef.mimetype,
+          ptt: audioRef.ptt,
+          file_length: audioRef.file_length ?? bytes,
+          transcript_model: stt.model,
+          transcript_latency_ms: stt.latency_ms,
+        };
+        // Upload best-effort (não bloqueia o fluxo se falhar)
+        // Feito depois de garantir a conv abaixo — armazenamos o path via update.
+        void storagePath;
+        // Guardamos o base64 temporariamente para subir depois de resolver conv.
+        (audioMeta as any).__pending_base64 = media.base64;
+        (audioMeta as any).__pending_mime = media.mimetype;
+      } catch (sttErr) {
+        transcriptionFailed = true;
+        text = "[áudio não transcrito]";
+        audioMeta = {
+          seconds: audioRef.seconds,
+          mimetype: media.mimetype ?? audioRef.mimetype,
+          ptt: audioRef.ptt,
+          file_length: audioRef.file_length ?? bytes,
+          transcript_error: sttErr instanceof Error ? sttErr.message : String(sttErr),
+        };
+        (audioMeta as any).__pending_base64 = media.base64;
+        (audioMeta as any).__pending_mime = media.mimetype;
+        console.error("[hook7-webhook] transcrição falhou", { externalId, error: (audioMeta as any).transcript_error });
+      }
+    } catch (dlErr) {
+      transcriptionFailed = true;
+      text = "[áudio não transcrito]";
+      audioMeta = {
+        seconds: audioRef.seconds,
+        mimetype: audioRef.mimetype,
+        ptt: audioRef.ptt,
+        file_length: audioRef.file_length,
+        download_error: dlErr instanceof Error ? dlErr.message : String(dlErr),
+      };
+      console.error("[hook7-webhook] download de áudio falhou", { externalId, error: (audioMeta as any).download_error });
+    }
   }
 
   const ts: string = info.Timestamp || new Date().toISOString();
@@ -142,6 +235,16 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
     conv = newConv;
   }
 
+  // Extrai payload de áudio pendente (base64) antes de gravar — não vai para o DB.
+  let pendingAudioB64: string | null = null;
+  let pendingAudioMime: string | null = null;
+  if (audioMeta && (audioMeta as any).__pending_base64) {
+    pendingAudioB64 = (audioMeta as any).__pending_base64 as string;
+    pendingAudioMime = ((audioMeta as any).__pending_mime as string | null) ?? null;
+    delete (audioMeta as any).__pending_base64;
+    delete (audioMeta as any).__pending_mime;
+  }
+
   const { error: msgErr } = await admin.from("messages").insert({
     conversation_id: conv.id,
     content: text,
@@ -158,6 +261,7 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
         push_name: pushName,
         from: phoneFormatted,
         delivery_status: isOutbound ? "sent" : null,
+        ...(audioMeta ? { audio: audioMeta } : {}),
       },
     },
   });
@@ -168,8 +272,34 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
     return "processed";
   }
 
-  // Dispara pipeline apenas para inbound
-  if (!isOutbound) {
+  // Sobe o áudio para o Storage (best-effort) e atualiza metadata com o path.
+  if (pendingAudioB64) {
+    const storagePath = await uploadAudioToStorage(
+      admin, company.id, conv.id, externalId, pendingAudioB64, pendingAudioMime,
+    );
+    if (storagePath && audioMeta) {
+      const nextAudio = { ...audioMeta, storage_path: storagePath };
+      await admin
+        .from("messages")
+        .update({
+          metadata: {
+            hook7: {
+              instance_id: instance.id,
+              info,
+              push_name: pushName,
+              from: phoneFormatted,
+              delivery_status: isOutbound ? "sent" : null,
+              audio: nextAudio,
+            },
+          },
+        })
+        .eq("provider", "hook7")
+        .eq("provider_message_id", externalId);
+    }
+  }
+
+  // Dispara pipeline apenas para inbound — e apenas se conseguimos transcrever.
+  if (!isOutbound && !transcriptionFailed) {
     const invokeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/inbound-webhook`;
     fetch(invokeUrl, {
       method: "POST",
@@ -187,6 +317,8 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
         provider_message_id: externalId,
       }),
     }).catch((e) => console.error("[hook7-webhook] inbound forward error:", e));
+  } else if (!isOutbound && transcriptionFailed) {
+    console.log("[hook7-webhook] pipeline IA pulado — áudio sem transcrição (aguardando takeover humano)", { externalId });
   }
 
   return "processed";
@@ -331,7 +463,7 @@ Deno.serve(async (req) => {
 
     const { data: instance } = await admin
       .from("hook7_instances")
-      .select("id, company_id, archived_at, status, user_disconnected_at")
+      .select("id, company_id, external_name, archived_at, status, user_disconnected_at")
       .eq("external_id", instanceExtId)
       .eq("company_id", company.id)
       .maybeSingle();
