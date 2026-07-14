@@ -129,13 +129,72 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
   const otherDigits = stripJid(otherJid);
   if (!otherDigits) return "ignored";
 
-  const text: string | null =
+  let text: string | null =
     data?.Message?.conversation ??
     data?.Message?.extendedTextMessage?.text ??
     null;
+
+  // Áudio: baixa via Hook7, transcreve e usa o texto como content da mensagem.
+  let audioMeta: Record<string, unknown> | null = null;
+  let transcriptionFailed = false;
   if (!text) {
-    console.log("[hook7-webhook] message sem texto (mídia?) ignorada", { externalId });
-    return "ignored";
+    const audioRef: AudioRef | null = extractAudioRef(data);
+    if (!audioRef) {
+      console.log("[hook7-webhook] message sem texto e sem áudio (mídia não suportada) ignorada", { externalId });
+      return "ignored";
+    }
+    // Só processamos áudio inbound. Áudios enviados pela própria instância não precisam de transcrição.
+    if (info.IsFromMe === true) {
+      console.log("[hook7-webhook] áudio outbound ignorado (sem transcrição)", { externalId });
+      return "ignored";
+    }
+    try {
+      const media = await downloadHook7Media(admin, instance, externalId, data?.Message, audioRef);
+      const bytes = base64ByteLength(media.base64);
+      let storagePath: string | null = null;
+      try {
+        const stt = await transcribeAudio({ base64: media.base64, mimetype: media.mimetype });
+        text = stt.text;
+        audioMeta = {
+          seconds: audioRef.seconds,
+          mimetype: media.mimetype ?? audioRef.mimetype,
+          ptt: audioRef.ptt,
+          file_length: audioRef.file_length ?? bytes,
+          transcript_model: stt.model,
+          transcript_latency_ms: stt.latency_ms,
+        };
+        // Upload best-effort (não bloqueia o fluxo se falhar)
+        // Feito depois de garantir a conv abaixo — armazenamos o path via update.
+        void storagePath;
+        // Guardamos o base64 temporariamente para subir depois de resolver conv.
+        (audioMeta as any).__pending_base64 = media.base64;
+        (audioMeta as any).__pending_mime = media.mimetype;
+      } catch (sttErr) {
+        transcriptionFailed = true;
+        text = "[áudio não transcrito]";
+        audioMeta = {
+          seconds: audioRef.seconds,
+          mimetype: media.mimetype ?? audioRef.mimetype,
+          ptt: audioRef.ptt,
+          file_length: audioRef.file_length ?? bytes,
+          transcript_error: sttErr instanceof Error ? sttErr.message : String(sttErr),
+        };
+        (audioMeta as any).__pending_base64 = media.base64;
+        (audioMeta as any).__pending_mime = media.mimetype;
+        console.error("[hook7-webhook] transcrição falhou", { externalId, error: (audioMeta as any).transcript_error });
+      }
+    } catch (dlErr) {
+      transcriptionFailed = true;
+      text = "[áudio não transcrito]";
+      audioMeta = {
+        seconds: audioRef.seconds,
+        mimetype: audioRef.mimetype,
+        ptt: audioRef.ptt,
+        file_length: audioRef.file_length,
+        download_error: dlErr instanceof Error ? dlErr.message : String(dlErr),
+      };
+      console.error("[hook7-webhook] download de áudio falhou", { externalId, error: (audioMeta as any).download_error });
+    }
   }
 
   const ts: string = info.Timestamp || new Date().toISOString();
