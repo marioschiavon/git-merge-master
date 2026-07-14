@@ -46,7 +46,7 @@ import { useCalcomConnection, useCalcomConnect, useCalcomDisconnect, useCalcomTe
 import { Sparkles } from "lucide-react";
 
 const SUPABASE_PROJECT_ID = import.meta.env.VITE_SUPABASE_PROJECT_ID;
-const ZAPI_WEBHOOK_URL = `https://${SUPABASE_PROJECT_ID}.supabase.co/functions/v1/zapi-webhook`;
+void SUPABASE_PROJECT_ID;
 
 // ---------------------------------------------------------------------------
 // Brand icons
