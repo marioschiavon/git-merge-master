@@ -235,6 +235,16 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
     conv = newConv;
   }
 
+  // Extrai payload de áudio pendente (base64) antes de gravar — não vai para o DB.
+  let pendingAudioB64: string | null = null;
+  let pendingAudioMime: string | null = null;
+  if (audioMeta && (audioMeta as any).__pending_base64) {
+    pendingAudioB64 = (audioMeta as any).__pending_base64 as string;
+    pendingAudioMime = ((audioMeta as any).__pending_mime as string | null) ?? null;
+    delete (audioMeta as any).__pending_base64;
+    delete (audioMeta as any).__pending_mime;
+  }
+
   const { error: msgErr } = await admin.from("messages").insert({
     conversation_id: conv.id,
     content: text,
@@ -251,6 +261,7 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
         push_name: pushName,
         from: phoneFormatted,
         delivery_status: isOutbound ? "sent" : null,
+        ...(audioMeta ? { audio: audioMeta } : {}),
       },
     },
   });
@@ -261,8 +272,34 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
     return "processed";
   }
 
-  // Dispara pipeline apenas para inbound
-  if (!isOutbound) {
+  // Sobe o áudio para o Storage (best-effort) e atualiza metadata com o path.
+  if (pendingAudioB64) {
+    const storagePath = await uploadAudioToStorage(
+      admin, company.id, conv.id, externalId, pendingAudioB64, pendingAudioMime,
+    );
+    if (storagePath && audioMeta) {
+      const nextAudio = { ...audioMeta, storage_path: storagePath };
+      await admin
+        .from("messages")
+        .update({
+          metadata: {
+            hook7: {
+              instance_id: instance.id,
+              info,
+              push_name: pushName,
+              from: phoneFormatted,
+              delivery_status: isOutbound ? "sent" : null,
+              audio: nextAudio,
+            },
+          },
+        })
+        .eq("provider", "hook7")
+        .eq("provider_message_id", externalId);
+    }
+  }
+
+  // Dispara pipeline apenas para inbound — e apenas se conseguimos transcrever.
+  if (!isOutbound && !transcriptionFailed) {
     const invokeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/inbound-webhook`;
     fetch(invokeUrl, {
       method: "POST",
@@ -280,6 +317,8 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
         provider_message_id: externalId,
       }),
     }).catch((e) => console.error("[hook7-webhook] inbound forward error:", e));
+  } else if (!isOutbound && transcriptionFailed) {
+    console.log("[hook7-webhook] pipeline IA pulado — áudio sem transcrição (aguardando takeover humano)", { externalId });
   }
 
   return "processed";
