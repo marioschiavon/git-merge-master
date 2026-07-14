@@ -52,7 +52,15 @@ export default function PlatformSettings() {
       if (error) throw error;
       return data as {
         apify: { token_configured: boolean };
-        resend: { api_key_configured: boolean; lovable_api_key_configured: boolean };
+        resend: {
+          key_configured: boolean;
+          key_source: "db" | "connector" | "none";
+          db_key_configured: boolean;
+          connector_key_configured: boolean;
+          passphrase_configured: boolean;
+          connected_at: string | null;
+          lovable_api_key_configured: boolean;
+        };
         hook7: {
           apikey_configured: boolean;
           webhook_configured: boolean;
