@@ -14,6 +14,40 @@
 //   default       → ignorado (log)
 
 import { loadInstanceToken, serviceClient } from "../_shared/hook7.ts";
+import { base64ByteLength, downloadHook7Media, extractAudioRef, type AudioRef } from "../_shared/hook7-media.ts";
+import { extensionFromMimetype, transcribeAudio } from "../_shared/transcribe-audio.ts";
+
+// deno-lint-ignore no-explicit-any
+async function uploadAudioToStorage(
+  admin: any,
+  companyId: string,
+  conversationId: string,
+  providerMessageId: string,
+  base64: string,
+  mimetype: string | null,
+): Promise<string | null> {
+  try {
+    const clean = base64.replace(/^data:[^;]+;base64,/, "");
+    const bin = atob(clean);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const ext = extensionFromMimetype(mimetype);
+    const path = `${companyId}/${conversationId}/${providerMessageId}.${ext}`;
+    const contentType = mimetype && mimetype.includes("/") ? mimetype.split(";")[0].trim() : `audio/${ext === "m4a" ? "mp4" : ext}`;
+    const { error } = await admin.storage.from("whatsapp-audio").upload(path, bytes, {
+      contentType,
+      upsert: true,
+    });
+    if (error) {
+      console.warn("[hook7-webhook] falha ao subir áudio para storage:", error.message);
+      return null;
+    }
+    return path;
+  } catch (e) {
+    console.warn("[hook7-webhook] exceção ao subir áudio para storage:", String(e));
+    return null;
+  }
+}
 
 function ok200() {
   return new Response(JSON.stringify({ ok: true }), {
