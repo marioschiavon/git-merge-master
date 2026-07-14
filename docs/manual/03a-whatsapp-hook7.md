@@ -39,6 +39,7 @@ Clique **Testar conexão** — o Leaderei envia uma mensagem para o próprio nú
 - **Sempre use um chip dedicado.** Se o WhatsApp banir o número por volume alto, você não perde o seu pessoal.
 - **Comece devagar:** 30 a 50 mensagens por dia na primeira semana. Números novos com volume alto são banidos rapidamente.
 - **Deixe o celular carregando e conectado ao Wi-Fi.** Se ele ficar horas offline, a conexão cai.
+- **Só responde leads cadastrados.** Mensagens vindas de números que **não** estão como lead na base são ignoradas silenciosamente — o Leaderei não cria lead automático nem responde. Para atender um novo contato, cadastre-o em **Leads** primeiro. Grupos, listas de transmissão e newsletters também são sempre ignorados.
 
 ## Problemas comuns
 
