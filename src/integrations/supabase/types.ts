@@ -2574,6 +2574,9 @@ export type Database = {
           hook7_base_url: string
           id: string
           metadata: Json
+          resend_api_key_encrypted: string | null
+          resend_connected_at: string | null
+          resend_last_error: string | null
           singleton: boolean
           updated_at: string
           updated_by: string | null
@@ -2585,6 +2588,9 @@ export type Database = {
           hook7_base_url?: string
           id?: string
           metadata?: Json
+          resend_api_key_encrypted?: string | null
+          resend_connected_at?: string | null
+          resend_last_error?: string | null
           singleton?: boolean
           updated_at?: string
           updated_by?: string | null
@@ -2596,6 +2602,9 @@ export type Database = {
           hook7_base_url?: string
           id?: string
           metadata?: Json
+          resend_api_key_encrypted?: string | null
+          resend_connected_at?: string | null
+          resend_last_error?: string | null
           singleton?: boolean
           updated_at?: string
           updated_by?: string | null
@@ -3033,6 +3042,7 @@ export type Database = {
         Args: { _company_id: string }
         Returns: undefined
       }
+      clear_resend_master_key: { Args: never; Returns: undefined }
       create_company_and_join: {
         Args: { p_name: string; p_slug?: string }
         Returns: string
@@ -3071,6 +3081,7 @@ export type Database = {
           status: string
         }[]
       }
+      get_resend_master_key: { Args: { _passphrase: string }; Returns: string }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
       has_role: {
         Args: {
@@ -3137,6 +3148,10 @@ export type Database = {
       }
       set_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string; _token: string }
+        Returns: undefined
+      }
+      set_resend_master_key: {
+        Args: { _api_key: string; _passphrase: string }
         Returns: undefined
       }
       update_company_member_role: {
