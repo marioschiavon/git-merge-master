@@ -463,7 +463,7 @@ Deno.serve(async (req) => {
 
     const { data: instance } = await admin
       .from("hook7_instances")
-      .select("id, company_id, archived_at, status, user_disconnected_at")
+      .select("id, company_id, external_name, archived_at, status, user_disconnected_at")
       .eq("external_id", instanceExtId)
       .eq("company_id", company.id)
       .maybeSingle();
