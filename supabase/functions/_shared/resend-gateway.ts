@@ -1,23 +1,69 @@
 // Helper para chamadas Resend via connector gateway Lovable.
+// Resolução da chave Resend, em ordem:
+//   1. Chave criptografada em platform_settings (gerenciada pela UI do master).
+//   2. Fallback: RESEND_API_KEY do connector do workspace (transição).
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+
 const GATEWAY = "https://connector-gateway.lovable.dev/resend";
 
 export class ResendNotConfiguredError extends Error {
-  constructor() { super("Resend connector não configurado"); this.name = "ResendNotConfiguredError"; }
+  constructor() { super("Resend não configurado"); this.name = "ResendNotConfiguredError"; }
 }
 
-function keys() {
-  const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-  const resendKey = Deno.env.get("RESEND_API_KEY");
-  if (!lovableKey || !resendKey) throw new ResendNotConfiguredError();
-  return { lovableKey, resendKey };
+let cachedKey: string | null = null;
+let cachedAt = 0;
+const CACHE_TTL_MS = 60_000;
+
+async function fetchMasterKeyFromDb(): Promise<string | null> {
+  const url = Deno.env.get("SUPABASE_URL");
+  const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const passphrase = Deno.env.get("RESEND_KEY_PASSPHRASE");
+  if (!url || !service || !passphrase) return null;
+  try {
+    const admin = createClient(url, service);
+    const { data, error } = await admin.rpc("get_resend_master_key", { _passphrase: passphrase });
+    if (error) return null;
+    const key = typeof data === "string" ? data.trim() : null;
+    return key && key.length > 0 ? key : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveResendKey(): Promise<{ key: string; source: "db" | "connector" }> {
+  const now = Date.now();
+  if (cachedKey && now - cachedAt < CACHE_TTL_MS) {
+    return { key: cachedKey, source: "db" }; // source hint only; UI queries DB directly
+  }
+  const dbKey = await fetchMasterKeyFromDb();
+  if (dbKey) {
+    cachedKey = dbKey;
+    cachedAt = now;
+    return { key: dbKey, source: "db" };
+  }
+  const envKey = (Deno.env.get("RESEND_API_KEY") ?? "").trim();
+  if (envKey) return { key: envKey, source: "connector" };
+  throw new ResendNotConfiguredError();
+}
+
+export function invalidateResendKeyCache() {
+  cachedKey = null;
+  cachedAt = 0;
+}
+
+function lovableKey(): string {
+  const k = Deno.env.get("LOVABLE_API_KEY");
+  if (!k) throw new ResendNotConfiguredError();
+  return k;
 }
 
 export async function resendFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const { lovableKey, resendKey } = keys();
+  const lk = lovableKey();
+  const { key: rk } = await resolveResendKey();
   const url = `${GATEWAY}${path.startsWith("/") ? path : `/${path}`}`;
   const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${lovableKey}`);
-  headers.set("X-Connection-Api-Key", resendKey);
+  headers.set("Authorization", `Bearer ${lk}`);
+  headers.set("X-Connection-Api-Key", rk);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   return await fetch(url, { ...init, headers });
 }
@@ -27,4 +73,15 @@ export async function resendJson<T = any>(path: string, init: RequestInit = {}):
   const text = await r.text();
   if (!r.ok) throw new Error(`Resend ${init.method || "GET"} ${path} ${r.status}: ${text}`);
   return text ? JSON.parse(text) : ({} as T);
+}
+
+// Chamada direta ao gateway usando uma chave crua (para validação antes de salvar).
+export async function resendFetchWithKey(apiKey: string, path: string, init: RequestInit = {}): Promise<Response> {
+  const lk = lovableKey();
+  const url = `${GATEWAY}${path.startsWith("/") ? path : `/${path}`}`;
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${lk}`);
+  headers.set("X-Connection-Api-Key", apiKey);
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  return await fetch(url, { ...init, headers });
 }
