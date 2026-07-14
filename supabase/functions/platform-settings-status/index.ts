@@ -38,21 +38,26 @@ serve(async (req) => {
       });
     }
     const apifyTokenConfigured = !!Deno.env.get("APIFY_API_TOKEN");
-    const resendApiKeyConfigured = !!(Deno.env.get("RESEND_API_KEY") ?? "").trim();
+    const resendConnectorConfigured = !!(Deno.env.get("RESEND_API_KEY") ?? "").trim();
     const lovableApiKeyConfigured = !!(Deno.env.get("LOVABLE_API_KEY") ?? "").trim();
+    const resendPassphraseConfigured =
+      (Deno.env.get("RESEND_KEY_PASSPHRASE") ?? "").trim().length >= 16;
     const hook7ApikeyConfigured = !!(Deno.env.get("HOOK7_GLOBAL_APIKEY") ?? "").trim();
     const hook7WebhookConfigured = !!(Deno.env.get("HOOK7_WEBHOOK_SECRET") ?? "").trim();
     const hook7PassphraseConfigured =
       (Deno.env.get("HOOK7_INSTANCE_TOKEN_PASSPHRASE") ?? "").trim().length >= 16;
     const { data: ps } = await admin
       .from("platform_settings")
-      .select("hook7_base_url")
+      .select("hook7_base_url, resend_api_key_encrypted, resend_connected_at")
       .eq("singleton", true)
       .maybeSingle();
     const hook7BaseUrl =
       (ps as any)?.hook7_base_url && String((ps as any).hook7_base_url).length > 0
         ? String((ps as any).hook7_base_url)
         : "https://api.hook7.com.br";
+    const resendDbKeyConfigured = !!(ps as any)?.resend_api_key_encrypted;
+    const resendKeySource: "db" | "connector" | "none" =
+      resendDbKeyConfigured ? "db" : resendConnectorConfigured ? "connector" : "none";
     const supaUrl = (SUPABASE_URL ?? "").replace(/\/+$/, "");
     const webhookUrlMasked = hook7WebhookConfigured && supaUrl
       ? `${supaUrl}/functions/v1/hook7-webhook/****/{company-slug}`
@@ -60,7 +65,12 @@ serve(async (req) => {
     return new Response(JSON.stringify({
       apify: { token_configured: apifyTokenConfigured },
       resend: {
-        api_key_configured: resendApiKeyConfigured,
+        key_configured: resendDbKeyConfigured || resendConnectorConfigured,
+        key_source: resendKeySource,
+        db_key_configured: resendDbKeyConfigured,
+        connector_key_configured: resendConnectorConfigured,
+        passphrase_configured: resendPassphraseConfigured,
+        connected_at: (ps as any)?.resend_connected_at ?? null,
         lovable_api_key_configured: lovableApiKeyConfigured,
       },
       hook7: {
