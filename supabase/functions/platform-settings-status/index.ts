@@ -38,6 +38,8 @@ serve(async (req) => {
       });
     }
     const apifyTokenConfigured = !!Deno.env.get("APIFY_API_TOKEN");
+    const resendApiKeyConfigured = !!(Deno.env.get("RESEND_API_KEY") ?? "").trim();
+    const lovableApiKeyConfigured = !!(Deno.env.get("LOVABLE_API_KEY") ?? "").trim();
     const hook7ApikeyConfigured = !!(Deno.env.get("HOOK7_GLOBAL_APIKEY") ?? "").trim();
     const hook7WebhookConfigured = !!(Deno.env.get("HOOK7_WEBHOOK_SECRET") ?? "").trim();
     const hook7PassphraseConfigured =
@@ -57,6 +59,10 @@ serve(async (req) => {
       : null;
     return new Response(JSON.stringify({
       apify: { token_configured: apifyTokenConfigured },
+      resend: {
+        api_key_configured: resendApiKeyConfigured,
+        lovable_api_key_configured: lovableApiKeyConfigured,
+      },
       hook7: {
         apikey_configured: hook7ApikeyConfigured,
         webhook_configured: hook7WebhookConfigured,
