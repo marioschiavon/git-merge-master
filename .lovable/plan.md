@@ -1,65 +1,84 @@
-# Migração Resend para conta master do cliente + gestão no painel Master
+## Gerenciar chave Resend master pela UI (sem workspace)
 
-## Contexto
+Hoje a `RESEND_API_KEY` é gerenciada pelo connector do workspace — trocar exige abrir a página de conectores. Vamos migrar para uma chave da plataforma armazenada **criptografada no banco**, editável 100% pela UI do master admin, seguindo o mesmo padrão já usado para Cal.com (`pgp_sym_encrypt` + passphrase).
 
-Hoje o `RESEND_API_KEY` está vinculado à sua conta pessoal via **connector Resend**. Vamos:
-1. Trocar para a conta do cliente (conta master de produção onde ficarão os domínios de todos os clientes finais da plataforma).
-2. Expor no painel **Master** um card para visualizar status e trocar essa chave no futuro.
+### 1. Banco
 
-## Parte 1 — Troca da conexão Resend (operacional, sem código)
+Migração adicionando à tabela `platform_settings`:
+- `resend_api_key_encrypted bytea`
+- `resend_connected_at timestamptz`
+- `resend_last_error text`
 
-Ordem correta:
+Novos RPCs `SECURITY DEFINER` (search_path = public, extensions), autorizados apenas a `master_admin`:
+- `set_resend_master_key(_api_key text, _passphrase text)` — criptografa e grava.
+- `clear_resend_master_key()` — apaga.
+- `get_resend_master_key(_passphrase text) returns text` — usado só por edge functions com service role.
 
-1. **Cliente prepara a conta Resend master**
-   - Cria/loga na conta Resend que será a de produção.
-   - Gera uma API key com permissão **Full Access** (necessária para `domains.create/verify` usados por `resend-domain-create` / `resend-domain-verify`).
-2. **Reconfigurar inbound (se aplicável)**
-   - O endpoint `resend-inbound-webhook` e a rota de inbound do Resend devem ser reconfigurados na nova conta master (Inbound → Add route → apontar para a URL da edge function).
-   - `RESEND_INBOUND_SECRET` continua o mesmo (é validado por nós, não pelo Resend).
-3. **Trocar a connection no workspace**
-   - Workspace → Connectors → Resend → desconectar a atual → reconectar informando a nova API key (via fluxo padrão de connector).
-   - Isso substitui o valor de `RESEND_API_KEY` que as edge functions leem via gateway.
-4. **Sem alterações em código nas edge functions** — todas já usam `Deno.env.get("RESEND_API_KEY")` através de `_shared/resend-gateway.ts` / gateway Lovable. Nada a redeployar manualmente; o Lovable propaga a nova credencial.
-5. **Domínios existentes**
-   - Domínios que hoje estão verificados na sua conta pessoal **não migram automaticamente**. Cada company que já cadastrou domínio precisará:
-     - Ser re-cadastrada na nova conta (o `resend-domain-create` já faz isso ao clicar novamente em "Cadastrar domínio" na tela Email da empresa), ou
-     - Ter o mesmo domínio verificado na nova conta e o registro em `company_email_domains` marcado como reprovisionado.
-   - Como agora a base é multi-tenant e o cliente ainda está começando, o caminho mais simples é: após a troca, orientar cada company existente a clicar novamente em **Cadastrar domínio** e atualizar DNS se necessário.
+Reaproveita a passphrase já existente (`CALCOM_KEY_PASSPHRASE`) OU cria uma nova `RESEND_KEY_PASSPHRASE`. Recomendo criar `RESEND_KEY_PASSPHRASE` própria via `generate_secret` para isolamento.
 
-## Parte 2 — Card "Resend (Master)" no painel Master
+### 2. Shared: `_shared/resend-gateway.ts`
 
-Adicionar em `src/pages/master/PlatformSettings.tsx` uma nova seção que mostra:
+Muda a resolução da chave:
+1. Tenta `Deno.env.get("RESEND_API_KEY")` (fallback do connector, transição).
+2. Se ausente, chama `get_resend_master_key` no banco com a passphrase.
+3. Faz cache em memória por processo (TTL curto, ~60s) para evitar hit no banco a cada e-mail.
 
-- Status: `RESEND_API_KEY` configurado (sim/não), `LOVABLE_API_KEY` configurado (sim/não).
-- Texto explicando que a chave é gerenciada via connector do workspace (não é um secret manual).
-- Botão **Gerenciar chave Resend** que abre a página de Connectors do workspace (link externo Lovable) — como a chave é connector-managed, a alteração real acontece lá.
-- Botão **Testar conexão**: chama uma nova edge function `resend-master-test` que faz `GET /domains` no gateway Resend e retorna 200/erro (não expõe a chave, só status/mensagem).
+Assim todos os edge functions existentes (`send-transactional-email`, `resend-inbound-webhook`, `resend-domain-*`, etc.) continuam funcionando sem alteração.
 
-### Backend
+### 3. Novos edge functions
 
-- Nova edge function `resend-master-test` (master_admin only): usa `_shared/tenant-auth.ts` → `requireRole(user.id, "master_admin")`, chama `resendFetch("/domains")`, retorna `{ ok, status, domain_count }` ou erro com body.
-- Atualizar `platform-settings-status`: adicionar `resend: { api_key_configured: !!Deno.env.get("RESEND_API_KEY") }` no payload.
+- `resend-master-set` — master_admin. Body `{ api_key }`. Valida chamando `GET /domains` no Resend com a chave crua antes de salvar; se OK, grava via `set_resend_master_key`. Retorna `{ok, domain_count}`.
+- `resend-master-clear` — master_admin. Chama `clear_resend_master_key`.
+- `resend-master-test` (já existe) — continua, agora usando a chave do banco via shared.
 
-### Frontend
+### 4. `platform-settings-status`
 
-- Em `PlatformSettings.tsx`: novo card "Email (Resend)" com status, botões de teste e link para Connectors.
-- Nenhum campo de input de API key no painel (chave nunca trafega pelo frontend).
+Passa a reportar:
+```
+resend: {
+  key_configured: boolean,      // baseado em resend_api_key_encrypted IS NOT NULL
+  key_source: 'db' | 'connector' | 'none',
+  connected_at: string | null,
+  lovable_api_key_configured: boolean
+}
+```
 
-## Parte 3 — Versão
+### 5. UI — `PlatformSettings.tsx` → `ResendCard`
 
-Bumpar `src/lib/version.ts` para `alpha 0.25`.
+Remove botão "Gerenciar conector" e link para workspace. Passa a ter:
+- Status pills: chave configurada, origem (DB/connector), Lovable API Key, `connected_at`.
+- Campo `Input type="password"` + botão **Salvar chave** → chama `resend-master-set`. Toast com contagem de domínios.
+- Botão **Testar conexão** → `resend-master-test`.
+- Botão **Remover chave** (destrutivo, com confirm) → `resend-master-clear`.
+- Texto explicando: chave fica criptografada no banco, nunca é exibida de novo após salvar; para trocar, cole a nova e salve.
 
-## Fora de escopo
+### 6. Versão
 
-- Migração automática de domínios verificados entre contas Resend (não há API pública para isso; cada company revalida).
-- Troca do `RESEND_INBOUND_SECRET` (permanece).
-- Mudança de `GMAIL_*` / connector Google.
+Bump `src/lib/version.ts` para `alpha 0.26`.
 
-## Rollback
+### Migração operacional (uma vez)
 
-Se a troca quebrar envios, reconectar a API key antiga em Workspace → Connectors → Resend. Nenhuma migração de banco é feita.
+1. Cliente gera Full Access key na conta Resend master dele.
+2. Master admin cola no novo campo da UI → salva.
+3. Confirma no "Testar conexão".
+4. Depois disso, o connector do workspace pode ser desconectado sem impacto (o fallback do env vira `none`, mas o shared usa a do banco).
 
-## Perguntas antes de executar
+### Fora do escopo
 
-1. A conta Resend master do cliente já foi criada e a API key com Full Access está em mãos, ou você quer só preparar o painel Master primeiro e trocar a connection depois?
-2. Existem hoje domínios de companies **já verificados em produção** que precisam ser preservados? (Se sim, listamos e coordenamos a revalidação; se não, seguimos direto.)
+- Migrar domínios entre contas Resend (continua manual: cliente recadastra domínios na nova conta).
+- Rotação automática. A troca é sempre manual pela UI.
+
+### Arquivos afetados
+
+- `supabase/migrations/<novo>.sql` (colunas + 3 RPCs + grants)
+- `supabase/functions/_shared/resend-gateway.ts` (resolução da chave via DB + cache)
+- `supabase/functions/resend-master-set/index.ts` (novo)
+- `supabase/functions/resend-master-clear/index.ts` (novo)
+- `supabase/functions/platform-settings-status/index.ts` (novos campos)
+- `src/pages/master/PlatformSettings.tsx` (`ResendCard` reescrito)
+- `src/lib/version.ts`
+
+### Segredos
+
+- `RESEND_KEY_PASSPHRASE` novo (gerado automaticamente, 64 chars).
+- `RESEND_API_KEY` do connector pode continuar existindo durante a transição; após validar, cliente desconecta pelo workspace (única ação fora da UI — só uma vez, opcional).
