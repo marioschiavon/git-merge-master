@@ -108,26 +108,17 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
   const pushName: string | null = typeof info.PushName === "string" && info.PushName ? info.PushName : null;
   const phoneFormatted = `+${otherDigits}`;
 
-  // Encontra ou cria lead
-  let lead = await findLeadByPhone(admin, company.id, otherDigits);
+  // Só processa mensagens de leads já cadastrados.
+  const lead = await findLeadByPhone(admin, company.id, otherDigits);
   if (!lead) {
-    const { data: newLead, error: leadErr } = await admin
-      .from("leads")
-      .insert({
-        company_id: company.id,
-        name: pushName || phoneFormatted,
-        phone: phoneFormatted,
-        whatsapp: phoneFormatted,
-        source: "whatsapp_inbound",
-        enrichment_status: "not_queued",
-      })
-      .select("id, status, enrichment_status")
-      .single();
-    if (leadErr) {
-      console.error("[hook7-webhook] lead insert failed", { error: leadErr.message });
-      return "processed";
-    }
-    lead = newLead;
+    console.log("[hook7-webhook] ignored: phone não corresponde a nenhum lead", {
+      company_id: company.id,
+      phone: phoneFormatted,
+      external_id: externalId,
+    });
+    // Evita marcar mensagens não usadas como referência (push_name usado só ao criar lead).
+    void pushName;
+    return "ignored";
   }
 
   // Conversation whatsapp para este lead
