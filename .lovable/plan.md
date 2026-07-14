@@ -1,97 +1,65 @@
+# Migração Resend para conta master do cliente + gestão no painel Master
 
-## Objetivo
+## Contexto
 
-Hoje, no `hook7-webhook`, mensagens sem texto (áudio, imagem, etc.) são descartadas na linha:
+Hoje o `RESEND_API_KEY` está vinculado à sua conta pessoal via **connector Resend**. Vamos:
+1. Trocar para a conta do cliente (conta master de produção onde ficarão os domínios de todos os clientes finais da plataforma).
+2. Expor no painel **Master** um card para visualizar status e trocar essa chave no futuro.
 
-```ts
-if (!text) { console.log("...mídia? ignorada"); return "ignored"; }
-```
+## Parte 1 — Troca da conexão Resend (operacional, sem código)
 
-Queremos que **áudio** (o caso mais comum de resposta do lead) seja:
-1. Baixado do Hook7,
-2. Transcrito para texto via Lovable AI (`openai/gpt-4o-transcribe`),
-3. Salvo em `messages` como se fosse uma mensagem de texto normal,
-4. Encaminhado ao `inbound-webhook` — que responde em **texto** (comportamento atual, sem mudança).
+Ordem correta:
 
-Outras mídias (imagem, vídeo, documento, sticker) continuam ignoradas nesta fase.
+1. **Cliente prepara a conta Resend master**
+   - Cria/loga na conta Resend que será a de produção.
+   - Gera uma API key com permissão **Full Access** (necessária para `domains.create/verify` usados por `resend-domain-create` / `resend-domain-verify`).
+2. **Reconfigurar inbound (se aplicável)**
+   - O endpoint `resend-inbound-webhook` e a rota de inbound do Resend devem ser reconfigurados na nova conta master (Inbound → Add route → apontar para a URL da edge function).
+   - `RESEND_INBOUND_SECRET` continua o mesmo (é validado por nós, não pelo Resend).
+3. **Trocar a connection no workspace**
+   - Workspace → Connectors → Resend → desconectar a atual → reconectar informando a nova API key (via fluxo padrão de connector).
+   - Isso substitui o valor de `RESEND_API_KEY` que as edge functions leem via gateway.
+4. **Sem alterações em código nas edge functions** — todas já usam `Deno.env.get("RESEND_API_KEY")` através de `_shared/resend-gateway.ts` / gateway Lovable. Nada a redeployar manualmente; o Lovable propaga a nova credencial.
+5. **Domínios existentes**
+   - Domínios que hoje estão verificados na sua conta pessoal **não migram automaticamente**. Cada company que já cadastrou domínio precisará:
+     - Ser re-cadastrada na nova conta (o `resend-domain-create` já faz isso ao clicar novamente em "Cadastrar domínio" na tela Email da empresa), ou
+     - Ter o mesmo domínio verificado na nova conta e o registro em `company_email_domains` marcado como reprovisionado.
+   - Como agora a base é multi-tenant e o cliente ainda está começando, o caminho mais simples é: após a troca, orientar cada company existente a clicar novamente em **Cadastrar domínio** e atualizar DNS se necessário.
 
-## Escopo desta fase
+## Parte 2 — Card "Resend (Master)" no painel Master
 
-Somente WhatsApp via Hook7. Áudio → texto → resposta em texto. Sem TTS, sem responder em áudio.
+Adicionar em `src/pages/master/PlatformSettings.tsx` uma nova seção que mostra:
 
-## Mudanças
+- Status: `RESEND_API_KEY` configurado (sim/não), `LOVABLE_API_KEY` configurado (sim/não).
+- Texto explicando que a chave é gerenciada via connector do workspace (não é um secret manual).
+- Botão **Gerenciar chave Resend** que abre a página de Connectors do workspace (link externo Lovable) — como a chave é connector-managed, a alteração real acontece lá.
+- Botão **Testar conexão**: chama uma nova edge function `resend-master-test` que faz `GET /domains` no gateway Resend e retorna 200/erro (não expõe a chave, só status/mensagem).
 
-### 1. Novo helper `supabase/functions/_shared/hook7-media.ts`
-- `extractAudioRef(data)` — lê `data.Message.audioMessage` (URL, mimetype, seconds, ptt, fileLength). Retorna `null` se não for áudio.
-- `downloadHook7Media(instance, externalId, token)` — chama o endpoint do Hook7 que devolve o arquivo desencriptado em base64 (o Evolution-Go expõe algo como `POST /chat/getBase64FromMediaMessage/{instance}` com `{ message: { key: { id } } }`; endpoint exato a confirmar na implementação lendo a doc do Hook7 e testando com uma instância real). Retorna `{ base64, mimetype }`.
+### Backend
 
-### 2. Novo helper `supabase/functions/_shared/transcribe-audio.ts`
-- `transcribeAudio({ base64, mimetype }): Promise<{ text, model, latency_ms }>`
-- Monta `FormData` com `file` (Blob a partir do base64, extensão derivada do mimetype: ogg/opus → `.ogg`, mp4/m4a → `.m4a`, mp3 → `.mp3`) e `model = openai/gpt-4o-transcribe`.
-- `POST https://ai.gateway.lovable.dev/v1/audio/transcriptions` com `Authorization: Bearer ${LOVABLE_API_KEY}`.
-- Trata 402/429 explicitamente (loga e devolve erro tipado); sem `stream` (modo buffered — é backend, não UI).
-- Áudio WhatsApp é OGG/Opus, formato aceito pelo `gpt-4o-transcribe`; não precisa transcodar.
+- Nova edge function `resend-master-test` (master_admin only): usa `_shared/tenant-auth.ts` → `requireRole(user.id, "master_admin")`, chama `resendFetch("/domains")`, retorna `{ ok, status, domain_count }` ou erro com body.
+- Atualizar `platform-settings-status`: adicionar `resend: { api_key_configured: !!Deno.env.get("RESEND_API_KEY") }` no payload.
 
-### 3. Ajuste em `supabase/functions/hook7-webhook/index.ts` (`handleMessage`)
-Substituir o bloco atual "sem texto → ignored" por:
+### Frontend
 
-```
-text ← conversation | extendedTextMessage.text
-if (!text):
-  audioRef ← extractAudioRef(data)
-  if (audioRef):
-    media ← downloadHook7Media(...)
-    transcript ← transcribeAudio(media)
-    text ← transcript.text        // vira o content da mensagem
-    audioMeta ← { seconds, mimetype, ptt, transcript_model, transcript_latency_ms, storage_path? }
-  else:
-    log "mídia não-áudio ignorada" ; return "ignored"
-```
+- Em `PlatformSettings.tsx`: novo card "Email (Resend)" com status, botões de teste e link para Connectors.
+- Nenhum campo de input de API key no painel (chave nunca trafega pelo frontend).
 
-Fluxo restante fica igual: dedup por `provider_message_id`, upsert de `conversation`, insert em `messages` (com `metadata.hook7.audio = audioMeta`), e forward para `inbound-webhook` com `content = text`.
+## Parte 3 — Versão
 
-Se `downloadHook7Media` ou `transcribeAudio` falhar:
-- Insere a mensagem mesmo assim com `content = "[áudio não transcrito]"` e `metadata.hook7.audio.transcript_error = "..."`, mas **não** dispara `inbound-webhook` (evita a IA responder algo genérico a um áudio que não entendeu). Fica visível na Inbox humana para takeover manual.
+Bumpar `src/lib/version.ts` para `alpha 0.25`.
 
-### 4. (Opcional / recomendado) Storage do áudio para playback na UI
-- Criar bucket privado `whatsapp-audio` (migration).
-- Após download, subir o arquivo em `whatsapp-audio/{company_id}/{conversation_id}/{provider_message_id}.ogg` e guardar o path em `metadata.hook7.audio.storage_path`.
-- Frontend (fase seguinte, fora deste plano) pode gerar signed URL e exibir player. Nesta fase apenas gravamos — sem mudar UI ainda.
+## Fora de escopo
 
-Se preferir manter mínimo agora, pulamos o bucket e guardamos só a transcrição — a mensagem aparece como texto na Inbox. Confirme na aprovação (ver "Decisões abertas").
+- Migração automática de domínios verificados entre contas Resend (não há API pública para isso; cada company revalida).
+- Troca do `RESEND_INBOUND_SECRET` (permanece).
+- Mudança de `GMAIL_*` / connector Google.
 
-### 5. Bump de versão
-`src/lib/version.ts` → `alpha 0.24`.
+## Rollback
 
-## Decisões em aberto (respondo pelo padrão se não houver preferência)
+Se a troca quebrar envios, reconectar a API key antiga em Workspace → Connectors → Resend. Nenhuma migração de banco é feita.
 
-1. **Salvar o arquivo de áudio no Storage para playback futuro?**
-   - Padrão sugerido: **sim**, cria bucket `whatsapp-audio`. Custo é baixo e evita retrabalho quando formos exibir o player.
-2. **Comportamento em falha de transcrição:**
-   - Padrão sugerido: gravar mensagem como `[áudio não transcrito]` **sem** disparar IA, deixando para a Inbox humana.
+## Perguntas antes de executar
 
-## Fora de escopo (fases futuras)
-
-- Responder em áudio (TTS).
-- Transcrever imagens/documentos (OCR/visão).
-- Exibir player de áudio na UI (Conversations/Inbox).
-- Áudio em outros canais (email, LinkedIn) — não se aplica.
-
-## Detalhes técnicos
-
-- Modelo STT: `openai/gpt-4o-transcribe` (default do knowledge de STT).
-- Endpoint: `POST https://ai.gateway.lovable.dev/v1/audio/transcriptions`, `multipart/form-data`, `Authorization: Bearer LOVABLE_API_KEY` (server-side only).
-- Mimetypes esperados do WhatsApp: `audio/ogg; codecs=opus` (mais comum) e `audio/mp4`. Ambos aceitos pelo modelo.
-- Nome do part `file` deve ter extensão coerente com o mimetype — senão o modelo devolve 400 "corrupted/unsupported".
-- Erros do gateway (402/429) já são tratados nas outras edge functions do projeto; seguir mesmo padrão de log.
-- Idempotência: continua garantida pelo `provider_message_id` unique — se o Hook7 reenviar o mesmo áudio não retranscrevemos.
-- Custo: cada transcrição consome créditos Lovable AI proporcional à duração; áudios de WhatsApp costumam ter < 60s.
-
-## Ordem de implementação
-
-1. Migration do bucket `whatsapp-audio` (se decisão 1 = sim).
-2. `_shared/transcribe-audio.ts`.
-3. `_shared/hook7-media.ts` (com teste manual contra 1 áudio real da instância conectada).
-4. Ajuste em `hook7-webhook/index.ts`.
-5. Bump `version.ts` → `alpha 0.24`.
-6. Deploy e validação com um áudio de teste na Inbox.
+1. A conta Resend master do cliente já foi criada e a API key com Full Access está em mãos, ou você quer só preparar o painel Master primeiro e trocar a connection depois?
+2. Existem hoje domínios de companies **já verificados em produção** que precisam ser preservados? (Se sim, listamos e coordenamos a revalidação; se não, seguimos direto.)
