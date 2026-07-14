@@ -1,24 +1,53 @@
-# Atualizar manual: HITL ativado por padrão
+## Problema
 
-## Contexto
-Acabamos de definir `companies.hitl_enabled = true` como padrão para toda nova empresa. O manual atual (`docs/manual/11-aprovacoes.md` e menções em `01-configuracoes-gerais.md`) ainda pode dar a entender que HITL é opt-in.
+No webhook do WhatsApp (Hook7), quando chega uma mensagem de um número **que não é um lead cadastrado**, o sistema hoje:
 
-## Mudanças no manual
+1. Cria automaticamente um lead novo com `source: "whatsapp_inbound"` (arquivo `supabase/functions/hook7-webhook/index.ts`, linhas 113–131).
+2. Encaminha a mensagem para `inbound-webhook`, que dispara o pipeline de IA e pode responder.
 
-1. **`docs/manual/11-aprovacoes.md`**
-   - Adicionar nota no topo: "Por padrão, toda nova empresa entra com HITL **ativado** em todos os escopos (`first_message`, `sdr_reply`, `cadence_step`, `sensitive_action`). Nada é enviado pela IA sem aprovação humana até você desligar explicitamente."
-   - Explicar como desligar (por escopo ou global) em Configurações → Empresa.
-   - Reforçar: enquanto HITL estiver ligado, cadências não disparam sozinhas — as mensagens ficam em Aprovações.
+Resultado: qualquer pessoa que mandar mensagem para o número recebe resposta automática, mesmo sem estar cadastrada.
 
-2. **`docs/manual/01-configuracoes-gerais.md`**
-   - Adicionar seção curta "Aprovação humana (HITL)" descrevendo o default ligado e apontando para `11-aprovacoes.md`.
+Os outros webhooks (`zapi-webhook`, `twilio-whatsapp-webhook`) já têm o comportamento correto — se não acham lead, ignoram. Só o Hook7 está criando lead novo.
 
-3. **`docs/manual/00-primeiros-passos.md`**
-   - Incluir bullet no checklist: "Revisar HITL (vem ligado por padrão) — desligue apenas quando confiar na configuração da cadência."
+Observação: grupos, broadcasts e newsletters já são ignorados corretamente (linhas 33–37, 76–79).
 
-4. **`docs/manual/10-cadencias.md`**
-   - Adicionar aviso: "Se HITL estiver ligado (padrão), cada passo gera um item em Aprovações antes de sair."
+## Mudança proposta
+
+Em `supabase/functions/hook7-webhook/index.ts`, dentro de `handleMessage`:
+
+- Se `findLeadByPhone` **não** encontrar lead, **não criar** um lead novo e **não disparar** o pipeline de IA.
+- Registrar log claro (`ignored: no matching lead`) e retornar `"ignored"`.
+- Para mensagens `IsFromMe: true` (outbound enviado pelo próprio celular fora do sistema), manter o comportamento atual de só gravar se houver lead — caso contrário ignorar.
+
+Efeito: o agente só responde números que já estão como lead na base. Números desconhecidos são silenciosamente ignorados.
+
+## Detalhes técnicos
+
+Alterar o bloco após `let lead = await findLeadByPhone(...)`:
+
+```ts
+if (!lead) {
+  console.log("[hook7-webhook] ignored: phone não corresponde a nenhum lead", {
+    company_id: company.id,
+    phone: phoneFormatted,
+    external_id: externalId,
+  });
+  return "ignored";
+}
+```
+
+Remover todo o bloco de `insert` em `leads` (linhas 114–131 atuais).
+
+Nenhuma outra função precisa mudar. `zapi-webhook` e `twilio-whatsapp-webhook` já se comportam assim.
+
+## Documentação
+
+Adicionar nota em `docs/manual/03a-whatsapp-hook7.md` na seção "Dicas importantes":
+
+> **Só responde leads cadastrados.** Mensagens vindas de números que não estão como lead na base são ignoradas silenciosamente — o Leaderei não cria lead automático nem responde. Para atender um novo contato, cadastre-o em Leads primeiro.
 
 ## Fora de escopo
-- Nenhuma mudança de código/backend — o default no banco já foi aplicado na migration anterior.
-- Não mexer no `manual.html` gerado (é build).
+
+- Não mexer em grupos/broadcasts (já ignorados).
+- Não mudar `zapi-webhook` nem `twilio-whatsapp-webhook`.
+- Não alterar comportamento de e-mail (`inbound-email-webhook`).
