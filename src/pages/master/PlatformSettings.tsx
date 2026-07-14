@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Shield, AlertCircle, CheckCircle2, ExternalLink, RotateCcw, Smartphone, Copy, Loader2 } from "lucide-react";
+import { Sparkles, Shield, AlertCircle, CheckCircle2, ExternalLink, RotateCcw, Smartphone, Copy, Loader2, Mail } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -52,6 +52,7 @@ export default function PlatformSettings() {
       if (error) throw error;
       return data as {
         apify: { token_configured: boolean };
+        resend: { api_key_configured: boolean; lovable_api_key_configured: boolean };
         hook7: {
           apikey_configured: boolean;
           webhook_configured: boolean;
@@ -207,11 +208,114 @@ export default function PlatformSettings() {
         </CardContent>
       </Card>
 
+      <ResendCard status={status?.resend} />
+
       <Hook7Card
         status={status?.hook7}
         currentBaseUrl={(settings as any)?.hook7_base_url ?? null}
       />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Resend (Email) — chave master gerenciada via connector do workspace
+// ---------------------------------------------------------------------------
+
+function ResendCard({
+  status,
+}: {
+  status?: { api_key_configured: boolean; lovable_api_key_configured: boolean };
+}) {
+  const apiOk = !!status?.api_key_configured;
+  const lovableOk = !!status?.lovable_api_key_configured;
+  const allOk = apiOk && lovableOk;
+
+  const testConn = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("resend-master-test");
+      if (error) throw error;
+      return data as { ok: boolean; configured: boolean; status?: number; domain_count?: number; message: string };
+    },
+    onSuccess: (r) =>
+      toast({
+        title: r.ok ? "Conexão OK" : "Falha na conexão",
+        description: r.message,
+        variant: r.ok ? "default" : "destructive",
+      }),
+    onError: (e: any) =>
+      toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mail className="h-4 w-4 text-primary" /> Email · Resend (master)
+          </CardTitle>
+          <Badge variant={allOk ? "default" : "secondary"}>
+            {allOk ? (
+              <><CheckCircle2 className="h-3 w-3 mr-1" /> Pronto</>
+            ) : (
+              <><AlertCircle className="h-3 w-3 mr-1" /> Config pendente</>
+            )}
+          </Badge>
+        </div>
+        <CardDescription>
+          Conta Resend master de produção. Os domínios de todas as empresas são cadastrados e verificados aqui.
+          A chave é gerenciada como <strong>connector do workspace</strong> — não é um secret manual e nunca aparece na UI.
+          Para trocar ou rotacionar, use "Gerenciar conector".
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <StatusPill label="Chave Resend (connector)" ok={apiOk} envName="RESEND_API_KEY" />
+          <StatusPill label="Lovable API Key" ok={lovableOk} envName="LOVABLE_API_KEY" />
+        </div>
+
+        <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+          <p><strong className="text-foreground">Como trocar a chave:</strong></p>
+          <ol className="list-decimal ml-4 space-y-0.5">
+            <li>Gere uma nova API key (Full Access) na conta Resend master do cliente.</li>
+            <li>Abra o painel de conectores do workspace e reconecte o Resend com a nova chave.</li>
+            <li>Volte aqui e clique em "Testar conexão" para validar.</li>
+          </ol>
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            onClick={() => testConn.mutate()}
+            disabled={testConn.isPending || !apiOk || !lovableOk}
+            variant="outline"
+          >
+            {testConn.isPending ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Testando…</>
+            ) : (
+              <>Testar conexão</>
+            )}
+          </Button>
+          <a
+            href="https://lovable.dev/settings/workspace"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1"
+          >
+            <Button variant="secondary" size="default" type="button">
+              Gerenciar conector <ExternalLink className="h-3 w-3 ml-1" />
+            </Button>
+          </a>
+          <a
+            href="https://resend.com/domains"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-xs text-primary hover:underline self-center"
+          >
+            resend.com/domains <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
