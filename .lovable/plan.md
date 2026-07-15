@@ -1,84 +1,31 @@
-## Gerenciar chave Resend master pela UI (sem workspace)
+## Diagnóstico
 
-Hoje a `RESEND_API_KEY` é gerenciada pelo connector do workspace — trocar exige abrir a página de conectores. Vamos migrar para uma chave da plataforma armazenada **criptografada no banco**, editável 100% pela UI do master admin, seguindo o mesmo padrão já usado para Cal.com (`pgp_sym_encrypt` + passphrase).
+Verifiquei o fluxo de anotações. O problema é específico ao **rejeitar** uma aprovação em `/approvals`:
 
-### 1. Banco
+- No `approval-execute` (edge function), o ramo `if (action === "reject")` faz um `return` na linha ~105 **antes** de chegar ao bloco que grava em `message_annotations` (linha ~251). Ou seja, quando o operador rejeita e escreve uma nota/motivo ("correção sinalizada para a IA"), o registro nunca é criado.
+- No caminho de **aprovar** (com ou sem edição), a anotação é salva corretamente.
+- A rota `/annotations`, o hook `useAnnotations` e as policies RLS estão OK.
 
-Migração adicionando à tabela `platform_settings`:
-- `resend_api_key_encrypted bytea`
-- `resend_connected_at timestamptz`
-- `resend_last_error text`
+Também há uma inconsistência menor: `useBulkApprovalExecute` (rejeição em lote na tela `/approvals`) não envia `note`, então também não gera anotação — só o `rejection_reason` fica em `approval_requests`.
 
-Novos RPCs `SECURITY DEFINER` (search_path = public, extensions), autorizados apenas a `master_admin`:
-- `set_resend_master_key(_api_key text, _passphrase text)` — criptografa e grava.
-- `clear_resend_master_key()` — apaga.
-- `get_resend_master_key(_passphrase text) returns text` — usado só por edge functions com service role.
+## Correção
 
-Reaproveita a passphrase já existente (`CALCOM_KEY_PASSPHRASE`) OU cria uma nova `RESEND_KEY_PASSPHRASE`. Recomendo criar `RESEND_KEY_PASSPHRASE` própria via `generate_secret` para isolamento.
+1. **`supabase/functions/approval-execute/index.ts`**
+   - Extrair a lógica de "salvar anotação" para uma função helper local (`saveAnnotation`) que funciona tanto para reject quanto para approve, montando `context_snapshot` a partir de `approval`, `finalPayload`/`rejection_reason` e mensagens recentes.
+   - Chamar `saveAnnotation` no ramo de **reject** (quando `trimmedNote` OU `rejection_reason` estiver presente — assim o motivo do rejeitar também vira aprendizado, mesmo sem nota extra) antes do `return`.
+   - Manter a chamada no fim do ramo de **approve** como está.
+   - `human_action`: `"rejected"` no reject, `"edited"` se houve `edited_payload`, senão `"approved"`.
 
-### 2. Shared: `_shared/resend-gateway.ts`
+2. **`src/hooks/useApprovals.ts`** (`useBulkApprovalExecute`)
+   - Aceitar `note?: string` no input e repassar para `approval-execute`, para que rejeições em lote também gerem anotação quando o operador preencher o motivo.
 
-Muda a resolução da chave:
-1. Tenta `Deno.env.get("RESEND_API_KEY")` (fallback do connector, transição).
-2. Se ausente, chama `get_resend_master_key` no banco com a passphrase.
-3. Faz cache em memória por processo (TTL curto, ~60s) para evitar hit no banco a cada e-mail.
+3. **`src/pages/Approvals.tsx`**
+   - Passar a `rejection_reason` também como `note` no bulk reject (ou adicionar um pequeno input opcional), garantindo que "Rejeitar selecionadas" produza pelo menos uma anotação com o motivo digitado.
 
-Assim todos os edge functions existentes (`send-transactional-email`, `resend-inbound-webhook`, `resend-domain-*`, etc.) continuam funcionando sem alteração.
+## Verificação
 
-### 3. Novos edge functions
+- Rejeitar uma aprovação em `/approvals` com nota → aparece imediatamente em `/annotations` com `human_action = "rejected"` e o motivo dentro de `context_snapshot.rejection_reason`.
+- Rejeitar em lote com motivo → uma anotação por aprovação, todas com o mesmo motivo.
+- Aprovar com edição → continua salvando `human_action = "edited"` (regressão coberta).
 
-- `resend-master-set` — master_admin. Body `{ api_key }`. Valida chamando `GET /domains` no Resend com a chave crua antes de salvar; se OK, grava via `set_resend_master_key`. Retorna `{ok, domain_count}`.
-- `resend-master-clear` — master_admin. Chama `clear_resend_master_key`.
-- `resend-master-test` (já existe) — continua, agora usando a chave do banco via shared.
-
-### 4. `platform-settings-status`
-
-Passa a reportar:
-```
-resend: {
-  key_configured: boolean,      // baseado em resend_api_key_encrypted IS NOT NULL
-  key_source: 'db' | 'connector' | 'none',
-  connected_at: string | null,
-  lovable_api_key_configured: boolean
-}
-```
-
-### 5. UI — `PlatformSettings.tsx` → `ResendCard`
-
-Remove botão "Gerenciar conector" e link para workspace. Passa a ter:
-- Status pills: chave configurada, origem (DB/connector), Lovable API Key, `connected_at`.
-- Campo `Input type="password"` + botão **Salvar chave** → chama `resend-master-set`. Toast com contagem de domínios.
-- Botão **Testar conexão** → `resend-master-test`.
-- Botão **Remover chave** (destrutivo, com confirm) → `resend-master-clear`.
-- Texto explicando: chave fica criptografada no banco, nunca é exibida de novo após salvar; para trocar, cole a nova e salve.
-
-### 6. Versão
-
-Bump `src/lib/version.ts` para `alpha 0.26`.
-
-### Migração operacional (uma vez)
-
-1. Cliente gera Full Access key na conta Resend master dele.
-2. Master admin cola no novo campo da UI → salva.
-3. Confirma no "Testar conexão".
-4. Depois disso, o connector do workspace pode ser desconectado sem impacto (o fallback do env vira `none`, mas o shared usa a do banco).
-
-### Fora do escopo
-
-- Migrar domínios entre contas Resend (continua manual: cliente recadastra domínios na nova conta).
-- Rotação automática. A troca é sempre manual pela UI.
-
-### Arquivos afetados
-
-- `supabase/migrations/<novo>.sql` (colunas + 3 RPCs + grants)
-- `supabase/functions/_shared/resend-gateway.ts` (resolução da chave via DB + cache)
-- `supabase/functions/resend-master-set/index.ts` (novo)
-- `supabase/functions/resend-master-clear/index.ts` (novo)
-- `supabase/functions/platform-settings-status/index.ts` (novos campos)
-- `src/pages/master/PlatformSettings.tsx` (`ResendCard` reescrito)
-- `src/lib/version.ts`
-
-### Segredos
-
-- `RESEND_KEY_PASSPHRASE` novo (gerado automaticamente, 64 chars).
-- `RESEND_API_KEY` do connector pode continuar existindo durante a transição; após validar, cliente desconecta pelo workspace (única ação fora da UI — só uma vez, opcional).
+Sem mudanças em UI de leitura, schema ou policies — apenas o fluxo de gravação.
