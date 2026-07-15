@@ -72,6 +72,7 @@ export function useBulkApprovalExecute() {
       approval_ids: string[];
       action: "approve" | "reject";
       rejection_reason?: string;
+      note?: string;
       throttle_ms?: number;
     }) => {
       const delay = Math.max(0, input.throttle_ms ?? 1500);
@@ -84,6 +85,7 @@ export function useBulkApprovalExecute() {
               approval_id: id,
               action: input.action,
               rejection_reason: input.action === "reject" ? input.rejection_reason : undefined,
+              note: input.note,
             },
           });
           if (error) throw error;
