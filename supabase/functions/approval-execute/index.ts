@@ -49,6 +49,7 @@ serve(async (req) => {
       });
     }
     const trimmedNote = (note || "").toString().trim();
+    const trimmedReason = (rejection_reason || "").toString().trim();
 
     const { data: approval } = await supabase
       .from("approval_requests").select("*").eq("id", approval_id).maybeSingle();
@@ -56,6 +57,65 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "approval not found or not pending" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    // Helper: persist annotation for approve/reject flows.
+    async function saveAnnotation(params: {
+      human_action: "approved" | "edited" | "rejected";
+      final_content: string | null;
+      edited_payload_in?: Record<string, any> | null;
+      execution_error?: string | null;
+      note_text: string;
+    }) {
+      try {
+        let recent_messages: any[] = [];
+        if (approval.conversation_id) {
+          const { data: msgs } = await supabase
+            .from("messages")
+            .select("id, conversation_id, direction, content, sent_at, metadata")
+            .eq("conversation_id", approval.conversation_id)
+            .order("sent_at", { ascending: false })
+            .limit(20);
+          recent_messages = (msgs || []).reverse();
+        }
+        let lead: any = null;
+        if (approval.lead_id) {
+          const { data } = await supabase.from("leads")
+            .select("id, name, email, company_name, stage, metadata")
+            .eq("id", approval.lead_id).maybeSingle();
+          lead = data || null;
+        }
+        await supabase.from("message_annotations").insert({
+          company_id: approval.company_id,
+          author_user_id: userId,
+          source_kind: "approval_request",
+          source_id: approval.id,
+          lead_id: approval.lead_id,
+          conversation_id: approval.conversation_id,
+          note: params.note_text,
+          human_action: params.human_action,
+          final_content: params.final_content,
+          context_snapshot: {
+            approval: {
+              id: approval.id,
+              kind: approval.kind,
+              channel: approval.channel,
+              action: approval.action,
+              original_payload: approval.payload,
+              edited_payload: params.edited_payload_in || null,
+              context: approval.context || {},
+              cadence_id: approval.cadence_id,
+              enrollment_id: approval.enrollment_id,
+            },
+            rejection_reason: params.human_action === "rejected" ? (trimmedReason || null) : null,
+            execution_error: params.execution_error ?? null,
+            lead,
+            recent_messages,
+          },
+        });
+      } catch (annotErr: any) {
+        console.error("annotation save failed:", annotErr?.message || annotErr);
+      }
     }
 
     // === Reject ===
@@ -100,6 +160,18 @@ serve(async (req) => {
           .update({ status: "cancelled", last_error: "human_takeover" })
           .eq("lead_id", approval.lead_id)
           .in("status", ["pending", "running"]);
+      }
+
+      // Salva anotação sempre que houver nota ou motivo — vira aprendizado para a IA.
+      const rejectNote = trimmedNote || trimmedReason;
+      if (rejectNote) {
+        await saveAnnotation({
+          human_action: "rejected",
+          final_content: null,
+          edited_payload_in: null,
+          execution_error: null,
+          note_text: rejectNote,
+        });
       }
 
       return new Response(JSON.stringify({ ok: true, takeover: true, conversation_id: approval.conversation_id }), {
@@ -249,60 +321,13 @@ serve(async (req) => {
 
     // Save annotation if user provided a note
     if (trimmedNote) {
-      try {
-        let recent_messages: any[] = [];
-        if (approval.conversation_id) {
-          const { data: msgs } = await supabase
-            .from("messages")
-            .select("id, conversation_id, direction, content, sent_at, metadata")
-            .eq("conversation_id", approval.conversation_id)
-            .order("sent_at", { ascending: false })
-            .limit(20);
-          recent_messages = (msgs || []).reverse();
-        }
-        let lead: any = null;
-        if (approval.lead_id) {
-          const { data } = await supabase.from("leads")
-            .select("id, name, email, company_name, stage, metadata")
-            .eq("id", approval.lead_id).maybeSingle();
-          lead = data || null;
-        }
-        const human_action =
-          action === "reject" ? "rejected" : (isEdited ? "edited" : "approved");
-        const finalMsg =
-          action === "reject" ? null : (finalPayload.message ?? finalPayload.body ?? null);
-
-        await supabase.from("message_annotations").insert({
-          company_id: approval.company_id,
-          author_user_id: userId,
-          source_kind: "approval_request",
-          source_id: approval.id,
-          lead_id: approval.lead_id,
-          conversation_id: approval.conversation_id,
-          note: trimmedNote,
-          human_action,
-          final_content: finalMsg,
-          context_snapshot: {
-            approval: {
-              id: approval.id,
-              kind: approval.kind,
-              channel: approval.channel,
-              action: approval.action,
-              original_payload: approval.payload,
-              edited_payload: edited_payload || null,
-              context: approval.context || {},
-              cadence_id: approval.cadence_id,
-              enrollment_id: approval.enrollment_id,
-            },
-            rejection_reason: action === "reject" ? (rejection_reason || null) : null,
-            execution_error: executionError,
-            lead,
-            recent_messages,
-          },
-        });
-      } catch (annotErr: any) {
-        console.error("annotation save failed:", annotErr?.message || annotErr);
-      }
+      await saveAnnotation({
+        human_action: isEdited ? "edited" : "approved",
+        final_content: finalPayload.message ?? finalPayload.body ?? null,
+        edited_payload_in: edited_payload || null,
+        execution_error: executionError,
+        note_text: trimmedNote,
+      });
     }
 
     return new Response(JSON.stringify({ ok: !executionError, error: executionError }), {

@@ -123,12 +123,16 @@ export default function ApprovalsPage() {
               variant="outline"
               disabled={!someChecked || bulk.isPending}
               onClick={() => {
-                if (confirm(`Rejeitar ${checked.size} aprovação(ões)?`)) {
-                  bulk.mutate(
-                    { approval_ids: Array.from(checked), action: "reject", rejection_reason: "Rejeitado em lote" },
-                    { onSuccess: () => setChecked(new Set()) },
-                  );
-                }
+                const reason = prompt(
+                  `Motivo da rejeição para ${checked.size} aprovação(ões)? (será registrado nas Anotações)`,
+                  "Rejeitado em lote",
+                );
+                if (reason === null) return;
+                const trimmed = reason.trim() || "Rejeitado em lote";
+                bulk.mutate(
+                  { approval_ids: Array.from(checked), action: "reject", rejection_reason: trimmed, note: trimmed },
+                  { onSuccess: () => setChecked(new Set()) },
+                );
               }}
             >
               <XCircle className="mr-1.5 h-3.5 w-3.5" /> Rejeitar
