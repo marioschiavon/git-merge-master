@@ -162,6 +162,18 @@ serve(async (req) => {
           .in("status", ["pending", "running"]);
       }
 
+      // Salva anotação sempre que houver nota ou motivo — vira aprendizado para a IA.
+      const rejectNote = trimmedNote || trimmedReason;
+      if (rejectNote) {
+        await saveAnnotation({
+          human_action: "rejected",
+          final_content: null,
+          edited_payload_in: null,
+          execution_error: null,
+          note_text: rejectNote,
+        });
+      }
+
       return new Response(JSON.stringify({ ok: true, takeover: true, conversation_id: approval.conversation_id }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
