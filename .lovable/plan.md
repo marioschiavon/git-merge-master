@@ -1,20 +1,27 @@
 
 ## Objetivo
 
-Esconder o menu **Intents & Ações** do sidebar. O backend (tabelas, `route-intent`, `intent-cron`, `execute-action`) fica intacto para não quebrar o fluxo existente do `inbound-webhook`.
+Facilitar login/cadastro em `src/pages/Auth.tsx`:
+1. Botão **revelar/ocultar senha** (ícone olho) no campo de senha, tanto no login quanto no cadastro.
+2. Campo **Confirmar senha** apenas no cadastro, com validação de que as duas senhas coincidem antes de submeter.
+3. Ícone olho também no campo Confirmar senha.
 
 ## Mudanças
 
-1. **`src/components/AppSidebar.tsx`** — remover o item de menu que aponta para `/settings/intents`.
-2. **`src/App.tsx`** — manter a rota `/settings/intents` acessível por URL direta (não deletar), assim quem tiver link salvo não recebe 404. Alternativamente, remover a rota também. Vou **manter a rota** para minimizar risco.
+- **`src/pages/Auth.tsx`**:
+  - Novos estados: `showPassword`, `showConfirmPassword`, `confirmPassword`.
+  - Envolver o `Input` da senha em um wrapper `relative` com um `<button type="button">` posicionado à direita usando ícones `Eye` / `EyeOff` do `lucide-react`. Alterna `type` entre `password` e `text`.
+  - No cadastro (`!isLogin`), adicionar bloco "Confirmar senha" com mesmo padrão (input + toggle).
+  - No `handleSubmit`, quando `!isLogin`: se `password !== confirmPassword`, exibir `toast.error("As senhas não coincidem.")` e abortar.
+  - Ao alternar entre login/cadastro (`setIsLogin`), limpar `confirmPassword` e resetar os toggles de visibilidade.
 
 ## Fora de escopo
 
-- Não altero `intent_action_rules`, `lead_action_queue`, `intent-cron`, `route-intent`, `execute-action`.
-- Não mexo no `sdr-agent` nem em nenhuma edge function.
-- Não agendo `intent-cron` (o usuário optou por só esconder o menu).
+- Não altera fluxo de OAuth, esqueci-senha, ou redirects.
+- Não muda regras de força de senha além do `minLength=6` já existente.
+- Sem mudanças de backend.
 
 ## Validação
 
-- Abrir o sidebar e confirmar que "Intents & Ações" não aparece.
-- Navegar manualmente para `/settings/intents` ainda carrega a página (rota preservada).
+- No login: campo de senha mostra ícone olho; clicar alterna visibilidade; submit continua funcionando.
+- No cadastro: aparecem dois campos (Senha + Confirmar senha) com toggle cada; senhas diferentes mostram toast e não submetem; senhas iguais criam a conta normalmente.
