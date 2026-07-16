@@ -80,7 +80,14 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   };
 
   const enrolledLeadIds = new Set(enrollments.map((e: any) => e.lead_id));
-  const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id));
+  const cadenceType = (cadence as any).type as string | undefined;
+  const leadHasChannel = (l: any) => {
+    if (cadenceType === "whatsapp") return !!(l.whatsapp || l.phone);
+    if (cadenceType === "email") return !!l.email;
+    return !!(l.email || l.whatsapp || l.phone);
+  };
+  const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id) && leadHasChannel(l));
+  const filteredOutCount = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id) && !leadHasChannel(l)).length;
 
   const isAgentic = (cadence as any).mode === "agentic";
   const isSimulation = !!(cadence as any).simulation_mode;
