@@ -1,80 +1,49 @@
-# Integração ElevenLabs como chave master
 
-Adicionar o ElevenLabs ao painel **Master → Integrações da Plataforma**, seguindo exatamente o mesmo padrão já usado pelo Resend (chave criptografada no banco, gerenciada pela UI), e trocar a transcrição de áudio do WhatsApp para usar a API `speech-to-text` do ElevenLabs em produção.
+## Objetivo
 
-## Por que ElevenLabs para STT
-O modelo `scribe_v2` do ElevenLabs aceita OGG/Opus (formato nativo do WhatsApp) sem precisar de transcode e tem qualidade superior em pt-BR em comparação ao fluxo multimodal atual via Gemini.
+Fazer o ElevenLabs Scribe aceitar o áudio nativo `.ogg` do WhatsApp. Sem fallback pro Gemini. Endpoint e formato ficam exatamente como na doc:
 
-## O que muda
-
-### 1. Banco (nova coluna master, criptografada)
-Migration adicionando em `platform_settings`:
-- `elevenlabs_api_key_encrypted text` — chave criptografada com a mesma passphrase (`PLATFORM_SECRETS_PASSPHRASE`) usada hoje pelo Resend.
-- `elevenlabs_connected_at timestamptz`
-- `elevenlabs_model text default 'scribe_v2'` (permite trocar para `scribe_v2_realtime` futuramente sem redeploy)
-
-Nenhuma coluna existente é alterada. Sem mudança de RLS (a tabela `platform_settings` já é master-only).
-
-### 2. Novas Edge Functions (espelhando o padrão do Resend)
-- `elevenlabs-master-set` — recebe `{ api_key }`, criptografa e grava em `elevenlabs_api_key_encrypted`.
-- `elevenlabs-master-test` — descriptografa e faz `GET https://api.elevenlabs.io/v1/user` para validar a chave, retornando `{ ok, subscription_tier, character_limit }`.
-- `elevenlabs-master-clear` — zera a chave.
-
-Todas exigem `is_master_admin(auth.uid())`, mesmo padrão dos endpoints `resend-master-*`.
-
-### 3. `platform-settings-status` (edge function existente)
-Estender o retorno atual com um bloco:
 ```
-elevenlabs: {
-  key_configured: boolean;
-  connected_at: string | null;
-  model: string;
-}
+POST https://api.elevenlabs.io/v1/speech-to-text
+Content-Type: multipart/form-data
+-F file=@audio.ogg
+-F model_id=scribe_v2
 ```
-Sem quebrar nenhum campo já retornado.
 
-### 4. UI — `src/pages/master/PlatformSettings.tsx`
-Novo card **"Áudio · ElevenLabs (master)"** posicionado abaixo do card do Resend, com:
-- Badge de status (Configurado / Não configurado)
-- Campo `password` para colar a chave (`sk_...`)
-- Botões **Salvar**, **Testar** e **Limpar** (idênticos aos do Resend)
-- Select do modelo: `scribe_v2` (padrão) / `scribe_v2_realtime`
-- Texto explicativo: "Chave usada por todas as empresas para transcrever áudios recebidos no WhatsApp."
+## Causas prováveis do `invalid_audio`
 
-Nenhuma outra tela é afetada.
+1. **`language_code: "por"`** no FormData — o Scribe usa ISO-639-1 (`pt`), não ISO-639-3 (`por`). Passar um code que ele não reconhece pode disparar o erro genérico de validação. A doc do curl (a que você mostrou) não envia `language_code` — o Scribe autodetecta.
+2. **`convertToMp4: true`** como 1ª tentativa no `hook7-media.ts` — para áudio, o Evolution pode devolver um contêiner reencapsulado (com header ainda parecendo OGG pelo sniff, mas payload inconsistente). Baixar o arquivo original preserva o OGG/Opus como o WhatsApp gera.
 
-### 5. Trocar a transcrição em produção
-Reescrever `supabase/functions/_shared/transcribe-audio.ts` para:
-1. Ler a chave descriptografada de `platform_settings.elevenlabs_api_key_encrypted` (helper reutilizando o mesmo `decryptWithPassphrase` já usado pelo Resend).
-2. Chamar `POST https://api.elevenlabs.io/v1/speech-to-text` com `multipart/form-data`:
-   - `file` = blob OGG/Opus (a partir do base64 vindo do Hook7)
-   - `model_id` = `scribe_v2`
-   - `language_code` = `por`
-   - `tag_audio_events` = `false`
-   - `diarize` = `false`
-3. Extrair `text` da resposta JSON.
-4. **Fallback**: se a chave master não estiver configurada OU se o ElevenLabs retornar 5xx/timeout, cair no fluxo atual (Gemini multimodal via Lovable AI Gateway) para não parar recebimento de mensagens em produção. Logs distinguem qual foi usado.
+## Mudanças
 
-A assinatura pública `transcribeAudio(input)` e o shape do `TranscribeResult` permanecem iguais — `hook7-webhook/index.ts` não precisa mudar.
+### `supabase/functions/_shared/transcribe-audio.ts`
 
-## Segurança
-- Chave nunca aparece no frontend depois de salva (só o status booleano).
-- Descriptografia acontece só dentro das edge functions master e do `_shared/transcribe-audio.ts`.
-- Nada de `VITE_ELEVENLABS_*`. A chave é master-only, exatamente como o Resend hoje.
+- Remover do FormData: `language_code`, `tag_audio_events`, `diarize`. Enviar só `file` e `model_id`, igual ao curl da doc.
+- Manter `whatsapp-audio.ogg` como filename (formato nativo aceito).
+- Remover todo o caminho de fallback:
+  - Apagar `transcribeWithGemini`, `GATEWAY_URL`, `FALLBACK_MODEL`, o campo `model?` em `TranscribeInput`, e o `catch` que caía no Gemini.
+  - `transcribeAudio` fica: valida entrada → chama ElevenLabs → propaga qualquer erro (incluindo `ElevenLabsNotConfiguredError`).
+- Aumentar o trecho do corpo de erro logado de 400 para 2000 chars, para o próximo caso mostrar o motivo real do ElevenLabs no log.
 
-## Fora do escopo
-- TTS, música, SFX, ou agentes conversacionais do ElevenLabs — só STT.
-- Realtime streaming (`scribe_v2_realtime`) — o schema já suporta trocar o modelo, mas o webhook Hook7 continua batch.
-- Interface por empresa — a chave é única e master, como pedido.
+### `supabase/functions/_shared/hook7-media.ts`
 
-## Diagrama do fluxo de transcrição
+Reordenar as tentativas de download para pedir o áudio original primeiro:
 
-```text
-Hook7 → hook7-webhook → _shared/transcribe-audio.ts
-                              │
-                              ├─ chave master ElevenLabs configurada? 
-                              │      sim → POST /v1/speech-to-text (scribe_v2)
-                              │      não → Gemini multimodal (Lovable AI Gateway)
-                              │
-                              └─ falha 5xx no ElevenLabs → fallback Gemini
-```
+1. `getBase64FromMediaMessage` com `convertToMp4: false`.
+2. `getBase64FromMediaMessage` sem o campo `convertToMp4` (default do Evolution).
+3. `message/getBase64` (fallback antigo).
+4. `media/download` (fallback antigo).
+5. URL direta (último recurso; geralmente falha por criptografia do WhatsApp).
+
+Sem outras alterações — o sniff pelo header continua determinando o mimetype real.
+
+### Sem mudanças na UI / master
+
+`platform-settings-status`, `elevenlabs-master-set`, `elevenlabs-master-test` e a página do Master ficam iguais.
+
+## Verificação
+
+- Enviar um novo áudio do WhatsApp para uma instância Hook7 e conferir no log do `hook7-webhook`:
+  - Sucesso: linha com `text` transcrito e `latency_ms` do Scribe.
+  - Se ainda falhar: o log agora traz o corpo completo do erro do ElevenLabs (não mais truncado em 400 chars). Usamos essa mensagem para o próximo ajuste — sem chutar, sem fallback silencioso.
