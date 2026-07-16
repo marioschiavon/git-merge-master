@@ -166,7 +166,18 @@ export async function downloadHook7Media(
         continue;
       }
       const declaredMime = pickMime(json, audioRef.mimetype);
-      return { base64: b64, mimetype: sniffAudioMimetype(b64, declaredMime) };
+      const sniffed = sniffAudioMimetype(b64, declaredMime);
+      const hdr = audioHeaderInfo(b64);
+      console.log("[hook7-media] download ok", {
+        endpoint: a.url,
+        declared_mime: declaredMime,
+        sniffed_mime: sniffed,
+        magic: hdr.magic,
+        header_hex: hdr.hex,
+        header_ascii: hdr.ascii,
+        bytes: base64ByteLength(b64),
+      });
+      return { base64: b64, mimetype: sniffed };
     } catch (e) {
       errors.push(`${a.url} → ${e instanceof Error ? e.message : String(e)}`);
     }
