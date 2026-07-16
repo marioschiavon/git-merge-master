@@ -527,7 +527,7 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
                 {stats && stats.extraCount > 0 && (
                   <p className="text-xs text-muted-foreground">
                     {stats.extraCount} coluna(s) marcada(s) como <em>Outro</em> serão salvas em{" "}
-                    <code>pipedrive_data.csv_import</code>.
+                    <code>enrichment_data</code>.
                   </p>
                 )}
 
