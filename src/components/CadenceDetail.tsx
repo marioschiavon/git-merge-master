@@ -18,6 +18,7 @@ import { useAgentNextPreview, useRegenerateAgentPreview } from "@/hooks/useAgent
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { Label } from "@/components/ui/label";
 
 const enrollmentStatusLabels: Record<string, string> = {
