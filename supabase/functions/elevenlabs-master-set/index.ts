@@ -22,9 +22,16 @@ serve(async (req) => {
       return jsonResponse({ ok: false, message: "Chave inválida" }, 400, corsHeaders);
     }
 
-    // Valida a chave chamando GET /v1/user no ElevenLabs antes de salvar.
-    const test = await elevenLabsFetchWithKey(apiKey, "/v1/user");
-    const text = await test.text();
+    // Valida a chave. Tenta /v1/models primeiro (aceito por qualquer chave
+    // válida, inclusive as com escopo restrito a STT/TTS). Se falhar por
+    // motivo diferente de permissão, tenta /v1/user como fallback.
+    let test = await elevenLabsFetchWithKey(apiKey, "/v1/models");
+    let text = await test.text();
+    if (!test.ok && test.status !== 401 && test.status !== 403) {
+      const alt = await elevenLabsFetchWithKey(apiKey, "/v1/user");
+      const altText = await alt.text();
+      if (alt.ok) { test = alt; text = altText; }
+    }
     if (!test.ok) {
       let msg = text.slice(0, 300);
       try {
