@@ -1,10 +1,10 @@
-// Helper para chamadas Resend via connector gateway Lovable.
+// Helper para chamadas Resend chamando api.resend.com diretamente.
 // Resolução da chave Resend, em ordem:
 //   1. Chave criptografada em platform_settings (gerenciada pela UI do master).
-//   2. Fallback: RESEND_API_KEY do connector do workspace (transição).
+//   2. Fallback: RESEND_API_KEY do connector do workspace (legado).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const GATEWAY = "https://connector-gateway.lovable.dev/resend";
+const RESEND_API = "https://api.resend.com";
 
 export class ResendNotConfiguredError extends Error {
   constructor() { super("Resend não configurado"); this.name = "ResendNotConfiguredError"; }
@@ -33,7 +33,7 @@ async function fetchMasterKeyFromDb(): Promise<string | null> {
 export async function resolveResendKey(): Promise<{ key: string; source: "db" | "connector" }> {
   const now = Date.now();
   if (cachedKey && now - cachedAt < CACHE_TTL_MS) {
-    return { key: cachedKey, source: "db" }; // source hint only; UI queries DB directly
+    return { key: cachedKey, source: "db" };
   }
   const dbKey = await fetchMasterKeyFromDb();
   if (dbKey) {
@@ -51,19 +51,11 @@ export function invalidateResendKeyCache() {
   cachedAt = 0;
 }
 
-function lovableKey(): string {
-  const k = Deno.env.get("LOVABLE_API_KEY");
-  if (!k) throw new ResendNotConfiguredError();
-  return k;
-}
-
 export async function resendFetch(path: string, init: RequestInit = {}): Promise<Response> {
-  const lk = lovableKey();
   const { key: rk } = await resolveResendKey();
-  const url = `${GATEWAY}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = `${RESEND_API}${path.startsWith("/") ? path : `/${path}`}`;
   const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${lk}`);
-  headers.set("X-Connection-Api-Key", rk);
+  headers.set("Authorization", `Bearer ${rk}`);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   return await fetch(url, { ...init, headers });
 }
@@ -75,13 +67,11 @@ export async function resendJson<T = any>(path: string, init: RequestInit = {}):
   return text ? JSON.parse(text) : ({} as T);
 }
 
-// Chamada direta ao gateway usando uma chave crua (para validação antes de salvar).
+// Chamada direta ao Resend usando uma chave crua (para validação antes de salvar).
 export async function resendFetchWithKey(apiKey: string, path: string, init: RequestInit = {}): Promise<Response> {
-  const lk = lovableKey();
-  const url = `${GATEWAY}${path.startsWith("/") ? path : `/${path}`}`;
+  const url = `${RESEND_API}${path.startsWith("/") ? path : `/${path}`}`;
   const headers = new Headers(init.headers);
-  headers.set("Authorization", `Bearer ${lk}`);
-  headers.set("X-Connection-Api-Key", apiKey);
+  headers.set("Authorization", `Bearer ${apiKey}`);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   return await fetch(url, { ...init, headers });
 }

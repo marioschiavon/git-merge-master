@@ -1,13 +1,14 @@
-// Envia email outbound via Resend (gateway Lovable), multi-tenant.
+// Envia email outbound via Resend (API direta), multi-tenant.
 // Cada company usa seu próprio sending domain (tabela company_email_domains).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveResendKey, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_GATEWAY = "https://connector-gateway.lovable.dev/resend";
+const RESEND_API = "https://api.resend.com";
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
@@ -17,12 +18,16 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    if (!lovableKey || !resendKey) {
-      return new Response(JSON.stringify({ error: "Resend connector não configurado" }), {
-        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let resendKey: string;
+    try {
+      resendKey = (await resolveResendKey()).key;
+    } catch (e) {
+      if (e instanceof ResendNotConfiguredError) {
+        return new Response(JSON.stringify({ error: "Resend não configurado" }), {
+          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw e;
     }
 
     const supabase = createClient(
@@ -99,12 +104,11 @@ Deno.serve(async (req) => {
     if (text) resendPayload.text = text;
     if (domainRow.reply_to) resendPayload.reply_to = domainRow.reply_to;
 
-    const resp = await fetch(`${RESEND_GATEWAY}/emails`, {
+    const resp = await fetch(`${RESEND_API}/emails`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${lovableKey}`,
-        "X-Connection-Api-Key": resendKey,
+        "Authorization": `Bearer ${resendKey}`,
       },
       body: JSON.stringify(resendPayload),
     });

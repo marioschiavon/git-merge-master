@@ -24,8 +24,13 @@ serve(async (req) => {
     const test = await resendFetchWithKey(apiKey, "/domains");
     const text = await test.text();
     if (!test.ok) {
+      let msg = text.slice(0, 300);
+      try {
+        const j = JSON.parse(text);
+        if (j?.message) msg = String(j.message);
+      } catch { /* ignore */ }
       return jsonResponse(
-        { ok: false, status: test.status, message: `Chave rejeitada pelo Resend: ${text.slice(0, 300)}` },
+        { ok: false, status: test.status, message: `Chave rejeitada pelo Resend (${test.status}): ${msg}` },
         200,
         corsHeaders,
       );
