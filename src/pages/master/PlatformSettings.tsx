@@ -68,9 +68,16 @@ export default function PlatformSettings() {
           base_url: string;
           webhook_url_masked: string | null;
         };
+        elevenlabs: {
+          key_configured: boolean;
+          connected_at: string | null;
+          model: string;
+          passphrase_configured: boolean;
+        };
       };
     },
   });
+
 
   useEffect(() => {
     if (settings) {
