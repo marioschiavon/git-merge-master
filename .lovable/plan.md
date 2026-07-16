@@ -1,53 +1,52 @@
+# Corrigir transcrição de áudio do WhatsApp
+
 ## Diagnóstico
 
-O log do `hook7-webhook` mostra o erro exato:
+As duas mensagens de áudio do Mario foram transcritas com conteúdo totalmente inventado:
 
-```
-STT falhou [400]: "Audio file might be corrupted or unsupported"
-  type: invalid_request_error, param: file
-```
+- Áudio 1 (6s, `A56A4D...ogg`) → "No entanto, a compreensão desses mecanismos... funções cerebrais e novas terapias para doenças neurológicas."
+- Áudio 2 (8s, `A5A362...ogg`) → "Compreendo que a gente queira ter um plano, mas no momento não temos as informações necessárias..."
 
-O áudio chega do WhatsApp em **OGG/Opus** (formato padrão do WhatsApp) e está sendo enviado para `openai/gpt-4o-transcribe`, que **não aceita OGG/Opus** — só WAV, MP3, M4A, WebM, FLAC. A própria documentação do Lovable STT afirma: *"WhatsApp/Telegram audio is OGG/Opus, which the transcription models reject — convert it to WAV or MP3 first."*
+Ambas com `transcript_model: google/gemini-2.5-flash`. Este é o comportamento clássico de alucinação do Gemini quando recebe áudio curto em OGG/Opus via `input_audio` — ele completa com texto plausível em PT-BR em vez de transcrever. O modelo é multimodal, não é um STT dedicado, e não é adequado para essa tarefa.
 
-Resultado: toda mensagem de voz do WhatsApp cai no fallback `[áudio não transcrito]` e o pipeline da IA é pulado, entregando a conversa para takeover humano.
+O problema não é o pipeline (áudio chega ok, base64 tem tamanho compatível com a duração informada), é o **modelo escolhido**.
 
-## Solução
+## Correção
 
-Alterar `supabase/functions/_shared/transcribe-audio.ts` para tratar OGG/Opus de forma diferente:
+Voltar a rota de OGG/Opus para o STT dedicado `openai/gpt-4o-transcribe`, mas com o áudio no formato correto. Duas alternativas — vou implementar a (A) que é mais simples e barata; se falhar em teste, aplico (B).
 
-- **OGG/Opus** → enviar para `google/gemini-2.5-flash` via `/v1/chat/completions` com bloco `input_audio` (o Gemini aceita OGG nativamente).
-- **Demais formatos (WAV, MP3, M4A, WebM, FLAC)** → continuam em `openai/gpt-4o-transcribe` como hoje.
+### (A) Rebranding do container: enviar OGG como `webm` para o gpt-4o-transcribe
 
-A função `transcribeAudio()` mantém a mesma assinatura, então `hook7-webhook` não muda. Apenas escolhe internamente qual modelo/endpoint usar com base no `mimetype`.
+Opus dentro de OGG e Opus dentro de WebM têm o mesmo codec. Vários projetos aproveitam isso enviando os bytes OGG com `filename=audio.webm` e `Content-Type: audio/webm` — o backend do modelo aceita porque só olha o codec Opus, que é suportado. Isso evita transcodificação.
 
-## Passos técnicos
+Se o gateway/provider rejeitar (400 "corrupted/unsupported"), o código já registra `transcript_error` na mensagem, então mantemos a UX atual de "áudio não transcrito" e partimos para (B).
 
-1. Em `_shared/transcribe-audio.ts`:
-   - Adicionar `transcribeWithGemini(base64, mimetype)` que faz `POST https://ai.gateway.lovable.dev/v1/chat/completions` com:
-     ```json
-     {
-       "model": "google/gemini-2.5-flash",
-       "messages": [{"role":"user","content":[
-         {"type":"text","text":"Transcreva este áudio em português. Responda somente com o texto transcrito, sem comentários."},
-         {"type":"input_audio","input_audio":{"data":"<base64>","format":"ogg"}}
-       ]}]
-     }
-     ```
-   - Extrair `choices[0].message.content` como `text`.
-   - Em `transcribeAudio()`, se `mimetype` incluir `ogg`/`opus`, rotear para Gemini; caso contrário, manter o caminho atual.
-   - Tratar 429/402/erros com as mesmas mensagens.
+### (B) Fallback: transcodificar OGG/Opus → WAV PCM 16 kHz mono via WASM
 
-2. Deploy do edge function `hook7-webhook` (que importa o shared).
+Se (A) falhar em prova real, adicionar decodificação com um decoder Opus em WASM (por ex. `@evan/opus` ou `libopusjs`) dentro do edge function, remontar como WAV e enviar para `openai/gpt-4o-transcribe`. Custa +150 ms e ~200 KB de WASM, mas é 100% suportado.
 
-## Fora do escopo
+## Escopo
 
-- Não vamos transcodificar áudio no edge (ffmpeg não é trivial em Deno Edge Runtime).
-- Não vamos alterar o comportamento de takeover humano quando a transcrição realmente falhar — só reduzir a taxa de falhas.
-- Não vamos mexer no fluxo de e-mail nem em outras integrações.
+Só mexer em **`supabase/functions/_shared/transcribe-audio.ts`**:
 
-## Como validar
+1. Remover a rota Gemini (`transcribeWithGemini`) — é ela que aluciná.
+2. Em `transcribeAudio`, para OGG/Opus:
+   - Chamar `transcribeWithOpenAI` passando o mesmo `base64`, mas com `mimetype = "audio/webm"` e extensão `webm` (estratégia A).
+   - Manter o cabeçalho `filename` como `audio.webm` para bater com o Content-Type.
+3. Demais formatos (WAV, MP3, M4A, WebM nativo, FLAC): sem mudança.
+4. Manter a mensagem de erro clara em `transcript_error` quando o provider recusa.
 
-Após o deploy, mandar um áudio novo pelo WhatsApp para um lead de teste (o Mario da S7, já limpo). Esperado no log do `hook7-webhook`:
-- ausência de `STT falhou [400]`;
-- mensagem inbound com `content` = texto transcrito (não mais `[áudio não transcrito]`);
-- pipeline da IA (SDR agent) executa normalmente.
+Sem alterações em `hook7-webhook`, banco, UI ou fluxo de HITL.
+
+## Validação
+
+Após o deploy, pedir ao usuário para enviar um áudio novo pelo WhatsApp ao lead Mario. Esperado:
+
+- `messages.metadata.hook7.audio.transcript_model = openai/gpt-4o-transcribe`
+- `content` bate com o que foi falado (não texto inventado).
+- Se o provider recusar o OGG-como-webm, vem `transcript_error` no metadata e a UI mostra `[áudio não transcrito]` — nesse caso, aplico o plano (B) na sequência.
+
+## Fora de escopo
+
+- Não vou tocar em `.lovable/plan.md`, hooks de UI, RLS, nem em outras rotas de mídia (imagem/documento).
+- Sem instalação de WASM neste passo (só se (A) falhar).
