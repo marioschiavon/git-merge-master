@@ -1,35 +1,23 @@
-## Diagnóstico
+## Plano
 
-A conversa continua travada porque o backend ainda está tentando inicializar `hook7-webhook` com o import antigo:
+1. **Trocar autenticação do STT para o padrão do Lovable AI**
+   - A chamada atual para `/v1/audio/transcriptions` está indo com `Authorization: Bearer ...`.
+   - Vou ajustar para usar o header correto `Lovable-API-Key`, que é o padrão documentado para o gateway.
 
-`npm:opus-decoder@0.7.11` → não exporta `OggOpusDecoder`
+2. **Preservar o mimetype real do áudio baixado**
+   - Se o Hook7 entregar `audio/ogg; codecs=opus`, manter o tipo limpo como `audio/ogg` e nomear o arquivo como `.ogg`.
+   - Evitar converter ou renomear para `.wav` quando não for WAV real.
 
-Enquanto essa função não sobe, nenhum evento do WhatsApp é processado: nem áudio, nem texto. Por isso as mensagens do Mario não aparecem na conversa.
+3. **Melhorar diagnóstico sem quebrar a conversa**
+   - Continuar salvando a mensagem como `[áudio não transcrito]` se o provedor rejeitar o arquivo.
+   - Guardar no metadata o erro do STT, tamanho do arquivo e mimetype para sabermos se o Hook7 está entregando arquivo inválido/corrompido.
 
-No código local o import já está correto (`npm:ogg-opus-decoder@0.1.16`), então o problema mais provável é deploy/cache/lock de função ainda rodando a versão antiga ou uma dependência de áudio incompatível bloqueando o boot da função inteira.
+4. **Validar com logs reais**
+   - Verificar os logs do AI Gateway e da função após a correção.
+   - Evidência atual: request `019f6ca2-2b3a-74b2-8fc3-d1801670b52f` em `2026-07-16T20:33:15Z` chegou como `audio.ogg`, `audio/ogg`, 12074 bytes, mas o provedor retornou `400: Audio file might be corrupted or unsupported`.
 
-## Plano de correção
+## Resultado esperado
 
-1. **Remover o acoplamento que derruba o webhook inteiro**
-   - Tirar o import estático de transcrição de áudio do topo de `hook7-webhook`.
-   - Carregar a transcrição apenas quando chegar áudio inbound.
-   - Assim, mesmo que a biblioteca de áudio falhe, mensagens de texto continuam aparecendo normalmente.
-
-2. **Manter áudio como falha controlada**
-   - Se a transcrição ou decoder falhar, gravar a mensagem como `[áudio não transcrito]` com o erro em `metadata.hook7.audio`.
-   - Não deixar falha de STT impedir o insert em `messages`.
-
-3. **Garantir refresh da conversa no app**
-   - Revisar o realtime/query da tela de conversas para garantir que novas mensagens invalidem também a lista de conversas, não só a thread aberta.
-   - Se necessário, adicionar assinatura realtime em `messages`/`conversations` por empresa para destravar a lista.
-
-4. **Validar pelos sinais corretos**
-   - Checar logs de `hook7-webhook` após a alteração: deve aparecer `booted`, sem `BootFailure` de decoder.
-   - Confirmar que mensagem de texto inbound é inserida mesmo sem áudio.
-   - Confirmar que áudio não trava o webhook; no pior caso aparece como `[áudio não transcrito]` e a conversa segue funcionando.
-
-## Fora do escopo
-
-- Trocar provedor/modelo de IA.
-- Reestruturar a integração Hook7 inteira.
-- Alterar regras de negócio de leads/cadências.
+- Mensagens de texto continuam aparecendo normalmente.
+- Áudios válidos passam a ser transcritos.
+- Se ainda aparecer `[áudio não transcrito]`, teremos evidência clara de que o arquivo baixado do Hook7 está vindo inválido/corrompido ou em formato não aceito, em vez de ser falha genérica do app.
