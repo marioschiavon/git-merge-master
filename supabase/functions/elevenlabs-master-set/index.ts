@@ -22,17 +22,20 @@ serve(async (req) => {
       return jsonResponse({ ok: false, message: "Chave inválida" }, 400, corsHeaders);
     }
 
-    // Valida a chave. Tenta /v1/models primeiro (aceito por qualquer chave
-    // válida, inclusive as com escopo restrito a STT/TTS). Se falhar por
-    // motivo diferente de permissão, tenta /v1/user como fallback.
-    let test = await elevenLabsFetchWithKey(apiKey, "/v1/models");
-    let text = await test.text();
-    if (!test.ok && test.status !== 401 && test.status !== 403) {
-      const alt = await elevenLabsFetchWithKey(apiKey, "/v1/user");
-      const altText = await alt.text();
-      if (alt.ok) { test = alt; text = altText; }
-    }
-    if (!test.ok) {
+    // Valida a chave no endpoint real de transcrição, sem chamar /v1/models
+    // nem /v1/user. Chaves restritas a Speech-to-Text podem não ter
+    // `models_read`/`user_read`, mas devem poder chegar ao /v1/speech-to-text.
+    // Enviamos um formulário sem arquivo: se a chave/permissão estiver OK,
+    // a API retorna 4xx de validação do payload, não erro de autenticação.
+    const probe = new FormData();
+    probe.append("model_id", "scribe_v2");
+    let test = await elevenLabsFetchWithKey(apiKey, "/v1/speech-to-text", {
+      method: "POST",
+      body: probe,
+    });
+    const text = await test.text();
+    const authRejected = test.status === 401 || test.status === 403;
+    if (authRejected) {
       let msg = text.slice(0, 300);
       try {
         const j = JSON.parse(text);
@@ -70,23 +73,10 @@ serve(async (req) => {
 
     invalidateElevenLabsKeyCache();
 
-    let tier: string | null = null;
-    let characterCount: number | null = null;
-    let characterLimit: number | null = null;
-    try {
-      const j = text ? JSON.parse(text) : {};
-      tier = j?.subscription?.tier ?? null;
-      characterCount = j?.subscription?.character_count ?? null;
-      characterLimit = j?.subscription?.character_limit ?? null;
-    } catch { /* ignore */ }
-
     return jsonResponse(
       {
         ok: true,
-        tier,
-        character_count: characterCount,
-        character_limit: characterLimit,
-        message: tier ? `Chave salva. Plano: ${tier}.` : "Chave salva.",
+        message: "Chave salva. Permissão de transcrição validada.",
       },
       200,
       corsHeaders,

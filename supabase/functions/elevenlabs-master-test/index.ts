@@ -15,18 +15,11 @@ serve(async (req) => {
 
     let r: Response;
     try {
-      r = await elevenLabsFetch("/v1/models");
-      if (!r.ok && r.status !== 401 && r.status !== 403) {
-        const alt = await elevenLabsFetch("/v1/user");
-        if (alt.ok) r = alt;
-      } else if (r.ok) {
-        // /v1/models funciona mas não traz subscription; tenta /v1/user
-        // adicionalmente para exibir o plano (ignora falha).
-        try {
-          const alt = await elevenLabsFetch("/v1/user");
-          if (alt.ok) r = alt;
-        } catch { /* ignore */ }
-      }
+      // Testa a permissão real usada em produção. Não usa /v1/models nem
+      // /v1/user porque chaves restritas a STT podem não ter esses escopos.
+      const probe = new FormData();
+      probe.append("model_id", "scribe_v2");
+      r = await elevenLabsFetch("/v1/speech-to-text", { method: "POST", body: probe });
     } catch (e) {
       if (e instanceof ElevenLabsNotConfiguredError) {
         return jsonResponse(
@@ -39,7 +32,7 @@ serve(async (req) => {
     }
 
     const text = await r.text();
-    if (!r.ok) {
+    if (r.status === 401 || r.status === 403) {
       let msg = text.slice(0, 300);
       try {
         const j = JSON.parse(text);
@@ -52,25 +45,13 @@ serve(async (req) => {
         corsHeaders,
       );
     }
-    let tier: string | null = null;
-    let characterCount: number | null = null;
-    let characterLimit: number | null = null;
-    try {
-      const j = text ? JSON.parse(text) : {};
-      tier = j?.subscription?.tier ?? null;
-      characterCount = j?.subscription?.character_count ?? null;
-      characterLimit = j?.subscription?.character_limit ?? null;
-    } catch { /* ignore */ }
 
     return jsonResponse(
       {
         ok: true,
         configured: true,
         status: r.status,
-        tier,
-        character_count: characterCount,
-        character_limit: characterLimit,
-        message: tier ? `Conectado. Plano: ${tier}.` : "Conectado.",
+        message: "Conectado. Permissão de transcrição validada.",
       },
       200,
       corsHeaders,
