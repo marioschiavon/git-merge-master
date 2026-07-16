@@ -209,7 +209,9 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
   };
 
   const downloadTemplate = () => {
-    const csv = "first_name,last_name,email,phone,whatsapp,company_name,title,website,linkedin_url,tags\nJoão,Silva,joao@empresa.com,11999999999,11999999999,Empresa LTDA,CEO,https://empresa.com,https://linkedin.com/in/joao,vip;quente";
+    const header = "first_name,last_name,email,secondary_email,phone,mobile_phone,corporate_phone,whatsapp,company_name,title,seniority,department,industry,employee_count,website,linkedin_url,linkedin_company_url,city,state,country,tags";
+    const sample = "João,Silva,joao@empresa.com,joao.pessoal@gmail.com,+551133334444,+5511999998888,+551133334444,+5511999998888,Empresa LTDA,CEO,c_suite,Executive,Software,150,https://empresa.com,https://linkedin.com/in/joao,https://linkedin.com/company/empresa,São Paulo,SP,Brasil,vip;quente";
+    const csv = `${header}\n${sample}`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
