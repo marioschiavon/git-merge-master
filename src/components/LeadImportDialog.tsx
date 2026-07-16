@@ -19,7 +19,7 @@ interface Props {
 }
 
 // Campos suportados. Os que casam com colunas da tabela `leads` são gravados
-// diretamente; os demais vão para pipedrive_data.csv_import.
+// diretamente; os demais vão para `leads.enrichment_data`.
 type FieldKey =
   | "ignore" | "extra"
   | "first_name" | "last_name" | "name"
@@ -33,7 +33,7 @@ type FieldKey =
 
 const FIELD_LABELS: Record<FieldKey, string> = {
   ignore: "— Ignorar —",
-  extra: "Outro (enrichment)",
+  extra: "Outro (guardar como enriquecimento)",
   first_name: "Primeiro nome",
   last_name: "Sobrenome",
   name: "Nome completo",
@@ -41,14 +41,14 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   secondary_email: "Email secundário",
   personal_email: "Email pessoal",
   phone: "Telefone",
-  mobile_phone: "Telefone celular",
+  mobile_phone: "Telefone celular / mobile",
   corporate_phone: "Telefone corporativo",
   whatsapp: "WhatsApp",
   title: "Cargo",
   seniority: "Senioridade",
   department: "Departamento",
   company_name: "Empresa",
-  industry: "Indústria",
+  industry: "Indústria / Setor",
   employee_count: "Nº de funcionários",
   website: "Site",
   linkedin_url: "LinkedIn (pessoa)",
@@ -64,44 +64,51 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   source: "Origem",
 };
 
-// Colunas reais no `leads` — o resto vira `extra`.
+// Todos os fields listados abaixo têm coluna nativa em `leads`.
+// O que não estiver aqui vira `extra` (enrichment_data).
 const NATIVE_FIELDS: ReadonlySet<FieldKey> = new Set([
-  "name", "email", "phone", "whatsapp", "company_name", "title", "website",
-  "instagram_url", "linkedin_url", "linkedin_company_url", "facebook_url",
-  "address", "status", "source",
+  "first_name", "last_name", "name",
+  "email", "secondary_email", "personal_email",
+  "phone", "mobile_phone", "corporate_phone", "whatsapp",
+  "title", "seniority", "department",
+  "company_name", "industry", "employee_count", "website",
+  "linkedin_url", "linkedin_company_url", "instagram_url", "facebook_url",
+  "address", "city", "state", "country",
+  "tags", "status", "source",
 ]);
 
-// Ordem importa: mais específico primeiro.
+// Ordem importa: mais específico primeiro. Cobre nomes típicos de Apollo e Pipedrive.
 const AUTO_SUGGEST: [RegExp, FieldKey][] = [
-  [/linkedin.*(company|empresa|organiza)/i, "linkedin_company_url"],
+  [/(company|empresa|organiz).*linkedin|linkedin.*(company|empresa|organiz)/i, "linkedin_company_url"],
   [/linkedin/i, "linkedin_url"],
   [/instagram|^ig$/i, "instagram_url"],
   [/facebook|^fb$/i, "facebook_url"],
   [/whats|zap|wpp/i, "whatsapp"],
-  [/(mail|email).*(secund|2)/i, "secondary_email"],
-  [/(mail|email).*(pessoal|personal)/i, "personal_email"],
+  [/(mail|email).*(secund|2|alt)/i, "secondary_email"],
+  [/(mail|email).*(pessoal|personal|private)/i, "personal_email"],
   [/e[-_ ]?mail|email/i, "email"],
-  [/(mobile|celular)/i, "mobile_phone"],
-  [/(corporat|comercial|escrit)/i, "corporate_phone"],
+  [/(mobile|celular|cell)/i, "mobile_phone"],
+  [/(corporat|comercial|work|office|direct|escrit)/i, "corporate_phone"],
   [/(phone|telefone|^tel$)/i, "phone"],
-  [/first.*name|primeiro.*nome|^nome$/i, "first_name"],
-  [/last.*name|sobrenome|surname/i, "last_name"],
-  [/(full.?name|nome.*completo|nome|name|contato|lead)/i, "name"],
+  [/first.?name|primeiro.?nome/i, "first_name"],
+  [/last.?name|sobrenome|surname/i, "last_name"],
+  [/(full.?name|nome.?completo|contact.?name|person.?name|^nome$|^name$|contato|lead)/i, "name"],
   [/(job.?title|cargo|title|posi[cç][aã]o|role)/i, "title"],
   [/senior/i, "seniority"],
   [/(depart|setor|area|área)/i, "department"],
-  [/(company|empresa|organiza)/i, "company_name"],
+  [/(company.?name|company|empresa|organiza|conta|account)/i, "company_name"],
   [/(indust|segment|nicho|vertical)/i, "industry"],
-  [/(employ|funcion|colabor|headcount|size)/i, "employee_count"],
+  [/(employ|funcion|colabor|headcount|company.?size|# ?employees|num ?employees)/i, "employee_count"],
   [/(website|site|url|web|dom[ií]nio)/i, "website"],
-  [/(cidade|city)/i, "city"],
-  [/(estado|state|uf|prov[ií]nc)/i, "state"],
+  [/(cidade|^city$|city)/i, "city"],
+  [/(estado|^state$|state|uf|prov[ií]nc)/i, "state"],
   [/(pa[ií]s|country)/i, "country"],
   [/(endere[cç]o|address|rua|logradouro)/i, "address"],
-  [/tags?|etiquet/i, "tags"],
+  [/tags?|etiquet|labels?/i, "tags"],
   [/status|situa[cç][aã]o/i, "status"],
   [/(source|origem|canal)/i, "source"],
 ];
+
 
 function normalize(s: string) {
   return String(s || "").toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
