@@ -1,13 +1,14 @@
-// Envia email outbound via Resend (gateway Lovable), multi-tenant.
+// Envia email outbound via Resend (API direta), multi-tenant.
 // Cada company usa seu próprio sending domain (tabela company_email_domains).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { resolveResendKey, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_GATEWAY = "https://connector-gateway.lovable.dev/resend";
+const RESEND_API = "https://api.resend.com";
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
