@@ -40,6 +40,7 @@ export interface DownloadedMedia {
 // deno-lint-ignore no-explicit-any
 function pickBase64(json: any): string | null {
   if (!json) return null;
+  if (typeof json === "string" && json.length > 100) return json;
   const candidates = [
     json.base64,
     json.Base64,
@@ -47,10 +48,17 @@ function pickBase64(json: any): string | null {
     json.file,
     json.buffer,
     json?.media?.base64,
+    json?.message?.base64,
     json?.result?.base64,
+    json?.data?.base64,
+    json?.data?.message?.base64,
   ];
   for (const c of candidates) {
     if (typeof c === "string" && c.length > 100) return c;
+    if (c && typeof c === "object") {
+      const nested = pickBase64(c);
+      if (nested) return nested;
+    }
   }
   return null;
 }
@@ -100,6 +108,57 @@ function sniffAudioMimetype(base64: string, fallback: string | null): string | n
   return magic ?? fallback;
 }
 
+function cleanBase64(base64: string): string {
+  return base64.replace(/^data:[^;]+;base64,/, "").replace(/\s+/g, "");
+}
+
+function keyFromPayload(providerMessageId: string, rawPayload: any): Record<string, unknown> {
+  const info = rawPayload?.Info ?? rawPayload?.info ?? null;
+  const key: Record<string, unknown> = { id: providerMessageId };
+  const remoteJid = info?.Chat ?? info?.chat ?? info?.Sender ?? info?.sender;
+  if (typeof remoteJid === "string" && remoteJid) key.remoteJid = remoteJid;
+  if (typeof info?.IsFromMe === "boolean") key.fromMe = info.IsFromMe;
+  if (typeof info?.isFromMe === "boolean") key.fromMe = info.isFromMe;
+  const participant = info?.Sender ?? info?.sender ?? info?.Participant ?? info?.participant;
+  if (typeof participant === "string" && participant && participant !== remoteJid) key.participant = participant;
+  return key;
+}
+
+function messageFromPayload(rawPayload: any): any | null {
+  const msg = rawPayload?.Message ?? rawPayload?.message ?? rawPayload;
+  return msg && typeof msg === "object" ? msg : null;
+}
+
+function directBase64FromPayload(rawPayload: any): string | null {
+  return pickBase64(rawPayload?.Message) ?? pickBase64(rawPayload?.message) ?? pickBase64(rawPayload);
+}
+
+function asValidDownloadedMedia(
+  base64: string,
+  declaredMime: string | null,
+  source: string,
+  errors: string[],
+): DownloadedMedia | null {
+  const clean = cleanBase64(base64);
+  const hdr = audioHeaderInfo(clean);
+  const bytes = base64ByteLength(clean);
+  const sniffed = sniffAudioMimetype(clean, declaredMime);
+  console.log("[hook7-media] candidato de áudio", {
+    source,
+    declared_mime: declaredMime,
+    sniffed_mime: sniffed,
+    magic: hdr.magic,
+    header_hex: hdr.hex,
+    header_ascii: hdr.ascii,
+    bytes,
+  });
+  if (!hdr.magic) {
+    errors.push(`${source} → base64 sem header de áudio decodificado (${bytes} bytes; header=${hdr.ascii || "vazio"})`);
+    return null;
+  }
+  return { base64: clean, mimetype: sniffed };
+}
+
 /**
  * Baixa o áudio (base64) associado a `providerMessageId` pela API Hook7.
  * Tenta as variações conhecidas do endpoint até uma retornar 2xx.
@@ -110,7 +169,7 @@ export async function downloadHook7Media(
   instance: { id: string; external_name: string },
   providerMessageId: string,
   // deno-lint-ignore no-explicit-any
-  rawMessage: any,
+  rawPayload: any,
   audioRef: AudioRef,
 ): Promise<DownloadedMedia> {
   const token = await loadInstanceToken(admin, instance.id);
@@ -118,21 +177,43 @@ export async function downloadHook7Media(
 
   const base = await getHook7BaseUrl(admin);
   const instanceName = encodeURIComponent(instance.external_name);
+  const key = keyFromPayload(providerMessageId, rawPayload);
+  const message = messageFromPayload(rawPayload);
+  const fullMessage = message ? { key, message } : null;
+
+  const errors: string[] = [];
+
+  // Quando o Hook7 já entrega `Message.base64`, use esse arquivo primeiro.
+  // Se os bytes não tiverem magic header (ex.: mídia criptografada do WhatsApp),
+  // rejeitamos e continuamos tentando o endpoint oficial de download.
+  const inlineBase64 = directBase64FromPayload(rawPayload);
+  if (inlineBase64) {
+    const media = asValidDownloadedMedia(inlineBase64, audioRef.mimetype, "payload.Message.base64", errors);
+    if (media) return media;
+  }
 
   const attempts: Array<{ url: string; body: unknown }> = [
+    ...(fullMessage
+      ? [
+        {
+          url: `${base}/chat/getBase64FromMediaMessage/${instanceName}`,
+          body: { message: fullMessage, convertToMp4: false },
+        },
+      ]
+      : []),
     // Áudio nativo do WhatsApp (OGG/Opus). Não reencapsular — o Scribe aceita
     // o container original e reempacotar pode gerar arquivos inválidos.
+    {
+      url: `${base}/chat/getBase64FromMediaMessage/${instanceName}`,
+      body: { message: { key }, convertToMp4: false },
+    },
     {
       url: `${base}/chat/getBase64FromMediaMessage/${instanceName}`,
       body: { message: { key: { id: providerMessageId } }, convertToMp4: false },
     },
     {
-      url: `${base}/chat/getBase64FromMediaMessage/${instanceName}`,
-      body: { message: { key: { id: providerMessageId } } },
-    },
-    {
       url: `${base}/message/getBase64/${instanceName}`,
-      body: { message: { key: { id: providerMessageId } } },
+      body: { message: { key } },
     },
     {
       url: `${base}/media/download/${instanceName}`,
@@ -140,7 +221,6 @@ export async function downloadHook7Media(
     },
   ];
 
-  const errors: string[] = [];
   for (const a of attempts) {
     try {
       const res = await fetch(a.url, {
@@ -166,18 +246,9 @@ export async function downloadHook7Media(
         continue;
       }
       const declaredMime = pickMime(json, audioRef.mimetype);
-      const sniffed = sniffAudioMimetype(b64, declaredMime);
-      const hdr = audioHeaderInfo(b64);
-      console.log("[hook7-media] download ok", {
-        endpoint: a.url,
-        declared_mime: declaredMime,
-        sniffed_mime: sniffed,
-        magic: hdr.magic,
-        header_hex: hdr.hex,
-        header_ascii: hdr.ascii,
-        bytes: base64ByteLength(b64),
-      });
-      return { base64: b64, mimetype: sniffed };
+      const media = asValidDownloadedMedia(b64, declaredMime, a.url, errors);
+      if (!media) continue;
+      return media;
     } catch (e) {
       errors.push(`${a.url} → ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -193,13 +264,13 @@ export async function downloadHook7Media(
         if (buf.byteLength > 512) {
           let bin = "";
           for (let i = 0; i < buf.length; i++) bin += String.fromCharCode(buf[i]);
-          return { base64: btoa(bin), mimetype: sniffAudioMimetype(btoa(bin), audioRef.mimetype) };
+          const media = asValidDownloadedMedia(btoa(bin), audioRef.mimetype, "audioMessage.url", errors);
+          if (media) return media;
         }
       }
     } catch { /* ignore */ }
   }
 
-  void rawMessage;
   throw new Error(`Falha ao baixar áudio Hook7: ${errors.join(" | ")}`);
 }
 
