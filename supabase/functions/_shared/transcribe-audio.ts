@@ -1,10 +1,10 @@
 // Transcreve áudio via Lovable AI Gateway (openai/gpt-4o-transcribe).
 //
 // WhatsApp envia OGG/Opus, que o gpt-4o-transcribe recusa. Decodificamos
-// localmente OGG/Opus → PCM Float32 usando `opus-decoder` (WASM puro,
+// localmente OGG/Opus → PCM Float32 usando `ogg-opus-decoder` (WASM puro,
 // funciona em Deno edge) e remontamos como WAV 16-bit antes de enviar.
 
-import { OggOpusDecoder } from "npm:opus-decoder@0.7.11";
+import { OggOpusDecoder } from "npm:ogg-opus-decoder@0.1.16";
 
 const STT_URL = "https://ai.gateway.lovable.dev/v1/audio/transcriptions";
 const DEFAULT_STT_MODEL = "openai/gpt-4o-transcribe";
