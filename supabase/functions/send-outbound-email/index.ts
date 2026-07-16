@@ -18,12 +18,16 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    const lovableKey = Deno.env.get("LOVABLE_API_KEY");
-    const resendKey = Deno.env.get("RESEND_API_KEY");
-    if (!lovableKey || !resendKey) {
-      return new Response(JSON.stringify({ error: "Resend connector não configurado" }), {
-        status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let resendKey: string;
+    try {
+      resendKey = (await resolveResendKey()).key;
+    } catch (e) {
+      if (e instanceof ResendNotConfiguredError) {
+        return new Response(JSON.stringify({ error: "Resend não configurado" }), {
+          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw e;
     }
 
     const supabase = createClient(
