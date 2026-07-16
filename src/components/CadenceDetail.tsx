@@ -317,10 +317,17 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
             {enrollDialogOpen && (
               <Card>
                 <CardContent className="p-4 space-y-3">
-                  <p className="text-sm font-medium">Selecione leads para associar:</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Selecione leads para associar:</p>
+                    {filteredOutCount > 0 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {filteredOutCount} lead(s) ocultos por não terem {cadenceType === "whatsapp" ? "WhatsApp" : cadenceType === "email" ? "e-mail" : "canal"}
+                      </span>
+                    )}
+                  </div>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {availableLeads.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Nenhum lead disponível.</p>
+                      <p className="text-sm text-muted-foreground">Nenhum lead disponível com {cadenceType === "whatsapp" ? "WhatsApp" : cadenceType === "email" ? "e-mail" : "canal válido"}.</p>
                     ) : (
                       availableLeads.map((lead: any) => (
                         <label key={lead.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted p-1 rounded">
@@ -333,7 +340,9 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                               );
                             }}
                           />
-                          {lead.name} {lead.email && `(${lead.email})`}
+                          <span>{lead.name}</span>
+                          <ChannelBadges lead={lead} />
+                          {lead.email && <span className="text-xs text-muted-foreground">({lead.email})</span>}
                         </label>
                       ))
                     )}
