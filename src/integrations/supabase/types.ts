@@ -2616,6 +2616,10 @@ export type Database = {
           apify_actors: Json
           apify_enabled: boolean
           created_at: string
+          elevenlabs_api_key_encrypted: string | null
+          elevenlabs_connected_at: string | null
+          elevenlabs_last_error: string | null
+          elevenlabs_model: string
           hook7_base_url: string
           id: string
           metadata: Json
@@ -2630,6 +2634,10 @@ export type Database = {
           apify_actors?: Json
           apify_enabled?: boolean
           created_at?: string
+          elevenlabs_api_key_encrypted?: string | null
+          elevenlabs_connected_at?: string | null
+          elevenlabs_last_error?: string | null
+          elevenlabs_model?: string
           hook7_base_url?: string
           id?: string
           metadata?: Json
@@ -2644,6 +2652,10 @@ export type Database = {
           apify_actors?: Json
           apify_enabled?: boolean
           created_at?: string
+          elevenlabs_api_key_encrypted?: string | null
+          elevenlabs_connected_at?: string | null
+          elevenlabs_last_error?: string | null
+          elevenlabs_model?: string
           hook7_base_url?: string
           id?: string
           metadata?: Json
@@ -3087,6 +3099,7 @@ export type Database = {
         Args: { _company_id: string }
         Returns: undefined
       }
+      clear_elevenlabs_master_key: { Args: never; Returns: undefined }
       clear_resend_master_key: { Args: never; Returns: undefined }
       create_company_and_join: {
         Args: { p_name: string; p_slug?: string }
@@ -3111,6 +3124,10 @@ export type Database = {
       }
       get_calcom_api_key: {
         Args: { _company_id: string; _passphrase: string }
+        Returns: string
+      }
+      get_elevenlabs_master_key: {
+        Args: { _passphrase: string }
         Returns: string
       }
       get_hook7_instance_token: {
@@ -3189,6 +3206,14 @@ export type Database = {
           _company_id: string
           _passphrase: string
         }
+        Returns: undefined
+      }
+      set_elevenlabs_master_key: {
+        Args: { _api_key: string; _passphrase: string }
+        Returns: undefined
+      }
+      set_elevenlabs_master_model: {
+        Args: { _model: string }
         Returns: undefined
       }
       set_hook7_instance_token: {

@@ -1,47 +1,80 @@
-## Objetivo
-Simplificar telefone/WhatsApp, filtrar leads elegíveis por canal ao inscrever em cadência, e mostrar o **ícone oficial do WhatsApp (enviado pelo usuário)** + ícone de e-mail ao lado do nome do lead.
+# Integração ElevenLabs como chave master
 
-## 1. Unificar WhatsApp e telefone (UI)
+Adicionar o ElevenLabs ao painel **Master → Integrações da Plataforma**, seguindo exatamente o mesmo padrão já usado pelo Resend (chave criptografada no banco, gerenciada pela UI), e trocar a transcrição de áudio do WhatsApp para usar a API `speech-to-text` do ElevenLabs em produção.
 
-Manter as duas colunas no banco (`leads.whatsapp` e `leads.phone`), mas na UI só existe um campo principal.
+## Por que ElevenLabs para STT
+O modelo `scribe_v2` do ElevenLabs aceita OGG/Opus (formato nativo do WhatsApp) sem precisar de transcode e tem qualidade superior em pt-BR em comparação ao fluxo multimodal atual via Gemini.
 
-- Campo principal: **"WhatsApp / Celular"** — grava em `whatsapp` e `phone` juntos (comportamento que o `LeadFormDialog` já tem hoje).
-- Campo opcional em "Mais opções": **"Telefone fixo"** — grava só em `phone` quando difere do WhatsApp.
-- Se o lead veio de importação e tem só `phone`, o sistema copia para `whatsapp` automaticamente.
-- **Backfill único** (migration): `UPDATE leads SET whatsapp = phone WHERE whatsapp IS NULL AND phone IS NOT NULL` e o inverso — resolve os 13 leads do cliente que caíram nesse buraco.
+## O que muda
 
-**Arquivos:** `src/components/LeadFormDialog.tsx`, `src/components/LeadDetailContent.tsx`, uma migration para o backfill.
+### 1. Banco (nova coluna master, criptografada)
+Migration adicionando em `platform_settings`:
+- `elevenlabs_api_key_encrypted text` — chave criptografada com a mesma passphrase (`PLATFORM_SECRETS_PASSPHRASE`) usada hoje pelo Resend.
+- `elevenlabs_connected_at timestamptz`
+- `elevenlabs_model text default 'scribe_v2'` (permite trocar para `scribe_v2_realtime` futuramente sem redeploy)
 
-## 2. Filtrar leads por canal ao inscrever
+Nenhuma coluna existente é alterada. Sem mudança de RLS (a tabela `platform_settings` já é master-only).
 
-- Cadência `type='whatsapp'` → só oferece leads com `whatsapp` (ou `phone`, após o backfill).
-- Cadência `type='email'` → só oferece leads com `email`.
-- Cadência multi-canal continua aceitando qualquer lead com pelo menos um canal.
+### 2. Novas Edge Functions (espelhando o padrão do Resend)
+- `elevenlabs-master-set` — recebe `{ api_key }`, criptografa e grava em `elevenlabs_api_key_encrypted`.
+- `elevenlabs-master-test` — descriptografa e faz `GET https://api.elevenlabs.io/v1/user` para validar a chave, retornando `{ ok, subscription_tier, character_limit }`.
+- `elevenlabs-master-clear` — zera a chave.
 
-**Arquivos:**
-- `src/components/CadenceDetail.tsx` (`availableLeads`): aplicar filtro conforme `cadence.type`.
-- `src/pages/Leads.tsx` (dialog de bulk enroll): esconder leads incompatíveis e mostrar contagem "X leads sem canal serão pulados".
-- `supabase/functions/leads-bulk-action/index.ts`: validar servidor-side e retornar `skipped_no_channel` no payload.
+Todas exigem `is_master_admin(auth.uid())`, mesmo padrão dos endpoints `resend-master-*`.
 
-## 3. Ícones de canal ao lado do nome do lead
+### 3. `platform-settings-status` (edge function existente)
+Estender o retorno atual com um bloco:
+```
+elevenlabs: {
+  key_configured: boolean;
+  connected_at: string | null;
+  model: string;
+}
+```
+Sem quebrar nenhum campo já retornado.
 
-- **WhatsApp** → usar o `.ico` enviado pelo usuário como asset (upload via `lovable-assets` no modo build). Componentizar em `src/components/lead/ChannelBadges.tsx` como `<img src={whatsappIcon.url} className="h-4 w-4" />` com tooltip mostrando o número.
-- **E-mail** → ícone `Mail` do lucide-react, cor azul (`text-blue-600`), tooltip com o e-mail.
-- Mostrar ambos quando o lead tiver os dois.
+### 4. UI — `src/pages/master/PlatformSettings.tsx`
+Novo card **"Áudio · ElevenLabs (master)"** posicionado abaixo do card do Resend, com:
+- Badge de status (Configurado / Não configurado)
+- Campo `password` para colar a chave (`sk_...`)
+- Botões **Salvar**, **Testar** e **Limpar** (idênticos aos do Resend)
+- Select do modelo: `scribe_v2` (padrão) / `scribe_v2_realtime`
+- Texto explicativo: "Chave usada por todas as empresas para transcrever áudios recebidos no WhatsApp."
 
-**Arquivos:**
-- Novo asset: `src/assets/whatsapp.ico.asset.json` (upload do `.ico` enviado pelo cliente).
-- Novo componente: `src/components/lead/ChannelBadges.tsx`.
-- `src/pages/Leads.tsx` (linhas 344-346): renderizar o componente junto aos badges já existentes ("🏢 Empresa" / "🤖 Agente").
-- Reaproveitar no picker de "Adicionar leads" em `src/components/CadenceDetail.tsx`.
+Nenhuma outra tela é afetada.
 
-## Fora de escopo
-- Não muda motor de cadência, agent-decide, SDR, HITL, transcrição de áudio.
-- Não remove colunas `whatsapp`/`phone` do banco.
-- Sem validação Hook7 no digitar (continua async).
+### 5. Trocar a transcrição em produção
+Reescrever `supabase/functions/_shared/transcribe-audio.ts` para:
+1. Ler a chave descriptografada de `platform_settings.elevenlabs_api_key_encrypted` (helper reutilizando o mesmo `decryptWithPassphrase` já usado pelo Resend).
+2. Chamar `POST https://api.elevenlabs.io/v1/speech-to-text` com `multipart/form-data`:
+   - `file` = blob OGG/Opus (a partir do base64 vindo do Hook7)
+   - `model_id` = `scribe_v2`
+   - `language_code` = `por`
+   - `tag_audio_events` = `false`
+   - `diarize` = `false`
+3. Extrair `text` da resposta JSON.
+4. **Fallback**: se a chave master não estiver configurada OU se o ElevenLabs retornar 5xx/timeout, cair no fluxo atual (Gemini multimodal via Lovable AI Gateway) para não parar recebimento de mensagens em produção. Logs distinguem qual foi usado.
 
-## Detalhes técnicos
-- Backfill idempotente, roda uma vez, seguro.
-- Filtro de canal (front e back) usa a regra: `hasEmail = !!lead.email`, `hasWpp = !!(lead.whatsapp || lead.phone)`.
-- Ícone WhatsApp servido via CDN Lovable (`/__l5e/assets-v1/...`), tamanho `h-4 w-4`, sem alterar cor (mantém identidade visual do WhatsApp).
-- Sem mudanças em `types.ts` nem em RLS.
+A assinatura pública `transcribeAudio(input)` e o shape do `TranscribeResult` permanecem iguais — `hook7-webhook/index.ts` não precisa mudar.
+
+## Segurança
+- Chave nunca aparece no frontend depois de salva (só o status booleano).
+- Descriptografia acontece só dentro das edge functions master e do `_shared/transcribe-audio.ts`.
+- Nada de `VITE_ELEVENLABS_*`. A chave é master-only, exatamente como o Resend hoje.
+
+## Fora do escopo
+- TTS, música, SFX, ou agentes conversacionais do ElevenLabs — só STT.
+- Realtime streaming (`scribe_v2_realtime`) — o schema já suporta trocar o modelo, mas o webhook Hook7 continua batch.
+- Interface por empresa — a chave é única e master, como pedido.
+
+## Diagrama do fluxo de transcrição
+
+```text
+Hook7 → hook7-webhook → _shared/transcribe-audio.ts
+                              │
+                              ├─ chave master ElevenLabs configurada? 
+                              │      sim → POST /v1/speech-to-text (scribe_v2)
+                              │      não → Gemini multimodal (Lovable AI Gateway)
+                              │
+                              └─ falha 5xx no ElevenLabs → fallback Gemini
+```
