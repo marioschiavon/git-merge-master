@@ -177,6 +177,9 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
           file_length: audioRef.file_length ?? bytes,
           transcript_model: stt.model,
           transcript_latency_ms: stt.latency_ms,
+          transcript_input_mimetype: stt.input_mimetype,
+          transcript_input_ext: stt.input_ext,
+          transcript_transcoded: stt.transcoded,
         };
         // Upload best-effort (não bloqueia o fluxo se falhar)
         // Feito depois de garantir a conv abaixo — armazenamos o path via update.
