@@ -15,7 +15,18 @@ serve(async (req) => {
 
     let r: Response;
     try {
-      r = await elevenLabsFetch("/v1/user");
+      r = await elevenLabsFetch("/v1/models");
+      if (!r.ok && r.status !== 401 && r.status !== 403) {
+        const alt = await elevenLabsFetch("/v1/user");
+        if (alt.ok) r = alt;
+      } else if (r.ok) {
+        // /v1/models funciona mas não traz subscription; tenta /v1/user
+        // adicionalmente para exibir o plano (ignora falha).
+        try {
+          const alt = await elevenLabsFetch("/v1/user");
+          if (alt.ok) r = alt;
+        } catch { /* ignore */ }
+      }
     } catch (e) {
       if (e instanceof ElevenLabsNotConfiguredError) {
         return jsonResponse(
