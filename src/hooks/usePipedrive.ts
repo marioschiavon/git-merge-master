@@ -164,45 +164,73 @@ export function useSyncLeads() {
 
 export type LeadInput = {
   name?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   email?: string | null;
+  secondary_email?: string | null;
+  personal_email?: string | null;
   phone?: string | null;
+  mobile_phone?: string | null;
+  corporate_phone?: string | null;
   whatsapp?: string | null;
   company_name?: string | null;
   title?: string | null;
+  seniority?: string | null;
+  department?: string | null;
+  industry?: string | null;
+  employee_count?: number | null;
   website?: string | null;
   instagram_url?: string | null;
   linkedin_url?: string | null;
   linkedin_company_url?: string | null;
   facebook_url?: string | null;
   address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  tags?: string[] | null;
   status?: LeadStatus;
   source?: string | null;
-  /** Campos extras (do CSV) que serão persistidos em pipedrive_data.csv_import */
-  extra?: Record<string, string> | null;
+  /** Colunas de CSV desconhecidas — vão para `leads.enrichment_data` */
+  enrichment_data?: Record<string, unknown> | null;
 };
 
 function buildLeadRow(input: LeadInput, companyId: string, defaultSource: string) {
   const hasPersonName = Boolean(input.name && String(input.name).trim());
   const display = computeLeadDisplayName(input);
-  const extra = input.extra && Object.keys(input.extra).length > 0 ? input.extra : null;
+  const enrichment_data = input.enrichment_data && Object.keys(input.enrichment_data).length > 0 ? input.enrichment_data : null;
   return {
     company_id: companyId,
     name: display,
+    first_name: input.first_name || null,
+    last_name: input.last_name || null,
     email: input.email || null,
+    secondary_email: input.secondary_email || null,
+    personal_email: input.personal_email || null,
     phone: input.phone || null,
+    mobile_phone: input.mobile_phone || null,
+    corporate_phone: input.corporate_phone || null,
     whatsapp: input.whatsapp || null,
     company_name: input.company_name || null,
     title: input.title || null,
+    seniority: input.seniority || null,
+    department: input.department || null,
+    industry: input.industry || null,
+    employee_count: typeof input.employee_count === "number" ? input.employee_count : null,
     website: input.website || null,
     instagram_url: input.instagram_url || null,
     linkedin_url: input.linkedin_url || null,
     linkedin_company_url: input.linkedin_company_url || null,
     facebook_url: input.facebook_url || null,
     address: input.address || null,
+    city: input.city || null,
+    state: input.state || null,
+    country: input.country || null,
+    tags: Array.isArray(input.tags) && input.tags.length ? input.tags : undefined,
     status: (input.status || "new") as LeadStatus,
     source: input.source || defaultSource,
     lead_kind: hasPersonName ? "person" : "company",
-    ...(extra ? { pipedrive_data: { csv_import: extra } } : {}),
+    ...(enrichment_data ? { enrichment_data } : {}),
   } as any;
 }
 

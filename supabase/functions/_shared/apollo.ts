@@ -312,15 +312,30 @@ export function mapPersonToLeadPayload(p: ApolloPerson, company_id: string): Rec
     [p.first_name, p.last_name].filter(Boolean).join(" ").trim() ||
     (isUsableEmail(p.email, p.email_status) ? (p.email as string) : null) ||
     `Apollo #${p.id}`;
-  const primaryPhone = p.phone_numbers?.[0]?.sanitized_number ?? p.phone_numbers?.[0]?.raw_number ?? null;
+
+  // Categorize phones by type when available
+  const phones = p.phone_numbers ?? [];
+  const pick = (t: string) =>
+    phones.find((ph) => (ph.type ?? "").toLowerCase().includes(t))?.sanitized_number ??
+    phones.find((ph) => (ph.type ?? "").toLowerCase().includes(t))?.raw_number ??
+    null;
+  const primaryPhone = phones[0]?.sanitized_number ?? phones[0]?.raw_number ?? null;
+  const mobilePhone = pick("mobile") ?? pick("cell");
+  const corporatePhone = pick("work") ?? pick("office") ?? pick("corporate") ?? pick("direct");
+
   const org = p.organization ?? null;
   const usableEmail = isUsableEmail(p.email, p.email_status) ? p.email : null;
 
   const address = [p.city, p.state, p.country].filter(Boolean).join(", ") || null;
+  const department = Array.isArray(p.departments) && p.departments.length
+    ? p.departments.join(", ")
+    : null;
 
   return {
     company_id,
     name: fullName,
+    first_name: p.first_name ?? null,
+    last_name: p.last_name ?? null,
     email: usableEmail,
     title: p.title ?? null,
     company_name: org?.name ?? null,
@@ -328,7 +343,16 @@ export function mapPersonToLeadPayload(p: ApolloPerson, company_id: string): Rec
     linkedin_url: p.linkedin_url ?? null,
     linkedin_company_url: org?.linkedin_url ?? null,
     address,
+    city: p.city ?? null,
+    state: p.state ?? null,
+    country: p.country ?? null,
+    seniority: p.seniority ?? null,
+    department,
+    industry: org?.industry ?? null,
+    employee_count: typeof org?.estimated_num_employees === "number" ? org.estimated_num_employees : null,
     phone: primaryPhone,
+    mobile_phone: mobilePhone,
+    corporate_phone: corporatePhone,
     source: "apollo",
     apollo_person_id: p.id,
   };

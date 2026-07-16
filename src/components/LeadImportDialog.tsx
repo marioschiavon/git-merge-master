@@ -19,7 +19,7 @@ interface Props {
 }
 
 // Campos suportados. Os que casam com colunas da tabela `leads` são gravados
-// diretamente; os demais vão para pipedrive_data.csv_import.
+// diretamente; os demais vão para `leads.enrichment_data`.
 type FieldKey =
   | "ignore" | "extra"
   | "first_name" | "last_name" | "name"
@@ -33,7 +33,7 @@ type FieldKey =
 
 const FIELD_LABELS: Record<FieldKey, string> = {
   ignore: "— Ignorar —",
-  extra: "Outro (enrichment)",
+  extra: "Outro (guardar como enriquecimento)",
   first_name: "Primeiro nome",
   last_name: "Sobrenome",
   name: "Nome completo",
@@ -41,14 +41,14 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   secondary_email: "Email secundário",
   personal_email: "Email pessoal",
   phone: "Telefone",
-  mobile_phone: "Telefone celular",
+  mobile_phone: "Telefone celular / mobile",
   corporate_phone: "Telefone corporativo",
   whatsapp: "WhatsApp",
   title: "Cargo",
   seniority: "Senioridade",
   department: "Departamento",
   company_name: "Empresa",
-  industry: "Indústria",
+  industry: "Indústria / Setor",
   employee_count: "Nº de funcionários",
   website: "Site",
   linkedin_url: "LinkedIn (pessoa)",
@@ -64,44 +64,51 @@ const FIELD_LABELS: Record<FieldKey, string> = {
   source: "Origem",
 };
 
-// Colunas reais no `leads` — o resto vira `extra`.
+// Todos os fields listados abaixo têm coluna nativa em `leads`.
+// O que não estiver aqui vira `extra` (enrichment_data).
 const NATIVE_FIELDS: ReadonlySet<FieldKey> = new Set([
-  "name", "email", "phone", "whatsapp", "company_name", "title", "website",
-  "instagram_url", "linkedin_url", "linkedin_company_url", "facebook_url",
-  "address", "status", "source",
+  "first_name", "last_name", "name",
+  "email", "secondary_email", "personal_email",
+  "phone", "mobile_phone", "corporate_phone", "whatsapp",
+  "title", "seniority", "department",
+  "company_name", "industry", "employee_count", "website",
+  "linkedin_url", "linkedin_company_url", "instagram_url", "facebook_url",
+  "address", "city", "state", "country",
+  "tags", "status", "source",
 ]);
 
-// Ordem importa: mais específico primeiro.
+// Ordem importa: mais específico primeiro. Cobre nomes típicos de Apollo e Pipedrive.
 const AUTO_SUGGEST: [RegExp, FieldKey][] = [
-  [/linkedin.*(company|empresa|organiza)/i, "linkedin_company_url"],
+  [/(company|empresa|organiz).*linkedin|linkedin.*(company|empresa|organiz)/i, "linkedin_company_url"],
   [/linkedin/i, "linkedin_url"],
   [/instagram|^ig$/i, "instagram_url"],
   [/facebook|^fb$/i, "facebook_url"],
   [/whats|zap|wpp/i, "whatsapp"],
-  [/(mail|email).*(secund|2)/i, "secondary_email"],
-  [/(mail|email).*(pessoal|personal)/i, "personal_email"],
+  [/(mail|email).*(secund|2|alt)/i, "secondary_email"],
+  [/(mail|email).*(pessoal|personal|private)/i, "personal_email"],
   [/e[-_ ]?mail|email/i, "email"],
-  [/(mobile|celular)/i, "mobile_phone"],
-  [/(corporat|comercial|escrit)/i, "corporate_phone"],
+  [/(mobile|celular|cell)/i, "mobile_phone"],
+  [/(corporat|comercial|work|office|direct|escrit)/i, "corporate_phone"],
   [/(phone|telefone|^tel$)/i, "phone"],
-  [/first.*name|primeiro.*nome|^nome$/i, "first_name"],
-  [/last.*name|sobrenome|surname/i, "last_name"],
-  [/(full.?name|nome.*completo|nome|name|contato|lead)/i, "name"],
+  [/first.?name|primeiro.?nome/i, "first_name"],
+  [/last.?name|sobrenome|surname/i, "last_name"],
+  [/(full.?name|nome.?completo|contact.?name|person.?name|^nome$|^name$|contato|lead)/i, "name"],
   [/(job.?title|cargo|title|posi[cç][aã]o|role)/i, "title"],
   [/senior/i, "seniority"],
   [/(depart|setor|area|área)/i, "department"],
-  [/(company|empresa|organiza)/i, "company_name"],
+  [/(company.?name|company|empresa|organiza|conta|account)/i, "company_name"],
   [/(indust|segment|nicho|vertical)/i, "industry"],
-  [/(employ|funcion|colabor|headcount|size)/i, "employee_count"],
+  [/(employ|funcion|colabor|headcount|company.?size|# ?employees|num ?employees)/i, "employee_count"],
   [/(website|site|url|web|dom[ií]nio)/i, "website"],
-  [/(cidade|city)/i, "city"],
-  [/(estado|state|uf|prov[ií]nc)/i, "state"],
+  [/(cidade|^city$|city)/i, "city"],
+  [/(estado|^state$|state|uf|prov[ií]nc)/i, "state"],
   [/(pa[ií]s|country)/i, "country"],
   [/(endere[cç]o|address|rua|logradouro)/i, "address"],
-  [/tags?|etiquet/i, "tags"],
+  [/tags?|etiquet|labels?/i, "tags"],
   [/status|situa[cç][aã]o/i, "status"],
   [/(source|origem|canal)/i, "source"],
 ];
+
 
 function normalize(s: string) {
   return String(s || "").toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -202,7 +209,9 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
   };
 
   const downloadTemplate = () => {
-    const csv = "first_name,last_name,email,phone,whatsapp,company_name,title,website,linkedin_url,tags\nJoão,Silva,joao@empresa.com,11999999999,11999999999,Empresa LTDA,CEO,https://empresa.com,https://linkedin.com/in/joao,vip;quente";
+    const header = "first_name,last_name,email,secondary_email,phone,mobile_phone,corporate_phone,whatsapp,company_name,title,seniority,department,industry,employee_count,website,linkedin_url,linkedin_company_url,city,state,country,tags";
+    const sample = "João,Silva,joao@empresa.com,joao.pessoal@gmail.com,+551133334444,+5511999998888,+551133334444,+5511999998888,Empresa LTDA,CEO,c_suite,Executive,Software,150,https://empresa.com,https://linkedin.com/in/joao,https://linkedin.com/company/empresa,São Paulo,SP,Brasil,vip;quente";
+    const csv = `${header}\n${sample}`;
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -241,6 +250,26 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
       }
       return "";
     };
+    const normUrl = (raw: string): string | null => {
+      const v = raw.trim();
+      if (!v) return null;
+      const cand = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+      try {
+        const u = new URL(cand);
+        if (!u.hostname.includes(".")) return null;
+        return u.toString().replace(/\/$/, "");
+      } catch { return null; }
+    };
+    const parseEmployees = (raw: string): number | null => {
+      const m = raw.match(/\d[\d.,]*/);
+      if (!m) return null;
+      const n = parseInt(m[0].replace(/[.,]/g, ""), 10);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    const normKey = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || s;
+
     const leads: LeadInput[] = [];
     for (const row of dataRows) {
       const first = get(row, "first_name");
@@ -248,57 +277,65 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
       const nameField = get(row, "name");
       const name = nameField || [first, last].filter(Boolean).join(" ").trim();
 
+      const tagsRaw = get(row, "tags");
+      const tags = tagsRaw
+        ? tagsRaw.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+        : [];
+
+      const websiteRaw = get(row, "website");
+      const linkedinRaw = get(row, "linkedin_url");
+      const linkedinCompanyRaw = get(row, "linkedin_company_url");
+      const instagramRaw = get(row, "instagram_url");
+      const facebookRaw = get(row, "facebook_url");
+      const employeeRaw = get(row, "employee_count");
+
       const lead: LeadInput = {
         name: name || null,
-        email: get(row, "email") || null,
-        phone: get(row, "phone") || get(row, "mobile_phone") || get(row, "corporate_phone") || null,
+        first_name: first || null,
+        last_name: last || null,
+        email: get(row, "email").toLowerCase() || null,
+        secondary_email: get(row, "secondary_email").toLowerCase() || null,
+        personal_email: get(row, "personal_email").toLowerCase() || null,
+        phone: get(row, "phone") || null,
+        mobile_phone: get(row, "mobile_phone") || null,
+        corporate_phone: get(row, "corporate_phone") || null,
         whatsapp: get(row, "whatsapp") || null,
         company_name: get(row, "company_name") || null,
         title: get(row, "title") || null,
-        website: get(row, "website") || null,
-        instagram_url: get(row, "instagram_url") || null,
-        linkedin_url: get(row, "linkedin_url") || null,
-        linkedin_company_url: get(row, "linkedin_company_url") || null,
-        facebook_url: get(row, "facebook_url") || null,
+        seniority: get(row, "seniority") || null,
+        department: get(row, "department") || null,
+        industry: get(row, "industry") || null,
+        employee_count: employeeRaw ? parseEmployees(employeeRaw) : null,
+        website: websiteRaw ? normUrl(websiteRaw) : null,
+        linkedin_url: linkedinRaw ? normUrl(linkedinRaw) : null,
+        linkedin_company_url: linkedinCompanyRaw ? normUrl(linkedinCompanyRaw) : null,
+        instagram_url: instagramRaw ? normUrl(instagramRaw) : null,
+        facebook_url: facebookRaw ? normUrl(facebookRaw) : null,
         address: get(row, "address") || null,
+        city: get(row, "city") || null,
+        state: get(row, "state") || null,
+        country: get(row, "country") || null,
+        tags,
         status: (get(row, "status") as any) || undefined,
         source: get(row, "source") || null,
       };
 
-      const extra: Record<string, string> = {};
-      const addExtra = (k: string, v: string) => { if (v) extra[k] = v; };
-      // Todos os campos não-nativos vão para extra
-      addExtra("first_name", first);
-      addExtra("last_name", last);
-      addExtra("secondary_email", get(row, "secondary_email"));
-      addExtra("personal_email", get(row, "personal_email"));
-      addExtra("mobile_phone", get(row, "mobile_phone"));
-      addExtra("corporate_phone", get(row, "corporate_phone"));
-      addExtra("seniority", get(row, "seniority"));
-      addExtra("department", get(row, "department"));
-      addExtra("industry", get(row, "industry"));
-      addExtra("employee_count", get(row, "employee_count"));
-      addExtra("city", get(row, "city"));
-      addExtra("state", get(row, "state"));
-      addExtra("country", get(row, "country"));
-      const tags = get(row, "tags");
-      if (tags) {
-        const parts = tags.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-        if (parts.length) extra.tags = parts.join(",");
-      }
-      // Colunas mapeadas como "extra" — usam o header original como chave
+      // Colunas marcadas como "extra" → enrichment_data (chave normalizada do cabeçalho).
+      const enrichment: Record<string, unknown> = {};
       rawHeaders.forEach((h, i) => {
         if (mapping[h] === "extra") {
           const v = String(row[i] ?? "").trim();
-          if (v) extra[h] = v;
+          if (v) enrichment[normKey(h)] = v;
         }
       });
+      if (Object.keys(enrichment).length) lead.enrichment_data = enrichment;
 
-      if (Object.keys(extra).length) lead.extra = extra;
       leads.push(lead);
     }
     return leads;
   };
+
+
 
   const stats = useMemo(() => {
     if (step !== 3) return null;
@@ -492,7 +529,7 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
                 {stats && stats.extraCount > 0 && (
                   <p className="text-xs text-muted-foreground">
                     {stats.extraCount} coluna(s) marcada(s) como <em>Outro</em> serão salvas em{" "}
-                    <code>pipedrive_data.csv_import</code>.
+                    <code>enrichment_data</code>.
                   </p>
                 )}
 

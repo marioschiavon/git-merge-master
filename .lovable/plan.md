@@ -1,27 +1,77 @@
 
 ## Objetivo
 
-Facilitar login/cadastro em `src/pages/Auth.tsx`:
-1. Botão **revelar/ocultar senha** (ícone olho) no campo de senha, tanto no login quanto no cadastro.
-2. Campo **Confirmar senha** apenas no cadastro, com validação de que as duas senhas coincidem antes de submeter.
-3. Ícone olho também no campo Confirmar senha.
+Trazer para este app a mesma estrutura de campos que o Leaderei Foundation usa na importação (CSV/Apollo/Pipedrive), promovendo campos hoje "escondidos" no JSON `pipedrive_data.csv_import` a **colunas nativas** da tabela `leads`. Isso permite filtrar, buscar, segmentar e enviar variáveis para IA a partir de `seniority`, `industry`, `city`, `tags` etc.
 
-## Mudanças
+## 1. Migração do schema (`leads`)
 
-- **`src/pages/Auth.tsx`**:
-  - Novos estados: `showPassword`, `showConfirmPassword`, `confirmPassword`.
-  - Envolver o `Input` da senha em um wrapper `relative` com um `<button type="button">` posicionado à direita usando ícones `Eye` / `EyeOff` do `lucide-react`. Alterna `type` entre `password` e `text`.
-  - No cadastro (`!isLogin`), adicionar bloco "Confirmar senha" com mesmo padrão (input + toggle).
-  - No `handleSubmit`, quando `!isLogin`: se `password !== confirmPassword`, exibir `toast.error("As senhas não coincidem.")` e abortar.
-  - Ao alternar entre login/cadastro (`setIsLogin`), limpar `confirmPassword` e resetar os toggles de visibilidade.
+Adicionar (todas nullable, sem quebrar dados existentes):
 
-## Fora de escopo
+- `first_name text`, `last_name text`
+- `secondary_email text`, `personal_email text`
+- `mobile_phone text`, `corporate_phone text`
+- `seniority text`, `department text`
+- `industry text`, `employee_count integer`
+- `city text`, `state text`, `country text`
+- `tags text[]` (default `'{}'`)
+- `enrichment_data jsonb` (default `'{}'`) — para colunas de CSV desconhecidas
 
-- Não altera fluxo de OAuth, esqueci-senha, ou redirects.
-- Não muda regras de força de senha além do `minLength=6` já existente.
-- Sem mudanças de backend.
+**Sem** duplicatas: mantém-se `name` (não cria `full_name`), `title` (não cria `job_title`), `website` (não cria `website_url`) e `linkedin_company_url` (não cria `company_linkedin_url`). No mapeador do CSV eu aceito os nomes do Foundation e traduzo internamente.
 
-## Validação
+Backfill leve: migrar `pipedrive_data->'csv_import'` de leads já importados para as novas colunas (best-effort, um `UPDATE ... SET` por chave conhecida).
 
-- No login: campo de senha mostra ícone olho; clicar alterna visibilidade; submit continua funcionando.
-- No cadastro: aparecem dois campos (Senha + Confirmar senha) com toggle cada; senhas diferentes mostram toast e não submetem; senhas iguais criam a conta normalmente.
+Índices simples em `(company_id, industry)` e `(company_id, seniority)` para filtragens futuras.
+
+## 2. CSV import — `LeadImportDialog` + `useImportLeads`
+
+Substituir a lista `FieldKey` e o mapa `AUTO_SUGGEST` pela versão do Foundation, mais completa e ordenada por especificidade (padrões estilo Apollo/Pipedrive: "First Name", "Company Linkedin Url", "# Employees", "Person Linkedin Url", etc.). Novidades:
+
+- Sentinel `OTHER` ("Guardar como enriquecimento") — coluna vai para `enrichment_data` sob a chave normalizada do cabeçalho, no lugar de virar `extra` em JSON de pipedrive.
+- Normalização de URL (`website`, `linkedin_url`, `linkedin_company_url`, `facebook_url`, `instagram_url`).
+- Parse robusto de `employee_count` (extrai o primeiro número inteiro, tolera `1.000`, `100+`).
+- Composição `name` a partir de `first_name`/`last_name` quando não há `name`.
+- Regra de obrigatório: nome + (email OU telefone/whatsapp/mobile/corporate). Continua igual, mas com mais fontes de telefone.
+
+O `useImportLeads` (hook) passa a montar payload com as novas colunas nativas e `enrichment_data` (em vez de `pipedrive_data.csv_import`). Comportamento de chunks/erros/`enrich_limit` fica idêntico.
+
+Modelo do CSV (botão "Baixar modelo") atualizado para o cabeçalho canônico do Foundation, cobrindo os campos Apollo/Pipedrive mais comuns.
+
+## 3. Import Apollo — `apollo-import` + `_shared/apollo.ts`
+
+`mapPersonToLeadPayload` passa a preencher também:
+
+- `first_name`, `last_name`
+- `seniority` (de `p.seniority`)
+- `department` (join de `p.departments`)
+- `industry`, `employee_count` (de `p.organization`)
+- `city`, `state`, `country` (nativos, sem perder o `address` composto)
+
+Sem mudança no fluxo de dedup / rate-limit / cache.
+
+## 4. Sync Pipedrive — `pipedrive-sync`
+
+Extrair também para colunas nativas quando o Person do Pipedrive traz:
+
+- `first_name`/`last_name` (se o Pipedrive tiver campos separados; caso contrário, split de `name`)
+- `city`, `state`, `country` a partir de `postal_address`
+- `industry` (do org, se presente em custom fields — best-effort, sem quebrar)
+
+`pipedrive_data` (JSON bruto) continua guardando a payload original.
+
+## 5. UI
+
+- `LeadDetail` / `LeadDetailContent`: mostrar as novas propriedades quando presentes (cidade/estado/país em uma linha, senioridade + departamento + indústria + tamanho da empresa em um pequeno bloco "Firmográficos"). Sem redesenho — só adição.
+- `LeadFormDialog`: adicionar campos opcionais (agrupados num accordion "Detalhes avançados") para permitir edição manual.
+
+## 6. Fora do escopo
+
+- Filtros na página `/leads` por indústria/senioridade/cidade (fica para depois).
+- Score que usa esses campos.
+- Mudanças em cadências / IA para consumir os novos campos como variáveis (fica para próximo pedido).
+
+## Detalhes técnicos
+
+- Migração em uma única transação, todos os `ADD COLUMN IF NOT EXISTS`.
+- Backfill idempotente: só copia do JSON quando o campo nativo está NULL.
+- Nenhum GRANT novo é necessário (a tabela `leads` já tem GRANT).
+- Regenerar `src/integrations/supabase/types.ts` acontece automaticamente após a migration.

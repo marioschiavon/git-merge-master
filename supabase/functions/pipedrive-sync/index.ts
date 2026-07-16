@@ -132,30 +132,57 @@ Deno.serve(async (req) => {
 
     for (const person of persons) {
       const email = person.email?.[0]?.value || null;
-      const phone = person.phone?.[0]?.value || null;
+      const secondary_email = person.email?.[1]?.value || null;
+      const phones = Array.isArray(person.phone) ? person.phone : [];
+      const phone = phones[0]?.value || null;
+      const findPhone = (label: string) =>
+        phones.find((p: any) => String(p?.label || "").toLowerCase().includes(label))?.value || null;
+      const mobile_phone = findPhone("mobile") || findPhone("cell");
+      const corporate_phone = findPhone("work") || findPhone("office");
 
-      // Extract address
+      // Extract address + city/state/country
       const postalAddr = person.postal_address;
       let address: string | null = null;
+      let city: string | null = null;
+      let state: string | null = null;
+      let country: string | null = null;
       if (postalAddr && typeof postalAddr === "object") {
+        city = postalAddr.locality || null;
+        state = postalAddr.admin_area_level_1 || null;
+        country = postalAddr.country || null;
         const parts = [postalAddr.street_number, postalAddr.route, postalAddr.sublocality, postalAddr.locality, postalAddr.admin_area_level_1, postalAddr.postal_code, postalAddr.country].filter(Boolean);
         address = parts.length > 0 ? parts.join(", ") : postalAddr.formatted_address || null;
       } else if (typeof postalAddr === "string" && postalAddr) {
         address = postalAddr;
       }
 
-      // Extract website from full organization data
+      // first_name / last_name — Pipedrive fornece diretamente, ou split de name
+      let first_name: string | null = person.first_name || null;
+      let last_name: string | null = person.last_name || null;
+      if (!first_name && !last_name && person.name) {
+        const parts = String(person.name).trim().split(/\s+/);
+        first_name = parts[0] || null;
+        last_name = parts.length > 1 ? parts.slice(1).join(" ") : null;
+      }
+
+      // Extract website + industry from full organization data
       const personOrgId = typeof person.org_id === "object" ? person.org_id?.value : person.org_id;
       const fullOrg = personOrgId ? orgMap.get(personOrgId) : null;
       const website = extractWebsiteFromOrg(fullOrg);
+      const industry = fullOrg?.industry || fullOrg?.category || null;
 
       const { error } = await supabase.from("leads").upsert(
         {
           company_id,
           pipedrive_id: person.id,
           name: person.name || "Sem nome",
+          first_name,
+          last_name,
           email,
+          secondary_email,
           phone,
+          mobile_phone,
+          corporate_phone,
           company_name: person.org_name || null,
           title: person.job_title || null,
           source: "pipedrive",
@@ -163,6 +190,10 @@ Deno.serve(async (req) => {
           last_synced_at: new Date().toISOString(),
           website,
           address,
+          city,
+          state,
+          country,
+          industry,
         },
         { onConflict: "company_id,pipedrive_id" }
       );

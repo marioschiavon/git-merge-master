@@ -2240,27 +2240,38 @@ export type Database = {
           address: string | null
           apollo_person_id: string | null
           call_requested_at: string | null
+          city: string | null
           company_id: string
           company_name: string | null
           contact_identified: boolean
+          corporate_phone: string | null
+          country: string | null
           created_at: string
+          department: string | null
           email: string | null
+          employee_count: number | null
+          enrichment_data: Json
           enrichment_status: string | null
           enrichment_updated_at: string | null
           facebook_url: string | null
+          first_name: string | null
           handoff_at: string | null
           handoff_reason: string | null
           handoff_required: boolean
           id: string
+          industry: string | null
           instagram_url: string | null
+          last_name: string | null
           last_synced_at: string | null
           lead_kind: string
           lead_list_id: string | null
           linkedin_company_url: string | null
           linkedin_url: string | null
+          mobile_phone: string | null
           name: string
           parent_company_lead_id: string | null
           pending_email_slot_hold_id: string | null
+          personal_email: string | null
           phone: string | null
           pipedrive_data: Json | null
           pipedrive_id: number | null
@@ -2275,8 +2286,12 @@ export type Database = {
           referrer_company: string | null
           referrer_name: string | null
           score: number | null
+          secondary_email: string | null
+          seniority: string | null
           source: string | null
+          state: string | null
           status: Database["public"]["Enums"]["lead_status"]
+          tags: string[]
           title: string | null
           updated_at: string
           website: string | null
@@ -2290,27 +2305,38 @@ export type Database = {
           address?: string | null
           apollo_person_id?: string | null
           call_requested_at?: string | null
+          city?: string | null
           company_id: string
           company_name?: string | null
           contact_identified?: boolean
+          corporate_phone?: string | null
+          country?: string | null
           created_at?: string
+          department?: string | null
           email?: string | null
+          employee_count?: number | null
+          enrichment_data?: Json
           enrichment_status?: string | null
           enrichment_updated_at?: string | null
           facebook_url?: string | null
+          first_name?: string | null
           handoff_at?: string | null
           handoff_reason?: string | null
           handoff_required?: boolean
           id?: string
+          industry?: string | null
           instagram_url?: string | null
+          last_name?: string | null
           last_synced_at?: string | null
           lead_kind?: string
           lead_list_id?: string | null
           linkedin_company_url?: string | null
           linkedin_url?: string | null
+          mobile_phone?: string | null
           name: string
           parent_company_lead_id?: string | null
           pending_email_slot_hold_id?: string | null
+          personal_email?: string | null
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
@@ -2325,8 +2351,12 @@ export type Database = {
           referrer_company?: string | null
           referrer_name?: string | null
           score?: number | null
+          secondary_email?: string | null
+          seniority?: string | null
           source?: string | null
+          state?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
+          tags?: string[]
           title?: string | null
           updated_at?: string
           website?: string | null
@@ -2340,27 +2370,38 @@ export type Database = {
           address?: string | null
           apollo_person_id?: string | null
           call_requested_at?: string | null
+          city?: string | null
           company_id?: string
           company_name?: string | null
           contact_identified?: boolean
+          corporate_phone?: string | null
+          country?: string | null
           created_at?: string
+          department?: string | null
           email?: string | null
+          employee_count?: number | null
+          enrichment_data?: Json
           enrichment_status?: string | null
           enrichment_updated_at?: string | null
           facebook_url?: string | null
+          first_name?: string | null
           handoff_at?: string | null
           handoff_reason?: string | null
           handoff_required?: boolean
           id?: string
+          industry?: string | null
           instagram_url?: string | null
+          last_name?: string | null
           last_synced_at?: string | null
           lead_kind?: string
           lead_list_id?: string | null
           linkedin_company_url?: string | null
           linkedin_url?: string | null
+          mobile_phone?: string | null
           name?: string
           parent_company_lead_id?: string | null
           pending_email_slot_hold_id?: string | null
+          personal_email?: string | null
           phone?: string | null
           pipedrive_data?: Json | null
           pipedrive_id?: number | null
@@ -2375,8 +2416,12 @@ export type Database = {
           referrer_company?: string | null
           referrer_name?: string | null
           score?: number | null
+          secondary_email?: string | null
+          seniority?: string | null
           source?: string | null
+          state?: string | null
           status?: Database["public"]["Enums"]["lead_status"]
+          tags?: string[]
           title?: string | null
           updated_at?: string
           website?: string | null
