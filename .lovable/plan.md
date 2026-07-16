@@ -1,54 +1,66 @@
-## Diagnóstico
+# Métricas de IA no painel Master
 
-O erro `401 credential not found` vem do **gateway de conectores da Lovable**, não do Resend.
+Hoje o painel Master (`/master`) mostra apenas cards zerados no `MasterDashboard.tsx` e a lista de empresas em `Companies.tsx`. Não há visibilidade de consumo de IA para precificar clientes.
 
-O código atual (`supabase/functions/_shared/resend-gateway.ts` e `resend-master-set/index.ts`) envia toda chamada Resend para `https://connector-gateway.lovable.dev/resend/...` com dois headers:
+A tabela `sdr_agent_runs` já registra por execução do agente: `company_id`, `model`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `created_at`. Vamos usá-la como fonte da verdade para o MVP dessa visão.
 
-- `Authorization: Bearer $LOVABLE_API_KEY`
-- `X-Connection-Api-Key: <chave salva>`
+## O que vai aparecer
 
-O gateway só aceita como `X-Connection-Api-Key` uma **chave de conexão emitida pelo conector Resend da Lovable** (aquela que aparece como `RESEND_API_KEY` quando você conecta o Resend em Integrações). Ao colar uma chave `re_...` gerada direto no painel `resend.com/api-keys`, o gateway não encontra credencial registrada e devolve `401 credential not found` — por isso a validação falha e nada é salvo em `platform_settings`.
+### 1. `MasterDashboard.tsx` — visão global
+Substituir os 4 cards estáticos por dados reais dos últimos 30 dias:
+- **Empresas ativas** (companies where status in active/trial)
+- **Tokens consumidos (30d)** — soma de `total_tokens`
+- **Custo estimado (30d)** — em USD e BRL (com cotação fixa configurável no código, ex. 5,20)
+- **Modelo mais usado** — modelo com maior share de tokens
 
-## Solução
+Abaixo, dois blocos:
+- **Consumo por modelo (30d)** — tabela: modelo · runs · prompt tokens · completion tokens · custo estimado
+- **Top 10 empresas por consumo (30d)** — tabela: empresa · runs · total tokens · custo estimado
 
-Chamar `https://api.resend.com` diretamente com `Authorization: Bearer <re_...>`. Assim qualquer chave full-access gerada pelo próprio usuário no painel do Resend funciona — sem depender do conector.
+Filtro de período: 7d / 30d / 90d (default 30d).
 
-## Mudanças
+### 2. `Companies.tsx` — por empresa
+Adicionar 3 colunas na tabela existente:
+- **Runs (30d)**
+- **Tokens (30d)**
+- **Custo est. (30d)** — em BRL
 
-### 1. `supabase/functions/_shared/resend-gateway.ts`
-- Trocar `GATEWAY = "https://connector-gateway.lovable.dev/resend"` por `RESEND_API = "https://api.resend.com"`.
-- Em `resendFetch` e `resendFetchWithKey`: usar `Authorization: Bearer <resendKey>`, remover `X-Connection-Api-Key` e a dependência de `LOVABLE_API_KEY`.
-- `resolveResendKey` continua igual (DB primeiro, connector como fallback) — a chave do connector (`RESEND_API_KEY`) na verdade também é uma `re_...` válida pela Resend direta, então o fallback segue funcionando.
-- Mantém cache e `invalidateResendKeyCache`.
+Buscadas em uma única query agrupada por `company_id` para não fazer N+1.
 
-### 2. `supabase/functions/resend-master-set/index.ts`
-- Nada muda no fluxo, mas agora a validação `GET /domains` bate direto no Resend. Uma chave `re_...` válida passa; uma chave inválida devolve o erro real do Resend (JSON `{ name, message }`).
-- Ajustar apenas a mensagem de erro para exibir `message` do Resend quando possível (fica mais claro que "credential not found").
+### 3. Tabela de preços (código, não UI)
+Novo arquivo `src/lib/ai-pricing.ts` com preço por 1M tokens (input/output) para cada modelo que aparece em `sdr_agent_runs.model`. Função `estimateCostUsd(model, promptTokens, completionTokens)`. Cotação USD→BRL como constante no topo, editável.
 
-### 3. `supabase/functions/resend-master-test/index.ts`
-- Nenhuma mudança de código; passa a testar direto no Resend automaticamente pela mudança em (1).
+Valores iniciais (baseados nos modelos usados no projeto — `openai/gpt-5`, `google/gemini-2.5-flash`, etc.):
 
-### 4. `supabase/functions/send-outbound-email/index.ts`
-- Trocar `RESEND_GATEWAY = "https://connector-gateway.lovable.dev/resend"` por `https://api.resend.com`.
-- No `fetch` de envio: usar `Authorization: Bearer <resendKey>`, remover `X-Connection-Api-Key` e o require de `LOVABLE_API_KEY`.
-- Resolver a chave via `resolveResendKey()` do helper compartilhado (hoje ele lê `Deno.env.get('RESEND_API_KEY')` só). Assim, se o master salvou a chave via UI, o envio outbound também usa essa chave (hoje só usa a do connector).
+```text
+openai/gpt-5              → in $1.25 / out $10.00 por 1M
+openai/gpt-5-mini         → in $0.25 / out $2.00 por 1M
+openai/gpt-5-nano         → in $0.05 / out $0.40 por 1M
+google/gemini-2.5-pro     → in $1.25 / out $10.00 por 1M
+google/gemini-2.5-flash   → in $0.30 / out $2.50 por 1M
+google/gemini-2.5-flash-lite → in $0.10 / out $0.40 por 1M
+default (desconhecido)    → in $1.00 / out $3.00 por 1M
+```
 
-### 5. `supabase/functions/resend-domain-create/index.ts`, `resend-domain-verify/index.ts`, `resend-domain-delete/index.ts`
-- Já usam o helper `resendFetch` / `resendJson`. Nenhuma alteração — herdam o fix.
+Deixarei um comentário claro no arquivo dizendo que são valores de referência e devem ser revisados quando os preços do gateway mudarem.
 
-### 6. `src/pages/master/PlatformSettings.tsx` (UI)
-- Ajustar o texto de ajuda do card para deixar claro: **cole aqui uma chave "Full access" criada em `resend.com/api-keys`**, e que ela é validada em `api.resend.com/domains` antes de ser gravada.
-- Remover a menção residual ao "Connector (legado)" quando o ambiente não tiver mais o `RESEND_API_KEY` do connector, para não confundir.
+## Detalhes técnicos
 
-## Fora do escopo
+- **Fonte dos dados:** consulta direta a `sdr_agent_runs` via `supabase.from(...)` — como só é acessada por master admin (rota protegida por `RequireMasterAdmin`) e a RLS já cobre.
+- **Agregação no cliente:** para simplicidade, faço `select("company_id, model, prompt_tokens, completion_tokens, total_tokens, created_at")` filtrando por `created_at >= now - 30d` e agrego em memória (volume esperado é baixo — dá para paginar depois se crescer).
+- **Limitação conhecida:** `sdr_agent_runs` só cobre o agente SDR. Chamadas como `analyze-lead-website`, `ai-variations`, `generate-reply` não estão nela. Vou adicionar uma nota no card de custo dizendo *"Considera apenas execuções do agente SDR"*. Ampliar para todas as chamadas fica como próximo passo (exigiria uma tabela unificada de logs de IA — fora do escopo desta rodada).
+- **Sem mudança de schema.** Sem migration. Só frontend + um arquivo utilitário.
 
-- Remover o secret `RESEND_API_KEY` do connector: mantém como fallback, sem impacto.
-- Migrar chave existente já salva no banco: continua válida (é um `re_...`); só muda o destino da chamada.
-- Mudanças em templates ou fluxo de envio de e-mails.
+## Arquivos alterados
 
-## Como testar após aplicar
+- `src/lib/ai-pricing.ts` — novo, tabela de preços + `estimateCostUsd` + `USD_TO_BRL`
+- `src/hooks/useMasterAiUsage.ts` — novo, hook que faz a query agregada e devolve `{ byModel, byCompany, totals }`
+- `src/pages/master/MasterDashboard.tsx` — reescreve cards + adiciona 2 tabelas + seletor de período
+- `src/pages/master/Companies.tsx` — adiciona 3 colunas de consumo por empresa
 
-1. Abrir `/master/platform-settings` → colar a chave `re_...` full-access → **Salvar**.
-2. Toast deve mostrar `Chave salva. N domínio(s) na conta.`.
-3. Clicar em **Testar conexão** → deve retornar `Conectado. N domínio(s) na conta Resend.`.
-4. Cadastrar/verificar um domínio de envio de uma empresa para confirmar que `resend-domain-create` e `resend-domain-verify` continuam funcionando.
+## Fora de escopo
+
+- Rastrear IA fora do agente SDR (edge functions avulsas)
+- Persistir cotação USD→BRL em `platform_settings`
+- Exportar CSV
+- Gráficos (só tabelas nesta rodada)
