@@ -383,7 +383,8 @@ function ResendCard({
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            Antes de salvar, a chave é validada com <code>GET /domains</code> na Resend. Se rejeitada, nada é gravado.
+            Crie uma chave <strong>Full access</strong> em <code>resend.com/api-keys</code> e cole aqui.
+            Antes de salvar, ela é validada em <code>api.resend.com/domains</code>. Se rejeitada, nada é gravado.
           </p>
         </div>
 
