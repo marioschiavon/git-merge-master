@@ -22,20 +22,14 @@ export function ChannelBadges({ lead, size = "sm" }: Props) {
   return (
     <span className="inline-flex items-center gap-1">
       {wpp && (
-        <img
-          src={whatsappIcon.url}
-          alt="WhatsApp"
-          className={dim}
-          title={`WhatsApp: ${wpp}`}
-        />
+        <span title={`WhatsApp: ${wpp}`} className="inline-flex">
+          <img src={whatsappIcon.url} alt="WhatsApp" className={dim} />
+        </span>
       )}
       {email && (
-        <Mail
-          className={`${dim} text-blue-600`}
-          aria-label="E-mail"
-        >
-          <title>{`E-mail: ${email}`}</title>
-        </Mail>
+        <span title={`E-mail: ${email}`} className="inline-flex">
+          <Mail className={`${dim} text-blue-600`} aria-label="E-mail" />
+        </span>
       )}
     </span>
   );
