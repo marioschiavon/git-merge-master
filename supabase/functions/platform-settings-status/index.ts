@@ -48,7 +48,7 @@ serve(async (req) => {
       (Deno.env.get("HOOK7_INSTANCE_TOKEN_PASSPHRASE") ?? "").trim().length >= 16;
     const { data: ps } = await admin
       .from("platform_settings")
-      .select("hook7_base_url, resend_api_key_encrypted, resend_connected_at")
+      .select("hook7_base_url, resend_api_key_encrypted, resend_connected_at, elevenlabs_api_key_encrypted, elevenlabs_connected_at, elevenlabs_model")
       .eq("singleton", true)
       .maybeSingle();
     const hook7BaseUrl =
@@ -58,6 +58,8 @@ serve(async (req) => {
     const resendDbKeyConfigured = !!(ps as any)?.resend_api_key_encrypted;
     const resendKeySource: "db" | "connector" | "none" =
       resendDbKeyConfigured ? "db" : resendConnectorConfigured ? "connector" : "none";
+    const elevenlabsKeyConfigured = !!(ps as any)?.elevenlabs_api_key_encrypted;
+    const elevenlabsModel = ((ps as any)?.elevenlabs_model as string) || "scribe_v2";
     const supaUrl = (SUPABASE_URL ?? "").replace(/\/+$/, "");
     const webhookUrlMasked = hook7WebhookConfigured && supaUrl
       ? `${supaUrl}/functions/v1/hook7-webhook/****/{company-slug}`
@@ -73,6 +75,12 @@ serve(async (req) => {
         connected_at: (ps as any)?.resend_connected_at ?? null,
         lovable_api_key_configured: lovableApiKeyConfigured,
       },
+      elevenlabs: {
+        key_configured: elevenlabsKeyConfigured,
+        connected_at: (ps as any)?.elevenlabs_connected_at ?? null,
+        model: elevenlabsModel,
+        passphrase_configured: resendPassphraseConfigured,
+      },
       hook7: {
         apikey_configured: hook7ApikeyConfigured,
         webhook_configured: hook7WebhookConfigured,
@@ -81,6 +89,7 @@ serve(async (req) => {
         webhook_url_masked: webhookUrlMasked,
       },
     }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), {
       status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
