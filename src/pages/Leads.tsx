@@ -344,6 +344,7 @@ export default function Leads() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <span>{lead.name}</span>
+                        <ChannelBadges lead={lead} />
                         {lead.lead_kind === "company" && (
                           <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200 text-[10px] px-1.5 py-0" title="Canal corporativo: sem nome de pessoa identificada">
                             🏢 Empresa
