@@ -164,7 +164,7 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
       return "ignored";
     }
     try {
-      const media = await downloadHook7Media(admin, instance, externalId, data?.Message, audioRef);
+      const media = await downloadHook7Media(admin, instance, externalId, data, audioRef);
       const bytes = base64ByteLength(media.base64);
       let storagePath: string | null = null;
       try {
