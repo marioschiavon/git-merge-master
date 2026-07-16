@@ -640,3 +640,220 @@ function StatusPill({
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// ElevenLabs (Speech-to-Text) — chave master gerenciada 100% pela UI
+// ---------------------------------------------------------------------------
+
+function ElevenLabsCard({
+  status,
+}: {
+  status?: {
+    key_configured: boolean;
+    connected_at: string | null;
+    model: string;
+    passphrase_configured: boolean;
+  };
+}) {
+  const qc = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState<string>(status?.model || "scribe_v2");
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  useEffect(() => {
+    if (status?.model) setModel(status.model);
+  }, [status?.model]);
+
+  const keyOk = !!status?.key_configured;
+  const passOk = !!status?.passphrase_configured;
+  const allOk = keyOk && passOk;
+
+  const saveKey = useMutation({
+    mutationFn: async () => {
+      const clean = apiKey.trim();
+      if (clean.length < 8) throw new Error("Chave muito curta");
+      const { data, error } = await supabase.functions.invoke("elevenlabs-master-set", {
+        body: { api_key: clean, model },
+      });
+      if (error) throw error;
+      return data as { ok: boolean; tier?: string | null; message: string };
+    },
+    onSuccess: (r) => {
+      toast({
+        title: r.ok ? "Chave salva" : "Falha ao salvar",
+        description: r.message,
+        variant: r.ok ? "default" : "destructive",
+      });
+      if (r.ok) {
+        setApiKey("");
+        qc.invalidateQueries({ queryKey: ["platform_settings_status"] });
+      }
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const testConn = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("elevenlabs-master-test");
+      if (error) throw error;
+      return data as { ok: boolean; configured: boolean; status?: number; tier?: string | null; message: string };
+    },
+    onSuccess: (r) =>
+      toast({
+        title: r.ok ? "Conexão OK" : "Falha na conexão",
+        description: r.message,
+        variant: r.ok ? "default" : "destructive",
+      }),
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const clearKey = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("elevenlabs-master-clear");
+      if (error) throw error;
+      return data as { ok: boolean; message: string };
+    },
+    onSuccess: () => {
+      toast({ title: "Chave removida" });
+      setConfirmClear(false);
+      qc.invalidateQueries({ queryKey: ["platform_settings_status"] });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Mic className="h-4 w-4 text-primary" /> Áudio · ElevenLabs (master)
+          </CardTitle>
+          <Badge variant={allOk ? "default" : "secondary"}>
+            {allOk ? (
+              <><CheckCircle2 className="h-3 w-3 mr-1" /> Pronto</>
+            ) : (
+              <><AlertCircle className="h-3 w-3 mr-1" /> Config pendente</>
+            )}
+          </Badge>
+        </div>
+        <CardDescription>
+          Chave usada por todas as empresas para transcrever áudios recebidos no WhatsApp.
+          Fica criptografada no banco e é gerenciada 100% por esta tela. Após salvar, a chave
+          nunca mais é exibida; para trocar, cole a nova e salve por cima. Se a chave não
+          estiver configurada, a plataforma usa o fluxo antigo (Gemini) como fallback.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <StatusPill
+            label="Chave ElevenLabs"
+            ok={keyOk}
+            envName="platform_settings.elevenlabs_api_key_encrypted"
+          />
+          <StatusPill label="Passphrase (cripto)" ok={passOk} envName="RESEND_KEY_PASSPHRASE" />
+        </div>
+
+        {status?.connected_at && (
+          <p className="text-[11px] text-muted-foreground">
+            Última atualização da chave: {new Date(status.connected_at).toLocaleString("pt-BR")}
+          </p>
+        )}
+
+        <div className="space-y-2 border rounded-md p-3">
+          <Label className="text-sm font-medium">Modelo de transcrição</Label>
+          <div className="flex gap-2 flex-wrap">
+            {[
+              { id: "scribe_v2", label: "scribe_v2 (padrão · batch)" },
+              { id: "scribe_v2_realtime", label: "scribe_v2_realtime (streaming)" },
+            ].map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setModel(m.id)}
+                className={
+                  "px-3 py-1.5 rounded-md text-xs border transition-colors " +
+                  (model === m.id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background hover:bg-muted border-input")
+                }
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            O modelo é salvo junto com a chave. O webhook do WhatsApp usa transcrição em batch;
+            deixe em <code>scribe_v2</code>.
+          </p>
+        </div>
+
+        <div className="space-y-2 border rounded-md p-3">
+          <Label htmlFor="elevenlabs-api-key" className="text-sm font-medium">
+            {keyOk ? "Substituir chave ElevenLabs" : "Nova chave ElevenLabs"}
+          </Label>
+          <div className="flex gap-2">
+            <Input
+              id="elevenlabs-api-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="sk_..."
+              className="font-mono text-xs"
+              disabled={!passOk}
+            />
+            <Button
+              onClick={() => saveKey.mutate()}
+              disabled={saveKey.isPending || !passOk || apiKey.trim().length < 8}
+            >
+              {saveKey.isPending ? (
+                <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Salvando…</>
+              ) : (
+                <>Salvar chave</>
+              )}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Crie uma chave em <code>elevenlabs.io/app/settings/api-keys</code> com permissão de
+            <strong> Speech to Text</strong> e cole aqui. Antes de salvar, a chave é validada em{" "}
+            <code>api.elevenlabs.io/v1/user</code>. Se rejeitada, nada é gravado.
+          </p>
+        </div>
+
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            onClick={() => testConn.mutate()}
+            disabled={testConn.isPending || !keyOk}
+            variant="outline"
+          >
+            {testConn.isPending ? (
+              <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Testando…</>
+            ) : (
+              <>Testar conexão</>
+            )}
+          </Button>
+          {keyOk && !confirmClear && (
+            <Button variant="ghost" onClick={() => setConfirmClear(true)}>
+              Remover chave
+            </Button>
+          )}
+          {keyOk && confirmClear && (
+            <>
+              <Button
+                variant="destructive"
+                onClick={() => clearKey.mutate()}
+                disabled={clearKey.isPending}
+              >
+                {clearKey.isPending ? "Removendo…" : "Confirmar remoção"}
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmClear(false)}>
+                Cancelar
+              </Button>
+            </>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
