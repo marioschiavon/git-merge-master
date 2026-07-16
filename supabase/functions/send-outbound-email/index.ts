@@ -104,12 +104,11 @@ Deno.serve(async (req) => {
     if (text) resendPayload.text = text;
     if (domainRow.reply_to) resendPayload.reply_to = domainRow.reply_to;
 
-    const resp = await fetch(`${RESEND_GATEWAY}/emails`, {
+    const resp = await fetch(`${RESEND_API}/emails`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${lovableKey}`,
-        "X-Connection-Api-Key": resendKey,
+        "Authorization": `Bearer ${resendKey}`,
       },
       body: JSON.stringify(resendPayload),
     });
