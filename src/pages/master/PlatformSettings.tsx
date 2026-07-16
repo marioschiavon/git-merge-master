@@ -815,8 +815,8 @@ function ElevenLabsCard({
           </div>
           <p className="text-[11px] text-muted-foreground">
             Crie uma chave em <code>elevenlabs.io/app/settings/api-keys</code> com permissão de
-            <strong> Speech to Text</strong> e cole aqui. Antes de salvar, a chave é validada em{" "}
-            <code>api.elevenlabs.io/v1/user</code>. Se rejeitada, nada é gravado.
+            <strong> Speech to Text</strong> e cole aqui. Antes de salvar, a chave é validada no
+            endpoint real de transcrição, sem exigir permissões de modelos ou usuário.
           </p>
         </div>
 
