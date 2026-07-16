@@ -1,40 +1,35 @@
 ## Diagnóstico
 
-Logs do `hook7-webhook` mostram `BootFailure` contínuo:
+A conversa continua travada porque o backend ainda está tentando inicializar `hook7-webhook` com o import antigo:
 
-```
-worker boot error: The requested module 'npm:opus-decoder@0.7.11'
-does not provide an export named 'OggOpusDecoder'
-  at .../_shared/transcribe-audio.ts:6:10
-```
+`npm:opus-decoder@0.7.11` → não exporta `OggOpusDecoder`
 
-`transcribe-audio.ts` é importado pelo `hook7-webhook/index.ts`, então a função **inteira não sobe**. Todo evento do Hook7 — Message de áudio **e de texto** — cai numa função morta e nada é gravado em `messages`. Por isso nem texto está aparecendo na conversa.
+Enquanto essa função não sobe, nenhum evento do WhatsApp é processado: nem áudio, nem texto. Por isso as mensagens do Mario não aparecem na conversa.
 
-Causa raiz: `OggOpusDecoder` não é exportado por `npm:opus-decoder` (esse pacote só exporta `OpusDecoder`, para frames Opus crus). O decoder que entende contêiner OGG (formato do WhatsApp) está em **`npm:ogg-opus-decoder`**.
+No código local o import já está correto (`npm:ogg-opus-decoder@0.1.16`), então o problema mais provável é deploy/cache/lock de função ainda rodando a versão antiga ou uma dependência de áudio incompatível bloqueando o boot da função inteira.
 
-## Correção
+## Plano de correção
 
-Único arquivo: `supabase/functions/_shared/transcribe-audio.ts`, linha 7.
+1. **Remover o acoplamento que derruba o webhook inteiro**
+   - Tirar o import estático de transcrição de áudio do topo de `hook7-webhook`.
+   - Carregar a transcrição apenas quando chegar áudio inbound.
+   - Assim, mesmo que a biblioteca de áudio falhe, mensagens de texto continuam aparecendo normalmente.
 
-- de: `import { OggOpusDecoder } from "npm:opus-decoder@0.7.11";`
-- para: `import { OggOpusDecoder } from "npm:ogg-opus-decoder@0.1.16";`
+2. **Manter áudio como falha controlada**
+   - Se a transcrição ou decoder falhar, gravar a mensagem como `[áudio não transcrito]` com o erro em `metadata.hook7.audio`.
+   - Não deixar falha de STT impedir o insert em `messages`.
 
-Comentário do topo atualizado para refletir o pacote correto. Resto do arquivo intacto (`decodeOggOpusToWav`, `transcribeAudio`, roteamento por mimetype, envio WAV → `openai/gpt-4o-transcribe`, tratamento de 429/402).
+3. **Garantir refresh da conversa no app**
+   - Revisar o realtime/query da tela de conversas para garantir que novas mensagens invalidem também a lista de conversas, não só a thread aberta.
+   - Se necessário, adicionar assinatura realtime em `messages`/`conversations` por empresa para destravar a lista.
 
-Nenhuma mudança em `hook7-webhook`, UI, DB, RLS, storage ou HITL.
+4. **Validar pelos sinais corretos**
+   - Checar logs de `hook7-webhook` após a alteração: deve aparecer `booted`, sem `BootFailure` de decoder.
+   - Confirmar que mensagem de texto inbound é inserida mesmo sem áudio.
+   - Confirmar que áudio não trava o webhook; no pior caso aparece como `[áudio não transcrito]` e a conversa segue funcionando.
 
-## Validação
+## Fora do escopo
 
-1. Logs do `hook7-webhook` param de exibir `BootFailure` e voltam a mostrar `booted (time: …ms)`.
-2. Mario envia **mensagem de texto** → aparece imediatamente na conversa (confirma que a função voltou a subir).
-3. Mario envia **áudio novo** → grava em `messages`:
-   - `content` = transcrição fiel ao áudio.
-   - `metadata.hook7.audio.transcript_model = "openai/gpt-4o-transcribe"`.
-   - Áudio salvo em `whatsapp-audio` (best-effort).
-4. Pipeline IA (`inbound-webhook`) dispara normalmente para inbound.
-
-Se ainda houver problema após o boot voltar, o erro real aparece em `metadata.hook7.audio.transcript_error` (ex.: 402 créditos, 429 rate limit) — sem mais falha silenciosa.
-
-## Fora de escopo
-
-Troca de modelo STT, mudanças em UI/storage/player/HITL, outras funções.
+- Trocar provedor/modelo de IA.
+- Reestruturar a integração Hook7 inteira.
+- Alterar regras de negócio de leads/cadências.

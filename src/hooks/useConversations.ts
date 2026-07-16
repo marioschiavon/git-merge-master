@@ -6,6 +6,39 @@ import { toast } from "sonner";
 
 export function useConversations() {
   const { companyId } = useAuth();
+  const qc = useQueryClient();
+
+  useEffect(() => {
+    if (!companyId) return;
+
+    const conversationsChannel = supabase
+      .channel(`conversations-realtime-${companyId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations", filter: `company_id=eq.${companyId}` },
+        () => {
+          qc.invalidateQueries({ queryKey: ["conversations", companyId] });
+        },
+      )
+      .subscribe();
+
+    const messagesChannel = supabase
+      .channel(`conversation-messages-realtime-${companyId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "messages" },
+        () => {
+          qc.invalidateQueries({ queryKey: ["conversations", companyId] });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(conversationsChannel);
+      supabase.removeChannel(messagesChannel);
+    };
+  }, [companyId, qc]);
+
   return useQuery({
     queryKey: ["conversations", companyId],
     queryFn: async () => {

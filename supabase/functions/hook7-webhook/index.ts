@@ -15,7 +15,22 @@
 
 import { loadInstanceToken, serviceClient } from "../_shared/hook7.ts";
 import { base64ByteLength, downloadHook7Media, extractAudioRef, type AudioRef } from "../_shared/hook7-media.ts";
-import { extensionFromMimetype, transcribeAudio } from "../_shared/transcribe-audio.ts";
+
+function audioExtensionFromMimetype(mime: string | null | undefined): string {
+  const m = String(mime || "").toLowerCase();
+  if (m.includes("ogg") || m.includes("opus")) return "ogg";
+  if (m.includes("webm")) return "webm";
+  if (m.includes("mp4") || m.includes("m4a") || m.includes("aac")) return "m4a";
+  if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
+  if (m.includes("wav")) return "wav";
+  if (m.includes("flac")) return "flac";
+  return "wav";
+}
+
+async function transcribeInboundAudio(base64: string, mimetype: string | null | undefined) {
+  const mod = await import("../_shared/transcribe-audio.ts");
+  return mod.transcribeAudio({ base64, mimetype });
+}
 
 // deno-lint-ignore no-explicit-any
 async function uploadAudioToStorage(
@@ -31,7 +46,7 @@ async function uploadAudioToStorage(
     const bin = atob(clean);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    const ext = extensionFromMimetype(mimetype);
+    const ext = audioExtensionFromMimetype(mimetype);
     const path = `${companyId}/${conversationId}/${providerMessageId}.${ext}`;
     const contentType = mimetype && mimetype.includes("/") ? mimetype.split(";")[0].trim() : `audio/${ext === "m4a" ? "mp4" : ext}`;
     const { error } = await admin.storage.from("whatsapp-audio").upload(path, bytes, {
@@ -153,7 +168,7 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
       const bytes = base64ByteLength(media.base64);
       let storagePath: string | null = null;
       try {
-        const stt = await transcribeAudio({ base64: media.base64, mimetype: media.mimetype });
+        const stt = await transcribeInboundAudio(media.base64, media.mimetype);
         text = stt.text;
         audioMeta = {
           seconds: audioRef.seconds,
