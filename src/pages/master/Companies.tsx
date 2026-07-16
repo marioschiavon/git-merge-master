@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
+import { useCompanyUsageMap } from "@/hooks/useMasterAiUsage";
+import { formatBrl, formatTokens, USD_TO_BRL } from "@/lib/ai-pricing";
 
 interface Company {
   id: string;
@@ -29,6 +31,7 @@ export default function Companies() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [confirmCompany, setConfirmCompany] = useState<Company | null>(null);
+  const { data: usageMap } = useCompanyUsageMap(30);
 
   const fetchCompanies = async () => {
     const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
@@ -133,19 +136,23 @@ export default function Companies() {
                   <TableHead>Nome</TableHead>
                   <TableHead>Slug</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Limite Usuários</TableHead>
-                  <TableHead>Limite Leads</TableHead>
+                  <TableHead className="text-right">Runs (30d)</TableHead>
+                  <TableHead className="text-right">Tokens (30d)</TableHead>
+                  <TableHead className="text-right">Custo est. (30d)</TableHead>
                   <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {companies.map((c) => (
+                {companies.map((c) => {
+                  const u = usageMap.get(c.id);
+                  return (
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell>{c.slug}</TableCell>
                     <TableCell><Badge variant={statusColor(c.status)}>{statusLabel(c.status)}</Badge></TableCell>
-                    <TableCell>{c.max_users}</TableCell>
-                    <TableCell>{c.max_leads}</TableCell>
+                    <TableCell className="text-right">{u?.runs ?? 0}</TableCell>
+                    <TableCell className="text-right">{formatTokens(u?.totalTokens ?? 0)}</TableCell>
+                    <TableCell className="text-right">{formatBrl((u?.costUsd ?? 0) * USD_TO_BRL)}</TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Switch
@@ -158,7 +165,8 @@ export default function Companies() {
                       </div>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           )}
