@@ -225,12 +225,15 @@ export default function PlatformSettings() {
 
       <ResendCard status={status?.resend} />
 
+      <ElevenLabsCard status={status?.elevenlabs} />
+
       <Hook7Card
         status={status?.hook7}
         currentBaseUrl={(settings as any)?.hook7_base_url ?? null}
       />
     </div>
   );
+
 }
 
 // ---------------------------------------------------------------------------
