@@ -1,66 +1,53 @@
-# Métricas de IA no painel Master
+## Diagnóstico
 
-Hoje o painel Master (`/master`) mostra apenas cards zerados no `MasterDashboard.tsx` e a lista de empresas em `Companies.tsx`. Não há visibilidade de consumo de IA para precificar clientes.
+O log do `hook7-webhook` mostra o erro exato:
 
-A tabela `sdr_agent_runs` já registra por execução do agente: `company_id`, `model`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `created_at`. Vamos usá-la como fonte da verdade para o MVP dessa visão.
-
-## O que vai aparecer
-
-### 1. `MasterDashboard.tsx` — visão global
-Substituir os 4 cards estáticos por dados reais dos últimos 30 dias:
-- **Empresas ativas** (companies where status in active/trial)
-- **Tokens consumidos (30d)** — soma de `total_tokens`
-- **Custo estimado (30d)** — em USD e BRL (com cotação fixa configurável no código, ex. 5,20)
-- **Modelo mais usado** — modelo com maior share de tokens
-
-Abaixo, dois blocos:
-- **Consumo por modelo (30d)** — tabela: modelo · runs · prompt tokens · completion tokens · custo estimado
-- **Top 10 empresas por consumo (30d)** — tabela: empresa · runs · total tokens · custo estimado
-
-Filtro de período: 7d / 30d / 90d (default 30d).
-
-### 2. `Companies.tsx` — por empresa
-Adicionar 3 colunas na tabela existente:
-- **Runs (30d)**
-- **Tokens (30d)**
-- **Custo est. (30d)** — em BRL
-
-Buscadas em uma única query agrupada por `company_id` para não fazer N+1.
-
-### 3. Tabela de preços (código, não UI)
-Novo arquivo `src/lib/ai-pricing.ts` com preço por 1M tokens (input/output) para cada modelo que aparece em `sdr_agent_runs.model`. Função `estimateCostUsd(model, promptTokens, completionTokens)`. Cotação USD→BRL como constante no topo, editável.
-
-Valores iniciais (baseados nos modelos usados no projeto — `openai/gpt-5`, `google/gemini-2.5-flash`, etc.):
-
-```text
-openai/gpt-5              → in $1.25 / out $10.00 por 1M
-openai/gpt-5-mini         → in $0.25 / out $2.00 por 1M
-openai/gpt-5-nano         → in $0.05 / out $0.40 por 1M
-google/gemini-2.5-pro     → in $1.25 / out $10.00 por 1M
-google/gemini-2.5-flash   → in $0.30 / out $2.50 por 1M
-google/gemini-2.5-flash-lite → in $0.10 / out $0.40 por 1M
-default (desconhecido)    → in $1.00 / out $3.00 por 1M
+```
+STT falhou [400]: "Audio file might be corrupted or unsupported"
+  type: invalid_request_error, param: file
 ```
 
-Deixarei um comentário claro no arquivo dizendo que são valores de referência e devem ser revisados quando os preços do gateway mudarem.
+O áudio chega do WhatsApp em **OGG/Opus** (formato padrão do WhatsApp) e está sendo enviado para `openai/gpt-4o-transcribe`, que **não aceita OGG/Opus** — só WAV, MP3, M4A, WebM, FLAC. A própria documentação do Lovable STT afirma: *"WhatsApp/Telegram audio is OGG/Opus, which the transcription models reject — convert it to WAV or MP3 first."*
 
-## Detalhes técnicos
+Resultado: toda mensagem de voz do WhatsApp cai no fallback `[áudio não transcrito]` e o pipeline da IA é pulado, entregando a conversa para takeover humano.
 
-- **Fonte dos dados:** consulta direta a `sdr_agent_runs` via `supabase.from(...)` — como só é acessada por master admin (rota protegida por `RequireMasterAdmin`) e a RLS já cobre.
-- **Agregação no cliente:** para simplicidade, faço `select("company_id, model, prompt_tokens, completion_tokens, total_tokens, created_at")` filtrando por `created_at >= now - 30d` e agrego em memória (volume esperado é baixo — dá para paginar depois se crescer).
-- **Limitação conhecida:** `sdr_agent_runs` só cobre o agente SDR. Chamadas como `analyze-lead-website`, `ai-variations`, `generate-reply` não estão nela. Vou adicionar uma nota no card de custo dizendo *"Considera apenas execuções do agente SDR"*. Ampliar para todas as chamadas fica como próximo passo (exigiria uma tabela unificada de logs de IA — fora do escopo desta rodada).
-- **Sem mudança de schema.** Sem migration. Só frontend + um arquivo utilitário.
+## Solução
 
-## Arquivos alterados
+Alterar `supabase/functions/_shared/transcribe-audio.ts` para tratar OGG/Opus de forma diferente:
 
-- `src/lib/ai-pricing.ts` — novo, tabela de preços + `estimateCostUsd` + `USD_TO_BRL`
-- `src/hooks/useMasterAiUsage.ts` — novo, hook que faz a query agregada e devolve `{ byModel, byCompany, totals }`
-- `src/pages/master/MasterDashboard.tsx` — reescreve cards + adiciona 2 tabelas + seletor de período
-- `src/pages/master/Companies.tsx` — adiciona 3 colunas de consumo por empresa
+- **OGG/Opus** → enviar para `google/gemini-2.5-flash` via `/v1/chat/completions` com bloco `input_audio` (o Gemini aceita OGG nativamente).
+- **Demais formatos (WAV, MP3, M4A, WebM, FLAC)** → continuam em `openai/gpt-4o-transcribe` como hoje.
 
-## Fora de escopo
+A função `transcribeAudio()` mantém a mesma assinatura, então `hook7-webhook` não muda. Apenas escolhe internamente qual modelo/endpoint usar com base no `mimetype`.
 
-- Rastrear IA fora do agente SDR (edge functions avulsas)
-- Persistir cotação USD→BRL em `platform_settings`
-- Exportar CSV
-- Gráficos (só tabelas nesta rodada)
+## Passos técnicos
+
+1. Em `_shared/transcribe-audio.ts`:
+   - Adicionar `transcribeWithGemini(base64, mimetype)` que faz `POST https://ai.gateway.lovable.dev/v1/chat/completions` com:
+     ```json
+     {
+       "model": "google/gemini-2.5-flash",
+       "messages": [{"role":"user","content":[
+         {"type":"text","text":"Transcreva este áudio em português. Responda somente com o texto transcrito, sem comentários."},
+         {"type":"input_audio","input_audio":{"data":"<base64>","format":"ogg"}}
+       ]}]
+     }
+     ```
+   - Extrair `choices[0].message.content` como `text`.
+   - Em `transcribeAudio()`, se `mimetype` incluir `ogg`/`opus`, rotear para Gemini; caso contrário, manter o caminho atual.
+   - Tratar 429/402/erros com as mesmas mensagens.
+
+2. Deploy do edge function `hook7-webhook` (que importa o shared).
+
+## Fora do escopo
+
+- Não vamos transcodificar áudio no edge (ffmpeg não é trivial em Deno Edge Runtime).
+- Não vamos alterar o comportamento de takeover humano quando a transcrição realmente falhar — só reduzir a taxa de falhas.
+- Não vamos mexer no fluxo de e-mail nem em outras integrações.
+
+## Como validar
+
+Após o deploy, mandar um áudio novo pelo WhatsApp para um lead de teste (o Mario da S7, já limpo). Esperado no log do `hook7-webhook`:
+- ausência de `STT falhou [400]`;
+- mensagem inbound com `content` = texto transcrito (não mais `[áudio não transcrito]`);
+- pipeline da IA (SDR agent) executa normalmente.
