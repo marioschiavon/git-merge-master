@@ -18,6 +18,7 @@ import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
+import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import {
   AlertDialog,
   AlertDialogAction,
