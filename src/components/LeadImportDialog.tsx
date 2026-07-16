@@ -248,6 +248,26 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
       }
       return "";
     };
+    const normUrl = (raw: string): string | null => {
+      const v = raw.trim();
+      if (!v) return null;
+      const cand = /^https?:\/\//i.test(v) ? v : `https://${v}`;
+      try {
+        const u = new URL(cand);
+        if (!u.hostname.includes(".")) return null;
+        return u.toString().replace(/\/$/, "");
+      } catch { return null; }
+    };
+    const parseEmployees = (raw: string): number | null => {
+      const m = raw.match(/\d[\d.,]*/);
+      if (!m) return null;
+      const n = parseInt(m[0].replace(/[.,]/g, ""), 10);
+      return Number.isFinite(n) && n >= 0 ? n : null;
+    };
+    const normKey = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || s;
+
     const leads: LeadInput[] = [];
     for (const row of dataRows) {
       const first = get(row, "first_name");
@@ -255,57 +275,65 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
       const nameField = get(row, "name");
       const name = nameField || [first, last].filter(Boolean).join(" ").trim();
 
+      const tagsRaw = get(row, "tags");
+      const tags = tagsRaw
+        ? tagsRaw.split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+        : [];
+
+      const websiteRaw = get(row, "website");
+      const linkedinRaw = get(row, "linkedin_url");
+      const linkedinCompanyRaw = get(row, "linkedin_company_url");
+      const instagramRaw = get(row, "instagram_url");
+      const facebookRaw = get(row, "facebook_url");
+      const employeeRaw = get(row, "employee_count");
+
       const lead: LeadInput = {
         name: name || null,
-        email: get(row, "email") || null,
-        phone: get(row, "phone") || get(row, "mobile_phone") || get(row, "corporate_phone") || null,
+        first_name: first || null,
+        last_name: last || null,
+        email: get(row, "email").toLowerCase() || null,
+        secondary_email: get(row, "secondary_email").toLowerCase() || null,
+        personal_email: get(row, "personal_email").toLowerCase() || null,
+        phone: get(row, "phone") || null,
+        mobile_phone: get(row, "mobile_phone") || null,
+        corporate_phone: get(row, "corporate_phone") || null,
         whatsapp: get(row, "whatsapp") || null,
         company_name: get(row, "company_name") || null,
         title: get(row, "title") || null,
-        website: get(row, "website") || null,
-        instagram_url: get(row, "instagram_url") || null,
-        linkedin_url: get(row, "linkedin_url") || null,
-        linkedin_company_url: get(row, "linkedin_company_url") || null,
-        facebook_url: get(row, "facebook_url") || null,
+        seniority: get(row, "seniority") || null,
+        department: get(row, "department") || null,
+        industry: get(row, "industry") || null,
+        employee_count: employeeRaw ? parseEmployees(employeeRaw) : null,
+        website: websiteRaw ? normUrl(websiteRaw) : null,
+        linkedin_url: linkedinRaw ? normUrl(linkedinRaw) : null,
+        linkedin_company_url: linkedinCompanyRaw ? normUrl(linkedinCompanyRaw) : null,
+        instagram_url: instagramRaw ? normUrl(instagramRaw) : null,
+        facebook_url: facebookRaw ? normUrl(facebookRaw) : null,
         address: get(row, "address") || null,
+        city: get(row, "city") || null,
+        state: get(row, "state") || null,
+        country: get(row, "country") || null,
+        tags,
         status: (get(row, "status") as any) || undefined,
         source: get(row, "source") || null,
       };
 
-      const extra: Record<string, string> = {};
-      const addExtra = (k: string, v: string) => { if (v) extra[k] = v; };
-      // Todos os campos não-nativos vão para extra
-      addExtra("first_name", first);
-      addExtra("last_name", last);
-      addExtra("secondary_email", get(row, "secondary_email"));
-      addExtra("personal_email", get(row, "personal_email"));
-      addExtra("mobile_phone", get(row, "mobile_phone"));
-      addExtra("corporate_phone", get(row, "corporate_phone"));
-      addExtra("seniority", get(row, "seniority"));
-      addExtra("department", get(row, "department"));
-      addExtra("industry", get(row, "industry"));
-      addExtra("employee_count", get(row, "employee_count"));
-      addExtra("city", get(row, "city"));
-      addExtra("state", get(row, "state"));
-      addExtra("country", get(row, "country"));
-      const tags = get(row, "tags");
-      if (tags) {
-        const parts = tags.split(/[,;]/).map((s) => s.trim()).filter(Boolean);
-        if (parts.length) extra.tags = parts.join(",");
-      }
-      // Colunas mapeadas como "extra" — usam o header original como chave
+      // Colunas marcadas como "extra" → enrichment_data (chave normalizada do cabeçalho).
+      const enrichment: Record<string, unknown> = {};
       rawHeaders.forEach((h, i) => {
         if (mapping[h] === "extra") {
           const v = String(row[i] ?? "").trim();
-          if (v) extra[h] = v;
+          if (v) enrichment[normKey(h)] = v;
         }
       });
+      if (Object.keys(enrichment).length) lead.enrichment_data = enrichment;
 
-      if (Object.keys(extra).length) lead.extra = extra;
       leads.push(lead);
     }
     return leads;
   };
+
+
 
   const stats = useMemo(() => {
     if (step !== 3) return null;
