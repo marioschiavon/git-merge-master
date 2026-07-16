@@ -75,11 +75,29 @@ async function transcribeWithElevenLabs(
   const audio = base64ToUint8Array(b64);
   const blob = new Blob([audio], { type: mimetype });
 
-  // Mesmos campos do curl da doc: file + model_id. Sem language_code
-  // (Scribe autodetecta), sem tag_audio_events, sem diarize.
+  // Diagnóstico: primeiros bytes do arquivo que estamos enviando.
+  const headHex = Array.from(audio.slice(0, 16))
+    .map((b) => b.toString(16).padStart(2, "0")).join(" ");
+  const headAscii = Array.from(audio.slice(0, 16))
+    .map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : ".")).join("");
+  const magicOk = headAscii.startsWith("OggS") || headAscii.slice(4, 8) === "ftyp"
+    || headAscii.startsWith("RIFF") || headAscii.startsWith("ID3");
+
+  // Mesmos campos do curl da doc: file + model_id.
   const form = new FormData();
   form.append("file", blob, `whatsapp-audio.${ext}`);
   form.append("model_id", modelId);
+
+  console.log("[transcribe-audio] enviando ao ElevenLabs", {
+    model: modelId,
+    mimetype,
+    ext,
+    bytes,
+    audio_bytes: audio.byteLength,
+    header_hex: headHex,
+    header_ascii: headAscii,
+    magic_ok: magicOk,
+  });
 
   const t0 = Date.now();
   const res = await elevenLabsFetchWithKey(apiKey, "/v1/speech-to-text", {
@@ -91,7 +109,7 @@ async function transcribeWithElevenLabs(
   if (!res.ok) {
     const errBody = await res.text().catch(() => "");
     throw new Error(
-      `ElevenLabs STT falhou [${res.status}] (modelo=${modelId}; mimetype=${mimetype}; bytes=${bytes}): ${errBody.slice(0, 2000)}`,
+      `ElevenLabs STT falhou [${res.status}] (modelo=${modelId}; mimetype=${mimetype}; bytes=${bytes}; magic_ok=${magicOk}; header=${headAscii}): ${errBody.slice(0, 2000)}`,
     );
   }
 
