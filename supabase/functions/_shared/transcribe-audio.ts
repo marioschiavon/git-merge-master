@@ -29,11 +29,6 @@ export function extensionFromMimetype(mime: string | null | undefined): string {
   return "wav";
 }
 
-function isOggOpus(mime: string | null | undefined): boolean {
-  const m = String(mime || "").toLowerCase();
-  return m.includes("ogg") || m.includes("opus");
-}
-
 function base64ToBytes(base64: string): Uint8Array {
   const clean = base64.replace(/^data:[^;]+;base64,/, "");
   const bin = atob(clean);

@@ -18,7 +18,7 @@ import { base64ByteLength, downloadHook7Media, extractAudioRef, type AudioRef } 
 
 function audioExtensionFromMimetype(mime: string | null | undefined): string {
   const m = String(mime || "").toLowerCase();
-  if (m.includes("ogg") || m.includes("opus")) return "wav";
+  if (m.includes("ogg") || m.includes("opus")) return "ogg";
   if (m.includes("webm")) return "webm";
   if (m.includes("mp4") || m.includes("m4a") || m.includes("aac")) return "m4a";
   if (m.includes("mpeg") || m.includes("mp3")) return "mp3";
