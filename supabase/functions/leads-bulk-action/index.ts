@@ -38,7 +38,7 @@ serve(async (req) => {
 
     // Filtra apenas leads da empresa
     const { data: validLeads } = await supabase
-      .from("leads").select("id").eq("company_id", companyId).in("id", leadIds);
+      .from("leads").select("id, email, whatsapp, phone").eq("company_id", companyId).in("id", leadIds);
     const validIds = (validLeads || []).map((l: any) => l.id);
     if (!validIds.length) return json({ error: "nenhum lead válido" }, 400);
 
@@ -52,14 +52,25 @@ serve(async (req) => {
     // enroll
     if (!cadenceId) return json({ error: "cadence_id obrigatório" }, 400);
     const { data: cadence } = await supabase.from("cadences")
-      .select("id, status").eq("id", cadenceId).eq("company_id", companyId).maybeSingle();
+      .select("id, status, type").eq("id", cadenceId).eq("company_id", companyId).maybeSingle();
     if (!cadence) return json({ error: "cadência não encontrada" }, 404);
+
+    // Filtra por canal exigido pela cadência
+    const cadType: string | undefined = (cadence as any).type;
+    const hasChannel = (l: any) => {
+      if (cadType === "whatsapp") return !!(l.whatsapp || l.phone);
+      if (cadType === "email") return !!l.email;
+      return !!(l.email || l.whatsapp || l.phone);
+    };
+    const eligible = (validLeads || []).filter(hasChannel);
+    const skippedNoChannelIds = (validLeads || []).filter((l: any) => !hasChannel(l)).map((l: any) => l.id);
+    const eligibleIds = eligible.map((l: any) => l.id);
 
     // Evita duplicar enrollments
     const { data: existing } = await supabase.from("cadence_enrollments")
-      .select("lead_id").eq("cadence_id", cadenceId).in("lead_id", validIds);
+      .select("lead_id").eq("cadence_id", cadenceId).in("lead_id", eligibleIds.length ? eligibleIds : ["00000000-0000-0000-0000-000000000000"]);
     const alreadyIn = new Set((existing || []).map((r: any) => r.lead_id));
-    const toInsert = validIds.filter((id) => !alreadyIn.has(id));
+    const toInsert = eligibleIds.filter((id) => !alreadyIn.has(id));
 
     if (toInsert.length) {
       const rows = toInsert.map((lead_id) => ({
@@ -75,7 +86,13 @@ serve(async (req) => {
       if (insErr) return json({ error: insErr.message }, 500);
     }
 
-    return json({ ok: true, enrolled: toInsert.length, skipped: alreadyIn.size });
+    return json({
+      ok: true,
+      enrolled: toInsert.length,
+      skipped: alreadyIn.size,
+      skipped_no_channel: skippedNoChannelIds.length,
+      cadence_type: cadType,
+    });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

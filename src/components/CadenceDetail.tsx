@@ -18,6 +18,7 @@ import { useAgentNextPreview, useRegenerateAgentPreview } from "@/hooks/useAgent
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { Label } from "@/components/ui/label";
 
 const enrollmentStatusLabels: Record<string, string> = {
@@ -80,7 +81,14 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   };
 
   const enrolledLeadIds = new Set(enrollments.map((e: any) => e.lead_id));
-  const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id));
+  const cadenceType = (cadence as any).type as string | undefined;
+  const leadHasChannel = (l: any) => {
+    if (cadenceType === "whatsapp") return !!(l.whatsapp || l.phone);
+    if (cadenceType === "email") return !!l.email;
+    return !!(l.email || l.whatsapp || l.phone);
+  };
+  const availableLeads = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id) && leadHasChannel(l));
+  const filteredOutCount = allLeads.filter((l: any) => !enrolledLeadIds.has(l.id) && !leadHasChannel(l)).length;
 
   const isAgentic = (cadence as any).mode === "agentic";
   const isSimulation = !!(cadence as any).simulation_mode;
@@ -310,10 +318,17 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
             {enrollDialogOpen && (
               <Card>
                 <CardContent className="p-4 space-y-3">
-                  <p className="text-sm font-medium">Selecione leads para associar:</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium">Selecione leads para associar:</p>
+                    {filteredOutCount > 0 && (
+                      <span className="text-[11px] text-muted-foreground">
+                        {filteredOutCount} lead(s) ocultos por não terem {cadenceType === "whatsapp" ? "WhatsApp" : cadenceType === "email" ? "e-mail" : "canal"}
+                      </span>
+                    )}
+                  </div>
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {availableLeads.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">Nenhum lead disponível.</p>
+                      <p className="text-sm text-muted-foreground">Nenhum lead disponível com {cadenceType === "whatsapp" ? "WhatsApp" : cadenceType === "email" ? "e-mail" : "canal válido"}.</p>
                     ) : (
                       availableLeads.map((lead: any) => (
                         <label key={lead.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted p-1 rounded">
@@ -326,7 +341,9 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                               );
                             }}
                           />
-                          {lead.name} {lead.email && `(${lead.email})`}
+                          <span>{lead.name}</span>
+                          <ChannelBadges lead={lead} />
+                          {lead.email && <span className="text-xs text-muted-foreground">({lead.email})</span>}
                         </label>
                       ))
                     )}

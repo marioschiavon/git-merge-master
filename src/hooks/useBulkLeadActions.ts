@@ -17,7 +17,13 @@ export function useBulkLeadActions() {
       qc.invalidateQueries({ queryKey: ["leads"] });
       qc.invalidateQueries({ queryKey: ["cadence-enrollments"] });
       if (args.action === "enroll") {
-        toast.success(`${data?.enrolled ?? 0} lead(s) enviados para a cadência${data?.skipped ? ` (${data.skipped} já estavam)` : ""}.`);
+        const parts: string[] = [`${data?.enrolled ?? 0} lead(s) enviados para a cadência`];
+        if (data?.skipped) parts.push(`${data.skipped} já estavam`);
+        if (data?.skipped_no_channel) {
+          const label = data.cadence_type === "whatsapp" ? "sem WhatsApp" : data.cadence_type === "email" ? "sem e-mail" : "sem canal";
+          parts.push(`${data.skipped_no_channel} ${label}`);
+        }
+        toast.success(parts.join(" · "));
       } else {
         toast.success(`${data?.discarded ?? 0} lead(s) descartados.`);
       }

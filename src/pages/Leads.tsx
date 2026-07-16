@@ -18,6 +18,7 @@ import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
+import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -344,6 +345,7 @@ export default function Leads() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <span>{lead.name}</span>
+                        <ChannelBadges lead={lead} />
                         {lead.lead_kind === "company" && (
                           <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200 text-[10px] px-1.5 py-0" title="Canal corporativo: sem nome de pessoa identificada">
                             🏢 Empresa
@@ -435,7 +437,7 @@ export default function Leads() {
               Os leads serão inscritos com <strong>status ativo</strong> e a primeira mensagem será gerada pela IA. Leads que já estejam nessa cadência serão ignorados.
             </DialogDescription>
           </DialogHeader>
-          <div className="py-2">
+          <div className="py-2 space-y-2">
             <Select value={chosenCadence} onValueChange={setChosenCadence}>
               <SelectTrigger><SelectValue placeholder="Escolha a cadência" /></SelectTrigger>
               <SelectContent>
@@ -444,12 +446,30 @@ export default function Leads() {
                 ) : (
                   activeCadences.map((c: any) => (
                     <SelectItem key={c.id} value={c.id}>
-                      {c.name} <span className="text-xs text-muted-foreground">({c.status})</span>
+                      {c.name} <span className="text-xs text-muted-foreground">({c.type} · {c.status})</span>
                     </SelectItem>
                   ))
                 )}
               </SelectContent>
             </Select>
+            {(() => {
+              const cad = activeCadences.find((c: any) => c.id === chosenCadence);
+              if (!cad) return null;
+              const type = cad.type;
+              const selectedLeads = leads.filter((l: any) => selectedIds.has(l.id));
+              const missing = selectedLeads.filter((l: any) => {
+                if (type === "whatsapp") return !(l.whatsapp || l.phone);
+                if (type === "email") return !l.email;
+                return !(l.email || l.whatsapp || l.phone);
+              });
+              if (missing.length === 0) return null;
+              const label = type === "whatsapp" ? "WhatsApp" : type === "email" ? "e-mail" : "canal";
+              return (
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
+                  ⚠️ {missing.length} lead(s) sem {label} serão pulados: {missing.slice(0, 3).map((l: any) => l.name).join(", ")}{missing.length > 3 ? `, +${missing.length - 3}` : ""}.
+                </div>
+              );
+            })()}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEnrollOpen(false)}>Cancelar</Button>
