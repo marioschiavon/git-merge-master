@@ -73,25 +73,31 @@ function base64PrefixMime(base64: string): string | null {
   return match?.[1]?.toLowerCase() ?? null;
 }
 
-function sniffAudioMimetype(base64: string, fallback: string | null): string | null {
-  const prefixed = base64PrefixMime(base64);
-  if (prefixed) return prefixed;
-
+export function audioHeaderInfo(base64: string): { hex: string; ascii: string; magic: string | null } {
   try {
     const clean = base64.replace(/^data:[^;]+;base64,/, "").replace(/\s+/g, "");
     const head = atob(clean.slice(0, 32));
     const bytes = new Uint8Array(head.length);
     for (let i = 0; i < head.length; i++) bytes[i] = head.charCodeAt(i);
+    const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join(" ");
+    const ascii = Array.from(bytes).map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : ".")).join("");
+    let magic: string | null = null;
+    if (ascii.startsWith("OggS")) magic = "audio/ogg";
+    else if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WAVE") magic = "audio/wav";
+    else if (ascii.startsWith("ID3") || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) magic = "audio/mpeg";
+    else if (ascii.slice(4, 8) === "ftyp") magic = "audio/mp4";
+    else if (ascii.startsWith("fLaC")) magic = "audio/flac";
+    return { hex, ascii, magic };
+  } catch {
+    return { hex: "", ascii: "", magic: null };
+  }
+}
 
-    const ascii = Array.from(bytes).map((b) => String.fromCharCode(b)).join("");
-    if (ascii.startsWith("OggS")) return "audio/ogg";
-    if (ascii.startsWith("RIFF") && ascii.slice(8, 12) === "WAVE") return "audio/wav";
-    if (ascii.startsWith("ID3") || (bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0)) return "audio/mpeg";
-    if (ascii.slice(4, 8) === "ftyp") return "audio/mp4";
-    if (ascii.startsWith("fLaC")) return "audio/flac";
-  } catch { /* keep fallback */ }
-
-  return fallback;
+function sniffAudioMimetype(base64: string, fallback: string | null): string | null {
+  const prefixed = base64PrefixMime(base64);
+  if (prefixed) return prefixed;
+  const { magic } = audioHeaderInfo(base64);
+  return magic ?? fallback;
 }
 
 /**
