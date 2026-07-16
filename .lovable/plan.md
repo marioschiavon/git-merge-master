@@ -1,49 +1,40 @@
-# Fallback B: transcodificar OGG/Opus → WAV na edge
+## Diagnóstico
 
-## Diagnóstico atualizado
+Logs do `hook7-webhook` mostram `BootFailure` contínuo:
 
-O plano A (renomear OGG como `.webm` e enviar ao `openai/gpt-4o-transcribe`) foi rejeitado pelo provider — as duas novas mensagens de áudio caíram como `[áudio não transcrito]`. Precisamos entregar bytes que o modelo aceite de fato, ou seja, decodificar Opus para PCM e montar um WAV.
+```
+worker boot error: The requested module 'npm:opus-decoder@0.7.11'
+does not provide an export named 'OggOpusDecoder'
+  at .../_shared/transcribe-audio.ts:6:10
+```
+
+`transcribe-audio.ts` é importado pelo `hook7-webhook/index.ts`, então a função **inteira não sobe**. Todo evento do Hook7 — Message de áudio **e de texto** — cai numa função morta e nada é gravado em `messages`. Por isso nem texto está aparecendo na conversa.
+
+Causa raiz: `OggOpusDecoder` não é exportado por `npm:opus-decoder` (esse pacote só exporta `OpusDecoder`, para frames Opus crus). O decoder que entende contêiner OGG (formato do WhatsApp) está em **`npm:ogg-opus-decoder`**.
 
 ## Correção
 
-Adicionar decodificação Opus 100% em WASM/JS dentro do edge function e enviar WAV 16 kHz mono ao `openai/gpt-4o-transcribe`.
+Único arquivo: `supabase/functions/_shared/transcribe-audio.ts`, linha 7.
 
-### Alterações
+- de: `import { OggOpusDecoder } from "npm:opus-decoder@0.7.11";`
+- para: `import { OggOpusDecoder } from "npm:ogg-opus-decoder@0.1.16";`
 
-1. **`supabase/functions/_shared/transcribe-audio.ts`**
-   - Importar `npm:opus-decoder@^0.7` (biblioteca pura WASM, funciona em Deno edge, decodifica OGG/Opus completo).
-   - Nova função `decodeOggOpusToWav(bytes)`:
-     - Instancia `OggOpusDecoderWebWorker` ou `OggOpusDecoder` (sem worker, mais simples em Deno).
-     - `await decoder.ready` → `decoder.decodeFile(bytes)` → `{channelData, sampleRate}`.
-     - Downmix estéreo para mono (média dos canais).
-     - Escrever cabeçalho RIFF/WAV PCM 16-bit little-endian + samples convertidos de Float32 para Int16.
-     - Retornar `Uint8Array` com WAV completo.
-   - Em `transcribeAudio`, para OGG/Opus:
-     - Chamar `decodeOggOpusToWav`.
-     - Enviar como `audio/wav` com filename `audio.wav` ao `openai/gpt-4o-transcribe`.
-     - Se a decodificação falhar (ex: bytes corrompidos), lançar erro claro que vai para `transcript_error` no metadata da mensagem.
-   - Demais formatos: sem mudança.
+Comentário do topo atualizado para refletir o pacote correto. Resto do arquivo intacto (`decodeOggOpusToWav`, `transcribeAudio`, roteamento por mimetype, envio WAV → `openai/gpt-4o-transcribe`, tratamento de 429/402).
 
-2. **Sem outras mudanças** — `hook7-webhook`, UI, banco, RLS, HITL não mudam. A mensagem já mostra `[áudio não transcrito]` como fallback quando `transcript_error` existe, o que só acontecerá se o áudio realmente estiver corrompido.
-
-## Por que `opus-decoder` funciona em Deno edge
-
-- Pacote `npm:opus-decoder` (autor: eshaz) é 100% WASM, sem dependências nativas.
-- Suporta o container OGG completo (é o que o WhatsApp envia — OGG/Opus PTT).
-- Deno edge suporta `npm:` specifiers e WebAssembly instanciação; não precisa de Node APIs.
-- Peso do WASM: ~200 KB, cold start +80–150 ms — aceitável para uma edge chamada só quando chega áudio.
+Nenhuma mudança em `hook7-webhook`, UI, DB, RLS, storage ou HITL.
 
 ## Validação
 
-Após deploy, enviar novo áudio ao Mario pelo WhatsApp. Esperado:
+1. Logs do `hook7-webhook` param de exibir `BootFailure` e voltam a mostrar `booted (time: …ms)`.
+2. Mario envia **mensagem de texto** → aparece imediatamente na conversa (confirma que a função voltou a subir).
+3. Mario envia **áudio novo** → grava em `messages`:
+   - `content` = transcrição fiel ao áudio.
+   - `metadata.hook7.audio.transcript_model = "openai/gpt-4o-transcribe"`.
+   - Áudio salvo em `whatsapp-audio` (best-effort).
+4. Pipeline IA (`inbound-webhook`) dispara normalmente para inbound.
 
-- `messages.metadata.hook7.audio.transcript_model = openai/gpt-4o-transcribe`
-- `content` bate com o que foi falado (não mais alucinação nem "[áudio não transcrito]").
-- Latência total sobe uns 100–300 ms (decodificação local) — aceitável.
-
-Se, mesmo com WAV real, o STT falhar, o erro do provider entrará em `transcript_error` para diagnóstico.
+Se ainda houver problema após o boot voltar, o erro real aparece em `metadata.hook7.audio.transcript_error` (ex.: 402 créditos, 429 rate limit) — sem mais falha silenciosa.
 
 ## Fora de escopo
 
-- Não vou tocar em outras rotas de mídia (imagem/documento), em UI, ou no formato de armazenamento no bucket.
-- Não vou mudar o modelo padrão de STT — continua `openai/gpt-4o-transcribe`.
+Troca de modelo STT, mudanças em UI/storage/player/HITL, outras funções.
