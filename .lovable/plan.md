@@ -1,23 +1,41 @@
-## Plano
+## O que está acontecendo
 
-1. **Trocar autenticação do STT para o padrão do Lovable AI**
-   - A chamada atual para `/v1/audio/transcriptions` está indo com `Authorization: Bearer ...`.
-   - Vou ajustar para usar o header correto `Lovable-API-Key`, que é o padrão documentado para o gateway.
+- O fluxo atual está tentando mandar o áudio do WhatsApp para `/audio/transcriptions` com `openai/gpt-4o-transcribe`.
+- O último log real do AI Gateway confirma o problema: `log_id 019f6cdb-4f6a-7e09-9e3c-86dd1b55c3fb`, `2026-07-16T21:35:40Z`, arquivo `audio.ogg`, `audio/ogg`, `12714 bytes`, erro upstream `400`: `Audio file might be corrupted or unsupported`.
+- Ou seja: o app até está chamando STT, mas o provedor está rejeitando o OGG/Opus vindo do WhatsApp/Hook7. Ficar convertendo/remendando isso nos colocou em círculo.
 
-2. **Preservar o mimetype real do áudio baixado**
-   - Se o Hook7 entregar `audio/ogg; codecs=opus`, manter o tipo limpo como `audio/ogg` e nomear o arquivo como `.ogg`.
-   - Evitar converter ou renomear para `.wav` quando não for WAV real.
+## Plano de correção limpa
 
-3. **Melhorar diagnóstico sem quebrar a conversa**
-   - Continuar salvando a mensagem como `[áudio não transcrito]` se o provedor rejeitar o arquivo.
-   - Guardar no metadata o erro do STT, tamanho do arquivo e mimetype para sabermos se o Hook7 está entregando arquivo inválido/corrompido.
+1. **Dar `/clear` no fluxo atual de transcrição**
+   - Remover a tentativa de converter OGG/Opus para WAV dentro da edge function.
+   - Parar de usar `/v1/audio/transcriptions` para áudio do WhatsApp.
+   - Manter o upload do áudio original no storage para auditoria/debug.
 
-4. **Validar com logs reais**
-   - Verificar os logs do AI Gateway e da função após a correção.
-   - Evidência atual: request `019f6ca2-2b3a-74b2-8fc3-d1801670b52f` em `2026-07-16T20:33:15Z` chegou como `audio.ogg`, `audio/ogg`, 12074 bytes, mas o provedor retornou `400: Audio file might be corrupted or unsupported`.
+2. **Trocar para Gemini multimodal via Lovable AI**
+   - Criar um helper de transcrição que chama `chat/completions` com `google/gemini-2.5-flash` ou equivalente multimodal suportado.
+   - Enviar o áudio como conteúdo multimodal base64 com o MIME real (`audio/ogg`, `audio/mp4`, `audio/webm`, etc.).
+   - Prompt simples: transcrever fielmente o áudio e retornar somente o texto.
 
-## Resultado esperado
+3. **Separar texto de áudio para não travar conversa**
+   - Mensagens de texto não passam por nenhum código de transcrição.
+   - Se a mensagem tem texto, grava e encaminha para o pipeline normalmente.
+   - Se a mensagem tem áudio, baixa mídia, tenta Gemini, grava a transcrição ou `[áudio não transcrito]` com erro detalhado.
 
-- Mensagens de texto continuam aparecendo normalmente.
-- Áudios válidos passam a ser transcritos.
-- Se ainda aparecer `[áudio não transcrito]`, teremos evidência clara de que o arquivo baixado do Hook7 está vindo inválido/corrompido ou em formato não aceito, em vez de ser falha genérica do app.
+4. **Melhorar fallback sem esconder erro**
+   - Se Gemini também rejeitar o arquivo, salvar no metadata: modelo, MIME, tamanho, erro do gateway e path do áudio.
+   - Não bloquear a conversa inteira por falha de áudio.
+   - Não disparar IA SDR para áudio sem transcrição, para evitar resposta errada.
+
+5. **Validar com evidência real**
+   - Depois da implementação, testar uma chamada real do helper com um áudio armazenado/recebido.
+   - Conferir logs do `hook7-webhook` e AI Gateway.
+   - Confirmar que mensagens de texto continuam entrando e que novos áudios passam pelo modelo Gemini, não mais pelo endpoint antigo de STT.
+
+## Detalhes técnicos
+
+- Arquivos principais:
+  - `supabase/functions/_shared/transcribe-audio.ts`
+  - `supabase/functions/hook7-webhook/index.ts`
+  - possivelmente `supabase/functions/_shared/ai-gateway.ts` se precisar aceitar conteúdo multimodal com arrays.
+- O endpoint antigo `audio_transcriptions` só ficará fora do caminho do WhatsApp.
+- Não vou mexer em cadência, leads, regras de SDR ou UI — apenas fluxo de áudio/texto do webhook.
