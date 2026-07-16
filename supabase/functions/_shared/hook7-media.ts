@@ -114,13 +114,15 @@ export async function downloadHook7Media(
   const instanceName = encodeURIComponent(instance.external_name);
 
   const attempts: Array<{ url: string; body: unknown }> = [
-    {
-      url: `${base}/chat/getBase64FromMediaMessage/${instanceName}`,
-      body: { message: { key: { id: providerMessageId } }, convertToMp4: true },
-    },
+    // Áudio nativo do WhatsApp (OGG/Opus). Não reencapsular — o Scribe aceita
+    // o container original e reempacotar pode gerar arquivos inválidos.
     {
       url: `${base}/chat/getBase64FromMediaMessage/${instanceName}`,
       body: { message: { key: { id: providerMessageId } }, convertToMp4: false },
+    },
+    {
+      url: `${base}/chat/getBase64FromMediaMessage/${instanceName}`,
+      body: { message: { key: { id: providerMessageId } } },
     },
     {
       url: `${base}/message/getBase64/${instanceName}`,
