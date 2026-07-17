@@ -117,6 +117,10 @@ export default function Cadences() {
         </Dialog>
       </div>
 
+      <WhatsAppQueueBadge />
+
+
+
       <Card>
         <CardContent className="p-0">
           <Table>
