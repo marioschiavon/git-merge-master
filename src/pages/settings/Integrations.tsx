@@ -184,6 +184,18 @@ function ProviderCard(props: ProviderCardProps) {
 
       <p className="mt-4 text-sm text-muted-foreground">{props.description}</p>
 
+      {props.badgeLink && (
+        <Link to={props.badgeLink.to} className="mt-3 inline-flex w-fit">
+          <Badge
+            variant="outline"
+            className="gap-1 border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+          >
+            {props.badgeLink.label}
+            <ArrowRight className="h-3 w-3" />
+          </Badge>
+        </Link>
+      )}
+
       <div className="mt-4 space-y-2 rounded-lg border bg-background p-3 text-xs text-muted-foreground">
         <div className="flex items-center justify-between gap-3">
           <span>Status operacional</span>
