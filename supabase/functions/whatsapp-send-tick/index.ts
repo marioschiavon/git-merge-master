@@ -152,30 +152,32 @@ serve(async (req) => {
         continue;
       }
 
-      // Cooldown por lead (20min default por instância)
-      if (item.lead_id) {
-        const { data: instRow } = await supabase
-          .from("hook7_instances").select("lead_cooldown_minutes")
-          .eq("id", inst.id).maybeSingle();
-        const cooldownMin = instRow?.lead_cooldown_minutes ?? 20;
-        const cutoff = new Date(Date.now() - cooldownMin * 60_000).toISOString();
-        const { data: recentConv } = await supabase
+      // Regra de reengajamento por lead:
+      // - Se última msg do lead foi INBOUND (respondeu) → envia (skip check).
+      // - Se última msg foi OUTBOUND e o item é envio AUTOMÁTICO de cadência →
+      //   cancela (status='skipped'); o cadence-reengage-cron cuida do próximo
+      //   passo conforme configurado na cadência.
+      // - Se última msg foi OUTBOUND mas o item é 'approval'/'manual' → envia
+      //   (usuário decidiu conscientemente).
+      const AUTO_SOURCES = new Set(["cadence_step", "cadence_step_custom", "first_message"]);
+      if (item.lead_id && AUTO_SOURCES.has(item.source)) {
+        const { data: convs } = await supabase
           .from("conversations").select("id").eq("lead_id", item.lead_id).eq("channel", "whatsapp");
-        const convIds = (recentConv || []).map((c: any) => c.id);
+        const convIds = (convs || []).map((c: any) => c.id);
         if (convIds.length > 0) {
-          const { data: recentMsg } = await supabase
+          const { data: lastMsg } = await supabase
             .from("messages")
-            .select("id, sent_at")
+            .select("id, direction, sent_at")
             .in("conversation_id", convIds)
-            .eq("direction", "outbound")
-            .gte("sent_at", cutoff)
             .order("sent_at", { ascending: false })
             .limit(1)
             .maybeSingle();
-          if (recentMsg) {
-            const jitter = 60 + Math.floor(Math.random() * 240);
-            await reschedule(supabase, item.id, cooldownMin * 60 + jitter, "lead_cooldown");
-            results.push({ id: item.id, reschedule: "lead_cooldown" });
+          if (lastMsg && lastMsg.direction === "outbound") {
+            await supabase.from("whatsapp_send_queue").update({
+              status: "skipped",
+              last_error: "awaiting_lead_reply",
+            }).eq("id", item.id);
+            results.push({ id: item.id, skipped: "awaiting_lead_reply" });
             continue;
           }
         }
