@@ -1,37 +1,22 @@
-## O que muda
+Criar um documento interno em `docs/boas-praticas-whatsapp.md` com linguagem leve e amigável, educando usuários leigos sobre as boas práticas de envio de mensagens do WhatsApp que foram implementadas no app.
 
-Hoje o `whatsapp-send-tick` tem um cooldown fixo de 20min por lead que atrasa qualquer novo outbound — inclusive respostas a inbound do lead. Vamos trocar essa regra por:
+O texto deve explicar, de forma simples, por que as mensagens não saem todas de uma vez e como cada mecanismo protege a conta do cliente contra bloqueios e melhora a entrega:
 
-**Nova regra do worker (`whatsapp-send-tick`):**
+- **Fila de envio**: as mensagens entram em uma fila e são enviadas uma a uma, em vez de todas ao mesmo tempo.
+- **Jitter (aleatoriedade)**: pequenos atrasos variados entre os envios para parecer mais natural.
+- **Limite por hora e por dia**: controle de volume (caps) para não extrapolar os limites do WhatsApp.
+- **Warm-up**: aumento gradual do volume para contas novas ou que voltaram a enviar depois de um tempo.
+- **Horário comercial**: mensagens automáticas só saem em horários adequados.
+- **Regra de reengajamento**: se o lead não respondeu a uma mensagem automática, ele não recebe outra mensagem imediata; o sistema agenda um reengajamento de acordo com a cadência configurada.
+- **Respostas imediatas**: quando o lead responde, a resposta do agente sai normalmente, sem esperar o cooldown.
 
-1. **Lead respondeu depois do último outbound** → envia normalmente (só respeita jitter/caps/business hours). Sem cooldown.
-2. **Lead não respondeu ao último outbound** → o worker **não** enfileira eternamente com cooldown; ele **cancela o item da fila** (`status='skipped'`, motivo `awaiting_lead_reply`) e deixa o **reengajamento da cadência** cuidar disso, com o intervalo/steps que o usuário já configurou em Cadências.
+O documento também deve incluir uma seção com dicas práticas do que o usuário pode fazer (ex.: evitar colocar muitos leads de uma vez na mesma cadência, configurar intervalos de reengajamento realistas, revisar mensagens antes de aprovar).
 
-Ou seja: cooldown deixa de ser uma regra hardcoded do worker de 20min — passa a ser regida pela cadência (que o `cadence-reengage-cron` já roda a cada 30min).
+Estrutura sugerida:
+1. Título e introdução descontraída.
+2. "Por que minhas mensagens não saem na hora?"
+3. Cada boa prática em uma seção curta com analogia ou exemplo do dia a dia.
+4. "O que eu faço como usuário?" — checklist de ações.
+5. Resumo rápido em tópicos.
 
-## Exceção: aprovações manuais
-
-Quando o item da fila veio de `source='approval'` (usuário clicou "Aprovar" em uma sugestão), o lead-sem-resposta **não** cancela — o usuário decidiu conscientemente enviar aquela msg. Nesse caso o worker envia (só respeita jitter/caps/business hours).
-
-Vale a regra de skip apenas para envios automáticos (`source in ('cadence_step','cadence_step_custom','first_message')`).
-
-## Arquivo alterado
-
-`supabase/functions/whatsapp-send-tick/index.ts` — bloco "Cooldown por lead":
-
-- Remover a busca por outbound recente + o reagendamento `lead_cooldown`.
-- Adicionar: buscar última mensagem do lead na conversa (qualquer direção).
-  - Última = `inbound` **ou** não existe última outbound recente → envia.
-  - Última = `outbound` **e** `source` é automático de cadência → marca `status='skipped'`, `last_error='awaiting_lead_reply'`. Não reagenda.
-  - Última = `outbound` **e** `source='approval'` ou `'manual'` → envia.
-
-## Fora de escopo
-
-- Não mexe em pacer (jitter 45-90s), caps hora/dia, warm-up nem business hours — continuam iguais.
-- Não altera UI nem hooks.
-- Não altera o `cadence-reengage-cron` — ele já respeita a configuração de reengajamento da cadência.
-
-## Efeito prático
-
-- Lead respondeu 10:05 → aprovação de 10:06 sai no próximo tick (~30-90s).
-- Lead não respondeu ao step automático → item some da fila; o reengajamento definido na cadência (ex: "4h depois manda step-2") retoma no horário certo, sem sobrepor com regra fixa de 20min.
+O arquivo será salvo em `docs/boas-praticas-whatsapp.md`.
