@@ -35,25 +35,29 @@ serve(async (req) => {
     .eq("status", "pending")
     .lte("next_run_at", new Date().toISOString())
     .order("created_at", { ascending: true })
-    .limit(5);
+    .limit(10);
 
   if (error) {
     return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 
-  const results: any[] = [];
-  for (const j of jobs || []) {
-    try {
+  // Fan out jobs in parallel — each enrich-lead invocation still handles a single
+  // lead sequentially, but the cron no longer serializes the whole batch.
+  const settled = await Promise.allSettled(
+    (jobs || []).map(async (j: any) => {
       const r = await fetch(`${SUPABASE_URL}/functions/v1/enrich-lead`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${SERVICE_KEY}` },
         body: JSON.stringify({ job_id: j.id }),
       });
-      results.push({ id: j.id, status: r.status });
-    } catch (e) {
-      results.push({ id: j.id, error: e instanceof Error ? e.message : String(e) });
-    }
-  }
+      return { id: j.id, status: r.status };
+    }),
+  );
+  const results = settled.map((s, i) =>
+    s.status === "fulfilled"
+      ? s.value
+      : { id: (jobs || [])[i]?.id, error: s.reason instanceof Error ? s.reason.message : String(s.reason) },
+  );
 
   return new Response(JSON.stringify({ processed: results.length, results }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
