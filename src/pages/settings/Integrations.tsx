@@ -659,6 +659,7 @@ export default function Integrations() {
       readinessLabel:
         whatsappStatus === "pending" ? "Aguardando leitura do QR" : undefined,
       onAction: () => setWhatsappOpen(true),
+      badgeLink: { label: "Boas práticas", to: "/guides/whatsapp" },
     },
     {
       key: "apollo",
