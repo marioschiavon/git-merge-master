@@ -332,8 +332,9 @@ serve(async (req) => {
           }
 
           // For email, gmail-send already persisted the message to the conversation.
-          // For other channels, insert the outbound message here.
-          if (currentStep.channel !== "email") {
+          // For other channels, insert the outbound message here (unless the send
+          // was enqueued — worker will insert on actual delivery).
+          if (currentStep.channel !== "email" && !(deliveryMeta as any).skip_message_insert) {
             const conversation = await findOrCreateConversation(
               supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
             );
