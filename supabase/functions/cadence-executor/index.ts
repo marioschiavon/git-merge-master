@@ -295,19 +295,25 @@ serve(async (req) => {
               if (sendError) { sendAction = "failed"; }
             } catch { sendAction = "failed"; }
           } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
-            const zCfg = await getZApiConfig(supabase, cadence.company_id);
-            if (zCfg) {
-              const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
-              if (r.ok) {
-                deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status, to_number: lead.whatsapp || lead.phone };
-              } else {
-                console.error("Z-API send failed:", r.error);
-                sendAction = "failed";
-                deliveryMeta = { delivery_status: "failed", zapi_status: r.status, zapi_error: r.error, to_number: lead.whatsapp || lead.phone };
-              }
+            const toPhone = lead.whatsapp || lead.phone;
+            const conv = await findOrCreateConversation(
+              supabase, lead.id, cadence.company_id, "whatsapp", enrollment.id,
+            );
+            const qr = await enqueueWhatsAppSend(supabase, {
+              companyId: cadence.company_id,
+              toPhone,
+              body: parsed.message,
+              leadId: lead.id,
+              conversationId: conv?.id ?? null,
+              enrollmentId: enrollment.id,
+              source: "cadence_step_custom",
+              metadata: { step_order: currentStep.step_order, custom_message: true },
+            });
+            if (qr.ok) {
+              deliveryMeta = { delivery_status: "queued", queue_id: qr.queue_id, scheduled_for: qr.scheduled_for, to_number: toPhone, skip_message_insert: true };
             } else {
               sendAction = "pending_manual";
-              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
+              deliveryMeta = { delivery_status: "pending_manual", delivery_error: qr.error || "falha ao enfileirar" };
             }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
 
