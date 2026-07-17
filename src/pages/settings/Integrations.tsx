@@ -145,6 +145,7 @@ type ProviderCardProps = {
   actionLabel?: string;
   disabled?: boolean;
   onAction?: () => void;
+  badgeLink?: { label: string; to: string };
 };
 
 function ProviderCard(props: ProviderCardProps) {
