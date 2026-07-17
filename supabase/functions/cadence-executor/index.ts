@@ -644,8 +644,9 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           });
         }
 
-        // For email, gmail-send already persisted the message. For other channels, insert here.
-        if (currentStep.channel !== "email") {
+        // For email, gmail-send already persisted the message. For other channels, insert here
+        // (unless the send was enqueued — worker will insert on actual delivery).
+        if (currentStep.channel !== "email" && !(deliveryMeta as any).skip_message_insert) {
           const conversation = await findOrCreateConversation(
             supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
           );
