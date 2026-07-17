@@ -1,80 +1,108 @@
-# Enriquecimento automático em fila, com progresso visível
+## Contexto — o que já existe hoje
 
-## Diagnóstico
+Antes de propor mudanças, o que o app já tem:
 
-O sistema já tem toda a infraestrutura: tabela `lead_enrichment_jobs`, trigger `enqueue_lead_enrichment` que enfileira ao inserir um lead, edge function `enrichment-cron` que puxa jobs `pending` e chama `enrich-lead`. Faltam **duas coisas**:
+- **Bulk approve** (`useApprovals.ts:78`): entre uma mensagem e a próxima há `throttle_ms=1500` (1,5s fixo). 10 leads = ~15s → **rajada clara**, Meta detecta.
+- **`auto_approve_max_per_day`** por cadência (default 50) — só limita 1ª msg auto-aprovada, não o total enviado.
+- **`business_hours`** na company (9-18h, seg-sex) — usado no *scheduling* do agentic (`cadence-agent-decide`), mas **não** no momento do envio efetivo do executor nem do bulk approve.
+- **1 instância Hook7 por company** (a mais recente conectada é escolhida em `getHook7SendInstance`).
+- **Não existe**: jitter aleatório, cap por hora, cap por instância, warm-up de número novo, cooldown por lead.
 
-1. **`enrichment-cron` nunca é agendada.** Hoje só existem no `cron.job` os schedules `sdr-debounce-tick` e `cadence-reengage-cron`. Nada aciona o cron de enriquecimento, então a fila só anda quando o usuário abre um lead (o `LeadSocialCard` chama `enrich-lead` direto). É por isso que "só começa a enriquecer quando clica no lead".
-2. **`apollo-import` (com `enrich_limit`) segura leads em `not_queued`.** Precisa de um botão manual "Enriquecer mais N" para liberar. Isso reforça o comportamento de ter que agir lead a lead.
+## Diagnóstico do caso
 
-## Plano
+O cliente aprovou 10 pendências de uma vez → cada uma virou POST `/send/text` no Hook7 com 1,5s entre elas, todos no mesmo minuto, para 10 números que **nunca haviam recebido nada daquele chip**. Do lado da Meta isso é a assinatura clássica de bot: mesmo IP/chip, 10 conversas novas, intervalo constante, sem inbound.
 
-### 1. Agendar `enrichment-cron` a cada minuto (via `supabase--insert`)
-Criar `cron.schedule('enrichment-cron','* * * * *', … net.http_post → /functions/v1/enrichment-cron)`. Como contém URL + anon key específicas do projeto, entra pelo `supabase--insert`, não migration (conforme regra do projeto).
+## Proposta — 6 camadas de proteção (backend, sem mudar UX além de 1 badge)
 
-### 2. Aumentar vazão da fila
-Em `supabase/functions/enrichment-cron/index.ts`:
-- Subir `limit(5)` → `limit(10)`.
-- Disparar as invocações de `enrich-lead` em paralelo (`Promise.allSettled`) mantendo o timeout individual — a fila continua consumindo "um após o outro por lead", mas o cron passa a processar um lote decente por minuto.
+### 1. Pacer com jitter aleatório (substitui o 1,5s fixo)
 
-### 3. Enfileirar todos por padrão em importações
-Em `supabase/functions/apollo-import/index.ts`:
-- Remover o corte automático em `not_queued`. Só marcar como `not_queued` se o cliente passar `enrich_limit` explicitamente (mantém compat).
-- Sem `enrich_limit`, todos os 100 leads da importação entram como `pending` e o cron drena naturalmente.
-- Conferir que `LeadImportDialog` (CSV) e `leads-bulk-action` não passam `enrich_limit` — hoje já não passam.
+Novo módulo `_shared/whatsapp-pacer.ts` chamado por **todo** call site de `sendWhatsAppViaHook7` (bulk approve, cadence-executor, approval-execute individual, send-outbound-message):
 
-### 4. Badge de progresso em `/leads` (o pedido do usuário)
-Em `src/pages/Leads.tsx`, adicionar um `EnrichmentQueueBadge` no topo da lista:
+- Intervalo entre envios da **mesma instância**: aleatório entre **45s e 90s** (configurável).
+- Implementado como fila persistente: tabela `whatsapp_send_queue` com `scheduled_for`. Um cron `whatsapp-send-tick` a cada 15s puxa itens vencidos.
+- Envios ficam **assíncronos**: bulk approve retorna "10 enfileiradas" imediatamente; usuário vê progresso via badge (igual ao de enrichment).
 
-- Novo hook `useEnrichmentQueueStatus(companyId)` que consulta a cada 10s:
-  ```
-  SELECT enrichment_status, count(*)
-  FROM leads WHERE company_id = :cid
-  GROUP BY enrichment_status
-  ```
-- Deriva `{ pending, processing, completed, failed, total }`.
-- Renderização:
-  - Se `pending + processing > 0`:
-    Ícone spinner + "Enriquecendo leads… **X de Y prontos**" (progresso `completed / (completed+pending+processing)`), com uma barra fina.
-  - Se `pending + processing === 0` e `total > 0`:
-    Ícone check verde + "Todos os leads enriquecidos" (auto-esconde após 30s ou até nova importação).
-  - Se `failed > 0`, sub-linha discreta: "N falharam — reprocessar" (link para filtro `failed`).
-- Realtime opcional: `supabase.channel('leads-enrichment').on('postgres_changes', {event:'UPDATE', table:'leads', filter:'company_id=eq…'})` para atualizar mais rápido sem polling agressivo.
+### 2. Cap por hora e por dia, por instância
 
-### 5. Feedback pós-import
-No toast de sucesso das telas de importação (Apollo, CSV, bulk), trocar mensagem para: *"N leads importados. Enriquecimento em andamento — acompanhe no topo da tela."* Isso educa o usuário a olhar o badge em vez de clicar em cada lead.
+Novas colunas em `hook7_instances`:
+- `daily_send_cap` (default 80)
+- `hourly_send_cap` (default 15)
 
-## Diagrama do fluxo pós-mudança
+Antes de despachar um item da fila, o pacer conta `messages` `outbound` `channel=whatsapp` das últimas 1h/24h daquela instância. Se estourou, adia o item.
 
-```text
-Importar (Apollo/CSV/bulk)
-        │
-        ▼
-INSERT leads (pending)  ──trigger──▶ lead_enrichment_jobs (pending)
-                                             │
-                     pg_cron * * * * * ──────┘
-                                             ▼
-                                    enrichment-cron
-                                    (10 jobs em paralelo)
-                                             │
-                                             ▼
-                                    enrich-lead × N
-                                             │
-Badge /leads ◀── polling 10s + realtime ─────┘
-   "Enriquecendo X de Y" → "Todos prontos ✓"
+### 3. Warm-up automático para instância nova
+
+Coluna `hook7_instances.connected_at`. Nos primeiros **7 dias** os caps sobem em rampa:
+- D1: 20/dia, 5/hora
+- D2: 30/dia, 6/hora
+- D3-4: 45/dia, 8/hora
+- D5-7: 65/dia, 12/hora
+- D8+: cap normal configurado
+
+### 4. Janela comercial respeitada no envio (não só no schedule)
+
+Antes de despachar, o pacer verifica `companies.business_hours`. Fora da janela → reagenda para o próximo horário permitido + jitter. Isso protege bulk approve às 22h ou fim de semana.
+
+### 5. Cooldown por lead (anti reenvio-espelho)
+
+Se um lead recebeu mensagem outbound nas últimas **20 minutos**, o pacer adia — evita o cenário "aprovou 1ª msg + step-1 imediato" que gerava 2 msgs em segundos ao mesmo número.
+
+### 6. UI mínima
+
+- **Badge no topo de Aprovações e Cadências**: "3 enviadas agora · 7 na fila · próxima em ~1min" (usa `whatsapp_send_queue`).
+- **Toast do bulk approve** muda de "10 enviadas" para **"10 enfileiradas — envio distribuído nas próximas ~10 min para não acionar filtro anti-spam do WhatsApp"**.
+- **Settings → Empresa** ganha um card "Boas práticas WhatsApp" com os caps atuais editáveis e explicação em 2 linhas.
+
+## Detalhes técnicos
+
+**Nova tabela** (com GRANTs + RLS por company):
+```sql
+create table public.whatsapp_send_queue (
+  id uuid primary key default gen_random_uuid(),
+  company_id uuid not null references companies(id) on delete cascade,
+  instance_id uuid not null references hook7_instances(id) on delete cascade,
+  lead_id uuid references leads(id) on delete cascade,
+  conversation_id uuid references conversations(id) on delete cascade,
+  approval_id uuid references approval_requests(id) on delete set null,
+  payload jsonb not null,            -- { to, body, subject?, source }
+  scheduled_for timestamptz not null default now(),
+  status text not null default 'pending', -- pending|sending|sent|failed|cancelled
+  attempts int not null default 0,
+  last_error text,
+  sent_message_id uuid,
+  created_at timestamptz not null default now()
+);
+create index on whatsapp_send_queue (status, scheduled_for);
+create index on whatsapp_send_queue (instance_id, status);
 ```
 
-## Arquivos afetados
+**Novo cron** `whatsapp-send-tick` (a cada 15s, mesmo padrão do `sdr-debounce-tick`).
+Puxa até 20 itens `pending` com `scheduled_for <= now()`. Para cada um:
+1. Checa caps hora/dia da instância → se estourou, reagenda +1h.
+2. Checa business_hours → se fora, reagenda p/ próxima janela.
+3. Checa cooldown do lead → se ativo, reagenda +5min.
+4. Chama `sendWhatsAppViaHook7`. Sucesso grava `messages` + marca `sent`. Falha vira `failed` após 3 tentativas.
 
-- `supabase/functions/enrichment-cron/index.ts` — limit=10 + paralelismo
-- `supabase/functions/apollo-import/index.ts` — default enfileira tudo
-- `src/hooks/useEnrichmentQueueStatus.ts` — novo
-- `src/components/EnrichmentQueueBadge.tsx` — novo
-- `src/pages/Leads.tsx` — inclui o badge no topo
-- `supabase--insert` para criar o `cron.schedule` do `enrichment-cron`
+**Refactor dos call sites** para enfileirar em vez de enviar direto:
+- `approval-execute` (WhatsApp path)
+- `cadence-executor` (envio WhatsApp)
+- `send-outbound-message` (mensagem manual — **exceção**: envia direto por ser ação do usuário na conversa aberta, mas ainda respeita cooldown do lead)
 
-## Não escopo
+**Config default** (editável em Settings):
+- Intervalo entre envios: 45-90s aleatório
+- Cap: 15/hora, 80/dia por instância (após warm-up)
+- Cooldown por lead: 20min
+- Warm-up: 7 dias
 
-- Não altero schema (nenhuma migration).
-- Não mexo em `enrich-lead` (pipeline atual de enriquecimento fica igual).
-- `enrichment-enqueue-more` continua existindo para casos onde o admin ainda quiser segurar volume via `enrich_limit`.
+## Fora de escopo (fica pra depois se quiser)
+
+- Rotação/pool de múltiplas instâncias por company (hoje só 1 conecta).
+- Score de "risco" por instância baseado em reports/bloqueios.
+- Detecção automática de número que já foi bloqueado antes.
+
+## Impacto para o usuário
+
+- 10 aprovações passam de "todas em 15s" para "todas em ~10-15min, distribuídas".
+- Fim de semana / fora do horário: mensagens ficam paradas até segunda 9h automaticamente.
+- Número novo não dispara 100 msgs no dia 1.
+- Zero mudança no fluxo de aprovar/rejeitar — só o toast e um badge de fila.

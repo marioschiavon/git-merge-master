@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/hooks/useAuth";
 import { useUpsertCadencePolicy } from "@/hooks/useAgenticCadence";
 import { supabase } from "@/integrations/supabase/client";
+import { WhatsAppQueueBadge } from "@/components/WhatsAppQueueBadge";
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
@@ -115,6 +116,10 @@ export default function Cadences() {
           <CreateCadenceDialog form={form} setForm={setForm} onCreate={handleCreate} isPending={createMutation.isPending} />
         </Dialog>
       </div>
+
+      <WhatsAppQueueBadge />
+
+
 
       <Card>
         <CardContent className="p-0">

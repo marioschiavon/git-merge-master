@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Inbox, CheckCircle2, XCircle, Loader2, AlertCircle, Mail, MessageSquare, Linkedin, NotebookPen, X } from "lucide-react";
 import { useApprovals, useApprovalExecute, useBulkApprovalExecute, type ApprovalRow } from "@/hooks/useApprovals";
+import { WhatsAppQueueBadge } from "@/components/WhatsAppQueueBadge";
 import { useLeadLists } from "@/hooks/useLeadLists";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -96,6 +97,8 @@ export default function ApprovalsPage() {
           </TabsList>
         </Tabs>
       </div>
+
+      <WhatsAppQueueBadge />
 
       {activeList && (
         <div className="flex items-center gap-2 text-sm">

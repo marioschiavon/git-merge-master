@@ -1518,19 +1518,25 @@ export type Database = {
           connected_profile_name: string | null
           created_at: string
           created_by: string | null
+          daily_send_cap: number
           display_name: string
           external_id: string | null
           external_name: string | null
+          hourly_send_cap: number
           id: string
           last_connected_at: string | null
           last_error: string | null
           last_qr_at: string | null
+          lead_cooldown_minutes: number
+          max_gap_seconds: number
+          min_gap_seconds: number
           owner_user_id: string | null
           phone_number: string | null
           status: Database["public"]["Enums"]["hook7_instance_status"]
           token_encrypted: string | null
           updated_at: string
           user_disconnected_at: string | null
+          warmup_started_at: string | null
         }
         Insert: {
           archived_at?: string | null
@@ -1538,19 +1544,25 @@ export type Database = {
           connected_profile_name?: string | null
           created_at?: string
           created_by?: string | null
+          daily_send_cap?: number
           display_name: string
           external_id?: string | null
           external_name?: string | null
+          hourly_send_cap?: number
           id?: string
           last_connected_at?: string | null
           last_error?: string | null
           last_qr_at?: string | null
+          lead_cooldown_minutes?: number
+          max_gap_seconds?: number
+          min_gap_seconds?: number
           owner_user_id?: string | null
           phone_number?: string | null
           status?: Database["public"]["Enums"]["hook7_instance_status"]
           token_encrypted?: string | null
           updated_at?: string
           user_disconnected_at?: string | null
+          warmup_started_at?: string | null
         }
         Update: {
           archived_at?: string | null
@@ -1558,19 +1570,25 @@ export type Database = {
           connected_profile_name?: string | null
           created_at?: string
           created_by?: string | null
+          daily_send_cap?: number
           display_name?: string
           external_id?: string | null
           external_name?: string | null
+          hourly_send_cap?: number
           id?: string
           last_connected_at?: string | null
           last_error?: string | null
           last_qr_at?: string | null
+          lead_cooldown_minutes?: number
+          max_gap_seconds?: number
+          min_gap_seconds?: number
           owner_user_id?: string | null
           phone_number?: string | null
           status?: Database["public"]["Enums"]["hook7_instance_status"]
           token_encrypted?: string | null
           updated_at?: string
           user_disconnected_at?: string | null
+          warmup_started_at?: string | null
         }
         Relationships: [
           {
@@ -3081,6 +3099,115 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      whatsapp_send_queue: {
+        Row: {
+          approval_id: string | null
+          attempts: number
+          body: string
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          enrollment_id: string | null
+          id: string
+          instance_id: string | null
+          last_error: string | null
+          lead_id: string | null
+          metadata: Json
+          scheduled_for: string
+          sent_at: string | null
+          sent_message_id: string | null
+          source: string
+          status: string
+          to_phone: string
+          updated_at: string
+        }
+        Insert: {
+          approval_id?: string | null
+          attempts?: number
+          body: string
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          enrollment_id?: string | null
+          id?: string
+          instance_id?: string | null
+          last_error?: string | null
+          lead_id?: string | null
+          metadata?: Json
+          scheduled_for?: string
+          sent_at?: string | null
+          sent_message_id?: string | null
+          source?: string
+          status?: string
+          to_phone: string
+          updated_at?: string
+        }
+        Update: {
+          approval_id?: string | null
+          attempts?: number
+          body?: string
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          enrollment_id?: string | null
+          id?: string
+          instance_id?: string | null
+          last_error?: string | null
+          lead_id?: string | null
+          metadata?: Json
+          scheduled_for?: string
+          sent_at?: string | null
+          sent_message_id?: string | null
+          source?: string
+          status?: string
+          to_phone?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_send_queue_approval_id_fkey"
+            columns: ["approval_id"]
+            isOneToOne: false
+            referencedRelation: "approval_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_send_queue_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_send_queue_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_send_queue_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_send_queue_instance_id_fkey"
+            columns: ["instance_id"]
+            isOneToOne: false
+            referencedRelation: "hook7_instances"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "whatsapp_send_queue_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {

@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
+import { enqueueWhatsAppSend } from "../_shared/whatsapp-pacer.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 import { buildReferrerLabel, sanitizeReferrerMentions } from "../_shared/referrer-label.ts";
 import { getEmailReplyContext } from "../_shared/email-thread.ts";
@@ -294,19 +294,25 @@ serve(async (req) => {
               if (sendError) { sendAction = "failed"; }
             } catch { sendAction = "failed"; }
           } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
-            const zCfg = await getZApiConfig(supabase, cadence.company_id);
-            if (zCfg) {
-              const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
-              if (r.ok) {
-                deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status, to_number: lead.whatsapp || lead.phone };
-              } else {
-                console.error("Z-API send failed:", r.error);
-                sendAction = "failed";
-                deliveryMeta = { delivery_status: "failed", zapi_status: r.status, zapi_error: r.error, to_number: lead.whatsapp || lead.phone };
-              }
+            const toPhone = lead.whatsapp || lead.phone;
+            const conv = await findOrCreateConversation(
+              supabase, lead.id, cadence.company_id, "whatsapp", enrollment.id,
+            );
+            const qr = await enqueueWhatsAppSend(supabase, {
+              companyId: cadence.company_id,
+              toPhone,
+              body: parsed.message,
+              leadId: lead.id,
+              conversationId: conv?.id ?? null,
+              enrollmentId: enrollment.id,
+              source: "cadence_step_custom",
+              metadata: { step_order: currentStep.step_order, custom_message: true },
+            });
+            if (qr.ok) {
+              deliveryMeta = { delivery_status: "queued", queue_id: qr.queue_id, scheduled_for: qr.scheduled_for, to_number: toPhone, skip_message_insert: true };
             } else {
               sendAction = "pending_manual";
-              deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
+              deliveryMeta = { delivery_status: "pending_manual", delivery_error: qr.error || "falha ao enfileirar" };
             }
           } else if (currentStep.channel === "linkedin") { sendAction = "pending_manual"; }
 
@@ -325,8 +331,9 @@ serve(async (req) => {
           }
 
           // For email, gmail-send already persisted the message to the conversation.
-          // For other channels, insert the outbound message here.
-          if (currentStep.channel !== "email") {
+          // For other channels, insert the outbound message here (unless the send
+          // was enqueued — worker will insert on actual delivery).
+          if (currentStep.channel !== "email" && !(deliveryMeta as any).skip_message_insert) {
             const conversation = await findOrCreateConversation(
               supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
             );
@@ -584,21 +591,26 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
             sendAction = "failed";
           }
         } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
-          // Send via Z-API com credenciais por empresa
-          const zCfg = await getZApiConfig(supabase, cadence.company_id);
-          if (zCfg) {
-            const r = await sendWhatsAppViaZApi(zCfg, lead.whatsapp || lead.phone, parsed.message);
-            if (r.ok) {
-              deliveryMeta = { delivery_status: "delivered", zapi_message_id: r.sid, zapi_status: r.status, to_number: lead.whatsapp || lead.phone };
-            } else {
-              console.error(`Z-API WhatsApp error for ${enrollment.id}:`, r.error);
-              sendAction = "failed";
-              deliveryMeta = { delivery_status: "failed", zapi_status: r.status, zapi_error: r.error, to_number: lead.whatsapp || lead.phone };
-            }
+          // Enfileira no pacer WhatsApp (jitter, caps, warm-up, cooldown)
+          const toPhone = lead.whatsapp || lead.phone;
+          const conv = await findOrCreateConversation(
+            supabase, lead.id, cadence.company_id, "whatsapp", enrollment.id,
+          );
+          const qr = await enqueueWhatsAppSend(supabase, {
+            companyId: cadence.company_id,
+            toPhone,
+            body: parsed.message,
+            leadId: lead.id,
+            conversationId: conv?.id ?? null,
+            enrollmentId: enrollment.id,
+            source: "cadence_step",
+            metadata: { step_order: currentStep.step_order, auto_generated: true },
+          });
+          if (qr.ok) {
+            deliveryMeta = { delivery_status: "queued", queue_id: qr.queue_id, scheduled_for: qr.scheduled_for, to_number: toPhone, skip_message_insert: true };
           } else {
-            // Z-API não configurado — registra como tarefa manual
             sendAction = "pending_manual";
-            deliveryMeta = { delivery_status: "pending_manual", delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
+            deliveryMeta = { delivery_status: "pending_manual", delivery_error: qr.error || "falha ao enfileirar" };
           }
 
 
@@ -631,8 +643,9 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           });
         }
 
-        // For email, gmail-send already persisted the message. For other channels, insert here.
-        if (currentStep.channel !== "email") {
+        // For email, gmail-send already persisted the message. For other channels, insert here
+        // (unless the send was enqueued — worker will insert on actual delivery).
+        if (currentStep.channel !== "email" && !(deliveryMeta as any).skip_message_insert) {
           const conversation = await findOrCreateConversation(
             supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
           );

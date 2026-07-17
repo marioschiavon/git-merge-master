@@ -75,7 +75,7 @@ export function useBulkApprovalExecute() {
       note?: string;
       throttle_ms?: number;
     }) => {
-      const delay = Math.max(0, input.throttle_ms ?? 1500);
+      const delay = Math.max(0, input.throttle_ms ?? 200);
       const results: { id: string; ok: boolean; error?: string }[] = [];
       for (let i = 0; i < input.approval_ids.length; i++) {
         const id = input.approval_ids[i];
@@ -106,8 +106,11 @@ export function useBulkApprovalExecute() {
       qc.invalidateQueries({ queryKey: ["lead-lists"] });
       const ok = results.filter((r) => r.ok).length;
       const fail = results.length - ok;
-      const verb = vars.action === "approve" ? "enviadas" : "rejeitadas";
-      if (fail === 0) toast.success(`${ok} aprovações ${verb}`);
+      const verb = vars.action === "approve" ? "aprovadas" : "rejeitadas";
+      const suffix = vars.action === "approve"
+        ? " — envios de WhatsApp distribuídos ao longo dos próximos minutos (anti-spam)"
+        : "";
+      if (fail === 0) toast.success(`${ok} ${verb}${suffix}`);
       else toast.error(`${ok} ${verb}, ${fail} com erro`);
     },
     onError: (e: any) => toast.error(e?.message || "Falha no processamento em lote"),
