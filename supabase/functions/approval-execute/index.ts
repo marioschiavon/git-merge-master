@@ -267,19 +267,17 @@ serve(async (req) => {
             .from("leads").select("whatsapp, phone").eq("id", approval.lead_id).maybeSingle();
           const to = lead?.whatsapp || lead?.phone;
           if (!to) throw new Error("lead sem whatsapp/phone");
-          const cfg = await getZApiConfig(supabase, approval.company_id);
-          if (!cfg) throw new Error("z-api não configurada");
-          const r = await sendWhatsAppViaZApi(cfg, to, message);
-          if (!r.ok) throw new Error(r.error || `zapi http ${r.status}`);
-          if (conversationId) {
-            await supabase.from("messages").insert({
-              conversation_id: conversationId,
-              content: message,
-              direction: "outbound",
-              ai_suggested: true,
-              metadata: { approval_id, hitl_approved: true, zapi_message_id: r.sid, channel },
-            });
-          }
+          const r = await enqueueWhatsAppSend(supabase, {
+            companyId: approval.company_id,
+            toPhone: to,
+            body: message,
+            leadId: approval.lead_id,
+            conversationId: conversationId,
+            approvalId: approval_id,
+            source: "approval",
+            metadata: { hitl_approved: true, kind: approval.kind },
+          });
+          if (!r.ok) throw new Error(r.error || "falha ao enfileirar WhatsApp");
         } else {
           // linkedin / manual
           if (conversationId) {
