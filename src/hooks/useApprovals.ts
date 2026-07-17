@@ -75,7 +75,7 @@ export function useBulkApprovalExecute() {
       note?: string;
       throttle_ms?: number;
     }) => {
-      const delay = Math.max(0, input.throttle_ms ?? 1500);
+      const delay = Math.max(0, input.throttle_ms ?? 200);
       const results: { id: string; ok: boolean; error?: string }[] = [];
       for (let i = 0; i < input.approval_ids.length; i++) {
         const id = input.approval_ids[i];
