@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -145,6 +145,7 @@ type ProviderCardProps = {
   actionLabel?: string;
   disabled?: boolean;
   onAction?: () => void;
+  badgeLink?: { label: string; to: string };
 };
 
 function ProviderCard(props: ProviderCardProps) {
@@ -182,6 +183,18 @@ function ProviderCard(props: ProviderCardProps) {
       </div>
 
       <p className="mt-4 text-sm text-muted-foreground">{props.description}</p>
+
+      {props.badgeLink && (
+        <Link to={props.badgeLink.to} className="mt-3 inline-flex w-fit">
+          <Badge
+            variant="outline"
+            className="gap-1 border-primary/40 bg-primary/5 text-primary hover:bg-primary/10"
+          >
+            {props.badgeLink.label}
+            <ArrowRight className="h-3 w-3" />
+          </Badge>
+        </Link>
+      )}
 
       <div className="mt-4 space-y-2 rounded-lg border bg-background p-3 text-xs text-muted-foreground">
         <div className="flex items-center justify-between gap-3">
@@ -646,6 +659,7 @@ export default function Integrations() {
       readinessLabel:
         whatsappStatus === "pending" ? "Aguardando leitura do QR" : undefined,
       onAction: () => setWhatsappOpen(true),
+      badgeLink: { label: "Boas práticas", to: "/guides/whatsapp" },
     },
     {
       key: "apollo",
