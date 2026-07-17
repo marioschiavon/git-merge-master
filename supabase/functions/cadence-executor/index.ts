@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
 import { enqueueWhatsAppSend } from "../_shared/whatsapp-pacer.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 import { buildReferrerLabel, sanitizeReferrerMentions } from "../_shared/referrer-label.ts";
