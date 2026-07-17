@@ -92,6 +92,10 @@ const settingsItems = [
   { title: "Configurações", url: "/settings", icon: Settings },
 ];
 
+const guideItems = [
+  { title: "Boas práticas WhatsApp", url: "/guides/whatsapp", icon: ShieldCheck },
+];
+
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
