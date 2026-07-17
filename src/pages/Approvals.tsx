@@ -98,6 +98,8 @@ export default function ApprovalsPage() {
         </Tabs>
       </div>
 
+      <WhatsAppQueueBadge />
+
       {activeList && (
         <div className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Lote:</span>
