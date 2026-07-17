@@ -19,6 +19,7 @@ import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
 import { ChannelBadges } from "@/components/lead/ChannelBadges";
+import { EnrichmentQueueBadge } from "@/components/EnrichmentQueueBadge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -219,6 +220,8 @@ export default function Leads() {
         </div>
         {actionButtons}
       </div>
+
+      <EnrichmentQueueBadge />
 
       {activeList && (
         <div className="flex items-center gap-2 text-sm">
