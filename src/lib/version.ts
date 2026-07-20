@@ -1,6 +1,7 @@
 // Versão atual do app. Regras de bump:
-//  - Enquanto na fase "alpha X.YY": incrementa +0.01 automaticamente a cada
-//    alteração significativa do app. Múltiplas mudanças agrupadas contam como 1 bump.
-//  - Só passa para 1.XX quando o usuário avisar explicitamente que está em produção real.
-//  - A partir de 1.XX segue mesma regra (+0.01 por alteração).
-export const APP_VERSION = "alpha 0.27";
+//  - Fase atual: BETA. A cada alteração significativa do app, incrementa +0.1
+//    (0.1 → 0.2 → 0.3 …). Múltiplas mudanças agrupadas no mesmo turno contam
+//    como 1 bump.
+//  - A versão NUNCA chega em 1.0. Segue sempre como "beta 0.X", incluindo
+//    valores maiores que 9 (0.9 → 0.10 → 0.11 …), sem transição para 1.x.
+export const APP_VERSION = "beta 0.1";
