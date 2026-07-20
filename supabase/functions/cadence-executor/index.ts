@@ -424,6 +424,13 @@ REGRAS OBRIGATÓRIAS PARA REFERRAL:
 - NÃO finja que descobriu o lead sozinho. NÃO ignore o indicante.`;
         }
 
+        // Fetch human annotations to feed back into the prompt as corrections.
+        const { fetchAnnotationsContext } = await import("../_shared/annotations-context.ts");
+        const annotationsBlock = await fetchAnnotationsContext(supabase, {
+          companyId: cadence.company_id,
+          leadId: lead.id,
+        });
+
         // Generate personalized message with AI
         const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
@@ -481,7 +488,7 @@ Responda APENAS com JSON:
 {
   "subject": "assunto do email (apenas para email, null para outros canais)",
   "message": "mensagem personalizada para enviar"
-}`,
+}${annotationsBlock}`,
               },
               {
                 role: "user",
