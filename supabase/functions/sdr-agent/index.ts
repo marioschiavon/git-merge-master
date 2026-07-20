@@ -1936,8 +1936,8 @@ Deno.serve(async (req) => {
 
     const { fetchAnnotationsContext } = await import("../_shared/annotations-context.ts");
     const annotationsBlock = await fetchAnnotationsContext(supabase, {
-      companyId: ctx.lead.company_id,
-      leadId: ctx.lead.id,
+      companyId: (ctx as any).company_id ?? ctx.lead?.company_id,
+      leadId: (ctx as any).lead_id ?? ctx.lead?.id ?? null,
     });
 
     const sys =
