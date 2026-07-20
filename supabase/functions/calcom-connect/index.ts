@@ -4,6 +4,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { corsHeaders, jsonResponse, CALCOM_EVENT_TYPES_API_VERSION, normalizeCalcomApiKey } from "../_shared/calcom.ts";
+import { logAudit } from "../_shared/audit-log.ts";
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -105,6 +106,16 @@ serve(async (req) => {
     const projectRef = url.replace(/^https?:\/\//, "").split(".")[0];
     const webhookUrl = `https://${projectRef}.supabase.co/functions/v1/calcom-webhook/${company?.slug ?? ""}`;
 
+    logAudit({
+      companyId: member.company_id,
+      userId: userData.user.id,
+      userEmail: userData.user.email,
+      eventType: "integration.calcom.connected",
+      severity: "info",
+      message: `Cal.com conectado (${syncedCount} event types)`,
+      metadata: { event_types_synced: syncedCount, cal_user_email: calUser?.email },
+    });
+
     return jsonResponse({
       success: true,
       cal_user: { email: calUser?.email, username: calUser?.username, id: calUser?.id },
@@ -114,6 +125,11 @@ serve(async (req) => {
     });
   } catch (e) {
     console.error("calcom-connect error:", e);
+    logAudit({
+      eventType: "edge.error.calcom-connect",
+      severity: "error",
+      message: e instanceof Error ? e.message : String(e),
+    });
     return jsonResponse({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 });

@@ -213,6 +213,62 @@ export type Database = {
           },
         ]
       }
+      audit_logs: {
+        Row: {
+          company_id: string | null
+          created_at: string
+          entity_id: string | null
+          entity_type: string | null
+          event_type: string
+          id: string
+          ip: string | null
+          message: string | null
+          metadata: Json | null
+          severity: string
+          user_agent: string | null
+          user_email: string | null
+          user_id: string | null
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type: string
+          id?: string
+          ip?: string | null
+          message?: string | null
+          metadata?: Json | null
+          severity?: string
+          user_agent?: string | null
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string | null
+          event_type?: string
+          id?: string
+          ip?: string | null
+          message?: string | null
+          metadata?: Json | null
+          severity?: string
+          user_agent?: string | null
+          user_email?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           attendees: Json | null
@@ -3244,6 +3300,7 @@ export type Database = {
         Args: { _invite_id: string }
         Returns: undefined
       }
+      cleanup_audit_logs: { Args: never; Returns: undefined }
       clear_calcom_api_key: {
         Args: { _company_id: string }
         Returns: undefined

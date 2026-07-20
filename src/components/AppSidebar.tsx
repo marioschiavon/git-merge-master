@@ -20,6 +20,7 @@ import {
   NotebookPen,
   ListChecks,
   Sparkles,
+  FileClock,
 } from "lucide-react";
 import leadereiLogo from "@/assets/brand/leaderei-white.png";
 import { APP_VERSION } from "@/lib/version";
@@ -62,6 +63,7 @@ import { Separator } from "@/components/ui/separator";
 const masterItems = [
   { title: "Painel Master", url: "/master", icon: LayoutDashboard },
   { title: "Empresas", url: "/master/companies", icon: Building2 },
+  { title: "Logs", url: "/master/logs", icon: FileClock },
   { title: "Integrações da Plataforma", url: "/master/platform-settings", icon: ShieldCheck },
 ];
 

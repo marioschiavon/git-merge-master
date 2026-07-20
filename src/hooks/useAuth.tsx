@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, ReactNode } fr
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { logAuditClient } from "@/lib/audit";
 
 type AppRole = "master_admin" | "company_admin" | "user";
 
@@ -89,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      (event, session) => {
         setSession((prev) => (prev?.access_token === session?.access_token ? prev : session));
         setUser((prev) => (prev?.id === session?.user?.id ? prev : session?.user ?? null));
         if (session?.user) {
@@ -97,7 +98,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setTimeout(() => {
             void fetchUserData(session.user.id);
           }, 0);
+          if (event === "SIGNED_IN") {
+            logAuditClient({ event_type: "auth.login", severity: "info", message: session.user.email ?? undefined });
+          }
         } else {
+          if (event === "SIGNED_OUT") {
+            logAuditClient({ event_type: "auth.logout", severity: "info" });
+          }
           setRoles((prev) => (prev.length === 0 ? prev : []));
           setCompanyId((prev) => (prev === null ? prev : null));
           setProfile((prev) => (prev === null ? prev : null));

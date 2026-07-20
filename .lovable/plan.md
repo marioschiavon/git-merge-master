@@ -1,62 +1,51 @@
-## Diagnóstico
+## Objetivo
 
-O usuário `ca0fccee` pertence à empresa **Leaderei** (`b9876b4c...`). O domínio cadastrado é `leaderei.app.br` e está no status **`verifying`** desde **16/07** (4 dias parado).
+Criar uma página de **Logs de Auditoria** no Master Admin para acompanhar em tempo real o que clientes e usuários estão fazendo (login, criação de leads, envio de mensagens, mudanças de configuração, erros de edge functions etc.) — inspirado no padrão do Leaderei Foundation, mas com melhorias.
 
-Verifiquei o DNS público via `dig` e **os três registros que o Resend pediu estão publicados corretamente**:
+## Como o Foundation faz (referência)
 
-| Registro | Esperado | Publicado |
-|---|---|---|
-| `resend._domainkey` TXT | `p=MIGf...QIDAQAB` | ✅ idêntico |
-| `send` TXT (SPF) | `v=spf1 include:amazonses.com ~all` | ✅ idêntico |
-| `send` MX 10 | `feedback-smtp.us-east-1.amazonses.com` | ✅ idêntico |
+O Foundation grava uma linha por ação em uma tabela `audit_logs` com: quem (user_id + email), qual empresa, tipo de evento, entidade afetada, payload em JSON, IP/user-agent e severidade. Uma página `/admin/logs` mostra tudo com filtros por empresa, usuário, severidade e período.
 
-Ou seja, o problema **não é DNS ausente/errado** — o Resend simplesmente não fechou a verificação do lado dele (nos `dns_records` salvos os três seguem `status: "pending"`).
+## Melhorias sobre o Foundation
 
-### Causas prováveis
+1. **Unificar 3 fontes num só painel**: eventos de negócio (audit), erros de edge functions (via `supabase.analytics_query`) e eventos de auth (login/logout já disponíveis nos logs do Cloud).
+2. **Severidade explícita** (`info` | `warn` | `error` | `critical`) com destaque visual.
+3. **Filtro rápido "só erros"** — atalho mais usado no dia-a-dia.
+4. **Retenção 90 dias** com limpeza automática via cron (evita tabela inflar).
+5. **Contexto rico**: cada log guarda `entity_type` + `entity_id` (lead, cadence, booking…) para clicar e ir direto ao recurso.
+6. **Logging não-bloqueante**: gravação assíncrona nas edges (fire-and-forget) para não impactar latência.
 
-1. **Polling só roda com a página aberta.** `src/pages/settings/Email.tsx` faz auto-verify a cada 15s, mas para em 20 tentativas (5 min) e some quando o usuário sai da tela. Se o DNS propagou depois, ninguém dispara `POST /domains/{id}/verify` de novo — e o Resend não vai marcar sozinho.
-2. **Registro no cadastrador do `.app.br`.** Alguns registradores publicam o TXT com quebra/aspas escapadas que o `dig` mostra normalmente mas o checker do Resend rejeita.
-3. **Backoff do lado do Resend** após muitas tentativas seguidas naquele domain_id específico. A cura padrão é ficar algumas horas sem chamar `verify` e disparar de novo — ou recriar o domínio.
+## Escopo
 
-### Fato colateral confirmado
+### 1. Backend — tabela e helper
 
-- Outra empresa (`mail.hook7.com.br`) verificou normalmente com o mesmo fluxo, então o código de criação/verify em si funciona; é específico do leaderei.app.br.
+- Migração cria `public.audit_logs`:
+  - `id`, `created_at`, `company_id`, `user_id`, `user_email`, `event_type` (ex.: `lead.created`, `cadence.launched`, `auth.login`, `integration.connected`, `edge.error`), `severity`, `entity_type`, `entity_id`, `message` (curto), `metadata` (jsonb), `ip`, `user_agent`.
+  - Índices por `created_at desc`, `company_id`, `severity`, `event_type`.
+  - RLS: `SELECT` só para `master_admin`; `INSERT` só `service_role`. GRANTs corretos.
+- Helper `_shared/audit-log.ts` com `logAudit({ companyId, userId, eventType, severity, entityType?, entityId?, message, metadata? })` que insere via service_role sem bloquear.
+- Instrumentar pontos-chave (não precisa ser tudo agora): login (via trigger no `useAuth`), criação/exclusão de leads, disparo de cadência, envio de mensagem WhatsApp/email, conexão/desconexão de integrações (Cal.com, Resend, Apollo, Pipedrive, Hook7), erros capturados nas edges principais (`hook7-webhook`, `cadence-executor`, `send-outbound-*`, `resend-domain-*`).
+- Job diário no `pg_cron` limpando registros > 90 dias.
 
-## O que fazer
+### 2. Frontend — página Master → Logs
 
-### 1. Ação manual imediata para desbloquear a Leaderei
-Não dá para resolver 100% via código sem tocar no domínio dele. Duas opções para eu executar quando você aprovar:
+- Nova rota `/master/logs` protegida por `RequireMasterAdmin`.
+- Item "Logs" no `masterItems` do `AppSidebar`.
+- Página `src/pages/master/AuditLogs.tsx`:
+  - Filtros: período (últimas 1h/24h/7d/30d/custom), empresa (select), severidade (chips info/warn/error/critical), tipo de evento (multi-select), busca por email/entidade, atalho "só erros".
+  - Tabela paginada (50/pág, load more): timestamp (BRT), severidade colorida, empresa, usuário, evento, mensagem, botão "Ver detalhes" que abre drawer com `metadata` JSON formatado + link para a entidade quando aplicável.
+  - Tab secundária "Edge Function Errors" consultando logs analytics do Cloud (últimas 24h) via nova edge `master-edge-errors` que usa a mesma API que a ferramenta interna já usa.
+  - Contadores no topo (últimas 24h): total, erros, warnings, empresas ativas.
+  - Auto-refresh a cada 30s (toggle).
 
-- **A. Forçar re-verify agora** chamando `POST /domains/{id}/verify` no Resend via a função `resend-domain-verify` (com service role, sem depender da sessão do usuário). Se destravar → status vira `verified`.
-- **B. Se A não destravar**, apagar o registro (função `resend-domain-delete` já existe) e recriar. Isso gera um novo `domain_id` no Resend e reseta qualquer backoff. O usuário só precisa re-colar os mesmos registros (na maior parte dos casos os valores DKIM/SPF continuam os mesmos, mas conferir).
+### 3. Detalhes técnicos
 
-### 2. Prevenir isso para todos os clientes: cron de verificação em background
+- Logs escritos com service_role usando `logAudit` — nunca do cliente (evita spoofing).
+- `event_type` como texto livre padronizado com prefixo (`lead.*`, `cadence.*`, `auth.*`, `integration.*`, `edge.error.*`) para agrupar via `LIKE` nos filtros.
+- Retenção configurável em constante compartilhada; padrão 90 dias.
 
-Criar `supabase/functions/resend-domain-verify-cron/index.ts` que:
+## Não incluído nesta entrega
 
-- Roda de hora em hora via `pg_cron`.
-- Busca em `company_email_domains` todos com `status IN ('pending','verifying')` cujo `updated_at` seja mais recente que 7 dias (para não bater à toa em domínios abandonados).
-- Para cada um chama `POST /domains/{id}/verify` e depois `GET /domains/{id}` no Resend usando `resendFetch` (chave master).
-- Atualiza `status` e `dns_records` no banco.
-- Se ficar 72h em `verifying` sem sucesso → grava `last_error` explicando "DNS propagado mas Resend não confirmou; tente remover e recadastrar".
-
-Isso resolve o cenário "usuário fechou a página antes do DNS propagar" para sempre.
-
-### 3. Ajuste pequeno de UX em `settings/Email.tsx`
-
-- Quando o domínio estiver em `verifying` há **> 24h** e todos os registros DNS **estiverem publicados** (podemos inferir pela última resposta do Resend), mostrar um aviso amigável: *"O DNS já está publicado, mas o Resend ainda não fechou a verificação. Isso costuma resolver sozinho em algumas horas. Se persistir, remova o domínio e cadastre de novo."*
-- Adicionar botão **"Remover e cadastrar de novo"** (só um atalho para o fluxo já existente).
-
-## Ordem de execução
-
-1. Rodar A (força verify agora no leaderei.app.br) e reportar o resultado.
-2. Se persistir → executar B com aprovação do usuário.
-3. Criar o cron `resend-domain-verify-cron` + agendamento pg_cron.
-4. Aplicar o ajuste de UX em `settings/Email.tsx`.
-
-## Detalhes técnicos
-
-- Nada muda em `_shared/resend-gateway.ts`, `resend-domain-create` ou `resend-domain-verify`.
-- Novo edge function chama `resendJson` que já usa a chave master criptografada em `platform_settings`.
-- Agendamento via `cron.schedule('resend-domain-verify-cron', '0 * * * *', ...)` chamando a função com service role.
-- Nenhuma mudança de schema no banco.
+- Export CSV (fica para próxima iteração se pedirem).
+- Alertas por email quando `critical` — depende de configurar destinatário.
+- Instrumentação de 100% das edges — começamos pelas mais críticas listadas acima e vamos ampliando conforme necessidade.
