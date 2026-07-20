@@ -83,6 +83,13 @@ Responda APENAS com JSON válido neste formato:
   "suggested_reply": "texto pronto para o operador enviar"
 }`;
 
+    const { fetchAnnotationsContext } = await import("../_shared/annotations-context.ts");
+    const annotationsBlock = await fetchAnnotationsContext(admin, {
+      companyId: (conv as any).company_id,
+      leadId: (lead as any)?.id ?? null,
+    });
+    const systemPromptWithNotes = systemPrompt + annotationsBlock;
+
     const historyFormatted = (msgs || [])
       .map((m: any) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`)
       .join("\n");
@@ -100,7 +107,7 @@ Sugira a resposta ideal para o SDR enviar agora.`;
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },
         ],
       }),

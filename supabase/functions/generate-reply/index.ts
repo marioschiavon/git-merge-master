@@ -77,6 +77,13 @@ Responda APENAS JSON:
   "body": "<texto da mensagem>"
 }`;
 
+    const { fetchAnnotationsContext } = await import("../_shared/annotations-context.ts");
+    const annotationsBlock = await fetchAnnotationsContext(supabase, {
+      companyId: company_id,
+      leadId: (lead as any)?.id ?? null,
+    });
+    const systemPromptWithNotes = systemPrompt + annotationsBlock;
+
     const historyText = (history as any[])
       .slice(-10)
       .map((m) => `[${m.direction === "outbound" ? "SDR" : "PROSPECT"}]: ${m.content}`)
@@ -97,7 +104,7 @@ Gere a próxima mensagem.`;
       body: JSON.stringify({
         model: "openai/gpt-5",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },
         ],
         response_format: { type: "json_object" },

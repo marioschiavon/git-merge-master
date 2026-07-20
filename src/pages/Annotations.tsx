@@ -79,7 +79,7 @@ export default function AnnotationsPage() {
             Anotações
           </h1>
           <p className="text-sm text-muted-foreground">
-            Observações do humano sobre aprovações e decisões da IA — use para treinar e corrigir o sistema.
+            A IA lê as anotações mais recentes deste lead/empresa antes de gerar próximas mensagens — use para corrigir tom, ganchos e o que evitar. Correções (rejeitada / editada) têm prioridade.
           </p>
         </div>
         <div className="flex items-center gap-2">

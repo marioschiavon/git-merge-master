@@ -433,6 +433,13 @@ Responda APENAS JSON com este shape:
   "stop_reason": "<obrigatório se action=stop>"
 }`;
 
+    const { fetchAnnotationsContext } = await import("../_shared/annotations-context.ts");
+    const annotationsBlock = await fetchAnnotationsContext(supabase, {
+      companyId: cadence.company_id,
+      leadId: lead.id,
+    });
+    const systemPromptWithNotes = systemPrompt + annotationsBlock;
+
     const userPrompt = `Lead: ${lead.name} — ${lead.company_name || "(sem empresa)"} — ${lead.title || ""}
 Email: ${lead.email || "N/A"} (cadastrado: ${hasEmail ? "sim" : "NÃO"}) | WhatsApp: ${lead.whatsapp || lead.phone || "N/A"} (cadastrado: ${hasWhatsapp ? "sim" : "NÃO"})
 Fit score: ${lead.score ?? "?"}
@@ -457,7 +464,7 @@ Decida a próxima ação.`;
       body: JSON.stringify({
         model: "google/gemini-2.5-flash",
         messages: [
-          { role: "system", content: systemPrompt },
+          { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },
         ],
         response_format: { type: "json_object" },
