@@ -181,6 +181,13 @@ Responda APENAS com JSON:
   "message": "mensagem personalizada para enviar"
 }`;
 
+  const { fetchAnnotationsContext } = await import("./annotations-context.ts");
+  const annotationsBlock = await fetchAnnotationsContext(supabase, {
+    companyId,
+    leadId: lead.id,
+  });
+  const systemPromptWithNotes = systemPrompt + annotationsBlock;
+
   const userPrompt = lead.lead_kind === "company"
     ? `Dados do lead (CANAL CORPORATIVO — sem nome de pessoa):
 - Empresa: ${lead.company_name || lead.name || "N/A"}
@@ -206,7 +213,7 @@ Gere a PRIMEIRA mensagem (abertura da cadência).`;
     body: JSON.stringify({
       model: "google/gemini-2.5-flash",
       messages: [
-        { role: "system", content: systemPrompt },
+        { role: "system", content: systemPromptWithNotes },
         { role: "user", content: userPrompt },
       ],
     }),

@@ -1934,10 +1934,17 @@ Deno.serve(async (req) => {
 
 
 
+    const { fetchAnnotationsContext } = await import("../_shared/annotations-context.ts");
+    const annotationsBlock = await fetchAnnotationsContext(supabase, {
+      companyId: ctx.lead.company_id,
+      leadId: ctx.lead.id,
+    });
+
     const sys =
       buildSystemPrompt(ctx) + "\n\n" +
       renderStateBlock(state) + "\n\n" +
-      renderPolicyBlock(policy);
+      renderPolicyBlock(policy) +
+      annotationsBlock;
     const nativeHistory = buildNativeHistory(ctx.messages);
 
     const messages: ChatMessage[] = [
