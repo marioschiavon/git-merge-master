@@ -1,25 +1,20 @@
-Plano: adicionar badge com link para a página de boas práticas no card do WhatsApp em Integrações
+## Diagnóstico
 
-Objetivo
-- No card de WhatsApp da tela Configurações → Integrações, exibir uma badge clicável que leve o usuário para `/guides/whatsapp` (página de boas práticas do WhatsApp).
+Confirmei no banco:
+- A empresa do usuário (`b9876b4c…`) tem **34 anotações** salvas.
+- As RLS policies de `message_annotations` estão corretas (`SELECT` liberado para membros da mesma company e master_admin) e o grant SELECT para `authenticated` existe.
+- **Causa real:** a tabela `message_annotations` não tem nenhuma foreign key. O hook `useAnnotations` faz um embed PostgREST (`select("*, leads(id, name, company_name, email)")`) que exige uma FK detectável entre `message_annotations.lead_id` e `leads.id`. Sem essa FK, o PostgREST responde erro (`Could not find a relationship…`) e o React Query devolve `[]` — por isso a tela mostra "Nenhuma anotação ainda" mesmo com 34 registros salvos.
 
-Mudanças propostas
+## Correção
 
-1. Estender `ProviderCardProps` em `src/pages/settings/Integrations.tsx`
-   - Adicionar prop opcional `badgeLink?: { label: string; to: string }`.
+Migration adicionando as FKs faltantes em `public.message_annotations`:
+- `lead_id` → `public.leads(id) ON DELETE SET NULL`
+- `conversation_id` → `public.conversations(id) ON DELETE SET NULL`
+- `company_id` → `public.companies(id) ON DELETE CASCADE`
 
-2. Alterar o componente `ProviderCard`
-   - Se `badgeLink` existir, renderizar um `Badge` (variante outline ou secondary) com um `Link` do React Router interno, usando o ícone de seta/link.
-   - Posicionar a badge abaixo da descrição do card, mantendo o layout limpo.
+Depois disso o embed `leads(...)` funciona e a listagem passa a exibir as anotações normalmente. Nenhuma alteração de UI necessária.
 
-3. Configurar o provider `whatsapp`
-   - Passar `badgeLink: { label: "Boas práticas", to: "/guides/whatsapp" }`.
+## Verificação
 
-4. Verificar importações
-   - Garantir que `Link` do `react-router-dom` esteja disponível (já há `useNavigate`, então só adicionar `Link` ao import).
-
-Critérios de aceitação
-- O card de WhatsApp exibe uma badge "Boas práticas".
-- Clicar na badge navega para `/guides/whatsapp` sem recarregar a página.
-- Outros cards não são afetados.
-- O build continua passando sem erros de TypeScript.
+1. Rodar `select ... leads(...)` via PostgREST como usuário autenticado da empresa e confirmar retorno populado.
+2. Abrir a página **Anotações** com o login afetado e confirmar que as 34 anotações aparecem.
