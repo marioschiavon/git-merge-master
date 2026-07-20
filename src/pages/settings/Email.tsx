@@ -267,6 +267,13 @@ export default function EmailSettings() {
   const previewDomain = sendingDomain || "mail.suaempresa.com";
   const previewFrom = `${fromName || "Atendimento"} <${fromLocal || "atendimento"}@${previewDomain}>`;
 
+  const createdAtMs = domain ? Date.parse((domain as any).created_at ?? "") : NaN;
+  const hoursSinceCreated = Number.isFinite(createdAtMs)
+    ? (Date.now() - createdAtMs) / 3_600_000
+    : 0;
+  const isStuckVerifying =
+    !!domain && !isVerified && domain.status === "verifying" && hoursSinceCreated > 24;
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3">
