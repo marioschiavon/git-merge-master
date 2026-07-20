@@ -25,6 +25,7 @@ import Annotations from "@/pages/Annotations";
 import MasterDashboard from "@/pages/master/MasterDashboard";
 import Companies from "@/pages/master/Companies";
 import PlatformSettings from "@/pages/master/PlatformSettings";
+import AuditLogs from "@/pages/master/AuditLogs";
 import Team from "@/pages/settings/Team";
 import Integrations from "@/pages/settings/Integrations";
 import SettingsPage from "@/pages/settings/Settings";
@@ -87,6 +88,7 @@ const App = () => (
                 <Route path="/master" element={<MasterDashboard />} />
                 <Route path="/master/companies" element={<Companies />} />
                 <Route path="/master/platform-settings" element={<PlatformSettings />} />
+                <Route path="/master/logs" element={<AuditLogs />} />
               </Route>
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/settings/team" element={<Team />} />
