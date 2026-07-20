@@ -483,7 +483,53 @@ export default function EmailSettings() {
                 </span>
               </div>
             )}
+            {isStuckVerifying && !domain.last_error && (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
+                <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                <div className="text-muted-foreground">
+                  Os registros DNS parecem publicados, mas o Resend ainda não fechou a verificação
+                  (já se passaram mais de 24h). Isso costuma resolver sozinho em algumas horas —
+                  nosso sistema re-verifica automaticamente a cada hora. Se persistir, remova o
+                  domínio e cadastre de novo.
+                </div>
+              </div>
+            )}
+            {!isVerified && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => verifyMutation.mutate()}
+                  disabled={verifyMutation.isPending}
+                >
+                  <RefreshCw
+                    className={`h-3 w-3 mr-1 ${verifyMutation.isPending ? "animate-spin" : ""}`}
+                  />
+                  Verificar DNS agora
+                </Button>
+                {isStuckVerifying && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      if (
+                        confirm(
+                          "Remover o domínio atual e recomeçar o cadastro? Os registros DNS podem precisar ser atualizados.",
+                        )
+                      ) {
+                        deleteMutation.mutate();
+                      }
+                    }}
+                    disabled={deleteMutation.isPending}
+                  >
+                    <Trash2 className="h-3 w-3 mr-1" />
+                    Remover e cadastrar de novo
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
+
 
           {domain.dns_records && domain.dns_records.length > 0 && (
             <>
