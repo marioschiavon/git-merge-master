@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { requireUser, requireRole, jsonResponse, errorResponse } from "../_shared/tenant-auth.ts";
 import { resendFetchWithKey, invalidateResendKeyCache } from "../_shared/resend-gateway.ts";
+import { logAudit } from "../_shared/audit-log.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -58,12 +59,26 @@ serve(async (req) => {
 
     invalidateResendKeyCache();
 
+    logAudit({
+      userId: user.id,
+      userEmail: user.email,
+      eventType: "integration.resend.master_key_set",
+      severity: "info",
+      message: `Chave master do Resend atualizada (${domainCount} domínios)`,
+      metadata: { domain_count: domainCount },
+    });
+
     return jsonResponse(
       { ok: true, domain_count: domainCount, message: `Chave salva. ${domainCount} domínio(s) na conta.` },
       200,
       corsHeaders,
     );
   } catch (e) {
+    logAudit({
+      eventType: "edge.error.resend-master-set",
+      severity: "error",
+      message: e instanceof Error ? e.message : String(e),
+    });
     return errorResponse(e, corsHeaders);
   }
 });
