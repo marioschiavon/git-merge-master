@@ -54,11 +54,14 @@ Contas que acabaram de começar a enviar — ou que pararam e voltaram — preci
 
 ---
 
-### 3.5 Horário comercial
+### 3.5 Horário comercial (aplicado a TUDO, inclusive respostas)
 
-Mensagens automáticas só saem em horários adequados. O sistema evita enviar muito cedo, muito tarde ou no fim de semana, quando a resposta tende a ser pior e a experiência pode incomodar o lead.
+Todas as mensagens — automáticas **e** respostas do agente a leads que responderam — respeitam a janela de envio configurada em **Configurações → Empresa → Janela de envio**. Enviar fora do horário/dias configurados é o principal motivo de **banimento de número no WhatsApp**.
 
-> **Na prática:** se uma mensagem automática estiver programada para sair à noite ou num domingo, ela pode ser adiada para o próximo horário comercial.
+> ⚠️ **Responsabilidade do administrador:** a janela precisa ser realista para o público do cliente. Se você configurar 09h–18h seg–sex, o Leaderei não vai enviar às 23h — nem em resposta a um lead que respondeu naquele horário. A resposta fica na fila e sai no próximo horário permitido.
+
+> **Na prática:** lead responde 23h com janela 09–18 → resposta do agente sai às 09h do próximo dia útil. Isso protege o número.
+
 
 ---
 
