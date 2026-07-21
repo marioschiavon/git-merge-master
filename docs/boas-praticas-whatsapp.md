@@ -54,13 +54,15 @@ Contas que acabaram de começar a enviar — ou que pararam e voltaram — preci
 
 ---
 
-### 3.5 Horário comercial (aplicado a TUDO, inclusive respostas)
+### 3.5 Horário comercial (aplicado a outbound frio e cadências)
 
-Todas as mensagens — automáticas **e** respostas do agente a leads que responderam — respeitam a janela de envio configurada em **Configurações → Empresa → Janela de envio**. Enviar fora do horário/dias configurados é o principal motivo de **banimento de número no WhatsApp**.
+Mensagens automáticas de cadência e primeiras mensagens (outbound frio) respeitam a janela de envio configurada em **Configurações → Empresa → Janela de envio**. Enviar fora do horário/dias configurados é o principal motivo de **banimento de número no WhatsApp**.
 
-> ⚠️ **Responsabilidade do administrador:** a janela precisa ser realista para o público do cliente. Se você configurar 09h–18h seg–sex, o Leaderei não vai enviar às 23h — nem em resposta a um lead que respondeu naquele horário. A resposta fica na fila e sai no próximo horário permitido.
+> ⚠️ **Responsabilidade do administrador:** a janela precisa ser realista para o público do cliente. Se você configurar 09h–18h seg–sex, o Leaderei não vai enviar cadências ou primeiras mensagens às 23h.
 
-> **Na prática:** lead responde 23h com janela 09–18 → resposta do agente sai às 09h do próximo dia útil. Isso protege o número.
+> **Respostas a leads que já responderam** não são travadas pelo horário comercial: o WhatsApp pune principalmente outbound frio em massa, não uma conversa normal. Quando um lead responde, a resposta do agente flui naturalmente.
+
+> **Na prática:** uma mensagem de cadência agendada para 23h com janela 09–18 fica na fila e sai às 09h do próximo dia útil. Se o lead responder às 23h, a resposta do agente pode sair normalmente.
 
 
 ---
@@ -107,7 +109,7 @@ Se você precisar explicar rapidamente para um cliente, use este resumo:
 - Os envios têm pequenos atrasos aleatórios para parecerem naturais.
 - Existe um limite seguro de mensagens por hora e por dia.
 - Contas novas começam devagar e vão acelerando conforme ganham confiança.
-- Mensagens automáticas respeitam o horário comercial.
+- Mensagens automáticas de cadência e primeiras mensagens respeitam o horário comercial.
 - Se o lead não respondeu, a próxima mensagem automática espera o reengajamento configurado na cadência.
 - Se o lead respondeu, a conversa continua normalmente.
 

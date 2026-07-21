@@ -54,11 +54,11 @@ const practices = [
   {
     icon: Clock,
     title: "Horário comercial",
-    subtitle: "Mensagens na hora certa — inclusive respostas",
+    subtitle: "Cadências e primeiras mensagens na hora certa",
     body:
-      "TODAS as mensagens — automáticas e respostas a leads que responderam — respeitam a janela de envio configurada em Configurações → Empresa. Enviar de madrugada ou em dias não configurados é o caminho mais rápido para ter o número banido pelo WhatsApp. A responsabilidade de configurar uma janela realista é do administrador da conta.",
+      "Mensagens automáticas de cadência e primeiras mensagens (outbound frio) respeitam a janela de envio configurada em Configurações → Empresa. Enviar de madrugada ou em dias não configurados é o caminho mais rápido para ter o número banido pelo WhatsApp. A responsabilidade de configurar uma janela realista é do administrador da conta.",
     example:
-      "Se o lead responder às 23h e sua janela é 09h–18h, a resposta do agente fica na fila e sai às 09h do próximo dia útil. Isso protege seu número.",
+      "Se uma cadência tentar enviar às 23h e sua janela é 09h–18h, esse envio fica na fila e sai às 09h do próximo dia útil. Respostas a leads que já responderam fluem normalmente.",
   },
 
   {
@@ -94,7 +94,7 @@ const summary = [
   "Os envios têm pequenos atrasos aleatórios para parecerem naturais.",
   "Existe um limite seguro de mensagens por hora e por dia.",
   "Contas novas começam devagar e vão acelerando conforme ganham confiança.",
-  "Todas as mensagens (inclusive respostas) respeitam o horário comercial — enviar fora dele pode banir o número.",
+  "Mensagens automáticas de cadência e primeiras mensagens respeitam o horário comercial — enviar outbound frio fora dele pode banir o número.",
   "Se o lead não respondeu, a próxima mensagem automática espera o reengajamento configurado.",
   "Se o lead respondeu, a conversa continua normalmente e sem atraso.",
 ];

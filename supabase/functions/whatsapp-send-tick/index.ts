@@ -1,7 +1,10 @@
 // Cron worker (a cada 15-30s) que drena `whatsapp_send_queue` respeitando:
-//  - business_hours da company
-//  - caps hora/dia por instância (com warm-up nos primeiros 7 dias)
-//  - cooldown por lead (evita 2 mensagens em minutos)
+//  - business_hours da company para outbound frio/cadências
+//  - caps hora/dia por instância (com warm-up nos primeiros 7 dias) — não aplicado a respostas
+//  - cooldown por lead (evita 2 mensagens em minutos) — não aplicado a respostas
+//
+// Respostas a leads engajados (priority >= 10) bypassam business_hours e caps,
+// porque o WhatsApp pune outbound frio, não uma conversa normal.
 //
 // Falhas incrementam attempts; após 3 tentativas vira status='failed'.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -101,14 +104,13 @@ serve(async (req) => {
       }
 
       // Prioridade alta (>=10) = resposta a lead engajado.
-      // Bypass de caps horários/diários (não punem responder conversa ativa),
-      // MAS continua respeitando business_hours: enviar 03h da manhã queima
-      // o número mesmo em resposta. Cliente é responsável por configurar
-      // uma janela realista.
+      // Respostas a conversas ativas não devem ser travadas por horário comercial:
+      // o WhatsApp pune outbound frio, não uma resposta natural a quem já respondeu.
+      // Bypass de caps horários/diários e de business_hours para respostas.
       const isHighPriority = (item.priority ?? 0) >= 10;
 
-      // Business hours (aplicado a TODOS os envios, inclusive respostas)
-      {
+      // Business hours (aplicado apenas a outbound frio / cadências)
+      if (!isHighPriority) {
         let bh = bhCache.get(item.company_id);
         if (bh === undefined) {
           const { data } = await supabase

@@ -101,7 +101,7 @@ export async function enqueueWhatsAppSend(
 
   if (replyMode) {
     // Resposta a lead engajado: jitter curto (3-10s), ignora o último pendente
-    // da instância. O send-tick também vai pular business hours e caps.
+    // da instância. O send-tick pula business hours e caps para respostas.
     priority = 10;
     const jitterMs = randInt(3, 10) * 1000;
     scheduledFor = new Date(now + jitterMs).toISOString();
