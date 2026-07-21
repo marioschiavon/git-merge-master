@@ -2716,9 +2716,15 @@ export type Database = {
           elevenlabs_connected_at: string | null
           elevenlabs_last_error: string | null
           elevenlabs_model: string
+          gemini_api_key_encrypted: string | null
+          gemini_connected_at: string | null
+          gemini_last_error: string | null
           hook7_base_url: string
           id: string
           metadata: Json
+          openai_api_key_encrypted: string | null
+          openai_connected_at: string | null
+          openai_last_error: string | null
           resend_api_key_encrypted: string | null
           resend_connected_at: string | null
           resend_last_error: string | null
@@ -2734,9 +2740,15 @@ export type Database = {
           elevenlabs_connected_at?: string | null
           elevenlabs_last_error?: string | null
           elevenlabs_model?: string
+          gemini_api_key_encrypted?: string | null
+          gemini_connected_at?: string | null
+          gemini_last_error?: string | null
           hook7_base_url?: string
           id?: string
           metadata?: Json
+          openai_api_key_encrypted?: string | null
+          openai_connected_at?: string | null
+          openai_last_error?: string | null
           resend_api_key_encrypted?: string | null
           resend_connected_at?: string | null
           resend_last_error?: string | null
@@ -2752,9 +2764,15 @@ export type Database = {
           elevenlabs_connected_at?: string | null
           elevenlabs_last_error?: string | null
           elevenlabs_model?: string
+          gemini_api_key_encrypted?: string | null
+          gemini_connected_at?: string | null
+          gemini_last_error?: string | null
           hook7_base_url?: string
           id?: string
           metadata?: Json
+          openai_api_key_encrypted?: string | null
+          openai_connected_at?: string | null
+          openai_last_error?: string | null
           resend_api_key_encrypted?: string | null
           resend_connected_at?: string | null
           resend_last_error?: string | null
@@ -3306,6 +3324,8 @@ export type Database = {
         Returns: undefined
       }
       clear_elevenlabs_master_key: { Args: never; Returns: undefined }
+      clear_gemini_master_key: { Args: never; Returns: undefined }
+      clear_openai_master_key: { Args: never; Returns: undefined }
       clear_resend_master_key: { Args: never; Returns: undefined }
       create_company_and_join: {
         Args: { p_name: string; p_slug?: string }
@@ -3336,6 +3356,7 @@ export type Database = {
         Args: { _passphrase: string }
         Returns: string
       }
+      get_gemini_master_key: { Args: { _passphrase: string }; Returns: string }
       get_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string }
         Returns: string
@@ -3349,6 +3370,7 @@ export type Database = {
           status: string
         }[]
       }
+      get_openai_master_key: { Args: { _passphrase: string }; Returns: string }
       get_resend_master_key: { Args: { _passphrase: string }; Returns: string }
       get_user_company_id: { Args: { _user_id: string }; Returns: string }
       has_role: {
@@ -3422,8 +3444,16 @@ export type Database = {
         Args: { _model: string }
         Returns: undefined
       }
+      set_gemini_master_key: {
+        Args: { _api_key: string; _passphrase: string }
+        Returns: undefined
+      }
       set_hook7_instance_token: {
         Args: { _instance_id: string; _passphrase: string; _token: string }
+        Returns: undefined
+      }
+      set_openai_master_key: {
+        Args: { _api_key: string; _passphrase: string }
         Returns: undefined
       }
       set_resend_master_key: {
