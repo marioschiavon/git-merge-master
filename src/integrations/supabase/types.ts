@@ -123,6 +123,7 @@ export type Database = {
           kind: string
           lead_id: string | null
           payload: Json
+          queued_at: string | null
           rejection_reason: string | null
           reviewed_at: string | null
           reviewed_by: string | null
@@ -146,6 +147,7 @@ export type Database = {
           kind: string
           lead_id?: string | null
           payload?: Json
+          queued_at?: string | null
           rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
@@ -169,6 +171,7 @@ export type Database = {
           kind?: string
           lead_id?: string | null
           payload?: Json
+          queued_at?: string | null
           rejection_reason?: string | null
           reviewed_at?: string | null
           reviewed_by?: string | null
@@ -3210,6 +3213,7 @@ export type Database = {
           last_error: string | null
           lead_id: string | null
           metadata: Json
+          priority: number
           scheduled_for: string
           sent_at: string | null
           sent_message_id: string | null
@@ -3231,6 +3235,7 @@ export type Database = {
           last_error?: string | null
           lead_id?: string | null
           metadata?: Json
+          priority?: number
           scheduled_for?: string
           sent_at?: string | null
           sent_message_id?: string | null
@@ -3252,6 +3257,7 @@ export type Database = {
           last_error?: string | null
           lead_id?: string | null
           metadata?: Json
+          priority?: number
           scheduled_for?: string
           sent_at?: string | null
           sent_message_id?: string | null
