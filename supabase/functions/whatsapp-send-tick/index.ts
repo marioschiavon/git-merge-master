@@ -101,12 +101,14 @@ serve(async (req) => {
       }
 
       // Prioridade alta (>=10) = resposta a lead engajado.
-      // Bypass business hours + caps: WhatsApp não pune resposta a
-      // conversa ativa; deixar o lead esperando 10h é o pior cenário.
+      // Bypass de caps horários/diários (não punem responder conversa ativa),
+      // MAS continua respeitando business_hours: enviar 03h da manhã queima
+      // o número mesmo em resposta. Cliente é responsável por configurar
+      // uma janela realista.
       const isHighPriority = (item.priority ?? 0) >= 10;
 
-      // Business hours (apenas para outbound frio)
-      if (!isHighPriority) {
+      // Business hours (aplicado a TODOS os envios, inclusive respostas)
+      {
         let bh = bhCache.get(item.company_id);
         if (bh === undefined) {
           const { data } = await supabase
@@ -130,6 +132,7 @@ serve(async (req) => {
           }
         }
       }
+
 
       // Warm-up + caps por instância (apenas para outbound frio)
       if (!isHighPriority) {
