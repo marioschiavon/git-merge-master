@@ -16,10 +16,11 @@ export interface ApprovalRow {
   payload: Record<string, any>;
   edited_payload: Record<string, any> | null;
   context: Record<string, any>;
-  status: "pending" | "approved" | "rejected" | "edited_sent" | "expired" | "failed";
+  status: "pending" | "queued" | "approved" | "rejected" | "edited_sent" | "expired" | "failed";
   rejection_reason: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
+  queued_at: string | null;
   executed_at: string | null;
   execution_error: string | null;
   batch_id: string | null;
