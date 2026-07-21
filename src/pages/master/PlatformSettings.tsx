@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Shield, AlertCircle, CheckCircle2, ExternalLink, RotateCcw, Smartphone, Copy, Loader2, Mail, Mic } from "lucide-react";
+import { Sparkles, Shield, AlertCircle, CheckCircle2, ExternalLink, RotateCcw, Smartphone, Copy, Loader2, Mail, Mic, Brain } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 
@@ -72,6 +72,13 @@ export default function PlatformSettings() {
           key_configured: boolean;
           connected_at: string | null;
           model: string;
+          passphrase_configured: boolean;
+        };
+        ai_fallback: {
+          openai_configured: boolean;
+          openai_connected_at: string | null;
+          gemini_configured: boolean;
+          gemini_connected_at: string | null;
           passphrase_configured: boolean;
         };
       };
@@ -226,6 +233,8 @@ export default function PlatformSettings() {
       <ResendCard status={status?.resend} />
 
       <ElevenLabsCard status={status?.elevenlabs} />
+
+      <AiFallbackCard status={status?.ai_fallback} />
 
       <Hook7Card
         status={status?.hook7}
