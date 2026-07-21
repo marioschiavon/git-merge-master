@@ -281,6 +281,10 @@ serve(async (req) => {
         }
       }
 
+      results.push({ id: item.id, sent: true, sid: r.sid });
+
+
+
     } catch (e) {
       console.error("whatsapp-send-tick error", e);
       await reschedule(
