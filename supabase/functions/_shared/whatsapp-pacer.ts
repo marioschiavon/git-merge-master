@@ -18,6 +18,13 @@ export interface EnqueueInput {
   enrollmentId?: string | null;
   source: string; // 'approval' | 'cadence_step' | 'first_message' | 'manual' | ...
   metadata?: Record<string, unknown>;
+  /**
+   * Modo resposta: quando o item é uma resposta a lead engajado (aprovação
+   * sdr_reply / sensitive_action, ou última msg foi inbound). Ignora o
+   * "último pendente da instância" e agenda em segundos, com priority=10
+   * para o send-tick pegar na frente do outbound frio.
+   */
+  replyMode?: boolean;
 }
 
 export interface EnqueueResult {
