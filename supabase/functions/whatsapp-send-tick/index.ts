@@ -53,14 +53,17 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  // Puxa itens vencidos
+  // Puxa itens vencidos — priority DESC garante que respostas a leads
+  // engajados (priority=10) passem à frente do outbound frio (priority=0).
   const { data: items, error } = await supabase
     .from("whatsapp_send_queue")
     .select("*")
     .eq("status", "pending")
     .lte("scheduled_for", new Date().toISOString())
+    .order("priority", { ascending: false })
     .order("scheduled_for", { ascending: true })
     .limit(BATCH);
+
 
   if (error) return json({ error: error.message }, 500);
 
@@ -97,60 +100,70 @@ serve(async (req) => {
         continue;
       }
 
-      // Business hours
-      let bh = bhCache.get(item.company_id);
-      if (bh === undefined) {
-        const { data } = await supabase
-          .from("companies").select("business_hours").eq("id", item.company_id).maybeSingle();
-        bh = data?.business_hours ?? null;
-        bhCache.set(item.company_id, bh);
+      // Prioridade alta (>=10) = resposta a lead engajado.
+      // Bypass business hours + caps: WhatsApp não pune resposta a
+      // conversa ativa; deixar o lead esperando 10h é o pior cenário.
+      const isHighPriority = (item.priority ?? 0) >= 10;
+
+      // Business hours (apenas para outbound frio)
+      if (!isHighPriority) {
+        let bh = bhCache.get(item.company_id);
+        if (bh === undefined) {
+          const { data } = await supabase
+            .from("companies").select("business_hours").eq("id", item.company_id).maybeSingle();
+          bh = data?.business_hours ?? null;
+          bhCache.set(item.company_id, bh);
+        }
+        if (bh) {
+          const next = nextAllowedSlot(new Date(), bh);
+          if (next.getTime() > Date.now() + 30_000) {
+            // Fora da janela → reagenda com pequeno jitter
+            const jitterSec = 30 + Math.floor(Math.random() * 120);
+            const when = new Date(next.getTime() + jitterSec * 1000);
+            await supabase.from("whatsapp_send_queue").update({
+              status: "pending",
+              scheduled_for: when.toISOString(),
+              last_error: "outside_business_hours",
+            }).eq("id", item.id);
+            results.push({ id: item.id, reschedule: "outside_business_hours" });
+            continue;
+          }
+        }
       }
-      if (bh) {
-        const next = nextAllowedSlot(new Date(), bh);
-        if (next.getTime() > Date.now() + 30_000) {
-          // Fora da janela → reagenda com pequeno jitter
-          const jitterSec = 30 + Math.floor(Math.random() * 120);
-          const when = new Date(next.getTime() + jitterSec * 1000);
-          await supabase.from("whatsapp_send_queue").update({
-            status: "pending",
-            scheduled_for: when.toISOString(),
-            last_error: "outside_business_hours",
-          }).eq("id", item.id);
-          results.push({ id: item.id, reschedule: "outside_business_hours" });
+
+      // Warm-up + caps por instância (apenas para outbound frio)
+      if (!isHighPriority) {
+        const started = inst.warmup_started_at ? new Date(inst.warmup_started_at).getTime() : Date.now();
+        const daysConnected = (Date.now() - started) / 86_400_000;
+        const caps = warmupCaps(daysConnected, {
+          hourly: inst.hourly_send_cap ?? 15,
+          daily: inst.daily_send_cap ?? 80,
+        });
+
+        const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
+        const oneDayAgo = new Date(Date.now() - 86_400_000).toISOString();
+        const [{ count: hourCount }, { count: dayCount }] = await Promise.all([
+          supabase.from("whatsapp_send_queue")
+            .select("id", { count: "exact", head: true })
+            .eq("instance_id", inst.id).eq("status", "sent")
+            .gte("sent_at", oneHourAgo),
+          supabase.from("whatsapp_send_queue")
+            .select("id", { count: "exact", head: true })
+            .eq("instance_id", inst.id).eq("status", "sent")
+            .gte("sent_at", oneDayAgo),
+        ]);
+        if ((hourCount ?? 0) >= caps.hourly) {
+          await reschedule(supabase, item.id, 60 * 60, "hourly_cap_reached");
+          results.push({ id: item.id, reschedule: "hourly_cap" });
+          continue;
+        }
+        if ((dayCount ?? 0) >= caps.daily) {
+          await reschedule(supabase, item.id, 60 * 60 * 6, "daily_cap_reached");
+          results.push({ id: item.id, reschedule: "daily_cap" });
           continue;
         }
       }
 
-      // Warm-up + caps por instância
-      const started = inst.warmup_started_at ? new Date(inst.warmup_started_at).getTime() : Date.now();
-      const daysConnected = (Date.now() - started) / 86_400_000;
-      const caps = warmupCaps(daysConnected, {
-        hourly: inst.hourly_send_cap ?? 15,
-        daily: inst.daily_send_cap ?? 80,
-      });
-
-      const oneHourAgo = new Date(Date.now() - 3600_000).toISOString();
-      const oneDayAgo = new Date(Date.now() - 86_400_000).toISOString();
-      const [{ count: hourCount }, { count: dayCount }] = await Promise.all([
-        supabase.from("whatsapp_send_queue")
-          .select("id", { count: "exact", head: true })
-          .eq("instance_id", inst.id).eq("status", "sent")
-          .gte("sent_at", oneHourAgo),
-        supabase.from("whatsapp_send_queue")
-          .select("id", { count: "exact", head: true })
-          .eq("instance_id", inst.id).eq("status", "sent")
-          .gte("sent_at", oneDayAgo),
-      ]);
-      if ((hourCount ?? 0) >= caps.hourly) {
-        await reschedule(supabase, item.id, 60 * 60, "hourly_cap_reached");
-        results.push({ id: item.id, reschedule: "hourly_cap" });
-        continue;
-      }
-      if ((dayCount ?? 0) >= caps.daily) {
-        await reschedule(supabase, item.id, 60 * 60 * 6, "daily_cap_reached");
-        results.push({ id: item.id, reschedule: "daily_cap" });
-        continue;
-      }
 
       // Regra de reengajamento por lead:
       // - Se última msg do lead foi INBOUND (respondeu) → envia (skip check).
@@ -191,14 +204,32 @@ serve(async (req) => {
       }, item.to_phone, item.body);
 
       if (!r.ok) {
+        const errMsg = r.error || `HTTP ${r.status}`;
         if ((item.attempts || 0) + 1 >= MAX_ATTEMPTS) {
           await supabase.from("whatsapp_send_queue").update({
             status: "failed",
-            last_error: r.error || `HTTP ${r.status}`,
+            last_error: errMsg,
           }).eq("id", item.id);
+          // Fecha o ciclo do approval em falha definitiva.
+          if (item.approval_id) {
+            await supabase.from("approval_requests").update({
+              status: "failed",
+              executed_at: new Date().toISOString(),
+              execution_error: errMsg,
+            }).eq("id", item.approval_id).eq("status", "queued");
+            if (item.lead_id) {
+              await supabase.from("lead_activities").insert({
+                company_id: item.company_id,
+                lead_id: item.lead_id,
+                type: "system",
+                description: `⚠️ Falha no envio da aprovação: ${errMsg}`,
+                metadata: { approval_id: item.approval_id, queue_id: item.id },
+              });
+            }
+          }
           results.push({ id: item.id, failed: r.error });
         } else {
-          await reschedule(supabase, item.id, 5 * 60, r.error || `HTTP ${r.status}`);
+          await reschedule(supabase, item.id, 5 * 60, errMsg);
           results.push({ id: item.id, retry: r.error });
         }
         continue;
@@ -223,14 +254,37 @@ serve(async (req) => {
         messageId = msg?.id ?? null;
       }
 
+      const nowIso = new Date().toISOString();
       await supabase.from("whatsapp_send_queue").update({
         status: "sent",
-        sent_at: new Date().toISOString(),
+        sent_at: nowIso,
         sent_message_id: messageId,
         last_error: null,
       }).eq("id", item.id);
 
+      // Fecha o ciclo do approval no sucesso — só agora ele vira "enviada".
+      if (item.approval_id) {
+        const isEdited = !!(item.metadata as any)?.edited;
+        await supabase.from("approval_requests").update({
+          status: isEdited ? "edited_sent" : "approved",
+          executed_at: nowIso,
+          execution_error: null,
+        }).eq("id", item.approval_id).eq("status", "queued");
+        if (item.lead_id) {
+          await supabase.from("lead_activities").insert({
+            company_id: item.company_id,
+            lead_id: item.lead_id,
+            type: "system",
+            description: "✅ Aprovação enviada",
+            metadata: { approval_id: item.approval_id, queue_id: item.id, sid: r.sid },
+          });
+        }
+      }
+
       results.push({ id: item.id, sent: true, sid: r.sid });
+
+
+
     } catch (e) {
       console.error("whatsapp-send-tick error", e);
       await reschedule(

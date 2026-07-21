@@ -1,76 +1,64 @@
+## Problema
 
-# Fallback de IA (Lovable → OpenAI → Gemini)
+Quando um lead responde e a conversa está ativa, a resposta do SDR (com ou sem HITL) hoje entra no **fim da fila** do WhatsApp, atrás de todos os disparos frios pendentes, e ainda respeita janela comercial + caps hora/dia. Resultado: leads que responderam ficam sem resposta por 10h+, e às vezes só recebem no próximo dia útil.
 
-Objetivo: quando o gateway Lovable devolver 402 (créditos esgotados) ou 429 (rate limit persistente), tentar automaticamente OpenAI e depois Gemini com chaves próprias armazenadas no master, mantendo a mesma interface para todas as edge functions de IA.
+Além disso, ao clicar "Aprovar" no painel de Aprovações, o sistema marca a aprovação como executada imediatamente — mas a mensagem ainda está na fila e pode nem ter saído. A UI mostra "enviada" mesmo quando nada saiu (falso positivo).
 
-## Cadastro das chaves (Master)
+## Causa raiz (verificada em código)
 
-- Adicionar dois campos criptografados em `platform_settings` (já usado para Resend/ElevenLabs):
-  - `openai_api_key_encrypted`
-  - `gemini_api_key_encrypted`
-- Página **Master → Platform Settings**: nova seção "Fallback de IA" com formulários para colar/rotacionar/limpar cada chave e um botão "Testar" (faz um `models.list` ou `generateContent` mínimo para validar).
-- Edge functions novas (espelham o padrão do Resend/ElevenLabs):
-  - `openai-master-set` / `openai-master-clear` / `openai-master-test`
-  - `gemini-master-set` / `gemini-master-clear` / `gemini-master-test`
-- As chaves ficam salvas cifradas em `platform_settings` e são lidas apenas por `service_role` (nunca vão pro browser).
+1. `_shared/whatsapp-pacer.ts` (linhas 68–96): `scheduled_for = max(agora, último_pending_da_instância) + gap(45–90s)`. Não há prioridade — resposta a lead engajado fica no fim.
+2. `approval-execute/index.ts` (linhas 265–306): enfileira via pacer com `source: "approval"` e imediatamente grava `status = approved`, `executed_at = now()`. O status reflete "aprovação clicada", não "mensagem entregue".
+3. `whatsapp-send-tick/index.ts` (linhas 108–153): janela de envio e caps hora/dia são aplicados uniformemente a todos os itens da fila — inclusive respostas a leads engajados que deveriam sair na hora.
 
-## Camada compartilhada — `_shared/ai-gateway.ts`
+## Solução
 
-Refatorar `chatCompletion` e `createEmbedding` para usar uma cadeia de provedores:
+### 1. Coluna de prioridade
 
-1. **Lovable Gateway** (primário) — comportamento atual.
-2. **OpenAI direto** (`https://api.openai.com/v1`) — se disponível.
-3. **Google Gemini** (`https://generativelanguage.googleapis.com`) — via endpoint OpenAI-compat `/v1beta/openai/chat/completions`.
+**Migration:** `whatsapp_send_queue.priority smallint default 0` (`0` = normal, `10` = alta). Índice parcial `(status, priority desc, scheduled_for)` para o cron pegar as altas primeiro. Também adicionar `queued_at timestamptz` em `approval_requests` para o novo ciclo de vida.
 
-Regras da cadeia:
-- Tenta o próximo provedor apenas em **402** (créditos), **401/403** relacionados ao gateway, ou **429/5xx** transientes após 1 retry.
-- **400** (schema/modelo inválido) e **200** não caem para fallback.
-- Cada provedor recebe o modelo mapeado (tabela `MODEL_MAP`):
-  - `openai/gpt-5.5` → OpenAI `gpt-4o` (ou `gpt-4.1` quando disponível) / Gemini `gemini-2.5-pro`
-  - `openai/gpt-5-mini` / `gpt-5.4-mini` → OpenAI `gpt-4o-mini` / Gemini `gemini-2.5-flash`
-  - `google/gemini-3-flash-preview` / `gemini-2.5-flash` → OpenAI `gpt-4o-mini` / Gemini `gemini-2.5-flash`
-  - default → `gpt-4o-mini` / `gemini-2.5-flash`
-- Embeddings: OpenAI `text-embedding-3-small` (1536 dims) / Gemini `text-embedding-004`. Se as dimensões divergirem do modelo primário (Gemini embedding-001 = 768), avisar no log — as tabelas atuais já usam 768; então priorizar `text-embedding-004` (768) no fallback.
-- Retorno normalizado inclui `provider_used: "lovable" | "openai" | "gemini"` e `model_used` para os callers.
+### 2. Pacer detecta "modo resposta"
 
-## Log em audit_logs
+Em `enqueueWhatsAppSend`, marcar `priority = 10` e usar `scheduled_for = agora + jitter curto (3–10s)`, **ignorando** o `lastPending`, quando qualquer condição for verdadeira:
 
-- Sempre que o fallback for acionado (Lovable falhou e um provedor secundário respondeu), registrar em `audit_logs`:
-  - `event_type = "ai_fallback_triggered"`
-  - `severity = "warn"` (ou `"error"` se todos falharam)
-  - `metadata = { primary_status, provider_used, model_requested, model_used, edge_function, run_id }`
-- Feito via `_shared/audit-log.ts` já existente, com `service_role`.
-- Se **todos** os provedores falharem: `severity = "critical"` e o erro sobe pra edge chamadora (mantém comportamento atual de 402/429/500).
+- Parâmetro explícito `replyMode: true` (usado por `approval-execute` quando `approval.kind === 'sdr_reply'` ou `'sensitive_action'`).
+- A última mensagem daquele lead no canal `whatsapp` é `direction = 'inbound'` (checagem automática dentro do pacer).
 
-## Cobertura (todas as edges de IA)
+Cold outbound (cadência, first_message sem inbound anterior) continua com `priority = 0` e o gap normal.
 
-Como o refactor é no `_shared/ai-gateway.ts`, todas essas funções ganham fallback automaticamente:
-- `sdr-agent`, `cadence-agent-decide`, `generate-reply`, `hook7-webhook` (via transcribe)
-- `analyze-historical-wins`, `analyze-lead-website`, `annotate-decision`
-- `classify-intent`, `extract-referral-name`, `extract-knowledge`, `embed-knowledge`
-- `summarize-conversation`, `enrich-lead`, `render-template-slots`
-- `preview-cadence-messages`, `generate-pending-first-messages`, `cadence-simulate-reply`
-- `human-suggest-reply`, `human-offer-slots`
+### 3. Send-tick respeita prioridade e libera lead engajado
 
-As três functions que ainda usam `fetch` direto ao gateway (`ai-generate-script`, `ai-reply`, `ai-variations`) serão migradas pra `chatCompletion` do shared para herdar o fallback.
+- Ordenar a fila por `priority desc, scheduled_for asc`.
+- Itens com `priority >= 10`:
+  - **Pulam** checagem de business hours.
+  - **Pulam** caps hora/dia (conforme decisão do usuário: resposta a inbound não sofre janela nem cap — WhatsApp não pune resposta a conversa ativa).
+  - Continuam respeitando: instância conectada, retry em falha, `MAX_ATTEMPTS`.
+- Itens com `priority = 0`: comportamento atual inalterado (janela, caps, warm-up, skip "awaiting_lead_reply").
 
-Transcrição de áudio (`_shared/transcribe-audio.ts`) já tem cadeia própria (ElevenLabs → Gemini) — fica fora deste escopo.
+### 4. Corrigir falso positivo "enviado" no fluxo de Aprovações
 
-## UI
+Novo ciclo de vida em `approval_requests`:
 
-- Badge em **Master Dashboard**: pequeno indicador quando houve fallback nas últimas 24h (contando `audit_logs` com `event_type = ai_fallback_triggered`).
-- Nova aba/coluna em **Master → Logs** filtrando esse `event_type` (já existe filtro por severidade — só documentar).
+- `approval-execute` ao enfileirar com sucesso: `status = 'queued'`, `queued_at = now()`, guarda `queue_id` em `context`. **Não** seta `executed_at`.
+- `whatsapp-send-tick` ao enviar com sucesso: se o item tem `approval_id`, atualiza a aprovação para `status = 'approved'` (ou `'edited_sent'` se veio editada), `executed_at = now()`; move o insert da activity "✅ Aprovação enviada" para esse ponto.
+- Se o envio falhar definitivamente (`MAX_ATTEMPTS` esgotado): `status = 'failed'`, `execution_error = <erro>`, activity "⚠️ Falha no envio".
+- Frontend (`useApprovals` + `pages/Approvals.tsx`): chip "Na fila" quando `status = 'queued'`, "Enviada" quando `executed_at != null`, "Falhou" quando `status = 'failed'`. Tooltip com `scheduled_for` para o operador saber quando sai (útil quando estiver com priority=0 e caps cheios).
 
-## Detalhes técnicos
+### 5. Mensagens humanas na Inbox
 
-- `MODEL_MAP` em `_shared/ai-model-map.ts` para uma fonte só.
-- OpenAI: header `Authorization: Bearer ${OPENAI_API_KEY}`. Suporta tools/`tool_calls` no mesmo shape.
-- Gemini: usar endpoint OpenAI-compat `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` com `Authorization: Bearer ${GEMINI_API_KEY}` — mantém o mesmo shape (messages, tools, tool_choice). Testar tool-calling do sdr-agent num run isolado antes de dar merge — Gemini é sensível a schemas com enums grandes.
-- `estimateCostUsd` em `src/lib/ai-pricing.ts` recebe entradas de `gpt-4o` / `gemini-2.5-flash` (já existem na tabela); adicionar `gpt-4o-mini` e `text-embedding-3-small`/`004`.
-- Nunca expor as chaves ao browser (`VITE_*` proibido). As chaves só existem no ambiente das edge functions via `platform_settings`, carregadas por helper `getFallbackKeys()` cacheado por request.
+`send-outbound-message` (mensagem escrita à mão pelo operador) já envia direto via `sendWhatsAppViaHook7`, sem passar pela fila — mantém, é o caminho certo. Nenhuma mudança aqui.
 
-## Fora do escopo
+## Arquivos afetados
 
-- Não muda o modelo primário do SDR nem o comportamento em sucesso.
-- Não implementa fallback pra image-gen (image gen só usa Gemini hoje).
-- Não altera limites de créditos nem billing.
+- `supabase/migrations/<novo>.sql` — `priority` em `whatsapp_send_queue`, índice, `queued_at` em `approval_requests`, permitir `status='queued'` e `status='failed'` na check constraint (se existir).
+- `supabase/functions/_shared/whatsapp-pacer.ts` — parâmetro `replyMode`, detecção automática por última msg inbound, `priority`, jitter curto.
+- `supabase/functions/approval-execute/index.ts` — passa `replyMode: true` quando `kind ∈ {sdr_reply, sensitive_action}`; grava `status='queued'`/`queued_at` em vez de `executed_at=now()`; remove o insert da activity "✅ Aprovação enviada" (vai para o tick).
+- `supabase/functions/whatsapp-send-tick/index.ts` — ordena por `priority desc, scheduled_for asc`; bypass de business hours e caps para `priority >= 10`; fecha ciclo do approval no sucesso (grava `executed_at`, activity) e na falha definitiva (`status='failed'`, `execution_error`, activity).
+- `src/hooks/useApprovals.ts` e `src/pages/Approvals.tsx` — estados "Na fila" / "Enviada" / "Falhou" + tooltip com `scheduled_for`.
+
+## Como validar
+
+1. Lead com última msg `inbound`: criar aprovação `sdr_reply` → item entra com `priority=10`, `scheduled_for ≤ 10s` à frente. Rodar tick manual: mensagem sai; approval fica `executed_at != null`, chip "Enviada".
+2. Mesmo cenário, mas fora do horário comercial e com caps do dia estourados: mensagem ainda sai imediatamente.
+3. Fila lotada de cadência fria (priority=0): ao aprovar um `sdr_reply`, o item novo passa na frente dos frios no próximo tick.
+4. Instância desconectada por 3 tentativas: approval vira `status='failed'`, chip "Falhou", activity registra o erro.
+5. Cadência fria disparada 22h de sexta com janela seg–sex 09–18: continua reagendando para segunda 09h (comportamento atual preservado).
