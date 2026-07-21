@@ -866,3 +866,215 @@ function ElevenLabsCard({
   );
 }
 
+// ---------------------------------------------------------------------------
+// Fallback de IA — OpenAI e Gemini (usados quando créditos da Lovable acabam)
+// ---------------------------------------------------------------------------
+
+function AiFallbackCard({
+  status,
+}: {
+  status?: {
+    openai_configured: boolean;
+    openai_connected_at: string | null;
+    gemini_configured: boolean;
+    gemini_connected_at: string | null;
+    passphrase_configured: boolean;
+  };
+}) {
+  const passOk = !!status?.passphrase_configured;
+  const anyOk = !!(status?.openai_configured || status?.gemini_configured);
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Brain className="h-4 w-4 text-primary" /> Fallback de IA (créditos)
+          </CardTitle>
+          <Badge variant={anyOk ? "default" : "secondary"}>
+            {anyOk ? (
+              <><CheckCircle2 className="h-3 w-3 mr-1" /> Ativo</>
+            ) : (
+              <><AlertCircle className="h-3 w-3 mr-1" /> Sem fallback</>
+            )}
+          </Badge>
+        </div>
+        <CardDescription>
+          Quando os créditos de IA da Lovable acabarem (HTTP 402) ou o gateway estiver
+          instável, o sistema tenta automaticamente <strong>OpenAI</strong> primeiro e
+          depois <strong>Gemini</strong>. Cada fallback fica registrado nos logs do master
+          (severidade "warn"). Configure ao menos uma das chaves para não interromper cadências.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <AiFallbackProviderRow
+          label="OpenAI"
+          endpointHint="platform.openai.com/api-keys"
+          setFn="openai-master-set"
+          clearFn="openai-master-clear"
+          testFn="openai-master-test"
+          configured={!!status?.openai_configured}
+          connectedAt={status?.openai_connected_at ?? null}
+          passOk={passOk}
+          placeholder="sk-..."
+          externalUrl="https://platform.openai.com/api-keys"
+        />
+        <AiFallbackProviderRow
+          label="Google Gemini"
+          endpointHint="aistudio.google.com/apikey"
+          setFn="gemini-master-set"
+          clearFn="gemini-master-clear"
+          testFn="gemini-master-test"
+          configured={!!status?.gemini_configured}
+          connectedAt={status?.gemini_connected_at ?? null}
+          passOk={passOk}
+          placeholder="AIza..."
+          externalUrl="https://aistudio.google.com/apikey"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function AiFallbackProviderRow({
+  label,
+  endpointHint,
+  setFn,
+  clearFn,
+  testFn,
+  configured,
+  connectedAt,
+  passOk,
+  placeholder,
+  externalUrl,
+}: {
+  label: string;
+  endpointHint: string;
+  setFn: string;
+  clearFn: string;
+  testFn: string;
+  configured: boolean;
+  connectedAt: string | null;
+  passOk: boolean;
+  placeholder: string;
+  externalUrl: string;
+}) {
+  const qc = useQueryClient();
+  const [apiKey, setApiKey] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  const saveKey = useMutation({
+    mutationFn: async () => {
+      const clean = apiKey.trim();
+      if (clean.length < 8) throw new Error("Chave muito curta");
+      const { data, error } = await supabase.functions.invoke(setFn, { body: { api_key: clean } });
+      if (error) throw error;
+      return data as { ok: boolean; message: string };
+    },
+    onSuccess: (r) => {
+      toast({
+        title: r.ok ? `Chave ${label} salva` : `Falha`,
+        description: r.message,
+        variant: r.ok ? "default" : "destructive",
+      });
+      if (r.ok) {
+        setApiKey("");
+        qc.invalidateQueries({ queryKey: ["platform_settings_status"] });
+      }
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const testConn = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke(testFn);
+      if (error) throw error;
+      return data as { ok: boolean; configured: boolean; message: string };
+    },
+    onSuccess: (r) => toast({
+      title: r.ok ? "Conexão OK" : "Falha na conexão",
+      description: r.message,
+      variant: r.ok ? "default" : "destructive",
+    }),
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  const clearKey = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke(clearFn);
+      if (error) throw error;
+      return data as { ok: boolean; message: string };
+    },
+    onSuccess: () => {
+      toast({ title: `Chave ${label} removida` });
+      setConfirmClear(false);
+      qc.invalidateQueries({ queryKey: ["platform_settings_status"] });
+    },
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="border rounded-md p-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-medium">{label}</div>
+          {connectedAt && (
+            <div className="text-[11px] text-muted-foreground">
+              Atualizado em {new Date(connectedAt).toLocaleString("pt-BR")}
+            </div>
+          )}
+        </div>
+        <Badge variant={configured ? "default" : "secondary"} className="text-[10px]">
+          {configured ? "Configurada" : "Não configurada"}
+        </Badge>
+      </div>
+
+      <div className="flex gap-2">
+        <Input
+          type="password"
+          autoComplete="off"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={placeholder}
+          className="font-mono text-xs"
+          disabled={!passOk}
+        />
+        <Button
+          onClick={() => saveKey.mutate()}
+          disabled={saveKey.isPending || !passOk || apiKey.trim().length < 8}
+          size="sm"
+        >
+          {saveKey.isPending ? (
+            <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Salvando…</>
+          ) : configured ? "Substituir" : "Salvar"}
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={() => testConn.mutate()} disabled={testConn.isPending || !configured} variant="outline" size="sm">
+          {testConn.isPending ? "Testando…" : "Testar"}
+        </Button>
+        {configured && !confirmClear && (
+          <Button variant="ghost" size="sm" onClick={() => setConfirmClear(true)}>Remover</Button>
+        )}
+        {configured && confirmClear && (
+          <>
+            <Button variant="destructive" size="sm" onClick={() => clearKey.mutate()} disabled={clearKey.isPending}>
+              {clearKey.isPending ? "Removendo…" : "Confirmar remoção"}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmClear(false)}>Cancelar</Button>
+          </>
+        )}
+        <a
+          href={externalUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline self-center ml-auto"
+        >
+          {endpointHint} <ExternalLink className="h-3 w-3" />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+
