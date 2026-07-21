@@ -1,64 +1,44 @@
-## Problema
+## Objetivo
 
-Quando um lead responde e a conversa está ativa, a resposta do SDR (com ou sem HITL) hoje entra no **fim da fila** do WhatsApp, atrás de todos os disparos frios pendentes, e ainda respeita janela comercial + caps hora/dia. Resultado: leads que responderam ficam sem resposta por 10h+, e às vezes só recebem no próximo dia útil.
+Ajustar o comportamento e a comunicação do Leaderei para que:
 
-Além disso, ao clicar "Aprovar" no painel de Aprovações, o sistema marca a aprovação como executada imediatamente — mas a mensagem ainda está na fila e pode nem ter saído. A UI mostra "enviada" mesmo quando nada saiu (falso positivo).
+- Respostas a leads que já estão conversando (modo resposta / priority 10) sejam enviadas **imediatamente**, independente de dia/horário comercial.
+- Apenas envios de outbound frio (primeira mensagem, cadências, reengajamento) respeitem a janela de envio.
+- Os avisos na UI e na documentação deixem claro que a janela protege contra spam de outbound, e não contra conversas normais.
 
-## Causa raiz (verificada em código)
+## Contexto confirmado
 
-1. `_shared/whatsapp-pacer.ts` (linhas 68–96): `scheduled_for = max(agora, último_pending_da_instância) + gap(45–90s)`. Não há prioridade — resposta a lead engajado fica no fim.
-2. `approval-execute/index.ts` (linhas 265–306): enfileira via pacer com `source: "approval"` e imediatamente grava `status = approved`, `executed_at = now()`. O status reflete "aprovação clicada", não "mensagem entregue".
-3. `whatsapp-send-tick/index.ts` (linhas 108–153): janela de envio e caps hora/dia são aplicados uniformemente a todos os itens da fila — inclusive respostas a leads engajados que deveriam sair na hora.
+- `supabase/functions/_shared/whatsapp-pacer.ts` já detecta "modo resposta" (última mensagem inbound do lead) e agenda com `priority = 10` + jitter curto (3-10s). O comentário diz que o `send-tick` vai pular business hours, mas na prática ele ainda não pula.
+- `supabase/functions/whatsapp-send-tick/index.ts` aplica `business_hours` a **todos** os itens, inclusive `priority >= 10`.
+- O aviso em `src/pages/settings/Settings.tsx` diz explicitamente que a janela se aplica a "todos os envios, inclusive respostas automáticas a leads que responderam".
+- A página de boas práticas (`WhatsAppBestPractices.tsx`) e o doc interno (`docs/boas-praticas-whatsapp.md`) também dizem que "TODAS as mensagens" respeitam o horário comercial.
 
-## Solução
+## O que será feito
 
-### 1. Coluna de prioridade
+### 1. Comportamento: liberar respostas a leads engajados
 
-**Migration:** `whatsapp_send_queue.priority smallint default 0` (`0` = normal, `10` = alta). Índice parcial `(status, priority desc, scheduled_for)` para o cron pegar as altas primeiro. Também adicionar `queued_at timestamptz` em `approval_requests` para o novo ciclo de vida.
+- Em `supabase/functions/whatsapp-send-tick/index.ts`, alterar a verificação de `business_hours` para que itens de alta prioridade (`priority >= 10`, ou seja, respostas a leads que falaram primeiro / aprovações sdr_reply) **não sejam reagendados** por estarem fora da janela comercial.
+- Manter a verificação de `business_hours` para outbound frio (`priority < 10`, sources `cadence_step`, `cadence_step_custom`, `first_message`, etc.).
+- Manter o bypass de caps horários/diários para respostas (já existe via `isHighPriority`).
+- Atualizar o comentário em `supabase/functions/_shared/whatsapp-pacer.ts` para refletir o comportamento real e remover a ambiguidade.
 
-### 2. Pacer detecta "modo resposta"
+### 2. Textos: remover a frase que dá a entender punição sobre respostas
 
-Em `enqueueWhatsAppSend`, marcar `priority = 10` e usar `scheduled_for = agora + jitter curto (3–10s)`, **ignorando** o `lastPending`, quando qualquer condição for verdadeira:
+- Em `src/pages/settings/Settings.tsx` (Configurações → Empresa):
+  - Retirar a parte "inclusive respostas automáticas a leads que responderam".
+  - Deixar o aviso focado em: "A janela de envio protege o número contra envios de outbound frio/cadências fora do horário. Respostas a leads que já estão conversando fluem normalmente."
+- Em `src/pages/WhatsAppBestPractices.tsx`:
+  - Alterar o card "Horário comercial" para deixar claro que a regra se aplica a mensagens automáticas/cadências.
+  - Remover o exemplo de que a resposta do agente fica presa até 09h se o lead responder às 23h.
+- Em `docs/boas-praticas-whatsapp.md`:
+  - Reescrever a seção 3.5 para refletir a nova distinção: outbound frio respeita a janela; respostas a leads engajados não.
 
-- Parâmetro explícito `replyMode: true` (usado por `approval-execute` quando `approval.kind === 'sdr_reply'` ou `'sensitive_action'`).
-- A última mensagem daquele lead no canal `whatsapp` é `direction = 'inbound'` (checagem automática dentro do pacer).
+### 3. Validação
 
-Cold outbound (cadência, first_message sem inbound anterior) continua com `priority = 0` e o gap normal.
+- Testar o fluxo: lead envia mensagem inbound fora do horário comercial → aprovação/resposta do agente é enfileirada com `priority = 10` e enviada sem esperar a janela.
+- Testar o fluxo de cadência: mensagem de cadência fora do horário comercial continua sendo reagendada para o próximo horário permitido.
+- Verificar se os textos renderizam corretamente na UI e não contêm mais a frase removida.
 
-### 3. Send-tick respeita prioridade e libera lead engajado
+## Nota técnica
 
-- Ordenar a fila por `priority desc, scheduled_for asc`.
-- Itens com `priority >= 10`:
-  - **Pulam** checagem de business hours.
-  - **Pulam** caps hora/dia (conforme decisão do usuário: resposta a inbound não sofre janela nem cap — WhatsApp não pune resposta a conversa ativa).
-  - Continuam respeitando: instância conectada, retry em falha, `MAX_ATTEMPTS`.
-- Itens com `priority = 0`: comportamento atual inalterado (janela, caps, warm-up, skip "awaiting_lead_reply").
-
-### 4. Corrigir falso positivo "enviado" no fluxo de Aprovações
-
-Novo ciclo de vida em `approval_requests`:
-
-- `approval-execute` ao enfileirar com sucesso: `status = 'queued'`, `queued_at = now()`, guarda `queue_id` em `context`. **Não** seta `executed_at`.
-- `whatsapp-send-tick` ao enviar com sucesso: se o item tem `approval_id`, atualiza a aprovação para `status = 'approved'` (ou `'edited_sent'` se veio editada), `executed_at = now()`; move o insert da activity "✅ Aprovação enviada" para esse ponto.
-- Se o envio falhar definitivamente (`MAX_ATTEMPTS` esgotado): `status = 'failed'`, `execution_error = <erro>`, activity "⚠️ Falha no envio".
-- Frontend (`useApprovals` + `pages/Approvals.tsx`): chip "Na fila" quando `status = 'queued'`, "Enviada" quando `executed_at != null`, "Falhou" quando `status = 'failed'`. Tooltip com `scheduled_for` para o operador saber quando sai (útil quando estiver com priority=0 e caps cheios).
-
-### 5. Mensagens humanas na Inbox
-
-`send-outbound-message` (mensagem escrita à mão pelo operador) já envia direto via `sendWhatsAppViaHook7`, sem passar pela fila — mantém, é o caminho certo. Nenhuma mudança aqui.
-
-## Arquivos afetados
-
-- `supabase/migrations/<novo>.sql` — `priority` em `whatsapp_send_queue`, índice, `queued_at` em `approval_requests`, permitir `status='queued'` e `status='failed'` na check constraint (se existir).
-- `supabase/functions/_shared/whatsapp-pacer.ts` — parâmetro `replyMode`, detecção automática por última msg inbound, `priority`, jitter curto.
-- `supabase/functions/approval-execute/index.ts` — passa `replyMode: true` quando `kind ∈ {sdr_reply, sensitive_action}`; grava `status='queued'`/`queued_at` em vez de `executed_at=now()`; remove o insert da activity "✅ Aprovação enviada" (vai para o tick).
-- `supabase/functions/whatsapp-send-tick/index.ts` — ordena por `priority desc, scheduled_for asc`; bypass de business hours e caps para `priority >= 10`; fecha ciclo do approval no sucesso (grava `executed_at`, activity) e na falha definitiva (`status='failed'`, `execution_error`, activity).
-- `src/hooks/useApprovals.ts` e `src/pages/Approvals.tsx` — estados "Na fila" / "Enviada" / "Falhou" + tooltip com `scheduled_for`.
-
-## Como validar
-
-1. Lead com última msg `inbound`: criar aprovação `sdr_reply` → item entra com `priority=10`, `scheduled_for ≤ 10s` à frente. Rodar tick manual: mensagem sai; approval fica `executed_at != null`, chip "Enviada".
-2. Mesmo cenário, mas fora do horário comercial e com caps do dia estourados: mensagem ainda sai imediatamente.
-3. Fila lotada de cadência fria (priority=0): ao aprovar um `sdr_reply`, o item novo passa na frente dos frios no próximo tick.
-4. Instância desconectada por 3 tentativas: approval vira `status='failed'`, chip "Falhou", activity registra o erro.
-5. Cadência fria disparada 22h de sexta com janela seg–sex 09–18: continua reagendando para segunda 09h (comportamento atual preservado).
+A mudança é concentrada no `whatsapp-send-tick`. O `cadence-agent-decide` continua respeitando `business_hours` para agendamento de passos de cadência (outbound), o que é o correto. A fila `whatsapp_send_queue` continua com a coluna `priority` como mecanismo de distinção entre outbound frio e resposta a lead engajado.
