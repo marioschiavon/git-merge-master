@@ -94,7 +94,7 @@ const summary = [
   "Os envios têm pequenos atrasos aleatórios para parecerem naturais.",
   "Existe um limite seguro de mensagens por hora e por dia.",
   "Contas novas começam devagar e vão acelerando conforme ganham confiança.",
-  "Mensagens automáticas respeitam o horário comercial.",
+  "Todas as mensagens (inclusive respostas) respeitam o horário comercial — enviar fora dele pode banir o número.",
   "Se o lead não respondeu, a próxima mensagem automática espera o reengajamento configurado.",
   "Se o lead respondeu, a conversa continua normalmente e sem atraso.",
 ];
