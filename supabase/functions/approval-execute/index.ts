@@ -186,6 +186,11 @@ serve(async (req) => {
 
     // Send according to kind
     let executionError: string | null = null;
+    // Se o envio foi enfileirado (WhatsApp): não marca executed_at agora.
+    // O whatsapp-send-tick fecha o ciclo quando o envio real acontece.
+    let queuedForDelivery = false;
+    let queueId: string | null = null;
+
 
     try {
       if (approval.kind === "first_message" || approval.kind === "cadence_step") {
