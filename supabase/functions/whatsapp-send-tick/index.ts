@@ -204,14 +204,32 @@ serve(async (req) => {
       }, item.to_phone, item.body);
 
       if (!r.ok) {
+        const errMsg = r.error || `HTTP ${r.status}`;
         if ((item.attempts || 0) + 1 >= MAX_ATTEMPTS) {
           await supabase.from("whatsapp_send_queue").update({
             status: "failed",
-            last_error: r.error || `HTTP ${r.status}`,
+            last_error: errMsg,
           }).eq("id", item.id);
+          // Fecha o ciclo do approval em falha definitiva.
+          if (item.approval_id) {
+            await supabase.from("approval_requests").update({
+              status: "failed",
+              executed_at: new Date().toISOString(),
+              execution_error: errMsg,
+            }).eq("id", item.approval_id).eq("status", "queued");
+            if (item.lead_id) {
+              await supabase.from("lead_activities").insert({
+                company_id: item.company_id,
+                lead_id: item.lead_id,
+                type: "system",
+                description: `⚠️ Falha no envio da aprovação: ${errMsg}`,
+                metadata: { approval_id: item.approval_id, queue_id: item.id },
+              });
+            }
+          }
           results.push({ id: item.id, failed: r.error });
         } else {
-          await reschedule(supabase, item.id, 5 * 60, r.error || `HTTP ${r.status}`);
+          await reschedule(supabase, item.id, 5 * 60, errMsg);
           results.push({ id: item.id, retry: r.error });
         }
         continue;
@@ -236,14 +254,33 @@ serve(async (req) => {
         messageId = msg?.id ?? null;
       }
 
+      const nowIso = new Date().toISOString();
       await supabase.from("whatsapp_send_queue").update({
         status: "sent",
-        sent_at: new Date().toISOString(),
+        sent_at: nowIso,
         sent_message_id: messageId,
         last_error: null,
       }).eq("id", item.id);
 
-      results.push({ id: item.id, sent: true, sid: r.sid });
+      // Fecha o ciclo do approval no sucesso — só agora ele vira "enviada".
+      if (item.approval_id) {
+        const isEdited = !!(item.metadata as any)?.edited;
+        await supabase.from("approval_requests").update({
+          status: isEdited ? "edited_sent" : "approved",
+          executed_at: nowIso,
+          execution_error: null,
+        }).eq("id", item.approval_id).eq("status", "queued");
+        if (item.lead_id) {
+          await supabase.from("lead_activities").insert({
+            company_id: item.company_id,
+            lead_id: item.lead_id,
+            type: "system",
+            description: "✅ Aprovação enviada",
+            metadata: { approval_id: item.approval_id, queue_id: item.id, sid: r.sid },
+          });
+        }
+      }
+
     } catch (e) {
       console.error("whatsapp-send-tick error", e);
       await reschedule(
