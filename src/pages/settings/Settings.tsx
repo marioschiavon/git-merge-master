@@ -403,6 +403,10 @@ function CompanyCard() {
               <p className="mt-2 text-xs text-muted-foreground">
                 Fora dessa janela, cadências pausam automaticamente para não enviar de madrugada.
               </p>
+              <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
+                <strong>Atenção:</strong> enviar mensagens fora do horário comercial (madrugada, finais de semana quando não configurados) aumenta muito o risco de <strong>banimento do número de WhatsApp</strong> e queima de reputação de domínio no email. A janela configurada aqui é aplicada a <strong>todos os envios</strong>, inclusive respostas automáticas a leads que responderam. A responsabilidade pela configuração é do administrador da conta — configure uma janela realista para o seu público.
+              </div>
+
             </div>
 
             <div className="flex justify-end">
