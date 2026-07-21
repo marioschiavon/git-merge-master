@@ -275,9 +275,15 @@ serve(async (req) => {
             conversationId: conversationId,
             approvalId: approval_id,
             source: "approval",
+            replyMode: true, // resposta a lead engajado: prioridade máxima
             metadata: { hitl_approved: true, kind: approval.kind },
           });
           if (!r.ok) throw new Error(r.error || "falha ao enfileirar WhatsApp");
+          // Marca como "queued": o envio real só grava executed_at
+          // quando o whatsapp-send-tick confirmar a entrega. Isso evita
+          // o falso positivo de "enviada" antes do disparo.
+          queuedForDelivery = true;
+          queueId = r.queue_id ?? null;
         } else {
           // linkedin / manual
           if (conversationId) {
