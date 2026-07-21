@@ -1,0 +1,55 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { requireUser, requireRole, jsonResponse, errorResponse } from "../_shared/tenant-auth.ts";
+import { invalidateFallbackKeyCache } from "../_shared/ai-fallback.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  try {
+    const { user } = await requireUser(req);
+    await requireRole(user.id, "master_admin");
+
+    const body = await req.json().catch(() => ({}));
+    const apiKey = (body?.api_key ?? "").toString().trim();
+    if (apiKey.length < 8) {
+      return jsonResponse({ ok: false, message: "Chave inválida" }, 400, corsHeaders);
+    }
+
+    // Validate against Gemini OpenAI-compat models endpoint.
+    const probe = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/models", {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+    if (probe.status === 401 || probe.status === 403) {
+      const text = await probe.text();
+      return jsonResponse(
+        { ok: false, status: probe.status, message: `Chave rejeitada pelo Gemini (${probe.status}): ${text.slice(0, 300)}` },
+        200,
+        corsHeaders,
+      );
+    }
+
+    const passphrase = Deno.env.get("RESEND_KEY_PASSPHRASE");
+    if (!passphrase) {
+      return jsonResponse({ ok: false, message: "RESEND_KEY_PASSPHRASE não configurado" }, 500, corsHeaders);
+    }
+
+    const url = Deno.env.get("SUPABASE_URL")!;
+    const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const admin = createClient(url, service);
+    const { error } = await admin.rpc("set_gemini_master_key", {
+      _api_key: apiKey,
+      _passphrase: passphrase,
+    });
+    if (error) throw new Error(error.message);
+
+    invalidateFallbackKeyCache();
+    return jsonResponse({ ok: true, message: "Chave Gemini salva e validada." }, 200, corsHeaders);
+  } catch (e) {
+    return errorResponse(e, corsHeaders);
+  }
+});

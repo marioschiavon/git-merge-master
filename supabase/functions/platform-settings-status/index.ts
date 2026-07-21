@@ -48,7 +48,7 @@ serve(async (req) => {
       (Deno.env.get("HOOK7_INSTANCE_TOKEN_PASSPHRASE") ?? "").trim().length >= 16;
     const { data: ps } = await admin
       .from("platform_settings")
-      .select("hook7_base_url, resend_api_key_encrypted, resend_connected_at, elevenlabs_api_key_encrypted, elevenlabs_connected_at, elevenlabs_model")
+      .select("hook7_base_url, resend_api_key_encrypted, resend_connected_at, elevenlabs_api_key_encrypted, elevenlabs_connected_at, elevenlabs_model, openai_api_key_encrypted, openai_connected_at, gemini_api_key_encrypted, gemini_connected_at")
       .eq("singleton", true)
       .maybeSingle();
     const hook7BaseUrl =
@@ -60,6 +60,8 @@ serve(async (req) => {
       resendDbKeyConfigured ? "db" : resendConnectorConfigured ? "connector" : "none";
     const elevenlabsKeyConfigured = !!(ps as any)?.elevenlabs_api_key_encrypted;
     const elevenlabsModel = ((ps as any)?.elevenlabs_model as string) || "scribe_v2";
+    const openaiKeyConfigured = !!(ps as any)?.openai_api_key_encrypted;
+    const geminiKeyConfigured = !!(ps as any)?.gemini_api_key_encrypted;
     const supaUrl = (SUPABASE_URL ?? "").replace(/\/+$/, "");
     const webhookUrlMasked = hook7WebhookConfigured && supaUrl
       ? `${supaUrl}/functions/v1/hook7-webhook/****/{company-slug}`
@@ -79,6 +81,13 @@ serve(async (req) => {
         key_configured: elevenlabsKeyConfigured,
         connected_at: (ps as any)?.elevenlabs_connected_at ?? null,
         model: elevenlabsModel,
+        passphrase_configured: resendPassphraseConfigured,
+      },
+      ai_fallback: {
+        openai_configured: openaiKeyConfigured,
+        openai_connected_at: (ps as any)?.openai_connected_at ?? null,
+        gemini_configured: geminiKeyConfigured,
+        gemini_connected_at: (ps as any)?.gemini_connected_at ?? null,
         passphrase_configured: resendPassphraseConfigured,
       },
       hook7: {
