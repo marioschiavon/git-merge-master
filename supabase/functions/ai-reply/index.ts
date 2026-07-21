@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { chatCompletion } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,9 +18,6 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     const systemPrompt = `Você é um especialista em vendas B2B no Brasil, analisando conversas entre SDRs e prospects.
 
@@ -66,42 +64,43 @@ ${historyFormatted}
 
 Analise a última mensagem do prospect e sugira a resposta ideal.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    let data;
+    try {
+      data = await chatCompletion({
         model: "openai/gpt-5",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-      }),
-    });
-
-    if (!response.ok) {
-      const status = response.status;
-      await response.text();
-      if (status === 429) return new Response(JSON.stringify({ error: "Limite de requisições excedido." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (status === 402) return new Response(JSON.stringify({ error: "Créditos de IA esgotados." }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      return new Response(JSON.stringify({ error: "Erro ao analisar conversa" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        _edgeName: "ai-reply",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const status = /\b402\b/.test(msg) ? 402 : /\b429\b/.test(msg) ? 429 : 500;
+      const userMsg = status === 402
+        ? "Créditos de IA esgotados e fallback indisponível."
+        : status === 429
+        ? "Limite de requisições excedido."
+        : "Erro ao analisar conversa";
+      return new Response(JSON.stringify({ error: userMsg }), {
+        status,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content || "";
+    const content = data.choices?.[0]?.message?.content ?? "";
+    const contentStr = typeof content === "string" ? content : "";
 
     let parsed;
     try {
-      const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, content];
-      parsed = JSON.parse(jsonMatch[1].trim());
+      const jsonMatch = contentStr.match(/```(?:json)?\s*([\s\S]*?)```/) || [null, contentStr];
+      parsed = JSON.parse((jsonMatch[1] as string).trim());
     } catch {
       parsed = {
         tone_detected: "neutro",
         sentiment: "neutro",
         reasoning: "Não foi possível analisar automaticamente",
-        suggested_reply: content,
+        suggested_reply: contentStr,
       };
     }
 
