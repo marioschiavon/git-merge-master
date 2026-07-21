@@ -53,14 +53,17 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
-  // Puxa itens vencidos
+  // Puxa itens vencidos — priority DESC garante que respostas a leads
+  // engajados (priority=10) passem à frente do outbound frio (priority=0).
   const { data: items, error } = await supabase
     .from("whatsapp_send_queue")
     .select("*")
     .eq("status", "pending")
     .lte("scheduled_for", new Date().toISOString())
+    .order("priority", { ascending: false })
     .order("scheduled_for", { ascending: true })
     .limit(BATCH);
+
 
   if (error) return json({ error: error.message }, 500);
 
