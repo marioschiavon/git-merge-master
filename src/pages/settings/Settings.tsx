@@ -404,7 +404,7 @@ function CompanyCard() {
                 Fora dessa janela, cadências pausam automaticamente para não enviar de madrugada.
               </p>
               <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-amber-900 dark:text-amber-200">
-                <strong>Atenção:</strong> enviar mensagens fora do horário comercial (madrugada, finais de semana quando não configurados) aumenta muito o risco de <strong>banimento do número de WhatsApp</strong> e queima de reputação de domínio no email. A janela configurada aqui é aplicada a <strong>todos os envios</strong>, inclusive respostas automáticas a leads que responderam. A responsabilidade pela configuração é do administrador da conta — configure uma janela realista para o seu público.
+                <strong>Atenção:</strong> enviar mensagens de outbound frio ou cadências fora do horário comercial (madrugada, finais de semana quando não configurados) aumenta muito o risco de <strong>banimento do número de WhatsApp</strong> e queima de reputação de domínio no email. A janela configurada aqui se aplica a <strong>envios automáticos de cadência e primeiras mensagens</strong>. Respostas a leads que já estão conversando fluem normalmente, mesmo fora do horário. A responsabilidade pela configuração é do administrador da conta — configure uma janela realista para o seu público.
               </div>
 
             </div>
