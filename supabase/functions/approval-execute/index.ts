@@ -307,26 +307,51 @@ serve(async (req) => {
       console.error("approval execution failed:", executionError);
     }
 
+    // Ciclo de vida:
+    // - erro na execução → 'failed', com executed_at (falhou já).
+    // - enfileirado no WhatsApp → 'queued' com queued_at; sem executed_at.
+    //   O whatsapp-send-tick atualiza para 'approved'/'edited_sent' + executed_at
+    //   ao enviar, ou 'failed' se esgotar retries.
+    // - todo o resto (email já disparado, cadência agentic re-invocada) →
+    //   'approved'/'edited_sent' com executed_at agora.
+    const nowIso = new Date().toISOString();
+    const finalStatus = executionError
+      ? "failed"
+      : queuedForDelivery
+        ? "queued"
+        : (isEdited ? "edited_sent" : "approved");
+
     await supabase.from("approval_requests").update({
-      status: executionError ? "failed" : (isEdited ? "edited_sent" : "approved"),
+      status: finalStatus,
       edited_payload: isEdited ? edited_payload : null,
       reviewed_by: userId,
-      reviewed_at: new Date().toISOString(),
-      executed_at: new Date().toISOString(),
+      reviewed_at: nowIso,
+      queued_at: queuedForDelivery ? nowIso : null,
+      executed_at: queuedForDelivery && !executionError ? null : nowIso,
       execution_error: executionError,
+      context: {
+        ...(approval.context || {}),
+        ...(queueId ? { queue_id: queueId } : {}),
+      },
     }).eq("id", approval_id);
 
     if (approval.lead_id) {
+      // Activity "enviada" só quando o envio realmente aconteceu (não-queued).
+      // Para itens queued, o whatsapp-send-tick registra a activity ao enviar.
+      const description = executionError
+        ? `⚠️ Aprovação executada com erro: ${executionError}`
+        : queuedForDelivery
+          ? "📤 Aprovação enfileirada — envio prioritário em segundos"
+          : (isEdited ? "✅ Aprovação enviada (com edições)" : "✅ Aprovação enviada");
       await supabase.from("lead_activities").insert({
         company_id: approval.company_id,
         lead_id: approval.lead_id,
         type: "system",
-        description: executionError
-          ? `⚠️ Aprovação executada com erro: ${executionError}`
-          : (isEdited ? "✅ Aprovação enviada (com edições)" : "✅ Aprovação enviada"),
-        metadata: { approval_id, kind: approval.kind, channel: approval.channel },
+        description,
+        metadata: { approval_id, kind: approval.kind, channel: approval.channel, queue_id: queueId },
       });
     }
+
 
     // Save annotation if user provided a note
     if (trimmedNote) {
