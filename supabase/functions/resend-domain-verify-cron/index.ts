@@ -1,6 +1,7 @@
 // Cron background: revalida domínios Resend em pending/verifying e tenta habilitar receiving.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resendJson, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
+import { ensureInboundWebhook } from "../_shared/ensure-inbound-webhook.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
