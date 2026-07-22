@@ -59,6 +59,10 @@ interface DomainRow {
   dns_records: DnsRecord[] | null;
   verified_at: string | null;
   last_error: string | null;
+  inbound_domain: string | null;
+  inbound_dns_records: DnsRecord[] | null;
+  inbound_status: string | null;
+  inbound_configured_at: string | null;
 }
 
 function useDomain() {
@@ -97,8 +101,28 @@ function withDmarc(domain: DomainRow | null): DnsRecord[] {
   return records;
 }
 
+function withInbound(domain: DomainRow | null): DnsRecord[] {
+  if (!domain?.inbound_domain) return [];
+  const records: DnsRecord[] = Array.isArray(domain?.inbound_dns_records)
+    ? [...domain!.inbound_dns_records]
+    : [];
+  if (records.length > 0) return records;
+  return [
+    {
+      record: "Inbound",
+      name: "inbound",
+      type: "MX",
+      value: "inbound-smtp.us-east-1.amazonaws.com",
+      priority: 10,
+      ttl: "Auto",
+      status: "pending",
+    },
+  ];
+}
+
 function deliverabilityChecks(domain: DomainRow | null) {
   const records = withDmarc(domain);
+  const inboundRecords = withInbound(domain);
   const has = (rec: string) =>
     records.some((r) => (r.record || "").toUpperCase() === rec.toUpperCase() && r.status === "verified");
   const hasType = (t: string) =>
@@ -108,11 +132,13 @@ function deliverabilityChecks(domain: DomainRow | null) {
   );
   const parts = (domain?.sending_domain || "").split(".");
   const isSubdomain = parts.length > 2;
+  const inboundVerified = inboundRecords.length > 0 && inboundRecords.every((r) => r.status === "verified");
   return {
     spf: has("SPF") || hasType("MX"),
     dkim: has("DKIM"),
     dmarc: dmarcRow?.status === "verified",
     subdomain: !!domain && isSubdomain,
+    inbound: domain?.inbound_status === "verified" || inboundVerified,
   };
 }
 

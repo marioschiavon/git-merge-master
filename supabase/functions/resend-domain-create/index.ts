@@ -32,7 +32,7 @@ Deno.serve(async (req) => {
     const sending_domain: string = (body?.sending_domain || "").toLowerCase().trim();
     const from_name: string = (body?.from_name || "Atendimento").trim();
     const from_local: string = (body?.from_local || "atendimento").trim().toLowerCase();
-    const reply_to: string | null = body?.reply_to || null;
+    let reply_to: string | null = body?.reply_to || null;
 
     if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(sending_domain)) {
       return json({ error: "domínio inválido" }, 400);
@@ -92,8 +92,79 @@ Deno.serve(async (req) => {
       });
     }
 
-
     const fromEmail = `${from_local}@${sending_domain}`;
+    const inboundDomain = `inbound.${sending_domain}`;
+    const inboundAddress = `${from_local}@${inboundDomain}`;
+    if (!reply_to) reply_to = inboundAddress;
+
+    // Habilita receiving e extrai registros inbound.
+    let inboundDnsRecords: any[] = [];
+    try {
+      await resendJson(`/domains/${resendDomainId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ capabilities: { receiving: "enabled" } }),
+      });
+      const afterEnable = await resendJson<any>(`/domains/${resendDomainId}`);
+      const inboundRecords = (afterEnable.records || []).filter((r: any) =>
+        (r.type || "").toUpperCase() === "MX" &&
+        /inbound-smtp/i.test(r.value || "")
+      );
+      if (inboundRecords.length > 0) {
+        inboundDnsRecords = inboundRecords;
+      } else {
+        inboundDnsRecords = [{
+          record: "Inbound",
+          name: "inbound",
+          type: "MX",
+          value: "inbound-smtp.us-east-1.amazonaws.com",
+          priority: 10,
+          ttl: "Auto",
+          status: "pending",
+        }];
+      }
+    } catch (e) {
+      console.warn("resend-domain-create: falha ao habilitar receiving:", (e as Error).message);
+      inboundDnsRecords = [{
+        record: "Inbound",
+        name: "inbound",
+        type: "MX",
+        value: "inbound-smtp.us-east-1.amazonaws.com",
+        priority: 10,
+        ttl: "Auto",
+        status: "pending",
+      }];
+    }
+
+    // Garante webhook global de inbound (um por app).
+    try {
+      const { data: ps } = await admin
+        .from("platform_settings")
+        .select("resend_inbound_webhook_id, resend_inbound_webhook_secret")
+        .eq("singleton", true)
+        .maybeSingle();
+      if (!ps?.resend_inbound_webhook_id) {
+        const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
+        const webhookUrl = supabaseUrl.replace(/\/$/, "") + "/functions/v1/resend-inbound-webhook";
+        const webhook = await resendJson<any>("/webhooks", {
+          method: "POST",
+          body: JSON.stringify({
+            name: "Leaderei Inbound Router",
+            url: webhookUrl,
+            events: ["email.received"],
+          }),
+        });
+        await admin
+          .from("platform_settings")
+          .update({
+            resend_inbound_webhook_id: webhook.id,
+            resend_inbound_webhook_secret: webhook.signing_secret,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("singleton", true);
+      }
+    } catch (e) {
+      console.warn("resend-domain-create: falha ao garantir webhook inbound:", (e as Error).message);
+    }
 
     const { data: saved, error: upsertErr } = await admin
       .from("company_email_domains")
@@ -106,6 +177,10 @@ Deno.serve(async (req) => {
         resend_domain_id: resendDomainId,
         status: "pending",
         dns_records: dnsRecords,
+        inbound_domain: inboundDomain,
+        inbound_dns_records: inboundDnsRecords,
+        inbound_status: "pending",
+        inbound_configured_at: new Date().toISOString(),
         last_error: null,
       }, { onConflict: "company_id" })
       .select("*")
