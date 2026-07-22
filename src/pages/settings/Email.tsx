@@ -839,6 +839,11 @@ function DeliverabilityCard({ domain }: { domain: DomainRow }) {
       label: "Subdomínio de envio",
       hint: "Use um subdomínio (ex.: mail.seudominio.com) para isolar a reputação do domínio raiz.",
     },
+    {
+      ok: checks.inbound,
+      label: "Recebimento de respostas",
+      hint: "MX de inbound permite que o Leaderei receba replies dos prospects e mantenha a conversa no app.",
+    },
   ];
   const okCount = items.filter((i) => i.ok).length;
   return (
