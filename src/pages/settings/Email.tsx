@@ -59,6 +59,10 @@ interface DomainRow {
   dns_records: DnsRecord[] | null;
   verified_at: string | null;
   last_error: string | null;
+  inbound_domain: string | null;
+  inbound_dns_records: DnsRecord[] | null;
+  inbound_status: string | null;
+  inbound_configured_at: string | null;
 }
 
 function useDomain() {
@@ -97,8 +101,28 @@ function withDmarc(domain: DomainRow | null): DnsRecord[] {
   return records;
 }
 
+function withInbound(domain: DomainRow | null): DnsRecord[] {
+  if (!domain?.inbound_domain) return [];
+  const records: DnsRecord[] = Array.isArray(domain?.inbound_dns_records)
+    ? [...domain!.inbound_dns_records]
+    : [];
+  if (records.length > 0) return records;
+  return [
+    {
+      record: "Inbound",
+      name: "inbound",
+      type: "MX",
+      value: "inbound-smtp.us-east-1.amazonaws.com",
+      priority: 10,
+      ttl: "Auto",
+      status: "pending",
+    },
+  ];
+}
+
 function deliverabilityChecks(domain: DomainRow | null) {
   const records = withDmarc(domain);
+  const inboundRecords = withInbound(domain);
   const has = (rec: string) =>
     records.some((r) => (r.record || "").toUpperCase() === rec.toUpperCase() && r.status === "verified");
   const hasType = (t: string) =>
@@ -108,11 +132,13 @@ function deliverabilityChecks(domain: DomainRow | null) {
   );
   const parts = (domain?.sending_domain || "").split(".");
   const isSubdomain = parts.length > 2;
+  const inboundVerified = inboundRecords.length > 0 && inboundRecords.every((r) => r.status === "verified");
   return {
     spf: has("SPF") || hasType("MX"),
     dkim: has("DKIM"),
     dmarc: dmarcRow?.status === "verified",
     subdomain: !!domain && isSubdomain,
+    inbound: domain?.inbound_status === "verified" || inboundVerified,
   };
 }
 
@@ -414,7 +440,10 @@ export default function EmailSettings() {
       </div>
 
       {domain && (
-        <DeliverabilityCard domain={domain} />
+        <>
+          <DeliverabilityCard domain={domain} />
+          <InboundCard domain={domain} copy={copy} />
+        </>
       )}
 
       {!isLoading && !domain && (
@@ -810,6 +839,11 @@ function DeliverabilityCard({ domain }: { domain: DomainRow }) {
       label: "Subdomínio de envio",
       hint: "Use um subdomínio (ex.: mail.seudominio.com) para isolar a reputação do domínio raiz.",
     },
+    {
+      ok: checks.inbound,
+      label: "Recebimento de respostas",
+      hint: "MX de inbound permite que o Leaderei receba replies dos prospects e mantenha a conversa no app.",
+    },
   ];
   const okCount = items.filter((i) => i.ok).length;
   return (
@@ -846,6 +880,94 @@ function DeliverabilityCard({ domain }: { domain: DomainRow }) {
           (ela aparece marcada como <strong>recomendado</strong>). É um TXT em
           <code className="mx-1 rounded bg-muted px-1">_dmarc.seudominio.com</code>
           com política <code className="rounded bg-muted px-1">p=none</code> para monitorar sem bloquear.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function InboundCard({ domain, copy }: { domain: DomainRow; copy: (label: string, value: string) => void }) {
+  const records = withInbound(domain);
+  const isVerified = domain.inbound_status === "verified";
+  const isPending = domain.inbound_status === "pending" || !domain.inbound_status;
+  const inboundAddress = domain.reply_to || (domain.from_email ? `${domain.from_email.split("@")[0]}@${domain.inbound_domain}` : "");
+
+  return (
+    <div className="rounded-xl border bg-card p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Recebimento de respostas</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            As respostas dos prospects chegam em <code className="rounded bg-muted px-1">{domain.inbound_domain}</code>.
+            O <b>Reply-To</b> dos emails de saída é automaticamente configurado para este endereço.
+          </p>
+        </div>
+        <Badge
+          variant="secondary"
+          className={
+            isVerified
+              ? "gap-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
+              : "gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-transparent"
+          }
+        >
+          {isVerified ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+          {isVerified ? "Ativo" : isPending ? "Configurando" : "Verificando"}
+        </Badge>
+      </div>
+
+      <div className="mt-4 rounded-md border bg-background p-3">
+        <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">Endereço de reply-to</p>
+        <div className="flex items-center gap-2 mt-1">
+          <p className="text-sm font-medium text-foreground break-all">{inboundAddress}</p>
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copy("reply-to", inboundAddress)}>
+            <Copy className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+
+      {records.length > 0 && (
+        <div className="mt-4">
+          <p className="text-sm font-medium text-foreground mb-2">Registro DNS de recebimento</p>
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Valor</TableHead>
+                  <TableHead>Prioridade</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {records.map((r, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-mono text-xs">{r.type}</TableCell>
+                    <TableCell className="font-mono text-xs">{r.name}</TableCell>
+                    <TableCell className="font-mono text-xs max-w-[300px]">
+                      <div className="flex items-center gap-1">
+                        <span className="truncate">{r.value}</span>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copy(`inbound-val-${i}`, r.value)}>
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{r.priority ?? 10}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Adicione este registro no painel DNS do domínio raiz (onde está configurado <code className="rounded bg-muted px-1">{domain.sending_domain}</code>).
+            Se seu provedor preencher o domínio automaticamente, o nome completo será <code className="rounded bg-muted px-1">{domain.inbound_domain}</code>.
+          </p>
+        </div>
+      )}
+
+      {!isVerified && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          A propagação do MX de inbound pode levar até 1h. Enquanto isso, o Leaderei
+          continua enviando; apenas as respostas ainda não são roteadas para o app.
         </p>
       )}
     </div>

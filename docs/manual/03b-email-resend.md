@@ -66,10 +66,23 @@ Volte à tela do Leaderei e clique **Verificar DNS**. Em poucos segundos o statu
 - Não cadastre o mesmo domínio em duas empresas Leaderei diferentes — gera conflito e nenhum funciona.
 - Se aparecer erro sobre limite atingido, contate o suporte.
 
+## Recebimento de respostas (inbound)
+
+Para que o Leaderei capture automaticamente as respostas dos prospects, ativamos um **subdomínio dedicado de recebimento** no formato `inbound.envio.suaempresa.com.br`. Ele aparece na tela de Email como **Recebimento de respostas**.
+
+Você precisa adicionar **um único registro MX** no painel DNS do seu provedor:
+
+- **Tipo:** MX
+- **Nome:** `inbound.envio` (se o provedor já completar o domínio, pode ser apenas `inbound` — o endereço completo será `inbound.envio.suaempresa.com.br`)
+- **Valor:** `inbound-smtp.us-east-1.amazonaws.com`
+- **Prioridade:** 10
+
+O **Reply-To** dos emails de saída passa a ser automaticamente `atendimento@inbound.envio.suaempresa.com.br`, então, quando o prospect responder, a mensagem entra direto na conversa dele dentro do Leaderei.
+
 ## Problemas comuns
 
 - **Colar o valor com aspas (`"..."`).** Remova as aspas antes de colar.
 - **Colocar o domínio inteiro no campo "Host".** Se o Leaderei mostra `envio.suaempresa.com.br`, você digita **só `envio`** no Host.
-- **Esquecer o registro MX.** Sem ele, as respostas dos prospects não voltam para dentro do Leaderei.
+- **Esquecer o registro MX de inbound.** Sem ele, as respostas dos prospects não voltam para dentro do Leaderei.
 
 **Próximo passo →** [03c. Apollo](./03c-apollo.md)

@@ -1153,6 +1153,10 @@ export type Database = {
           from_email: string | null
           from_name: string | null
           id: string
+          inbound_configured_at: string | null
+          inbound_dns_records: Json | null
+          inbound_domain: string | null
+          inbound_status: string | null
           last_error: string | null
           reply_to: string | null
           resend_domain_id: string | null
@@ -1168,6 +1172,10 @@ export type Database = {
           from_email?: string | null
           from_name?: string | null
           id?: string
+          inbound_configured_at?: string | null
+          inbound_dns_records?: Json | null
+          inbound_domain?: string | null
+          inbound_status?: string | null
           last_error?: string | null
           reply_to?: string | null
           resend_domain_id?: string | null
@@ -1183,6 +1191,10 @@ export type Database = {
           from_email?: string | null
           from_name?: string | null
           id?: string
+          inbound_configured_at?: string | null
+          inbound_dns_records?: Json | null
+          inbound_domain?: string | null
+          inbound_status?: string | null
           last_error?: string | null
           reply_to?: string | null
           resend_domain_id?: string | null
@@ -2730,6 +2742,8 @@ export type Database = {
           openai_last_error: string | null
           resend_api_key_encrypted: string | null
           resend_connected_at: string | null
+          resend_inbound_webhook_id: string | null
+          resend_inbound_webhook_secret: string | null
           resend_last_error: string | null
           singleton: boolean
           updated_at: string
@@ -2754,6 +2768,8 @@ export type Database = {
           openai_last_error?: string | null
           resend_api_key_encrypted?: string | null
           resend_connected_at?: string | null
+          resend_inbound_webhook_id?: string | null
+          resend_inbound_webhook_secret?: string | null
           resend_last_error?: string | null
           singleton?: boolean
           updated_at?: string
@@ -2778,6 +2794,8 @@ export type Database = {
           openai_last_error?: string | null
           resend_api_key_encrypted?: string | null
           resend_connected_at?: string | null
+          resend_inbound_webhook_id?: string | null
+          resend_inbound_webhook_secret?: string | null
           resend_last_error?: string | null
           singleton?: boolean
           updated_at?: string
