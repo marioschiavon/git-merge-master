@@ -85,24 +85,84 @@ Deno.serve(async (req) => {
     const fromName = domainRow.from_name || "SDR";
     const fromEmail = domainRow.from_email;
     const from = `${fromName} <${fromEmail}>`;
+
+    // Gera text/plain se só veio HTML (spam-fighter: emails só-HTML pontuam mal)
+    const stripHtml = (h: string) =>
+      h.replace(/<style[\s\S]*?<\/style>/gi, "")
+        .replace(/<script[\s\S]*?<\/script>/gi, "")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
+        .replace(/<[^>]+>/g, "")
+        .replace(/&nbsp;/g, " ")
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
     const finalHtml = html || `<p>${escapeHtml(text)}</p>`;
+    const finalText = text || stripHtml(finalHtml);
     const rfcMessageId = `<${crypto.randomUUID()}@${domainRow.sending_domain}>`;
+
+    // Get/create unsubscribe token para List-Unsubscribe (Gmail/Yahoo 2024)
+    const recipientEmail = String(to).toLowerCase();
+    let unsubToken: string | null = null;
+    try {
+      const { data: existing } = await supabase
+        .from("email_unsubscribe_tokens")
+        .select("token, used_at")
+        .eq("email", recipientEmail)
+        .maybeSingle();
+      if (existing && !existing.used_at) {
+        unsubToken = existing.token;
+      } else if (!existing) {
+        const newTok = crypto.randomUUID().replace(/-/g, "");
+        await supabase
+          .from("email_unsubscribe_tokens")
+          .upsert(
+            { token: newTok, email: recipientEmail },
+            { onConflict: "email", ignoreDuplicates: true },
+          );
+        const { data: reread } = await supabase
+          .from("email_unsubscribe_tokens")
+          .select("token")
+          .eq("email", recipientEmail)
+          .maybeSingle();
+        unsubToken = reread?.token ?? newTok;
+      }
+    } catch (e) {
+      console.warn("unsubscribe token skip:", (e as Error).message);
+    }
+
+    const appUrl = Deno.env.get("APP_URL") || "https://app.leaderei.com.br";
+    const unsubUrl = unsubToken ? `${appUrl}/unsubscribe?token=${unsubToken}` : null;
+    const unsubMailto = `unsubscribe@${domainRow.sending_domain}`;
 
     // Envio via Resend
     const headers: Record<string, string> = {};
     if (in_reply_to_rfc_id) headers["In-Reply-To"] = in_reply_to_rfc_id;
     if (references || in_reply_to_rfc_id) headers["References"] = references || in_reply_to_rfc_id;
     headers["Message-ID"] = rfcMessageId;
+    // Headers anti-spam (Gmail/Yahoo 2024)
+    if (unsubUrl) {
+      headers["List-Unsubscribe"] = `<${unsubUrl}>, <mailto:${unsubMailto}>`;
+      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
+    } else {
+      headers["List-Unsubscribe"] = `<mailto:${unsubMailto}>`;
+    }
+    headers["X-Entity-Ref-ID"] = crypto.randomUUID();
 
     const resendPayload: Record<string, unknown> = {
       from,
       to: [to],
       subject,
       html: finalHtml,
+      text: finalText,
       headers,
     };
-    if (text) resendPayload.text = text;
-    if (domainRow.reply_to) resendPayload.reply_to = domainRow.reply_to;
+    // Reply-To: se vazio, cai no from_email (evita mismatch e sinal ruim)
+    resendPayload.reply_to = domainRow.reply_to || fromEmail;
 
     const resp = await fetch(`${RESEND_API}/emails`, {
       method: "POST",

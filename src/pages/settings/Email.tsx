@@ -8,6 +8,7 @@ import {
   Mail,
   RefreshCw,
   AlertTriangle,
+  AlertCircle,
   Send,
   Inbox,
   Info,
@@ -71,6 +72,48 @@ function useDomain() {
       return (data as unknown as DomainRow) ?? null;
     },
   });
+}
+
+// Injeta linha DMARC recomendada quando o domínio não tem ainda (para domínios
+// criados antes da migration de anti-spam).
+function withDmarc(domain: DomainRow | null): DnsRecord[] {
+  const records: DnsRecord[] = Array.isArray(domain?.dns_records) ? [...domain!.dns_records] : [];
+  if (!domain?.sending_domain) return records;
+  const hasDmarc = records.some((r) =>
+    (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
+  );
+  if (hasDmarc) return records;
+  const parts = domain.sending_domain.split(".");
+  const root = parts.length > 2 ? parts.slice(-2).join(".") : domain.sending_domain;
+  const dmarcName = parts.length > 2 ? `_dmarc.${root}` : "_dmarc";
+  records.push({
+    record: "DMARC",
+    name: dmarcName,
+    type: "TXT",
+    value: `v=DMARC1; p=none; rua=mailto:dmarc@${root}; fo=1; adkim=r; aspf=r`,
+    ttl: "Auto",
+    status: "pending_manual",
+  });
+  return records;
+}
+
+function deliverabilityChecks(domain: DomainRow | null) {
+  const records = withDmarc(domain);
+  const has = (rec: string) =>
+    records.some((r) => (r.record || "").toUpperCase() === rec.toUpperCase() && r.status === "verified");
+  const hasType = (t: string) =>
+    records.some((r) => (r.type || "").toUpperCase() === t.toUpperCase() && r.status === "verified");
+  const dmarcRow = records.find((r) =>
+    (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
+  );
+  const parts = (domain?.sending_domain || "").split(".");
+  const isSubdomain = parts.length > 2;
+  return {
+    spf: has("SPF") || hasType("MX"),
+    dkim: has("DKIM"),
+    dmarc: dmarcRow?.status === "verified",
+    subdomain: !!domain && isSubdomain,
+  };
 }
 
 function useEmailStats() {
@@ -370,6 +413,10 @@ export default function EmailSettings() {
         )}
       </div>
 
+      {domain && (
+        <DeliverabilityCard domain={domain} />
+      )}
+
       {!isLoading && !domain && (
         <div className="rounded-xl border bg-card p-5 space-y-5">
           <div>
@@ -573,7 +620,7 @@ export default function EmailSettings() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {domain.dns_records.map((r, i) => (
+                        {withDmarc(domain).map((r, i) => (
                           <TableRow key={i}>
                             <TableCell className="font-mono text-xs">{r.type}</TableCell>
                             <TableCell className="font-mono text-xs max-w-[220px]">
@@ -619,10 +666,16 @@ export default function EmailSettings() {
                                 className={
                                   r.status === "verified"
                                     ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
-                                    : "bg-muted text-muted-foreground border-transparent"
+                                    : r.status === "pending_manual"
+                                      ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-transparent"
+                                      : "bg-muted text-muted-foreground border-transparent"
                                 }
                               >
-                                {r.status === "verified" ? "verificado" : "pendente"}
+                                {r.status === "verified"
+                                  ? "verificado"
+                                  : r.status === "pending_manual"
+                                    ? "recomendado"
+                                    : "pendente"}
                               </Badge>
                             </TableCell>
                           </TableRow>
@@ -729,6 +782,71 @@ export default function EmailSettings() {
             </Button>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+function DeliverabilityCard({ domain }: { domain: DomainRow }) {
+  const checks = deliverabilityChecks(domain);
+  const items: Array<{ ok: boolean; label: string; hint: string }> = [
+    {
+      ok: checks.spf,
+      label: "SPF",
+      hint: "Autoriza o Resend a enviar em nome do seu domínio.",
+    },
+    {
+      ok: checks.dkim,
+      label: "DKIM",
+      hint: "Assina digitalmente cada email — essencial para não cair no spam.",
+    },
+    {
+      ok: checks.dmarc,
+      label: "DMARC",
+      hint: "Exigido pelo Gmail/Yahoo (2024). Sem ele, entregabilidade despenca.",
+    },
+    {
+      ok: checks.subdomain,
+      label: "Subdomínio de envio",
+      hint: "Use um subdomínio (ex.: mail.seudominio.com) para isolar a reputação do domínio raiz.",
+    },
+  ];
+  const okCount = items.filter((i) => i.ok).length;
+  return (
+    <div className="rounded-lg border bg-card p-4 sm:p-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">Checklist de entregabilidade</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Requisitos para não cair no spam (Gmail e Yahoo apertaram as regras em 2024).
+          </p>
+        </div>
+        <Badge variant="secondary" className="shrink-0">
+          {okCount}/{items.length} ok
+        </Badge>
+      </div>
+      <ul className="mt-4 space-y-2">
+        {items.map((item) => (
+          <li key={item.label} className="flex items-start gap-2 text-sm">
+            {item.ok ? (
+              <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            )}
+            <div>
+              <p className="font-medium text-foreground">{item.label}</p>
+              <p className="text-muted-foreground">{item.hint}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!checks.dmarc && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          Adicione a linha DMARC listada nos registros DNS abaixo no seu provedor
+          (ela aparece marcada como <strong>recomendado</strong>). É um TXT em
+          <code className="mx-1 rounded bg-muted px-1">_dmarc.seudominio.com</code>
+          com política <code className="rounded bg-muted px-1">p=none</code> para monitorar sem bloquear.
+        </p>
       )}
     </div>
   );
