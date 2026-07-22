@@ -48,11 +48,21 @@ Deno.serve(async (req) => {
     const verified = (fresh.status === "verified") || fresh.records?.every?.((r: any) => r.status === "verified");
     const newStatus = verified ? "verified" : (fresh.status === "failed" ? "failed" : "verifying");
 
+    // Preserva a linha DMARC (Resend não retorna, mas queremos manter no registro para UI)
+    const freshRecords: any[] = Array.isArray(fresh.records) ? [...fresh.records] : [];
+    const existingRecords: any[] = Array.isArray(row.dns_records) ? row.dns_records : [];
+    const existingDmarc = existingRecords.find(
+      (r: any) => (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
+    );
+    if (existingDmarc && !freshRecords.some((r) => (r?.name || "").toString().toLowerCase().startsWith("_dmarc"))) {
+      freshRecords.push(existingDmarc);
+    }
+
     const { data: updated } = await admin
       .from("company_email_domains")
       .update({
         status: newStatus,
-        dns_records: fresh.records || row.dns_records,
+        dns_records: freshRecords.length ? freshRecords : row.dns_records,
         verified_at: verified ? new Date().toISOString() : null,
         last_error: null,
       })
