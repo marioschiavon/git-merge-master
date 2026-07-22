@@ -36,9 +36,9 @@ async function verifySvix(payload: string, headers: Headers, secret: string): Pr
   const ts = parseInt(timestamp, 10);
   if (isNaN(ts) || Math.abs(now - ts) > 300) return false;
 
-  let secretBytes: Uint8Array;
+  let secretBytes: ArrayBuffer;
   try {
-    secretBytes = base64ToUint8Array(secret.slice(6));
+    secretBytes = base64ToArrayBuffer(secret.slice(6));
   } catch {
     return false;
   }
