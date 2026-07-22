@@ -71,7 +71,27 @@ Deno.serve(async (req) => {
     }
 
     const resendDomainId = resendDomain.id;
-    const dnsRecords = resendDomain.records || [];
+    const dnsRecords: any[] = Array.isArray(resendDomain.records) ? [...resendDomain.records] : [];
+
+    // Injeta DMARC recomendado (Gmail/Yahoo 2024 exigem para bulk senders).
+    // Extrai root do sending_domain para publicar em _dmarc.<root> quando for subdomínio.
+    const parts = sending_domain.split(".");
+    const dmarcName =
+      parts.length > 2 ? `_dmarc.${parts.slice(-2).join(".")}` : `_dmarc`;
+    const alreadyHasDmarc = dnsRecords.some(
+      (r) => (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
+    );
+    if (!alreadyHasDmarc) {
+      dnsRecords.push({
+        record: "DMARC",
+        name: dmarcName,
+        type: "TXT",
+        value: `v=DMARC1; p=none; rua=mailto:dmarc@${parts.slice(-2).join(".")}; fo=1; adkim=r; aspf=r`,
+        ttl: "Auto",
+        status: "pending_manual",
+      });
+    }
+
 
     const fromEmail = `${from_local}@${sending_domain}`;
 
