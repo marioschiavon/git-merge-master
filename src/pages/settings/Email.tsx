@@ -73,6 +73,48 @@ function useDomain() {
   });
 }
 
+// Injeta linha DMARC recomendada quando o domínio não tem ainda (para domínios
+// criados antes da migration de anti-spam).
+function withDmarc(domain: DomainRow | null): DnsRecord[] {
+  const records: DnsRecord[] = Array.isArray(domain?.dns_records) ? [...domain!.dns_records] : [];
+  if (!domain?.sending_domain) return records;
+  const hasDmarc = records.some((r) =>
+    (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
+  );
+  if (hasDmarc) return records;
+  const parts = domain.sending_domain.split(".");
+  const root = parts.length > 2 ? parts.slice(-2).join(".") : domain.sending_domain;
+  const dmarcName = parts.length > 2 ? `_dmarc.${root}` : "_dmarc";
+  records.push({
+    record: "DMARC",
+    name: dmarcName,
+    type: "TXT",
+    value: `v=DMARC1; p=none; rua=mailto:dmarc@${root}; fo=1; adkim=r; aspf=r`,
+    ttl: "Auto",
+    status: "pending_manual",
+  });
+  return records;
+}
+
+function deliverabilityChecks(domain: DomainRow | null) {
+  const records = withDmarc(domain);
+  const has = (rec: string) =>
+    records.some((r) => (r.record || "").toUpperCase() === rec.toUpperCase() && r.status === "verified");
+  const hasType = (t: string) =>
+    records.some((r) => (r.type || "").toUpperCase() === t.toUpperCase() && r.status === "verified");
+  const dmarcRow = records.find((r) =>
+    (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
+  );
+  const parts = (domain?.sending_domain || "").split(".");
+  const isSubdomain = parts.length > 2;
+  return {
+    spf: has("SPF") || hasType("MX"),
+    dkim: has("DKIM"),
+    dmarc: dmarcRow?.status === "verified",
+    subdomain: !!domain && isSubdomain,
+  };
+}
+
 function useEmailStats() {
   return useQuery({
     queryKey: ["email_stats_7d"],
