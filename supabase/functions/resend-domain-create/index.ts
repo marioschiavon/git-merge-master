@@ -138,31 +138,7 @@ Deno.serve(async (req) => {
 
     // Garante webhook global de inbound (um por app).
     try {
-      const { data: ps } = await admin
-        .from("platform_settings")
-        .select("resend_inbound_webhook_id, resend_inbound_webhook_secret")
-        .eq("singleton", true)
-        .maybeSingle();
-      if (!ps?.resend_inbound_webhook_id) {
-        const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
-        const webhookUrl = supabaseUrl.replace(/\/$/, "") + "/functions/v1/resend-inbound-webhook";
-        const webhook = await resendJson<any>("/webhooks", {
-          method: "POST",
-          body: JSON.stringify({
-            name: "Leaderei Inbound Router",
-            url: webhookUrl,
-            events: ["email.received"],
-          }),
-        });
-        await admin
-          .from("platform_settings")
-          .update({
-            resend_inbound_webhook_id: webhook.id,
-            resend_inbound_webhook_secret: webhook.signing_secret,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("singleton", true);
-      }
+      await ensureInboundWebhook();
     } catch (e) {
       console.warn("resend-domain-create: falha ao garantir webhook inbound:", (e as Error).message);
     }
