@@ -786,6 +786,71 @@ export default function EmailSettings() {
   );
 }
 
+function DeliverabilityCard({ domain }: { domain: DomainRow }) {
+  const checks = deliverabilityChecks(domain);
+  const items: Array<{ ok: boolean; label: string; hint: string }> = [
+    {
+      ok: checks.spf,
+      label: "SPF",
+      hint: "Autoriza o Resend a enviar em nome do seu domínio.",
+    },
+    {
+      ok: checks.dkim,
+      label: "DKIM",
+      hint: "Assina digitalmente cada email — essencial para não cair no spam.",
+    },
+    {
+      ok: checks.dmarc,
+      label: "DMARC",
+      hint: "Exigido pelo Gmail/Yahoo (2024). Sem ele, entregabilidade despenca.",
+    },
+    {
+      ok: checks.subdomain,
+      label: "Subdomínio de envio",
+      hint: "Use um subdomínio (ex.: mail.seudominio.com) para isolar a reputação do domínio raiz.",
+    },
+  ];
+  const okCount = items.filter((i) => i.ok).length;
+  return (
+    <div className="rounded-lg border bg-card p-4 sm:p-6">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">Checklist de entregabilidade</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Requisitos para não cair no spam (Gmail e Yahoo apertaram as regras em 2024).
+          </p>
+        </div>
+        <Badge variant="secondary" className="shrink-0">
+          {okCount}/{items.length} ok
+        </Badge>
+      </div>
+      <ul className="mt-4 space-y-2">
+        {items.map((item) => (
+          <li key={item.label} className="flex items-start gap-2 text-sm">
+            {item.ok ? (
+              <CheckCircle2 className="h-4 w-4 mt-0.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 mt-0.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            )}
+            <div>
+              <p className="font-medium text-foreground">{item.label}</p>
+              <p className="text-muted-foreground">{item.hint}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {!checks.dmarc && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          Adicione a linha DMARC listada nos registros DNS abaixo no seu provedor
+          (ela aparece marcada como <strong>recomendado</strong>). É um TXT em
+          <code className="mx-1 rounded bg-muted px-1">_dmarc.seudominio.com</code>
+          com política <code className="rounded bg-muted px-1">p=none</code> para monitorar sem bloquear.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-background p-3">
