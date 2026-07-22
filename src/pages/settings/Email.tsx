@@ -8,6 +8,7 @@ import {
   Mail,
   RefreshCw,
   AlertTriangle,
+  AlertCircle,
   Send,
   Inbox,
   Info,
