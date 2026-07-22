@@ -412,6 +412,10 @@ export default function EmailSettings() {
         )}
       </div>
 
+      {domain && (
+        <DeliverabilityCard domain={domain} />
+      )}
+
       {!isLoading && !domain && (
         <div className="rounded-xl border bg-card p-5 space-y-5">
           <div>
@@ -615,7 +619,7 @@ export default function EmailSettings() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {domain.dns_records.map((r, i) => (
+                        {withDmarc(domain).map((r, i) => (
                           <TableRow key={i}>
                             <TableCell className="font-mono text-xs">{r.type}</TableCell>
                             <TableCell className="font-mono text-xs max-w-[220px]">
@@ -661,10 +665,16 @@ export default function EmailSettings() {
                                 className={
                                   r.status === "verified"
                                     ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
-                                    : "bg-muted text-muted-foreground border-transparent"
+                                    : r.status === "pending_manual"
+                                      ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-transparent"
+                                      : "bg-muted text-muted-foreground border-transparent"
                                 }
                               >
-                                {r.status === "verified" ? "verificado" : "pendente"}
+                                {r.status === "verified"
+                                  ? "verificado"
+                                  : r.status === "pending_manual"
+                                    ? "recomendado"
+                                    : "pendente"}
                               </Badge>
                             </TableCell>
                           </TableRow>
