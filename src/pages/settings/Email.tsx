@@ -440,7 +440,10 @@ export default function EmailSettings() {
       </div>
 
       {domain && (
-        <DeliverabilityCard domain={domain} />
+        <>
+          <DeliverabilityCard domain={domain} />
+          <InboundCard domain={domain} copy={copy} />
+        </>
       )}
 
       {!isLoading && !domain && (
