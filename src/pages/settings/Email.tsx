@@ -886,6 +886,94 @@ function DeliverabilityCard({ domain }: { domain: DomainRow }) {
   );
 }
 
+function InboundCard({ domain, copy }: { domain: DomainRow; copy: (label: string, value: string) => void }) {
+  const records = withInbound(domain);
+  const isVerified = domain.inbound_status === "verified";
+  const isPending = domain.inbound_status === "pending" || !domain.inbound_status;
+  const inboundAddress = domain.reply_to || (domain.from_email ? `${domain.from_email.split("@")[0]}@${domain.inbound_domain}` : "");
+
+  return (
+    <div className="rounded-xl border bg-card p-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-foreground">Recebimento de respostas</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            As respostas dos prospects chegam em <code className="rounded bg-muted px-1">{domain.inbound_domain}</code>.
+            O <b>Reply-To</b> dos emails de saída é automaticamente configurado para este endereço.
+          </p>
+        </div>
+        <Badge
+          variant="secondary"
+          className={
+            isVerified
+              ? "gap-1 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
+              : "gap-1 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-transparent"
+          }
+        >
+          {isVerified ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+          {isVerified ? "Ativo" : isPending ? "Configurando" : "Verificando"}
+        </Badge>
+      </div>
+
+      <div className="mt-4 rounded-md border bg-background p-3">
+        <p className="text-[0.65rem] uppercase tracking-wider text-muted-foreground">Endereço de reply-to</p>
+        <div className="flex items-center gap-2 mt-1">
+          <p className="text-sm font-medium text-foreground break-all">{inboundAddress}</p>
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copy("reply-to", inboundAddress)}>
+            <Copy className="h-3 w-3" />
+          </Button>
+        </div>
+      </div>
+
+      {records.length > 0 && (
+        <div className="mt-4">
+          <p className="text-sm font-medium text-foreground mb-2">Registro DNS de recebimento</p>
+          <div className="overflow-x-auto rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Tipo</TableHead>
+                  <TableHead>Nome</TableHead>
+                  <TableHead>Valor</TableHead>
+                  <TableHead>Prioridade</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {records.map((r, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="font-mono text-xs">{r.type}</TableCell>
+                    <TableCell className="font-mono text-xs">{r.name}</TableCell>
+                    <TableCell className="font-mono text-xs max-w-[300px]">
+                      <div className="flex items-center gap-1">
+                        <span className="truncate">{r.value}</span>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => copy(`inbound-val-${i}`, r.value)}>
+                          <Copy className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">{r.priority ?? 10}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Adicione este registro no painel DNS do domínio raiz (onde está configurado <code className="rounded bg-muted px-1">{domain.sending_domain}</code>).
+            Se seu provedor preencher o domínio automaticamente, o nome completo será <code className="rounded bg-muted px-1">{domain.inbound_domain}</code>.
+          </p>
+        </div>
+      )}
+
+      {!isVerified && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          A propagação do MX de inbound pode levar até 1h. Enquanto isso, o Leaderei
+          continua enviando; apenas as respostas ainda não são roteadas para o app.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border bg-background p-3">
