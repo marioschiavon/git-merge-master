@@ -124,6 +124,12 @@ Deno.serve(async (req) => {
           })
           .eq("id", row.id);
 
+        try {
+          await ensureInboundWebhook();
+        } catch (e) {
+          console.warn(`[cron] falha ao garantir webhook inbound p/ ${row.sending_domain}:`, (e as Error).message);
+        }
+
         results.push({ domain: row.sending_domain, status: newStatus, verified, inbound_status: inboundStatus });
       } catch (e) {
         console.error(`[cron] erro em ${row.sending_domain}:`, (e as Error).message);

@@ -120,6 +120,12 @@ Deno.serve(async (req) => {
       .select("*")
       .single();
 
+    try {
+      await ensureInboundWebhook();
+    } catch (e) {
+      console.warn("resend-domain-verify: falha ao garantir webhook inbound:", (e as Error).message);
+    }
+
     return json({ ok: true, domain: updated });
   } catch (err) {
     console.error("resend-domain-verify:", err);
