@@ -1,44 +1,50 @@
-## Objetivo
+## Diagnóstico
 
-Ajustar o comportamento e a comunicação do Leaderei para que:
+Olhando o domínio `leaderei.app.br` (status `verified`) e o código de envio/inbound, encontrei **quatro problemas** que juntos explicam o comportamento:
 
-- Respostas a leads que já estão conversando (modo resposta / priority 10) sejam enviadas **imediatamente**, independente de dia/horário comercial.
-- Apenas envios de outbound frio (primeira mensagem, cadências, reengajamento) respeitem a janela de envio.
-- Os avisos na UI e na documentação deixem claro que a janela protege contra spam de outbound, e não contra conversas normais.
+### 1. Falta DMARC (principal causa de spam)
+O domínio tem apenas SPF + DKIM. Gmail e Outlook, desde 2024, **exigem DMARC** para remetentes que enviam em volume — sem ele, o email vai direto para spam. Não há registro `_dmarc` publicado.
 
-## Contexto confirmado
+### 2. Enviando do domínio raiz
+O `sending_domain` é `leaderei.app.br` (raiz), quando a própria UI orienta a usar subdomínio (`mail.leaderei.app.br`). Enviar do raiz mistura reputação com o domínio principal e piora entregabilidade.
 
-- `supabase/functions/_shared/whatsapp-pacer.ts` já detecta "modo resposta" (última mensagem inbound do lead) e agenda com `priority = 10` + jitter curto (3-10s). O comentário diz que o `send-tick` vai pular business hours, mas na prática ele ainda não pula.
-- `supabase/functions/whatsapp-send-tick/index.ts` aplica `business_hours` a **todos** os itens, inclusive `priority >= 10`.
-- O aviso em `src/pages/settings/Settings.tsx` diz explicitamente que a janela se aplica a "todos os envios, inclusive respostas automáticas a leads que responderam".
-- A página de boas práticas (`WhatsAppBestPractices.tsx`) e o doc interno (`docs/boas-praticas-whatsapp.md`) também dizem que "TODAS as mensagens" respeitam o horário comercial.
+### 3. Faltam headers anti-spam no `send-outbound-email`
+O payload enviado ao Resend não inclui:
+- `List-Unsubscribe` e `List-Unsubscribe-Post` (obrigatórios pelo Gmail/Yahoo em 2024 para bulk senders).
+- Versão `text/plain` quando só temos HTML (hoje geramos um HTML burro a partir do texto, mas não o contrário).
+- `Reply-To` explícito quando o usuário não configurou (deveria cair no `from_email`).
 
-## O que será feito
+### 4. Inbound do Resend não pode funcionar com a configuração atual
+O DNS atual tem MX apontando para `feedback-smtp.us-east-1.amazonses.com` no subdomínio `send.leaderei.app.br` — esse MX é do **SPF/bounce report do Resend**, não é o MX de recebimento de email. Para o Resend Inbound realmente receber emails, é preciso um MX separado (`inbound-smtp.resend.com`) apontando para o domínio inbound. Além disso, hoje não há endpoint de inbound cadastrado no dashboard do Resend apontando para `resend-inbound-webhook`.
 
-### 1. Comportamento: liberar respostas a leads engajados
+## Plano de correção
 
-- Em `supabase/functions/whatsapp-send-tick/index.ts`, alterar a verificação de `business_hours` para que itens de alta prioridade (`priority >= 10`, ou seja, respostas a leads que falaram primeiro / aprovações sdr_reply) **não sejam reagendados** por estarem fora da janela comercial.
-- Manter a verificação de `business_hours` para outbound frio (`priority < 10`, sources `cadence_step`, `cadence_step_custom`, `first_message`, etc.).
-- Manter o bypass de caps horários/diários para respostas (já existe via `isHighPriority`).
-- Atualizar o comentário em `supabase/functions/_shared/whatsapp-pacer.ts` para refletir o comportamento real e remover a ambiguidade.
+### A. Adicionar DMARC ao fluxo de cadastro
+- Ao criar o domínio (`resend-domain-create`), incluir no `dns_records` retornado uma linha extra de DMARC recomendada: `_dmarc` TXT `v=DMARC1; p=none; rua=mailto:dmarc@<domain>; fo=1`.
+- Mostrar essa linha na tabela de DNS em `Email.tsx` com o mesmo botão de copiar.
+- Considerar DMARC como parte da checagem de "totalmente configurado": mesmo que o Resend marque `verified` só com SPF+DKIM, exibimos um aviso "DMARC recomendado" enquanto o cliente não publicar.
 
-### 2. Textos: remover a frase que dá a entender punição sobre respostas
+### B. Recomendar subdomínio (não bloquear, apenas orientar)
+- No formulário, se o usuário digitar um domínio sem ponto no primeiro nível (ex.: `leaderei.app.br`), mostrar aviso amarelo sugerindo `mail.leaderei.app.br` antes de cadastrar. Não bloqueia — cliente decide.
 
-- Em `src/pages/settings/Settings.tsx` (Configurações → Empresa):
-  - Retirar a parte "inclusive respostas automáticas a leads que responderam".
-  - Deixar o aviso focado em: "A janela de envio protege o número contra envios de outbound frio/cadências fora do horário. Respostas a leads que já estão conversando fluem normalmente."
-- Em `src/pages/WhatsAppBestPractices.tsx`:
-  - Alterar o card "Horário comercial" para deixar claro que a regra se aplica a mensagens automáticas/cadências.
-  - Remover o exemplo de que a resposta do agente fica presa até 09h se o lead responder às 23h.
-- Em `docs/boas-praticas-whatsapp.md`:
-  - Reescrever a seção 3.5 para refletir a nova distinção: outbound frio respeita a janela; respostas a leads engajados não.
+### C. Endurecer o `send-outbound-email` contra spam
+- Adicionar header `List-Unsubscribe: <mailto:unsubscribe@<sending_domain>>, <https://<app>/unsubscribe?token=...>` e `List-Unsubscribe-Post: List-Unsubscribe=One-Click`.
+- Se só `html` foi passado, gerar automaticamente uma versão `text/plain` limpa (strip tags), evitando emails "só HTML" (fator de spam).
+- Se `reply_to` da company estiver vazio, cair no próprio `from_email` (garante Reply-To coerente).
+- Adicionar header `X-Entity-Ref-ID` com um UUID por envio (Gmail usa para agrupar/reputação).
 
-### 3. Validação
+### D. Corrigir o Resend Inbound
+- Adicionar migration/documentação sobre o MX correto para inbound (`inbound-smtp.resend.com` prio 10) num subdomínio dedicado tipo `reply.<domain>`, separando do `send.` do outbound.
+- Adicionar coluna/config para "inbound configurado" no `company_email_domains` (opcional) e mostrar na tela de Email um segundo card **"Recebimento de respostas"** com as instruções DNS e o link do webhook a cadastrar no dashboard do Resend.
+- Como fallback imediato (sem depender do inbound do Resend): já temos `reply_to` — o cliente pode apontar um Gmail dele como reply-to enquanto o inbound não está pronto.
 
-- Testar o fluxo: lead envia mensagem inbound fora do horário comercial → aprovação/resposta do agente é enfileirada com `priority = 10` e enviada sem esperar a janela.
-- Testar o fluxo de cadência: mensagem de cadência fora do horário comercial continua sendo reagendada para o próximo horário permitido.
-- Verificar se os textos renderizam corretamente na UI e não contêm mais a frase removida.
+### E. Diagnóstico de spam para o usuário
+- Card informativo no topo da página de Email listando: SPF ✅, DKIM ✅, DMARC ⚠️/✅, subdomínio dedicado ⚠️/✅. Assim o usuário vê exatamente o que falta.
 
-## Nota técnica
+## Escopo desta rodada
 
-A mudança é concentrada no `whatsapp-send-tick`. O `cadence-agent-decide` continua respeitando `business_hours` para agendamento de passos de cadência (outbound), o que é o correto. A fila `whatsapp_send_queue` continua com a coluna `priority` como mecanismo de distinção entre outbound frio e resposta a lead engajado.
+Sugiro atacar nesta ordem, uma coisa por vez para poder validar cada mudança:
+1. **(A) + (C) + (E)** — DMARC no wizard + hardening dos headers no envio + card de checklist. Isso já reduz drasticamente o spam.
+2. **(D)** — depois, em uma segunda rodada, resolvemos o inbound de forma limpa com subdomínio dedicado.
+
+Confirma que posso começar por (1)? Ou prefere que eu inclua já o (D) inbound nesta mesma leva?
