@@ -1,90 +1,48 @@
-# Fase 2 — Inbound de respostas por subdomínio dedicado
+## Objetivo
 
-## Resumo da arquitetura
+Reprocessar os domínios Resend cadastrados antes da Fase 2 para que ganhem `inbound_domain`, MX de recebimento e roteamento ativo, sem precisar recadastrar o domínio.
 
-Cada cliente terá um subdomínio exclusivo para receber respostas, no padrão `reply.dominiodocliente.com.br`. Esse subdomínio recebe um MX próprio do Resend Inbound. Como a conta Resend usada é a conta master do Leaderei, cadastraremos **um único webhook global** `email.received` apontando para o Edge Function `resend-inbound-webhook`. Quando uma resposta chega, o webhook identifica a empresa pelo domínio do destinatário (`to`) e depois associa ao lead pelo email do remetente, garantindo isolamento multi-tenant.
+Hoje temos 1 domínio nessa situação (`leaderei.app.br`, status `verified`, `inbound_domain` vazio, `inbound_status` `pending`).
 
-## O que foi confirmado
+## O que vai ser feito
 
-- A API do Resend permite habilitar receiving em um domínio via `PATCH /domains/{id}` com `capabilities.receiving = "enabled"`.
-- Após habilitar, a API retorna o registro MX de inbound no objeto `records`.
-- A API do Resend permite criar webhooks via `POST /webhooks` com eventos `email.received`; a resposta inclui `id` e `signing_secret`.
-- A tabela `company_email_domains` hoje tem `sending_domain`, `from_email`, `reply_to`, `dns_records`, `status`, mas não tem campos de inbound.
-- O Edge Function `resend-inbound-webhook` hoje casa o lead globalmente pelo email do remetente, sem verificar a empresa destinatária.
+### 1. Nova edge function `resend-inbound-backfill`
 
-## Plano de implementação
+- Só pode ser chamada por `master_admin` (verifica `has_role`).
+- Aceita opcionalmente `company_id`. Sem parâmetro, processa todos os domínios em que `inbound_domain IS NULL` ou `inbound_dns_records IS NULL`.
+- Para cada domínio:
+  1. Ativa `capabilities.receiving: enabled` no Resend via `PATCH /domains/:id` (idempotente).
+  2. Refaz `GET /domains/:id` e extrai o(s) registro(s) MX `inbound-smtp...`.
+  3. Calcula `inbound_domain = "inbound." + sending_domain`.
+  4. Persiste `inbound_domain`, `inbound_dns_records`, `inbound_status = 'pending'`, `inbound_configured_at = now()`.
+  5. Garante o webhook global chamando `ensureInboundWebhook()`.
+- Retorna resumo `{ processed, updated, errors[] }`.
 
-### 1. Migration no banco — adicionar campos de inbound
+### 2. Botão no Master Admin
 
-- Adicionar em `company_email_domains`:
-  - `inbound_domain` (text) — ex: `reply.cliente.com.br`
-  - `inbound_dns_records` (jsonb) — MX de recebimento retornado pelo Resend
-  - `inbound_status` (text) — `pending` / `verifying` / `verified` / `failed`
-  - `inbound_configured_at` (timestamptz)
-- Adicionar em `platform_settings` (singleton):
-  - `resend_inbound_webhook_id` (text)
-  - `resend_inbound_webhook_secret` (text) — `signing_secret` retornado pelo Resend, para validar Svix
-- Manter GRANTs e RLS existentes; `service_role` já acessa.
+- Em `src/pages/master/PlatformSettings.tsx` (bloco Resend), adicionar botão "Reprocessar domínios antigos" que chama a nova função e mostra o resultado num toast.
+- Log em `audit_logs` (`event: 'resend.inbound_backfill'`).
 
-### 2. Atualizar `resend-domain-create`
+### 3. Fallback automático no cron existente
 
-- Após criar ou reusar o domínio no Resend, fazer `PATCH /domains/{id}` com `{ "capabilities": { "receiving": "enabled" } }`.
-- Buscar o domínio atualizado para obter o registro MX de inbound.
-- Calcular o subdomínio de recebimento: `reply.<root_domain>`, onde `root_domain` é o domínio raiz extraído de `sending_domain` (ex: `mail.cliente.com.br` → `cliente.com.br` → `reply.cliente.com.br`).
-- Se o usuário não enviou `reply_to`, preencher automaticamente com `{from_local}@{inbound_domain}` (ex: `atendimento@reply.cliente.com.br`).
-- Incluir o MX de inbound junto aos registros DNS exibidos na UI (mantendo DMARC e SPF/DKIM).
-- Salvar `inbound_domain`, `inbound_dns_records`, `inbound_status = pending` no banco.
-- Garantir o webhook global: verificar `platform_settings.resend_inbound_webhook_id`. Se não existir, criar via `POST /webhooks` apontando para `${SUPABASE_URL}/functions/v1/resend-inbound-webhook` com eventos `["email.received"]`, e armazenar `id` + `signing_secret` em `platform_settings`.
+- `resend-domain-verify-cron` já roda de hora em hora. Adicionar: se o domínio está `verified` mas `inbound_domain IS NULL`, aplica o mesmo backfill antes da verificação normal. Assim qualquer domínio esquecido é corrigido sozinho.
 
-### 3. Atualizar `resend-domain-verify` e `resend-domain-verify-cron`
+### 4. UI do cliente
 
-- Após buscar o domínio no Resend, garantir que `capabilities.receiving` esteja `enabled`; se não estiver, reabilitar.
-- Preservar os registros "manuais" que não vêm do Resend: DMARC e MX de inbound (assim como já faz hoje com DMARC).
-- Verificar o status do registro MX de inbound e atualizar `inbound_status`.
-- Quando o MX estiver verificado, gravar `inbound_configured_at = now()`.
-- No cron, aplicar a mesma lógica para domínios em `pending` / `verifying` e gerar `last_error` orientativo se o inbound não verificar após 72h.
+- Em `src/pages/settings/Email.tsx`, quando o domínio já existir mas ainda não tiver `inbound_domain`, mostrar aviso "Estamos habilitando o recebimento…" e disparar `resend-domain-verify` (que agora também faz o backfill via cron/função) ao abrir a página. Nada de novo botão manual para o cliente — o próximo ciclo de verificação resolve.
 
-### 4. Atualizar `resend-inbound-webhook`
+### 5. Versão
 
-- Verificar a assinatura Svix do webhook usando o `signing_secret` salvo em `platform_settings` (com fallback para `RESEND_INBOUND_SECRET` se já estiver configurado manualmente).
-- Extrair o domínio do primeiro destinatário (`to`).
-- Buscar em `company_email_domains` onde `inbound_domain` seja igual ao domínio recebido. Se não encontrar, retornar `200` sem erro (evita retries do Resend) e logar.
-- Somente após identificar a empresa, buscar o lead pelo email do remetente **dentro dessa empresa** (`company_id`).
-- Criar/identificar `conversation` com `channel = email` e inserir a mensagem `inbound`.
-- Continuar invocando `inbound-webhook` para classificação/ações downstream.
+- `APP_VERSION` sobe para `beta 0.5`.
 
-### 5. Atualizar tela de Email (`src/pages/settings/Email.tsx`)
+## Detalhes técnicos
 
-- Exibir o subdomínio de recebimento (`reply.…`) e seu status em card próprio.
-- Incluir o MX de inbound na tabela de registros DNS, com botão de copiar nome e valor.
-- Incluir "Subdomínio de recebimento" no checklist de entregabilidade (`DeliverabilityCard`).
-- Se o inbound estiver pendente, mostrar instrução de adicionar o MX no DNS e botão "Verificar recebimento".
-- Atualizar o preview do remetente para indicar que respostas irão para `reply_to`.
+- Nenhuma migração de schema é necessária — as colunas `inbound_*` em `company_email_domains` já existem.
+- `ensureInboundWebhook()` é idempotente (usa `platform_settings.resend_inbound_webhook_id`), então rodar N vezes não duplica webhook.
+- Se `PATCH /domains/:id` falhar (por ex. plano Resend sem inbound), a função grava `last_error` e segue para o próximo, sem abortar o lote.
+- Idempotência: rodar o backfill em domínio que já tem `inbound_domain` é no-op.
 
-### 6. Ajustar envio outbound
+## O que fica fora deste plano
 
-- Em `send-outbound-email`, manter o uso de `reply_to` salvo em `company_email_domains`.
-- Como o `resend-domain-create` já preencherá `reply_to` com o endereço do subdomínio inbound, as respostas do lead naturalmente voltarão pelo Resend Inbound.
-- Garantir `In-Reply-To` / `References` para manter threading em respostas subsequentes.
-
-### 7. Documentação e versão
-
-- Atualizar `docs/manual/03b-email-resend.md` incluindo a seção de subdomínio `reply.` e o registro MX de inbound.
-- Atualizar a mensagem de status do checklist de entregabilidade.
-- Subir a versão de `beta 0.3` para `beta 0.4`.
-
-## Validação após implementação
-
-1. Criar um domínio de teste e confirmar no dashboard do Resend que "Receiving" está habilitado.
-2. Verificar que o registro MX de inbound aparece na tabela de DNS da tela Email.
-3. Adicionar o MX de `reply.<dominio>` no provedor de DNS.
-4. Enviar email de prospecção e responder para o endereço de `reply-to`.
-5. Confirmar que a resposta aparece na conversa do lead no Leaderei.
-6. Verificar logs do Edge Function para garantir que não houve casamento cruzado entre empresas.
-
-## Observações importantes
-
-- A conta Resend é única (master), então o webhook `email.received` também é único; o roteamento por empresa é feito pelo domínio de destino.
-- O valor exato do MX de inbound é fornecido pela API do Resend e não será hardcoded, evitando quebras se o Resend mudar o endpoint.
-- A assinatura Svix do webhook será validada com o segredo retornado na criação, aumentando a segurança do endpoint.
-- O subdomínio de recebimento fica separado do subdomínio de envio, evitando conflito com o MX de feedback/bounce que já existe no envio.
+- Painel de logs de webhooks recebidos no Master Admin (fica pra próxima).
+- Reprocessar mensagens de reply que chegaram enquanto o inbound estava desligado (não temos histórico delas — Resend não entregou).
