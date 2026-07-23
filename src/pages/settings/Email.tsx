@@ -218,14 +218,27 @@ export default function EmailSettings() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["company_email_domain_full"] });
       queryClient.invalidateQueries({ queryKey: ["company_email_domain"] });
+      setLastCheckedAt(new Date());
       const s = data?.domain?.status;
-      toast({
-        title: s === "verified" ? "Verificado!" : "Ainda propagando",
-        description:
-          s === "verified"
-            ? "Tudo pronto — sua empresa já pode enviar emails."
-            : "Estamos verificando automaticamente em segundo plano — a tela atualiza sozinha assim que o DNS propagar.",
-      });
+      if (s === "verified") {
+        toast({
+          title: "Verificado!",
+          description: "Tudo pronto — sua empresa já pode enviar emails.",
+        });
+      } else if (s === "failed") {
+        toast({
+          title: "Falha na verificação",
+          description:
+            "O Resend rejeitou o domínio. Tente remover e cadastrar novamente.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Verificação executada",
+          description:
+            "Consultamos o Resend agora, mas o DNS ainda não propagou. Vamos continuar verificando em segundo plano (a cada hora) — a tela atualiza sozinha assim que propagar.",
+        });
+      }
     },
     onError: (e: Error) =>
       toast({ title: "Erro", description: e.message, variant: "destructive" }),
