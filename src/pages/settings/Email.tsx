@@ -547,6 +547,7 @@ export default function EmailSettings() {
               }
             }}
             deleting={deleteMutation.isPending}
+            lastCheckedAt={lastCheckedAt}
           />
         );
 
