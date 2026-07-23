@@ -438,6 +438,7 @@ function ResendCard({
               </Button>
             </>
           )}
+          <BackfillInboundButton />
           <a
             href="https://resend.com/domains"
             target="_blank"
@@ -449,6 +450,34 @@ function ResendCard({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function BackfillInboundButton() {
+  const run = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("resend-inbound-backfill", { body: {} });
+      if (error) throw error;
+      return data as { processed: number; updated: number };
+    },
+    onSuccess: (d) => toast({
+      title: "Backfill concluído",
+      description: `Processados: ${d.processed} · Atualizados: ${d.updated}`,
+    }),
+    onError: (e: any) => toast({ title: "Erro", description: e.message, variant: "destructive" }),
+  });
+  return (
+    <Button
+      variant="outline"
+      onClick={() => run.mutate()}
+      disabled={run.isPending}
+    >
+      {run.isPending ? (
+        <><Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> Reprocessando…</>
+      ) : (
+        <>Reprocessar domínios antigos (inbound)</>
+      )}
+    </Button>
   );
 }
 

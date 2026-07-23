@@ -21,12 +21,12 @@ Deno.serve(async (req) => {
 
   try {
     const cutoff = new Date(Date.now() - STALE_MS).toISOString();
+    // Processa: pendentes recentes OU já verificados sem inbound configurado (backfill automático).
     const { data: rows, error } = await admin
       .from("company_email_domains")
       .select("*")
-      .in("status", ["pending", "verifying"])
       .not("resend_domain_id", "is", null)
-      .gte("updated_at", cutoff);
+      .or(`and(status.in.(pending,verifying),updated_at.gte.${cutoff}),and(status.eq.verified,inbound_domain.is.null)`);
 
     if (error) throw error;
 
