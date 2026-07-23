@@ -15,7 +15,12 @@ export interface AuditPayload {
 /** Fire-and-forget audit log from the client. Never throws. */
 export function logAuditClient(payload: AuditPayload): void {
   try {
-    void supabase.functions.invoke("audit-log", { body: payload }).catch(() => {
+    void supabase.auth.getSession().then(({ data }) => {
+      if (!data.session) return; // no auth → skip (e.g. post-logout)
+      void supabase.functions.invoke("audit-log", { body: payload }).catch(() => {
+        /* noop */
+      });
+    }).catch(() => {
       /* noop */
     });
   } catch {
