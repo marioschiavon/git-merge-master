@@ -505,287 +505,426 @@ export default function EmailSettings() {
         </div>
       )}
 
-      {domain && (
-        <>
-          <Tabs defaultValue="envio" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-grid">
-              <TabsTrigger value="envio" className="gap-2">
-                <Send className="h-3.5 w-3.5" /> Envio
-              </TabsTrigger>
-              <TabsTrigger value="recebimento" className="gap-2">
-                <Inbox className="h-3.5 w-3.5" /> Recebimento
-              </TabsTrigger>
-            </TabsList>
+      {domain && (() => {
+        const envioVerified = isVerified;
+        const inboundVerified = domain.inbound_status === "verified";
+        const bothVerified = envioVerified && inboundVerified;
 
-            {/* ============ ENVIO ============ */}
-            <TabsContent value="envio" className="space-y-6 mt-4">
-              <p className="text-sm text-muted-foreground">
-                SPF, DKIM e DMARC autorizam os provedores (Gmail, Outlook, Yahoo) a aceitar seus envios sem cair no spam.
-              </p>
+        const envioNode = (
+          <EnvioContent
+            domain={domain}
+            isVerified={isVerified}
+            isStuckVerifying={isStuckVerifying}
+            showDnsWhenVerified={showDnsWhenVerified}
+            setShowDnsWhenVerified={setShowDnsWhenVerified}
+            dnsHelpOpen={dnsHelpOpen}
+            setDnsHelpOpen={setDnsHelpOpen}
+            copied={copied}
+            copy={copy}
+            onVerify={() => verifyMutation.mutate()}
+            verifying={verifyMutation.isPending}
+            onDelete={() => {
+              if (
+                confirm(
+                  "Remover configuração de domínio? Os envios da sua empresa serão interrompidos.",
+                )
+              ) {
+                deleteMutation.mutate();
+              }
+            }}
+            deleting={deleteMutation.isPending}
+          />
+        );
 
-              <div className="rounded-xl border bg-card p-5 space-y-4">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-                  Sua configuração
-                </h2>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <InfoRow label="Domínio" value={domain.sending_domain} />
-                  <InfoRow
-                    label="Remetente"
-                    value={`${domain.from_name ?? "Atendimento"} <${domain.from_email ?? ""}>`}
-                  />
-                  <InfoRow
-                    label="Status"
-                    value={
-                      domain.status === "verified"
-                        ? "Verificado"
-                        : domain.status === "pending"
-                          ? "Aguardando DNS"
-                          : domain.status === "verifying"
-                            ? "Verificando..."
-                            : domain.status === "failed"
-                              ? "Falhou"
-                              : domain.status
-                    }
-                  />
-                </div>
-                {domain.last_error && (
-                  <div className="rounded-md border border-red-500/30 bg-red-500/5 p-3 text-xs flex items-start gap-2">
-                    <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5" />
-                    <span className="text-muted-foreground font-mono break-all">
-                      {domain.last_error}
-                    </span>
-                  </div>
-                )}
-                {isStuckVerifying && !domain.last_error && (
-                  <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
-                    <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                    <div className="text-muted-foreground">
-                      Os registros DNS parecem publicados, mas o Resend ainda não fechou a verificação
-                      (já se passaram mais de 24h). Isso costuma resolver sozinho em algumas horas —
-                      nosso sistema re-verifica automaticamente. Se persistir, remova o
-                      domínio e cadastre de novo.
-                    </div>
-                  </div>
-                )}
-              </div>
+        const inboundNode = <InboundCard domain={domain} copy={copy} />;
 
-              <DeliverabilityCard domain={domain} />
+        return (
+          <>
+            {bothVerified ? (
+              <Tabs defaultValue="envio" className="w-full">
+                <TabsList className="grid w-full grid-cols-2 sm:w-auto sm:inline-grid">
+                  <TabsTrigger value="envio" className="gap-2">
+                    <Send className="h-3.5 w-3.5" /> Envio
+                  </TabsTrigger>
+                  <TabsTrigger value="recebimento" className="gap-2">
+                    <Inbox className="h-3.5 w-3.5" /> Recebimento
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="envio" className="space-y-6 mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    SPF, DKIM e DMARC autorizam os provedores (Gmail, Outlook, Yahoo) a aceitar seus envios sem cair no spam.
+                  </p>
+                  {envioNode}
+                </TabsContent>
+                <TabsContent value="recebimento" className="space-y-6 mt-4">
+                  <p className="text-sm text-muted-foreground">
+                    Um registro MX permite que o Leaderei receba as respostas dos prospects e mantenha a conversa dentro do app.
+                  </p>
+                  {inboundNode}
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <div className="space-y-8">
+                <StepSection
+                  number={1}
+                  title="Envio (SPF / DKIM / DMARC)"
+                  description="Autorize provedores (Gmail, Outlook, Yahoo) a aceitar seus envios sem cair no spam."
+                  status={envioVerified ? "done" : "current"}
+                >
+                  {envioNode}
+                </StepSection>
 
-              {domain.dns_records && domain.dns_records.length > 0 && (
-                <>
-                  {isVerified && !showDnsWhenVerified ? (
-                    <button
-                      className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
-                      onClick={() => setShowDnsWhenVerified(true)}
-                    >
-                      Ver registros DNS de envio configurados
-                    </button>
-                  ) : (
-                    <div className="rounded-xl border bg-card">
-                      <div className="p-5 border-b space-y-2">
-                        <h2 className="text-base font-semibold text-foreground">
-                          Registros DNS de envio
-                        </h2>
-                        <p className="text-sm text-muted-foreground">
-                          Copie cada registro abaixo e cadastre no painel de DNS do seu registrador
-                          (onde você comprou o domínio <code>{domain.sending_domain}</code>). Cada
-                          linha da tabela vira uma entrada nova.
-                        </p>
-                        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
-                          <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
-                          <div className="text-muted-foreground">
-                            Ao copiar o campo <b>Nome</b>, use exatamente o que aparece aqui. Alguns
-                            provedores adicionam o domínio automaticamente — se acontecer duplicação
-                            (ex.: <code>mail.suaempresa.com.suaempresa.com</code>), apague a parte
-                            extra.
-                          </div>
-                        </div>
-                      </div>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Tipo</TableHead>
-                              <TableHead>Nome</TableHead>
-                              <TableHead>Valor</TableHead>
-                              <TableHead>TTL</TableHead>
-                              <TableHead>Status</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {withDmarc(domain).map((r, i) => (
-                              <TableRow key={i}>
-                                <TableCell className="font-mono text-xs">{r.type}</TableCell>
-                                <TableCell className="font-mono text-xs max-w-[220px]">
-                                  <div className="flex items-center gap-1">
-                                    <span className="truncate">{r.name}</span>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 w-6 p-0"
-                                      onClick={() => copy(`name-${i}`, r.name)}
-                                    >
-                                      {copied === `name-${i}` ? (
-                                        <Check className="h-3 w-3" />
-                                      ) : (
-                                        <Copy className="h-3 w-3" />
-                                      )}
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                                <TableCell className="font-mono text-xs max-w-[380px]">
-                                  <div className="flex items-center gap-1">
-                                    <span className="truncate">{r.value}</span>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-6 w-6 p-0"
-                                      onClick={() => copy(`val-${i}`, r.value)}
-                                    >
-                                      {copied === `val-${i}` ? (
-                                        <Check className="h-3 w-3" />
-                                      ) : (
-                                        <Copy className="h-3 w-3" />
-                                      )}
-                                    </Button>
-                                  </div>
-                                </TableCell>
-                                <TableCell className="text-xs text-muted-foreground">
-                                  {r.ttl ?? "Auto"}
-                                </TableCell>
-                                <TableCell>
-                                  <Badge
-                                    variant="secondary"
-                                    className={
-                                      r.status === "verified"
-                                        ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
-                                        : r.status === "pending_manual"
-                                          ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-transparent"
-                                          : "bg-muted text-muted-foreground border-transparent"
-                                    }
-                                  >
-                                    {r.status === "verified"
-                                      ? "verificado"
-                                      : r.status === "pending_manual"
-                                        ? "recomendado"
-                                        : "pendente"}
-                                  </Badge>
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-
-                      <div className="p-4 border-t">
-                        <Collapsible open={dnsHelpOpen} onOpenChange={setDnsHelpOpen}>
-                          <CollapsibleTrigger asChild>
-                            <button className="flex w-full items-center justify-between text-sm font-medium text-foreground">
-                              <span>Como adicionar DNS no meu provedor?</span>
-                              <ChevronDown
-                                className={
-                                  "h-4 w-4 transition-transform " + (dnsHelpOpen ? "rotate-180" : "")
-                                }
-                              />
-                            </button>
-                          </CollapsibleTrigger>
-                          <CollapsibleContent className="mt-3 space-y-3 text-sm text-muted-foreground">
-                            <ProviderHelp
-                              name="Registro.br"
-                              steps={[
-                                "Acesse registro.br e entre na sua conta.",
-                                "Vá em Painel → seu domínio → Editar Zona DNS.",
-                                "Para cada linha da tabela acima, clique em 'Novo registro' e preencha Tipo, Nome e Valor.",
-                                "Salve as alterações.",
-                              ]}
-                            />
-                            <ProviderHelp
-                              name="GoDaddy"
-                              steps={[
-                                "Acesse godaddy.com e entre na sua conta.",
-                                "Vá em Meus Produtos → seu domínio → DNS.",
-                                "Clique em 'Adicionar' e preencha Tipo, Nome e Valor para cada linha.",
-                                "Salve.",
-                              ]}
-                            />
-                            <ProviderHelp
-                              name="Cloudflare"
-                              steps={[
-                                "Acesse cloudflare.com e selecione seu domínio.",
-                                "Vá em DNS → Records → Add record.",
-                                "Preencha Tipo, Nome e Valor. Deixe o Proxy DESLIGADO (nuvem cinza).",
-                                "Salve cada registro.",
-                              ]}
-                            />
-                            <ProviderHelp
-                              name="HostGator / Locaweb / cPanel"
-                              steps={[
-                                "Acesse o cPanel do seu provedor de hospedagem.",
-                                "Procure por 'Zona DNS' ou 'Editor de zona'.",
-                                "Adicione um registro novo para cada linha da tabela acima.",
-                                "Salve.",
-                              ]}
-                            />
-                          </CollapsibleContent>
-                        </Collapsible>
-                      </div>
-
-                      <div className="p-4 border-t flex items-center gap-2 text-xs text-muted-foreground">
-                        <Info className="h-4 w-4" />
-                        <span>
-                          Após adicionar, o DNS pode levar até 72h para propagar — mas normalmente é
-                          bem mais rápido (15 minutos a 2 horas).
-                        </span>
-                      </div>
+                <StepSection
+                  number={2}
+                  title="Recebimento de respostas (MX)"
+                  description="Um registro MX permite que o Leaderei capture as respostas dos prospects dentro do app."
+                  status={
+                    inboundVerified ? "done" : envioVerified ? "current" : "pending"
+                  }
+                  dimmed={!envioVerified && !inboundVerified}
+                >
+                  {!envioVerified && !inboundVerified && (
+                    <div className="mb-4 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
+                      <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <span className="text-muted-foreground">
+                        Recomendamos concluir o Passo 1 (envio) antes — assim você garante que seus emails
+                        chegam à caixa de entrada antes de configurar o retorno. Mas você já pode adiantar
+                        este passo se quiser.
+                      </span>
                     </div>
                   )}
-                </>
-              )}
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  onClick={() => verifyMutation.mutate()}
-                  disabled={verifyMutation.isPending || isVerified}
-                >
-                  <RefreshCw
-                    className={`mr-2 h-4 w-4 ${verifyMutation.isPending ? "animate-spin" : ""}`}
-                  />
-                  {isVerified ? "Verificado" : "Verificar DNS agora"}
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    if (
-                      confirm(
-                        "Remover configuração de domínio? Os envios da sua empresa serão interrompidos.",
-                      )
-                    ) {
-                      deleteMutation.mutate();
-                    }
-                  }}
-                  disabled={deleteMutation.isPending}
-                >
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Remover domínio
-                </Button>
+                  {inboundNode}
+                </StepSection>
               </div>
-            </TabsContent>
+            )}
 
-            {/* ============ RECEBIMENTO ============ */}
-            <TabsContent value="recebimento" className="space-y-6 mt-4">
-              <p className="text-sm text-muted-foreground">
-                Um registro MX permite que o Leaderei receba as respostas dos prospects e mantenha a conversa dentro do app.
-              </p>
-              <InboundCard domain={domain} copy={copy} />
-            </TabsContent>
-          </Tabs>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <StatCard label="Enviados (7d)" value={stats?.sent ?? 0} icon={Send} />
+              <StatCard label="Recebidos (7d)" value={stats?.received ?? 0} icon={Inbox} />
+            </div>
+          </>
+        );
+      })()}
+    </div>
+  );
+}
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <StatCard label="Enviados (7d)" value={stats?.sent ?? 0} icon={Send} />
-            <StatCard label="Recebidos (7d)" value={stats?.received ?? 0} icon={Inbox} />
+function StepSection({
+  number,
+  title,
+  description,
+  status,
+  dimmed,
+  children,
+}: {
+  number: number;
+  title: string;
+  description: string;
+  status: "done" | "current" | "pending";
+  dimmed?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={dimmed ? "opacity-80" : ""}>
+      <div className="flex items-start gap-3 mb-4">
+        <div
+          className={
+            "grid h-8 w-8 shrink-0 place-items-center rounded-full text-sm font-semibold " +
+            (status === "done"
+              ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+              : status === "current"
+                ? "bg-primary text-primary-foreground"
+                : "bg-muted text-muted-foreground")
+          }
+        >
+          {status === "done" ? <Check className="h-4 w-4" /> : number}
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-lg font-semibold text-foreground">
+              Passo {number} — {title}
+            </h2>
+            <Badge
+              variant="secondary"
+              className={
+                status === "done"
+                  ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
+                  : status === "current"
+                    ? "bg-primary/10 text-primary border-transparent"
+                    : "bg-muted text-muted-foreground border-transparent"
+              }
+            >
+              {status === "done" ? "concluído" : status === "current" ? "em andamento" : "aguardando"}
+            </Badge>
           </div>
+          <p className="text-sm text-muted-foreground mt-1">{description}</p>
+        </div>
+      </div>
+      <div className="pl-0 sm:pl-11 space-y-6">{children}</div>
+    </section>
+  );
+}
+
+function EnvioContent({
+  domain,
+  isVerified,
+  isStuckVerifying,
+  showDnsWhenVerified,
+  setShowDnsWhenVerified,
+  dnsHelpOpen,
+  setDnsHelpOpen,
+  copied,
+  copy,
+  onVerify,
+  verifying,
+  onDelete,
+  deleting,
+}: {
+  domain: DomainRow;
+  isVerified: boolean;
+  isStuckVerifying: boolean;
+  showDnsWhenVerified: boolean;
+  setShowDnsWhenVerified: (v: boolean) => void;
+  dnsHelpOpen: boolean;
+  setDnsHelpOpen: (v: boolean) => void;
+  copied: string | null;
+  copy: (label: string, value: string) => void;
+  onVerify: () => void;
+  verifying: boolean;
+  onDelete: () => void;
+  deleting: boolean;
+}) {
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border bg-card p-5 space-y-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+          Sua configuração
+        </h3>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <InfoRow label="Domínio" value={domain.sending_domain} />
+          <InfoRow
+            label="Remetente"
+            value={`${domain.from_name ?? "Atendimento"} <${domain.from_email ?? ""}>`}
+          />
+          <InfoRow
+            label="Status"
+            value={
+              domain.status === "verified"
+                ? "Verificado"
+                : domain.status === "pending"
+                  ? "Aguardando DNS"
+                  : domain.status === "verifying"
+                    ? "Verificando..."
+                    : domain.status === "failed"
+                      ? "Falhou"
+                      : domain.status
+            }
+          />
+        </div>
+        {domain.last_error && (
+          <div className="rounded-md border border-red-500/30 bg-red-500/5 p-3 text-xs flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 text-red-600 mt-0.5" />
+            <span className="text-muted-foreground font-mono break-all">
+              {domain.last_error}
+            </span>
+          </div>
+        )}
+        {isStuckVerifying && !domain.last_error && (
+          <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm flex items-start gap-2">
+            <Info className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+            <div className="text-muted-foreground">
+              Os registros DNS parecem publicados, mas o Resend ainda não fechou a verificação
+              (já se passaram mais de 24h). Isso costuma resolver sozinho em algumas horas —
+              nosso sistema re-verifica automaticamente. Se persistir, remova o
+              domínio e cadastre de novo.
+            </div>
+          </div>
+        )}
+      </div>
+
+      <DeliverabilityCard domain={domain} />
+
+      {domain.dns_records && domain.dns_records.length > 0 && (
+        <>
+          {isVerified && !showDnsWhenVerified ? (
+            <button
+              className="text-sm text-muted-foreground hover:text-foreground underline underline-offset-4"
+              onClick={() => setShowDnsWhenVerified(true)}
+            >
+              Ver registros DNS de envio configurados
+            </button>
+          ) : (
+            <div className="rounded-xl border bg-card">
+              <div className="p-5 border-b space-y-2">
+                <h3 className="text-base font-semibold text-foreground">
+                  Registros DNS de envio
+                </h3>
+                <p className="text-sm text-muted-foreground">
+                  Copie cada registro abaixo e cadastre no painel de DNS do seu registrador
+                  (onde você comprou o domínio <code>{domain.sending_domain}</code>). Cada
+                  linha da tabela vira uma entrada nova.
+                </p>
+                <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div className="text-muted-foreground">
+                    Ao copiar o campo <b>Nome</b>, use exatamente o que aparece aqui. Alguns
+                    provedores adicionam o domínio automaticamente — se acontecer duplicação
+                    (ex.: <code>mail.suaempresa.com.suaempresa.com</code>), apague a parte
+                    extra.
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Tipo</TableHead>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Valor</TableHead>
+                      <TableHead>TTL</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {withDmarc(domain).map((r, i) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-mono text-xs">{r.type}</TableCell>
+                        <TableCell className="font-mono text-xs max-w-[220px]">
+                          <div className="flex items-center gap-1">
+                            <span className="truncate">{r.name}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => copy(`name-${i}`, r.name)}
+                            >
+                              {copied === `name-${i}` ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell className="font-mono text-xs max-w-[380px]">
+                          <div className="flex items-center gap-1">
+                            <span className="truncate">{r.value}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0"
+                              onClick={() => copy(`val-${i}`, r.value)}
+                            >
+                              {copied === `val-${i}` ? (
+                                <Check className="h-3 w-3" />
+                              ) : (
+                                <Copy className="h-3 w-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {r.ttl ?? "Auto"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant="secondary"
+                            className={
+                              r.status === "verified"
+                                ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-transparent"
+                                : r.status === "pending_manual"
+                                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border-transparent"
+                                  : "bg-muted text-muted-foreground border-transparent"
+                            }
+                          >
+                            {r.status === "verified"
+                              ? "verificado"
+                              : r.status === "pending_manual"
+                                ? "recomendado"
+                                : "pendente"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="p-4 border-t">
+                <Collapsible open={dnsHelpOpen} onOpenChange={setDnsHelpOpen}>
+                  <CollapsibleTrigger asChild>
+                    <button className="flex w-full items-center justify-between text-sm font-medium text-foreground">
+                      <span>Como adicionar DNS no meu provedor?</span>
+                      <ChevronDown
+                        className={
+                          "h-4 w-4 transition-transform " + (dnsHelpOpen ? "rotate-180" : "")
+                        }
+                      />
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="mt-3 space-y-3 text-sm text-muted-foreground">
+                    <ProviderHelp
+                      name="Registro.br"
+                      steps={[
+                        "Acesse registro.br e entre na sua conta.",
+                        "Vá em Painel → seu domínio → Editar Zona DNS.",
+                        "Para cada linha da tabela acima, clique em 'Novo registro' e preencha Tipo, Nome e Valor.",
+                        "Salve as alterações.",
+                      ]}
+                    />
+                    <ProviderHelp
+                      name="GoDaddy"
+                      steps={[
+                        "Acesse godaddy.com e entre na sua conta.",
+                        "Vá em Meus Produtos → seu domínio → DNS.",
+                        "Clique em 'Adicionar' e preencha Tipo, Nome e Valor para cada linha.",
+                        "Salve.",
+                      ]}
+                    />
+                    <ProviderHelp
+                      name="Cloudflare"
+                      steps={[
+                        "Acesse cloudflare.com e selecione seu domínio.",
+                        "Vá em DNS → Records → Add record.",
+                        "Preencha Tipo, Nome e Valor. Deixe o Proxy DESLIGADO (nuvem cinza).",
+                        "Salve cada registro.",
+                      ]}
+                    />
+                    <ProviderHelp
+                      name="HostGator / Locaweb / cPanel"
+                      steps={[
+                        "Acesse o cPanel do seu provedor de hospedagem.",
+                        "Procure por 'Zona DNS' ou 'Editor de zona'.",
+                        "Adicione um registro novo para cada linha da tabela acima.",
+                        "Salve.",
+                      ]}
+                    />
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+
+              <div className="p-4 border-t flex items-center gap-2 text-xs text-muted-foreground">
+                <Info className="h-4 w-4" />
+                <span>
+                  Após adicionar, o DNS pode levar até 72h para propagar — mas normalmente é
+                  bem mais rápido (15 minutos a 2 horas).
+                </span>
+              </div>
+            </div>
+          )}
         </>
       )}
+
+      <div className="flex flex-wrap gap-2">
+        <Button onClick={onVerify} disabled={verifying || isVerified}>
+          <RefreshCw className={`mr-2 h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
+          {isVerified ? "Verificado" : "Verificar DNS agora"}
+        </Button>
+        <Button variant="outline" onClick={onDelete} disabled={deleting}>
+          <Trash2 className="mr-2 h-4 w-4" />
+          Remover domínio
+        </Button>
+      </div>
     </div>
   );
 }
