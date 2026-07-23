@@ -694,6 +694,7 @@ function EnvioContent({
   verifying,
   onDelete,
   deleting,
+  lastCheckedAt,
 }: {
   domain: DomainRow;
   isVerified: boolean;
@@ -708,6 +709,7 @@ function EnvioContent({
   verifying: boolean;
   onDelete: () => void;
   deleting: boolean;
+  lastCheckedAt: Date | null;
 }) {
   return (
     <div className="space-y-6">
