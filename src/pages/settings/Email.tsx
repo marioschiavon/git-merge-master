@@ -183,6 +183,7 @@ export default function EmailSettings() {
   const [copied, setCopied] = useState<string | null>(null);
   const [dnsHelpOpen, setDnsHelpOpen] = useState(false);
   const [showDnsWhenVerified, setShowDnsWhenVerified] = useState(false);
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
 
   const createMutation = useMutation({
     mutationFn: async () => {
