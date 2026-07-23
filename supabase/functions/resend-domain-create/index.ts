@@ -30,13 +30,21 @@ Deno.serve(async (req) => {
     if (!companyId) return json({ error: "sem company" }, 400);
 
     const body = await req.json().catch(() => ({}));
-    const sending_domain: string = (body?.sending_domain || "").toLowerCase().trim();
+    const rawDomain: string = (body?.sending_domain || "").toString().toLowerCase().trim();
+    // Normaliza: remove protocolo, path, porta, @, espaços e ponto final.
+    const sending_domain = rawDomain
+      .replace(/^https?:\/\//, "")
+      .replace(/^.*@/, "")
+      .split("/")[0]
+      .split(":")[0]
+      .replace(/\.$/, "")
+      .trim();
     const from_name: string = (body?.from_name || "Atendimento").trim();
     const from_local: string = (body?.from_local || "atendimento").trim().toLowerCase();
     let reply_to: string | null = body?.reply_to || null;
 
-    if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(sending_domain)) {
-      return json({ error: "domínio inválido" }, 400);
+    if (!/^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/.test(sending_domain)) {
+      return json({ error: `domínio inválido: "${rawDomain}"` }, 400);
     }
     if (!/^[a-z0-9._-]+$/.test(from_local)) {
       return json({ error: "from_local inválido" }, 400);
