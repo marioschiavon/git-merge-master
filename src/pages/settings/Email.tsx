@@ -183,6 +183,7 @@ export default function EmailSettings() {
   const [copied, setCopied] = useState<string | null>(null);
   const [dnsHelpOpen, setDnsHelpOpen] = useState(false);
   const [showDnsWhenVerified, setShowDnsWhenVerified] = useState(false);
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -218,14 +219,27 @@ export default function EmailSettings() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["company_email_domain_full"] });
       queryClient.invalidateQueries({ queryKey: ["company_email_domain"] });
+      setLastCheckedAt(new Date());
       const s = data?.domain?.status;
-      toast({
-        title: s === "verified" ? "Verificado!" : "Ainda propagando",
-        description:
-          s === "verified"
-            ? "Tudo pronto — sua empresa já pode enviar emails."
-            : "Estamos verificando automaticamente em segundo plano — a tela atualiza sozinha assim que o DNS propagar.",
-      });
+      if (s === "verified") {
+        toast({
+          title: "Verificado!",
+          description: "Tudo pronto — sua empresa já pode enviar emails.",
+        });
+      } else if (s === "failed") {
+        toast({
+          title: "Falha na verificação",
+          description:
+            "O Resend rejeitou o domínio. Tente remover e cadastrar novamente.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Verificação executada",
+          description:
+            "Consultamos o Resend agora, mas o DNS ainda não propagou. Vamos continuar verificando em segundo plano (a cada hora) — a tela atualiza sozinha assim que propagar.",
+        });
+      }
     },
     onError: (e: Error) =>
       toast({ title: "Erro", description: e.message, variant: "destructive" }),
@@ -533,6 +547,7 @@ export default function EmailSettings() {
               }
             }}
             deleting={deleteMutation.isPending}
+            lastCheckedAt={lastCheckedAt}
           />
         );
 
@@ -679,6 +694,7 @@ function EnvioContent({
   verifying,
   onDelete,
   deleting,
+  lastCheckedAt,
 }: {
   domain: DomainRow;
   isVerified: boolean;
@@ -693,6 +709,7 @@ function EnvioContent({
   verifying: boolean;
   onDelete: () => void;
   deleting: boolean;
+  lastCheckedAt: Date | null;
 }) {
   return (
     <div className="space-y-6">
@@ -915,15 +932,22 @@ function EnvioContent({
         </>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={onVerify} disabled={verifying || isVerified}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
-          {isVerified ? "Verificado" : "Verificar DNS agora"}
-        </Button>
-        <Button variant="outline" onClick={onDelete} disabled={deleting}>
-          <Trash2 className="mr-2 h-4 w-4" />
-          Remover domínio
-        </Button>
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onVerify} disabled={verifying || isVerified}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
+            {isVerified ? "Verificado" : "Verificar DNS agora"}
+          </Button>
+          <Button variant="outline" onClick={onDelete} disabled={deleting}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Remover domínio
+          </Button>
+        </div>
+        {!isVerified && lastCheckedAt && (
+          <p className="text-xs text-muted-foreground">
+            Última verificação manual: {lastCheckedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} — continuamos checando em segundo plano automaticamente.
+          </p>
+        )}
       </div>
     </div>
   );
