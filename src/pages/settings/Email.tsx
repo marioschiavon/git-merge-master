@@ -932,15 +932,22 @@ function EnvioContent({
         </>
       )}
 
-      <div className="flex flex-wrap gap-2">
-        <Button onClick={onVerify} disabled={verifying || isVerified}>
-          <RefreshCw className={`mr-2 h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
-          {isVerified ? "Verificado" : "Verificar DNS agora"}
-        </Button>
-        <Button variant="outline" onClick={onDelete} disabled={deleting}>
-          <Trash2 className="mr-2 h-4 w-4" />
-          Remover domínio
-        </Button>
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={onVerify} disabled={verifying || isVerified}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${verifying ? "animate-spin" : ""}`} />
+            {isVerified ? "Verificado" : "Verificar DNS agora"}
+          </Button>
+          <Button variant="outline" onClick={onDelete} disabled={deleting}>
+            <Trash2 className="mr-2 h-4 w-4" />
+            Remover domínio
+          </Button>
+        </div>
+        {!isVerified && lastCheckedAt && (
+          <p className="text-xs text-muted-foreground">
+            Última verificação manual: {lastCheckedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} — continuamos checando em segundo plano automaticamente.
+          </p>
+        )}
       </div>
     </div>
   );
