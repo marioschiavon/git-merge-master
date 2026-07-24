@@ -389,6 +389,8 @@ export default function EmailSettings() {
         )}
       </div>
 
+      <PersonalEmailCard />
+
       {!domain && (
         <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-sm flex items-start gap-2">
           <Shield className="h-4 w-4 text-primary mt-0.5 shrink-0" />
