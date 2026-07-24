@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resendJson, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
 import { ensureInboundWebhook } from "../_shared/ensure-inbound-webhook.ts";
+import { dmarcName, isBrokenDmarcName, registrableRoot } from "../_shared/domain-root.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -65,9 +66,18 @@ Deno.serve(async (req) => {
 
     const freshRecords: any[] = Array.isArray(fresh.records) ? [...fresh.records] : [];
     const existingRecords: any[] = Array.isArray(row.dns_records) ? row.dns_records : [];
-    const existingDmarc = existingRecords.find(
+    let existingDmarc = existingRecords.find(
       (r: any) => (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
     );
+    // Backfill: se o nome DMARC antigo aponta pra public suffix, corrige.
+    if (existingDmarc && isBrokenDmarcName(existingDmarc.name)) {
+      const root = registrableRoot(row.sending_domain);
+      existingDmarc = {
+        ...existingDmarc,
+        name: dmarcName(row.sending_domain),
+        value: `v=DMARC1; p=none; rua=mailto:dmarc@${root}; fo=1; adkim=r; aspf=r`,
+      };
+    }
     if (existingDmarc && !freshRecords.some((r) => (r?.name || "").toString().toLowerCase().startsWith("_dmarc"))) {
       freshRecords.push(existingDmarc);
     }

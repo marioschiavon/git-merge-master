@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resendJson, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
 import { ensureInboundWebhook } from "../_shared/ensure-inbound-webhook.ts";
+import { dmarcName, registrableRoot } from "../_shared/domain-root.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -83,19 +84,18 @@ Deno.serve(async (req) => {
     const dnsRecords: any[] = Array.isArray(resendDomain.records) ? [...resendDomain.records] : [];
 
     // Injeta DMARC recomendado (Gmail/Yahoo 2024 exigem para bulk senders).
-    // Extrai root do sending_domain para publicar em _dmarc.<root> quando for subdomínio.
-    const parts = sending_domain.split(".");
-    const dmarcName =
-      parts.length > 2 ? `_dmarc.${parts.slice(-2).join(".")}` : `_dmarc`;
+    // Usa eTLD+1 (registrable root) — trata .com.br, .co.uk etc. corretamente.
+    const root = registrableRoot(sending_domain);
+    const dmarcRecordName = dmarcName(sending_domain);
     const alreadyHasDmarc = dnsRecords.some(
       (r) => (r?.name || "").toString().toLowerCase().startsWith("_dmarc"),
     );
     if (!alreadyHasDmarc) {
       dnsRecords.push({
         record: "DMARC",
-        name: dmarcName,
+        name: dmarcRecordName,
         type: "TXT",
-        value: `v=DMARC1; p=none; rua=mailto:dmarc@${parts.slice(-2).join(".")}; fo=1; adkim=r; aspf=r`,
+        value: `v=DMARC1; p=none; rua=mailto:dmarc@${root}; fo=1; adkim=r; aspf=r`,
         ttl: "Auto",
         status: "pending_manual",
       });
