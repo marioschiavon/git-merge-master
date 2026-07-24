@@ -740,6 +740,8 @@ export type Database = {
           created_at: string
           created_by: string
           description: string | null
+          email_channel: Database["public"]["Enums"]["email_channel"]
+          email_grant_id: string | null
           id: string
           kind: string
           mode: string
@@ -759,6 +761,8 @@ export type Database = {
           created_at?: string
           created_by: string
           description?: string | null
+          email_channel?: Database["public"]["Enums"]["email_channel"]
+          email_grant_id?: string | null
           id?: string
           kind?: string
           mode?: string
@@ -778,6 +782,8 @@ export type Database = {
           created_at?: string
           created_by?: string
           description?: string | null
+          email_channel?: Database["public"]["Enums"]["email_channel"]
+          email_grant_id?: string | null
           id?: string
           kind?: string
           mode?: string
@@ -796,6 +802,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadences_email_grant_id_fkey"
+            columns: ["email_grant_id"]
+            isOneToOne: false
+            referencedRelation: "user_email_grants"
             referencedColumns: ["id"]
           },
         ]
@@ -3199,6 +3212,74 @@ export type Database = {
         }
         Relationships: []
       }
+      user_email_grants: {
+        Row: {
+          company_id: string
+          created_at: string
+          daily_sent_count: number
+          daily_sent_date: string
+          display_name: string | null
+          email: string
+          grant_id: string
+          id: string
+          last_error: string | null
+          last_synced_at: string | null
+          provider: Database["public"]["Enums"]["email_grant_provider"]
+          scopes: string[] | null
+          status: Database["public"]["Enums"]["email_grant_status"]
+          updated_at: string
+          user_id: string
+          warmup_paused: boolean
+          warmup_started_at: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          daily_sent_count?: number
+          daily_sent_date?: string
+          display_name?: string | null
+          email: string
+          grant_id: string
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          provider: Database["public"]["Enums"]["email_grant_provider"]
+          scopes?: string[] | null
+          status?: Database["public"]["Enums"]["email_grant_status"]
+          updated_at?: string
+          user_id: string
+          warmup_paused?: boolean
+          warmup_started_at?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          daily_sent_count?: number
+          daily_sent_date?: string
+          display_name?: string | null
+          email?: string
+          grant_id?: string
+          id?: string
+          last_error?: string | null
+          last_synced_at?: string | null
+          provider?: Database["public"]["Enums"]["email_grant_provider"]
+          scopes?: string[] | null
+          status?: Database["public"]["Enums"]["email_grant_status"]
+          updated_at?: string
+          user_id?: string
+          warmup_paused?: boolean
+          warmup_started_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_email_grants_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           id: string
@@ -3545,6 +3626,9 @@ export type Database = {
       cadence_status: "draft" | "active" | "paused" | "archived"
       cadence_type: "email" | "whatsapp" | "linkedin" | "multi_channel"
       company_status: "active" | "inactive" | "trial"
+      email_channel: "domain" | "personal"
+      email_grant_provider: "google" | "microsoft" | "imap"
+      email_grant_status: "active" | "expired" | "revoked" | "error"
       enrollment_status:
         | "active"
         | "completed"
@@ -3765,6 +3849,9 @@ export const Constants = {
       cadence_status: ["draft", "active", "paused", "archived"],
       cadence_type: ["email", "whatsapp", "linkedin", "multi_channel"],
       company_status: ["active", "inactive", "trial"],
+      email_channel: ["domain", "personal"],
+      email_grant_provider: ["google", "microsoft", "imap"],
+      email_grant_status: ["active", "expired", "revoked", "error"],
       enrollment_status: [
         "active",
         "completed",

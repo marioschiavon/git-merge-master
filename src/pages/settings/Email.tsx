@@ -37,6 +37,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { PersonalEmailCard } from "@/components/settings/PersonalEmailCard";
 
 interface DnsRecord {
   record: string;
@@ -387,6 +388,8 @@ export default function EmailSettings() {
           </Badge>
         )}
       </div>
+
+      <PersonalEmailCard />
 
       {!domain && (
         <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-sm flex items-start gap-2">
