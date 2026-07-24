@@ -30,6 +30,7 @@ export function PersonalEmailCard() {
 
   // Handle OAuth callback query params
   useEffect(() => {
+    // Only run once on mount – checks URL for OAuth callback params.
     const url = new URL(window.location.href);
     const connected = url.searchParams.get("connected");
     const email = url.searchParams.get("email");
