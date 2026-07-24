@@ -19,9 +19,14 @@ interface GrantRow {
 const providerLabel = (p: string) =>
   p === "google" ? "Gmail" : p === "microsoft" ? "Outlook" : "IMAP";
 
-export function PersonalEmailCard({ currentUserId }: { currentUserId: string | null }) {
+export function PersonalEmailCard() {
   const qc = useQueryClient();
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null));
+  }, []);
 
   // Handle OAuth callback query params
   useEffect(() => {
