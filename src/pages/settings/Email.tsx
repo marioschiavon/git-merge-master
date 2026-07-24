@@ -37,6 +37,7 @@ import {
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { PersonalEmailCard } from "@/components/settings/PersonalEmailCard";
 
 interface DnsRecord {
   record: string;
