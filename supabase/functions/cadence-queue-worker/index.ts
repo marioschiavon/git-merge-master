@@ -7,7 +7,7 @@ const corsHeaders = {
 };
 
 const DEFAULT_BATCH_SIZE = 1;
-const MAX_BATCH_SIZE = 10;
+const MAX_BATCH_SIZE = 1;
 const MAX_ATTEMPTS = 3;
 
 function json(payload: Record<string, unknown>, status = 200) {
