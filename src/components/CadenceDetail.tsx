@@ -311,7 +311,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
               {enrollments.length > 0 && (
                 <Button
                   variant="default"
-                  onClick={() => executeCadence.mutate()}
+                  onClick={() => executeCadence.mutate(cadence?.id)}
                   disabled={executeCadence.isPending}
                 >
                   {executeCadence.isPending ? (

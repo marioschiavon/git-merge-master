@@ -61,13 +61,16 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    // Optional single-enrollment mode for HITL re-execution after approval
+    // Optional single-enrollment mode for HITL re-execution after approval,
+    // or cadence-scoped mode when invoked from the "Executar Agora" button.
     let singleEnrollmentId: string | null = null;
+    let scopedCadenceId: string | null = null;
     let bypassHitl = false;
     try {
       if (req.method === "POST") {
         const body = await req.json().catch(() => ({}));
         if (body?.enrollment_id) singleEnrollmentId = body.enrollment_id;
+        if (body?.cadence_id) scopedCadenceId = body.cadence_id;
         if (body?.bypass_hitl) bypassHitl = true;
       }
     } catch { /* ignore */ }
@@ -87,6 +90,9 @@ serve(async (req) => {
         .eq("meeting_scheduled", false)
         .lte("next_execution_at", new Date().toISOString())
         .not("next_execution_at", "is", null);
+      if (scopedCadenceId) {
+        enrollmentsQuery = enrollmentsQuery.eq("cadence_id", scopedCadenceId);
+      }
     }
     const { data: enrollments, error: enrollError } = await enrollmentsQuery;
 
@@ -150,16 +156,20 @@ serve(async (req) => {
         }
 
         // === AGENTIC MODE: delegate decision to cadence-agent-decide ===
+        // Fire-and-forget: the agent can take longer than the 150s gateway
+        // timeout when many enrollments are due. We dispatch and return.
         if (cadence.mode === "agentic") {
+          const dispatch = supabase.functions
+            .invoke("cadence-agent-decide", { body: { enrollment_id: enrollment.id } })
+            .then(({ error }: any) => {
+              if (error) console.error(`agent-decide error for ${enrollment.id}:`, error);
+            })
+            .catch((e: any) => console.error(`agent-decide exception for ${enrollment.id}:`, e));
           try {
-            const { error: agentErr } = await supabase.functions.invoke("cadence-agent-decide", {
-              body: { enrollment_id: enrollment.id },
-            });
-            if (agentErr) console.error(`agent-decide error for ${enrollment.id}:`, agentErr);
-            else processed++;
-          } catch (e) {
-            console.error(`agent-decide exception for ${enrollment.id}:`, e);
-          }
+            // deno-lint-ignore no-explicit-any
+            (globalThis as any).EdgeRuntime?.waitUntil?.(dispatch);
+          } catch { /* ignore */ }
+          processed++;
           continue;
         }
 
