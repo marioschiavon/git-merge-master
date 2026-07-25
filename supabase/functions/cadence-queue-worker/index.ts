@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const DEFAULT_BATCH_SIZE = 5;
+const DEFAULT_BATCH_SIZE = 1;
 const MAX_BATCH_SIZE = 10;
 const MAX_ATTEMPTS = 3;
 

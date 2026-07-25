@@ -178,7 +178,7 @@ serve(async (req) => {
       }
 
       const dispatch = supabase.functions
-        .invoke("cadence-queue-worker", { body: { cadence_id: scopedCadenceId, batch_size: 5, source: "manual_run" } })
+        .invoke("cadence-queue-worker", { body: { cadence_id: scopedCadenceId, batch_size: 1, source: "manual_run" } })
         .then(({ error }: any) => {
           if (error) console.error(`cadence-queue-worker dispatch error for ${scopedCadenceId}:`, error);
         })
@@ -281,9 +281,19 @@ serve(async (req) => {
         }
 
         // === AGENTIC MODE: delegate decision to cadence-agent-decide ===
-        // Fire-and-forget: the agent can take longer than the 150s gateway
-        // timeout when many enrollments are due. We dispatch and return.
+        // Cadence-scoped manual runs are queued, so single-enrollment calls can
+        // await the agent and let the worker process leads one by one. Unscoped
+        // cron-style runs keep fire-and-forget protection against gateway timeouts.
         if (cadence.mode === "agentic") {
+          if (singleEnrollmentId) {
+            const { error: agentError } = await supabase.functions.invoke("cadence-agent-decide", {
+              body: { enrollment_id: enrollment.id },
+            });
+            if (agentError) throw agentError;
+            processed++;
+            continue;
+          }
+
           const dispatch = supabase.functions
             .invoke("cadence-agent-decide", { body: { enrollment_id: enrollment.id } })
             .then(({ error }: any) => {
