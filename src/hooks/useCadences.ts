@@ -277,13 +277,15 @@ export function useResumeEnrollment() {
 
 export function useExecuteCadenceNow() {
   return useMutation({
-    mutationFn: async () => {
-      const { data, error } = await supabase.functions.invoke("cadence-executor");
+    mutationFn: async (cadenceId?: string) => {
+      const { data, error } = await supabase.functions.invoke("cadence-executor", {
+        body: cadenceId ? { cadence_id: cadenceId } : {},
+      });
       if (error) throw error;
       return data;
     },
     onSuccess: (data: any) => {
-      toast.success(`Executado! ${data?.processed || 0} enrollment(s) processados.`);
+      toast.success(`Executado! ${data?.processed || 0} enrollment(s) despachados.`);
     },
     onError: (e: any) => toast.error(e.message),
   });
