@@ -289,6 +289,8 @@ serve(async (req) => {
                   references: threadCtx.references,
                   provider_thread_id: threadCtx.provider_thread_id,
                   extra_metadata: { step_order: currentStep.step_order, custom_message: true },
+                  email_channel: cadence.email_channel,
+                  email_grant_id: cadence.email_grant_id,
                 },
               });
               if (sendError) { sendAction = "failed"; }
