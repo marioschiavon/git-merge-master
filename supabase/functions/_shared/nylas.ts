@@ -14,22 +14,23 @@ export type NylasProvider = "google" | "microsoft" | "imap";
 export function nylasScopesFor(provider: NylasProvider): string[] {
   switch (provider) {
     case "google":
+      // Google exige URLs completas. 'email'/'profile' curtos são rejeitados
+      // pela Nylas v3 com scope_not_allowed.
       return [
         "https://www.googleapis.com/auth/gmail.send",
         "https://www.googleapis.com/auth/gmail.readonly",
         "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/userinfo.email",
+        "https://www.googleapis.com/auth/userinfo.profile",
         "openid",
-        "email",
-        "profile",
       ];
     case "microsoft":
       return [
-        "Mail.ReadWrite",
-        "Mail.Send",
+        "https://graph.microsoft.com/Mail.ReadWrite",
+        "https://graph.microsoft.com/Mail.Send",
+        "https://graph.microsoft.com/User.Read",
         "offline_access",
         "openid",
-        "email",
-        "profile",
       ];
     case "imap":
       return [];
