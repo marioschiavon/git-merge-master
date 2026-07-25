@@ -2,6 +2,7 @@
 // Cada company usa seu próprio sending domain (tabela company_email_domains).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveResendKey, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
+import { sendMessage as nylasSendMessage } from "../_shared/nylas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
