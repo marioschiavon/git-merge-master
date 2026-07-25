@@ -675,6 +675,8 @@ Decida a próxima ação.`;
               references: threadCtx.references,
               provider_thread_id: threadCtx.provider_thread_id,
               extra_metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, hook: decision.hook, attempt: attemptNumber },
+              email_channel: cadence.email_channel ?? null,
+              email_grant_id: cadence.email_grant_id ?? null,
             },
           });
           if (sendError) { console.error("gmail-send error", sendError); sendAction = "failed"; }
