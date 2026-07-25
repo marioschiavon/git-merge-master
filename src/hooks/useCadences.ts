@@ -279,12 +279,18 @@ export function useExecuteCadenceNow() {
   return useMutation({
     mutationFn: async (cadenceId?: string) => {
       const { data, error } = await supabase.functions.invoke("cadence-executor", {
-        body: cadenceId ? { cadence_id: cadenceId } : {},
+        body: cadenceId ? { cadence_id: cadenceId, enqueue: true } : {},
       });
       if (error) throw error;
       return data;
     },
     onSuccess: (data: any) => {
+      if (data?.mode === "queued") {
+        const queued = data?.queued || 0;
+        const alreadyQueued = data?.already_queued || 0;
+        toast.success(`${queued} lead(s) enfileirados${alreadyQueued ? `, ${alreadyQueued} já estavam na fila` : ""}.`);
+        return;
+      }
       toast.success(`Executado! ${data?.processed || 0} enrollment(s) despachados.`);
     },
     onError: (e: any) => toast.error(e.message),

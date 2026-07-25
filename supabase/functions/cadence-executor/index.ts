@@ -62,18 +62,141 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
     // Optional single-enrollment mode for HITL re-execution after approval,
-    // or cadence-scoped mode when invoked from the "Executar Agora" button.
+    // or cadence-scoped enqueue mode when invoked from the "Executar Agora" button.
     let singleEnrollmentId: string | null = null;
     let scopedCadenceId: string | null = null;
     let bypassHitl = false;
+    let forceNow = false;
+    let enqueueCadenceRun = false;
     try {
       if (req.method === "POST") {
         const body = await req.json().catch(() => ({}));
         if (body?.enrollment_id) singleEnrollmentId = body.enrollment_id;
         if (body?.cadence_id) scopedCadenceId = body.cadence_id;
         if (body?.bypass_hitl) bypassHitl = true;
+        if (body?.force_now) forceNow = true;
+        if (body?.cadence_id && !body?.enrollment_id && body?.enqueue !== false) enqueueCadenceRun = true;
       }
     } catch { /* ignore */ }
+
+    if (scopedCadenceId && enqueueCadenceRun) {
+      const { data: cadence, error: cadenceError } = await supabase
+        .from("cadences")
+        .select("id, company_id, name, status")
+        .eq("id", scopedCadenceId)
+        .maybeSingle();
+
+      if (cadenceError) throw cadenceError;
+      if (!cadence) {
+        return new Response(JSON.stringify({ error: "Cadência não encontrada" }), {
+          status: 404,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const authHeader = req.headers.get("Authorization") || "";
+      if (!authHeader.startsWith("Bearer ")) {
+        return new Response(JSON.stringify({ error: "Não autenticado" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const authedClient = createClient(supabaseUrl, anonKey, {
+        global: { headers: { Authorization: authHeader } },
+      });
+      const { data: authData } = await authedClient.auth.getUser();
+      const user = authData?.user;
+      if (!user) {
+        return new Response(JSON.stringify({ error: "Não autenticado" }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const [{ data: member }, { data: isMasterAdmin }] = await Promise.all([
+        supabase
+          .from("company_members")
+          .select("user_id")
+          .eq("company_id", cadence.company_id)
+          .eq("user_id", user.id)
+          .maybeSingle(),
+        supabase.rpc("has_role", { _user_id: user.id, _role: "master_admin" }),
+      ]);
+
+      if (!member && !isMasterAdmin) {
+        return new Response(JSON.stringify({ error: "Sem acesso à cadência" }), {
+          status: 403,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      if (cadence.status !== "active") {
+        return new Response(JSON.stringify({ queued: 0, already_queued: 0, total: 0, message: "Cadência inativa" }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const { data: activeEnrollments, error: activeError } = await supabase
+        .from("cadence_enrollments")
+        .select("id, lead_id, company_id, cadence_id")
+        .eq("cadence_id", scopedCadenceId)
+        .eq("company_id", cadence.company_id)
+        .eq("status", "active")
+        .eq("meeting_scheduled", false);
+
+      if (activeError) throw activeError;
+
+      const enrollmentIds = (activeEnrollments || []).map((row: any) => row.id);
+      let alreadyQueued = new Set<string>();
+      if (enrollmentIds.length > 0) {
+        const { data: existingQueue } = await supabase
+          .from("cadence_execution_queue")
+          .select("enrollment_id")
+          .in("enrollment_id", enrollmentIds)
+          .in("status", ["pending", "processing"]);
+        alreadyQueued = new Set((existingQueue || []).map((row: any) => row.enrollment_id));
+      }
+
+      const rowsToInsert = (activeEnrollments || [])
+        .filter((row: any) => !alreadyQueued.has(row.id))
+        .map((row: any) => ({
+          company_id: row.company_id,
+          cadence_id: row.cadence_id,
+          enrollment_id: row.id,
+          lead_id: row.lead_id,
+          source: "manual_run",
+          scheduled_for: new Date().toISOString(),
+          metadata: { triggered_by: user.id, cadence_name: cadence.name },
+        }));
+
+      if (rowsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+          .from("cadence_execution_queue")
+          .insert(rowsToInsert);
+        if (insertError) throw insertError;
+      }
+
+      const dispatch = supabase.functions
+        .invoke("cadence-queue-worker", { body: { cadence_id: scopedCadenceId, batch_size: 5, source: "manual_run" } })
+        .then(({ error }: any) => {
+          if (error) console.error(`cadence-queue-worker dispatch error for ${scopedCadenceId}:`, error);
+        })
+        .catch((e: any) => console.error(`cadence-queue-worker dispatch exception for ${scopedCadenceId}:`, e));
+      try {
+        (globalThis as any).EdgeRuntime?.waitUntil?.(dispatch);
+      } catch { /* ignore */ }
+
+      return new Response(JSON.stringify({
+        mode: "queued",
+        queued: rowsToInsert.length,
+        already_queued: alreadyQueued.size,
+        total: activeEnrollments?.length || 0,
+        processed: 0,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     let enrollmentsQuery = supabase
       .from("cadence_enrollments")
@@ -117,13 +240,15 @@ serve(async (req) => {
         // still matches what we read. If another worker already claimed it,
         // the update returns 0 rows and we skip silently.
         const lockUntilIso = new Date(Date.now() + 10 * 60 * 1000).toISOString();
-        const claimQuery = supabase
+        let claimQuery = supabase
           .from("cadence_enrollments")
           .update({ next_execution_at: lockUntilIso })
           .eq("id", enrollment.id)
           .eq("status", "active")
-          .eq("current_step", enrollment.current_step)
-          .lte("next_execution_at", new Date().toISOString());
+          .eq("current_step", enrollment.current_step);
+        if (!forceNow) {
+          claimQuery = claimQuery.lte("next_execution_at", new Date().toISOString());
+        }
         const { data: claimed, error: claimError } = await claimQuery.select("id");
         if (claimError) {
           console.error(`Claim error for enrollment ${enrollment.id}:`, claimError);
