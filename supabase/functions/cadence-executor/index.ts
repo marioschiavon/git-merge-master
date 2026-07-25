@@ -77,7 +77,7 @@ serve(async (req) => {
       .select(`
         *,
         leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status, source, referral_source_lead_id, referral_role, referral_context),
-        cadences(id, name, type, company_id, status, mode, kind)
+        cadences(id, name, type, company_id, status, mode, kind, email_channel, email_grant_id)
       `);
     if (singleEnrollmentId) {
       enrollmentsQuery = enrollmentsQuery.eq("id", singleEnrollmentId);
