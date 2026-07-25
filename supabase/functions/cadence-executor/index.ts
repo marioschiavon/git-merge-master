@@ -156,16 +156,20 @@ serve(async (req) => {
         }
 
         // === AGENTIC MODE: delegate decision to cadence-agent-decide ===
+        // Fire-and-forget: the agent can take longer than the 150s gateway
+        // timeout when many enrollments are due. We dispatch and return.
         if (cadence.mode === "agentic") {
+          const dispatch = supabase.functions
+            .invoke("cadence-agent-decide", { body: { enrollment_id: enrollment.id } })
+            .then(({ error }: any) => {
+              if (error) console.error(`agent-decide error for ${enrollment.id}:`, error);
+            })
+            .catch((e: any) => console.error(`agent-decide exception for ${enrollment.id}:`, e));
           try {
-            const { error: agentErr } = await supabase.functions.invoke("cadence-agent-decide", {
-              body: { enrollment_id: enrollment.id },
-            });
-            if (agentErr) console.error(`agent-decide error for ${enrollment.id}:`, agentErr);
-            else processed++;
-          } catch (e) {
-            console.error(`agent-decide exception for ${enrollment.id}:`, e);
-          }
+            // deno-lint-ignore no-explicit-any
+            (globalThis as any).EdgeRuntime?.waitUntil?.(dispatch);
+          } catch { /* ignore */ }
+          processed++;
           continue;
         }
 
