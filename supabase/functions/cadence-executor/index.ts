@@ -77,7 +77,7 @@ serve(async (req) => {
       .select(`
         *,
         leads(id, name, email, phone, whatsapp, whatsapp_valid, company_name, status, source, referral_source_lead_id, referral_role, referral_context),
-        cadences(id, name, type, company_id, status, mode, kind)
+        cadences(id, name, type, company_id, status, mode, kind, email_channel, email_grant_id)
       `);
     if (singleEnrollmentId) {
       enrollmentsQuery = enrollmentsQuery.eq("id", singleEnrollmentId);
@@ -289,6 +289,8 @@ serve(async (req) => {
                   references: threadCtx.references,
                   provider_thread_id: threadCtx.provider_thread_id,
                   extra_metadata: { step_order: currentStep.step_order, custom_message: true },
+                  email_channel: cadence.email_channel,
+                  email_grant_id: cadence.email_grant_id,
                 },
               });
               if (sendError) { sendAction = "failed"; }
@@ -587,6 +589,8 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
                 references: threadCtx.references,
                 provider_thread_id: threadCtx.provider_thread_id,
                 extra_metadata: { step_order: currentStep.step_order, auto_generated: true },
+                email_channel: cadence.email_channel,
+                email_grant_id: cadence.email_grant_id,
               },
             });
             if (sendError) {

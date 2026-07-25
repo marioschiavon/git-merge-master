@@ -250,6 +250,21 @@ serve(async (req) => {
           const { data: lead } = await supabase
             .from("leads").select("email").eq("id", approval.lead_id).maybeSingle();
           if (!lead?.email) throw new Error("lead sem email");
+
+          // Resolve cadence email routing (Nylas vs Resend) via enrollment.
+          let emailChannel: string | null = null;
+          let emailGrantId: string | null = null;
+          if (approval.enrollment_id) {
+            const { data: enr } = await supabase
+              .from("cadence_enrollments").select("cadence_id").eq("id", approval.enrollment_id).maybeSingle();
+            if (enr?.cadence_id) {
+              const { data: cad } = await supabase
+                .from("cadences").select("email_channel, email_grant_id").eq("id", enr.cadence_id).maybeSingle();
+              emailChannel = cad?.email_channel ?? null;
+              emailGrantId = cad?.email_grant_id ?? null;
+            }
+          }
+
           const threadCtx = await getEmailReplyContext(supabase, conversationId);
           const { error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
             body: {
@@ -264,6 +279,8 @@ serve(async (req) => {
               references: threadCtx.references,
               provider_thread_id: threadCtx.provider_thread_id,
               extra_metadata: { approval_id, hitl_approved: true },
+              email_channel: emailChannel,
+              email_grant_id: emailGrantId,
             },
           });
           if (sendErr) throw new Error(sendErr.message);

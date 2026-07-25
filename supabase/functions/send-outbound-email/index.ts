@@ -2,6 +2,7 @@
 // Cada company usa seu próprio sending domain (tabela company_email_domains).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { resolveResendKey, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
+import { sendMessage as nylasSendMessage } from "../_shared/nylas.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -18,18 +19,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    let resendKey: string;
-    try {
-      resendKey = (await resolveResendKey()).key;
-    } catch (e) {
-      if (e instanceof ResendNotConfiguredError) {
-        return new Response(JSON.stringify({ error: "Resend não configurado" }), {
-          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw e;
-    }
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -41,6 +30,7 @@ Deno.serve(async (req) => {
       in_reply_to_rfc_id, references,
       provider_thread_id, gmail_thread_id, // aceita nome antigo por compat
       company_id, extra_metadata,
+      email_channel, email_grant_id,
     } = body ?? {};
     const threadId = provider_thread_id || gmail_thread_id || null;
 
@@ -68,7 +58,135 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Resolve sending domain da company
+    // ============================================================
+    // BRANCH: personal email (Nylas) — user's own OAuth-connected mailbox.
+    // Enabled by explicit body flag from cadence-executor / approval-execute.
+    // ============================================================
+    if (email_channel === "personal" && email_grant_id) {
+      const { data: grant } = await supabase
+        .from("user_email_grants")
+        .select("id, grant_id, email, display_name, status, company_id")
+        .eq("id", email_grant_id)
+        .maybeSingle();
+
+      if (!grant || grant.status !== "active") {
+        return new Response(JSON.stringify({
+          error: "Email pessoal não conectado ou inativo",
+          code: "grant_inactive",
+        }), { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+      if (grant.company_id !== companyId) {
+        return new Response(JSON.stringify({ error: "Grant não pertence à empresa" }), {
+          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // Native threading via Nylas: use replyToMessageId if metadata provides it.
+      const replyToMessageId = (extra_metadata && typeof extra_metadata === "object")
+        ? (extra_metadata as any).nylas_reply_to_message_id ?? null
+        : null;
+
+      let sendResult;
+      try {
+        sendResult = await nylasSendMessage({
+          grantId: grant.grant_id,
+          to: String(to),
+          fromName: grant.display_name || undefined,
+          subject,
+          bodyHtml: html || `<p>${escapeHtml(text)}</p>`,
+          bodyText: text,
+          replyToMessageId: replyToMessageId || undefined,
+        });
+      } catch (e) {
+        console.error("nylas send failed:", (e as Error).message);
+        await supabase.from("user_email_grants")
+          .update({ last_error: (e as Error).message.slice(0, 500) })
+          .eq("id", grant.id);
+        return new Response(JSON.stringify({
+          error: "Falha ao enviar via email pessoal",
+          details: (e as Error).message,
+        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+
+      // Persist outbound message
+      let conversationId = conversation_id;
+      if (!conversationId && lead_id) {
+        const { data: existing } = await supabase
+          .from("conversations").select("id")
+          .eq("lead_id", lead_id).eq("channel", "email").maybeSingle();
+        if (existing) conversationId = existing.id;
+        else {
+          const { data: newConv } = await supabase
+            .from("conversations")
+            .insert({ lead_id, company_id: companyId, channel: "email" })
+            .select("id").single();
+          conversationId = newConv?.id;
+        }
+      }
+
+      if (conversationId) {
+        await supabase.from("messages").insert({
+          conversation_id: conversationId,
+          content: text || html,
+          direction: "outbound",
+          ai_suggested: false,
+          provider_message_id: sendResult.id,
+          provider_thread_id: sendResult.thread_id || threadId,
+          rfc_message_id: sendResult.message_id_header,
+          email_provider: "nylas",
+          metadata: {
+            subject, channel: "email", via: "nylas",
+            sender_email: grant.email,
+            grant_id: grant.id,
+            ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}),
+          },
+        });
+      }
+
+      // Increment daily counter (warm-up tracking)
+      await supabase.rpc("noop_sql" as any, {}).catch(() => {});
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: cur } = await supabase
+        .from("user_email_grants")
+        .select("daily_sent_count, daily_sent_date")
+        .eq("id", grant.id).maybeSingle();
+      const sameDay = cur?.daily_sent_date === today;
+      await supabase.from("user_email_grants").update({
+        daily_sent_count: sameDay ? (cur?.daily_sent_count ?? 0) + 1 : 1,
+        daily_sent_date: today,
+        last_synced_at: new Date().toISOString(),
+        last_error: null,
+      }).eq("id", grant.id);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          provider: "nylas",
+          provider_message_id: sendResult.id,
+          provider_thread_id: sendResult.thread_id,
+          rfc_message_id: sendResult.message_id_header,
+          conversation_id: conversationId,
+          from: grant.email,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // ============================================================
+    // BRANCH: company domain (Resend) — legacy/default path.
+    // ============================================================
+    let resendKey: string;
+    try {
+      resendKey = (await resolveResendKey()).key;
+    } catch (e) {
+      if (e instanceof ResendNotConfiguredError) {
+        return new Response(JSON.stringify({ error: "Resend não configurado" }), {
+          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      throw e;
+    }
+
     const { data: domainRow } = await supabase
       .from("company_email_domains")
       .select("sending_domain, from_email, from_name, reply_to, status")

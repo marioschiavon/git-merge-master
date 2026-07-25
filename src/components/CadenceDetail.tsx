@@ -20,6 +20,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -192,8 +196,13 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
           </div>
         )}
 
-
-
+        {cadenceId && cadence && (
+          <EmailRoutingCard
+            cadence={cadence}
+            onSave={(vals) => updateCadence.mutate({ id: cadenceId, ...vals } as any)}
+            saving={updateCadence.isPending}
+          />
+        )}
 
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
@@ -846,3 +855,95 @@ function ReengageSettings({ cadence, onSave, saving }: { cadence: any; onSave: (
 
 
 
+
+function EmailRoutingCard({ cadence, onSave, saving }: { cadence: any; onSave: (v: { email_channel: "domain" | "personal"; email_grant_id: string | null }) => void; saving: boolean }) {
+  const { companyId } = useAuth();
+  const [channel, setChannel] = useState<"domain" | "personal">((cadence?.email_channel as any) || "domain");
+  const [grantId, setGrantId] = useState<string | null>(cadence?.email_grant_id ?? null);
+
+  useEffect(() => {
+    setChannel((cadence?.email_channel as any) || "domain");
+    setGrantId(cadence?.email_grant_id ?? null);
+  }, [cadence?.id, cadence?.email_channel, cadence?.email_grant_id]);
+
+  const { data: grants } = useQuery({
+    queryKey: ["user_email_grants", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("user_email_grants")
+        .select("id, email, display_name, provider, status")
+        .eq("company_id", companyId!)
+        .eq("status", "active")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const dirty =
+    channel !== ((cadence?.email_channel as any) || "domain") ||
+    (grantId ?? null) !== (cadence?.email_grant_id ?? null);
+
+  return (
+    <div className="mt-3 rounded-md border p-3 border-border bg-muted/30">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1">
+          <div className="text-sm font-medium flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Origem dos emails
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Escolha se os emails desta cadência sairão pelo domínio da empresa (Resend) ou pela caixa pessoal conectada de um usuário.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <Label className="text-xs">Canal</Label>
+          <Select value={channel} onValueChange={(v: any) => { setChannel(v); if (v === "domain") setGrantId(null); }}>
+            <SelectTrigger className="h-8 mt-1"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="domain">Domínio da empresa</SelectItem>
+              <SelectItem value="personal">Email pessoal conectado</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {channel === "personal" && (
+          <div>
+            <Label className="text-xs">Caixa</Label>
+            <Select value={grantId ?? ""} onValueChange={(v) => setGrantId(v || null)}>
+              <SelectTrigger className="h-8 mt-1">
+                <SelectValue placeholder={grants && grants.length ? "Selecione a caixa" : "Nenhuma caixa conectada"} />
+              </SelectTrigger>
+              <SelectContent>
+                {(grants ?? []).map((g: any) => (
+                  <SelectItem key={g.id} value={g.id}>
+                    {g.display_name ? `${g.display_name} <${g.email}>` : g.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {(!grants || grants.length === 0) && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Conecte um email pessoal em Configurações → Email para habilitar.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex justify-end">
+        <Button
+          size="sm"
+          disabled={!dirty || saving || (channel === "personal" && !grantId)}
+          onClick={() => onSave({ email_channel: channel, email_grant_id: channel === "personal" ? grantId : null })}
+        >
+          {saving ? "Salvando…" : "Salvar"}
+        </Button>
+      </div>
+    </div>
+  );
+}
