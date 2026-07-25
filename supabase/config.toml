@@ -2,3 +2,9 @@ project_id = "plfcbbqzpcbgykfervnp"
 
 [functions.resend-inbound-webhook]
 verify_jwt = false
+
+[functions.email-connect-callback]
+verify_jwt = false
+
+[functions.email-inbound-webhook]
+verify_jwt = false
