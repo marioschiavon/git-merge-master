@@ -607,6 +607,95 @@ export type Database = {
           },
         ]
       }
+      cadence_execution_queue: {
+        Row: {
+          attempts: number
+          cadence_id: string
+          company_id: string
+          created_at: string
+          enrollment_id: string
+          finished_at: string | null
+          id: string
+          last_error: string | null
+          lead_id: string
+          locked_at: string | null
+          locked_by: string | null
+          metadata: Json
+          scheduled_for: string
+          source: string
+          started_at: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          cadence_id: string
+          company_id: string
+          created_at?: string
+          enrollment_id: string
+          finished_at?: string | null
+          id?: string
+          last_error?: string | null
+          lead_id: string
+          locked_at?: string | null
+          locked_by?: string | null
+          metadata?: Json
+          scheduled_for?: string
+          source?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          cadence_id?: string
+          company_id?: string
+          created_at?: string
+          enrollment_id?: string
+          finished_at?: string | null
+          id?: string
+          last_error?: string | null
+          lead_id?: string
+          locked_at?: string | null
+          locked_by?: string | null
+          metadata?: Json
+          scheduled_for?: string
+          source?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cadence_execution_queue_cadence_id_fkey"
+            columns: ["cadence_id"]
+            isOneToOne: false
+            referencedRelation: "cadences"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_execution_queue_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_execution_queue_enrollment_id_fkey"
+            columns: ["enrollment_id"]
+            isOneToOne: false
+            referencedRelation: "cadence_enrollments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cadence_execution_queue_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       cadence_policies: {
         Row: {
           allowed_channels: string[]
