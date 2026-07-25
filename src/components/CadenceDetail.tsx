@@ -196,8 +196,13 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
           </div>
         )}
 
-
-
+        {cadenceId && cadence && (
+          <EmailRoutingCard
+            cadence={cadence}
+            onSave={(vals) => updateCadence.mutate({ id: cadenceId, ...vals } as any)}
+            saving={updateCadence.isPending}
+          />
+        )}
 
 
         <Tabs defaultValue={isAgentic ? "policy" : "steps"} className="mt-6">
