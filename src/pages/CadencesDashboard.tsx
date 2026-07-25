@@ -223,7 +223,7 @@ export default function CadencesDashboard() {
             </SelectContent>
           </Select>
           {cadenceId && (
-            <Button size="sm" onClick={() => executeCadence.mutate()} disabled={executeCadence.isPending}>
+            <Button size="sm" onClick={() => executeCadence.mutate(cadenceId)} disabled={executeCadence.isPending}>
               <Play className="h-4 w-4 mr-1" />
               {executeCadence.isPending ? "Executando..." : "Executar Agora"}
             </Button>
