@@ -19,18 +19,6 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    let resendKey: string;
-    try {
-      resendKey = (await resolveResendKey()).key;
-    } catch (e) {
-      if (e instanceof ResendNotConfiguredError) {
-        return new Response(JSON.stringify({ error: "Resend não configurado" }), {
-          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw e;
-    }
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
@@ -42,6 +30,7 @@ Deno.serve(async (req) => {
       in_reply_to_rfc_id, references,
       provider_thread_id, gmail_thread_id, // aceita nome antigo por compat
       company_id, extra_metadata,
+      email_channel, email_grant_id,
     } = body ?? {};
     const threadId = provider_thread_id || gmail_thread_id || null;
 
