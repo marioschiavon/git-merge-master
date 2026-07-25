@@ -61,13 +61,16 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
-    // Optional single-enrollment mode for HITL re-execution after approval
+    // Optional single-enrollment mode for HITL re-execution after approval,
+    // or cadence-scoped mode when invoked from the "Executar Agora" button.
     let singleEnrollmentId: string | null = null;
+    let scopedCadenceId: string | null = null;
     let bypassHitl = false;
     try {
       if (req.method === "POST") {
         const body = await req.json().catch(() => ({}));
         if (body?.enrollment_id) singleEnrollmentId = body.enrollment_id;
+        if (body?.cadence_id) scopedCadenceId = body.cadence_id;
         if (body?.bypass_hitl) bypassHitl = true;
       }
     } catch { /* ignore */ }
@@ -87,6 +90,9 @@ serve(async (req) => {
         .eq("meeting_scheduled", false)
         .lte("next_execution_at", new Date().toISOString())
         .not("next_execution_at", "is", null);
+      if (scopedCadenceId) {
+        enrollmentsQuery = enrollmentsQuery.eq("cadence_id", scopedCadenceId);
+      }
     }
     const { data: enrollments, error: enrollError } = await enrollmentsQuery;
 
