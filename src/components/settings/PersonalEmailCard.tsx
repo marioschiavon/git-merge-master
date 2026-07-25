@@ -93,7 +93,18 @@ export function PersonalEmailCard() {
       if (error) throw error;
       const authUrl = (data as any)?.auth_url;
       if (!authUrl) throw new Error("URL de autorização não retornada");
-      window.location.href = authUrl;
+      // Navegar no top-level evita bloqueio de X-Frame-Options quando o app
+      // está rodando dentro do iframe do preview do Lovable.
+      try {
+        if (window.top && window.top !== window.self) {
+          window.top.location.href = authUrl;
+          return;
+        }
+      } catch {
+        // cross-origin: cai no fallback abaixo
+      }
+      const opened = window.open(authUrl, "_blank", "noopener,noreferrer");
+      if (!opened) window.location.href = authUrl;
     } catch (e: any) {
       const msg =
         e?.message?.includes("slot_limit") || String(e).includes("slot_limit")
