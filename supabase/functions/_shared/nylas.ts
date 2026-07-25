@@ -144,3 +144,54 @@ export async function fetchMessage(
   const body = await res.json();
   return body?.data ?? null;
 }
+
+// Send an outbound email via Nylas v3.
+// Docs: POST /v3/grants/{grant_id}/messages/send
+export async function sendMessage(params: {
+  grantId: string;
+  to: string;
+  toName?: string;
+  fromName?: string;
+  subject: string;
+  bodyHtml: string;
+  bodyText?: string;
+  replyToMessageId?: string; // Nylas message id (thread parent) — enables native threading
+  customHeaders?: Record<string, string>;
+}): Promise<{
+  id: string;
+  thread_id: string;
+  message_id_header: string | null;
+}> {
+  const payload: Record<string, unknown> = {
+    subject: params.subject,
+    to: [{ email: params.to, ...(params.toName ? { name: params.toName } : {}) }],
+    body: params.bodyHtml,
+  };
+  if (params.replyToMessageId) payload.reply_to_message_id = params.replyToMessageId;
+  if (params.customHeaders) {
+    payload.custom_headers = Object.entries(params.customHeaders).map(([name, value]) => ({ name, value }));
+  }
+  const res = await fetch(
+    `${NYLAS_API_URI}/v3/grants/${params.grantId}/messages/send`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${NYLAS_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    },
+  );
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`nylas send failed: ${res.status} ${JSON.stringify(body)}`);
+  }
+  const data = body?.data ?? {};
+  const headers = Array.isArray(data.headers) ? data.headers : [];
+  const midHeader = headers.find((h: any) => (h?.name || "").toLowerCase() === "message-id")?.value ?? null;
+  return {
+    id: String(data.id ?? ""),
+    thread_id: String(data.thread_id ?? ""),
+    message_id_header: midHeader,
+  };
+}
