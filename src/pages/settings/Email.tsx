@@ -640,7 +640,10 @@ export default function EmailSettings() {
           </>
         );
       })()}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
+
   );
 }
 
