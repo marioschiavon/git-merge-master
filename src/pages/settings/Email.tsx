@@ -366,7 +366,7 @@ export default function EmailSettings() {
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Email da empresa</h1>
             <p className="text-muted-foreground text-sm">
-              Envie e receba emails usando o domínio da sua empresa.
+              Envio e recebimento pela caixa pessoal conectada (Google/Outlook via Nylas).
             </p>
           </div>
         </div>
@@ -384,7 +384,7 @@ export default function EmailSettings() {
             ) : (
               <RefreshCw className="h-3 w-3 animate-spin" />
             )}
-            {isVerified ? "Envio verificado" : "Verificando envio..."}
+            {isVerified ? "Domínio legado verificado" : "Verificando domínio legado..."}
           </Badge>
         )}
       </div>
@@ -392,27 +392,16 @@ export default function EmailSettings() {
       <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-sm flex items-start gap-2">
         <Info className="h-4 w-4 text-primary mt-0.5 shrink-0" />
         <div>
-          <p className="font-medium">Envio de emails agora é feito pela caixa pessoal conectada</p>
+          <p className="font-medium">Nylas é o canal principal — envio e recebimento</p>
           <p className="text-muted-foreground mt-1">
-            Todo envio (cadências, respostas, aprovações) sai pela sua caixa Google/Outlook conectada abaixo.
-            O domínio configurado nesta página segue ativo <strong>apenas para recebimento</strong> (MX) e reputação — não envia mais mensagens.
+            Conecte abaixo a caixa Google/Outlook que sua empresa usa. Todo envio (cadências, respostas, aprovações) sai por essa caixa, e as respostas dos leads entram automaticamente nas conversas — sem precisar configurar DNS.
           </p>
         </div>
       </div>
 
       <PersonalEmailCard />
 
-      {!domain && (
-        <div className="rounded-md border border-muted bg-muted/30 p-4 text-sm flex items-start gap-2">
-          <Shield className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
-          <div>
-            <p className="font-medium">Domínio de recebimento (opcional)</p>
-            <p className="text-muted-foreground mt-1">
-              Configure um subdomínio (ex.: <code>mail.suaempresa.com</code>) para receber respostas em um endereço próprio da empresa. O envio continua saindo pela sua caixa pessoal conectada acima.
-            </p>
-          </div>
-        </div>
-      )}
+
 
 
 
