@@ -102,7 +102,6 @@ Deno.serve(async (req) => {
         lead_id: lead.id,
         company_id: grantRow.company_id,
         channel: "email",
-        status: "open",
       })
       .select("id")
       .single();
@@ -118,16 +117,15 @@ Deno.serve(async (req) => {
 
   const { error: mErr } = await admin.from("messages").insert({
     conversation_id: conversationId,
-    company_id: grantRow.company_id,
     direction: "inbound",
     channel: "email",
     content: bodyText,
-    subject,
     email_provider: "nylas",
     metadata: {
       nylas_message_id: msg?.id,
       grant_row_id: grantRow.id,
       from_email: fromEmail,
+      subject,
     },
   });
   if (mErr) {
@@ -137,9 +135,9 @@ Deno.serve(async (req) => {
 
   // Update lead activity signals
   await admin
-    .from("leads")
+    .from("conversations")
     .update({ last_inbound_at: new Date().toISOString() })
-    .eq("id", lead.id);
+    .eq("id", conversationId);
 
   return new Response(JSON.stringify({ ok: true, lead_id: lead.id }), {
     status: 200,
