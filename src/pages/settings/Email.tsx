@@ -404,8 +404,24 @@ export default function EmailSettings() {
 
 
 
+      <Collapsible defaultOpen={!!domain}>
+        <CollapsibleTrigger asChild>
+          <button className="w-full flex items-center justify-between rounded-md border bg-muted/30 px-4 py-3 text-left hover:bg-muted/50 transition">
+            <div>
+              <p className="text-sm font-medium">Domínio próprio da empresa (legado / opcional)</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {domain
+                  ? "Configuração ativa — mantida para reputação e endereço de recebimento próprio."
+                  : "Configure um subdomínio (ex.: mail.suaempresa.com) só se você precisar de um endereço institucional. Envio e recebimento já funcionam pela caixa Nylas acima."}
+              </p>
+            </div>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform data-[state=open]:rotate-180" />
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="mt-4 space-y-6">
 
       {/* Passo a passo — só antes do cadastro */}
+
       {!isLoading && !domain && (
         <div className="rounded-xl border bg-card p-5">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-4">
