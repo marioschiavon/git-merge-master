@@ -233,6 +233,9 @@ Deno.serve(async (req) => {
           message_id: inserted?.id,
           text: cleanText || bodyText,
           from: fromEmail,
+          skip_insert: true,
+          provider: "resend",
+          provider_message_id: messageId,
         },
       });
     } catch (e) {
