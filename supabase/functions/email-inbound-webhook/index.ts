@@ -118,16 +118,15 @@ Deno.serve(async (req) => {
 
   const { error: mErr } = await admin.from("messages").insert({
     conversation_id: conversationId,
-    company_id: grantRow.company_id,
     direction: "inbound",
     channel: "email",
     content: bodyText,
-    subject,
     email_provider: "nylas",
     metadata: {
       nylas_message_id: msg?.id,
       grant_row_id: grantRow.id,
       from_email: fromEmail,
+      subject,
     },
   });
   if (mErr) {
