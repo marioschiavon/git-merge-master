@@ -1,7 +1,7 @@
-// Envia email outbound via Resend (API direta), multi-tenant.
-// Cada company usa seu próprio sending domain (tabela company_email_domains).
+// Envia email outbound exclusivamente via Nylas (contas pessoais conectadas via OAuth).
+// O envio via Resend/domínio da empresa foi descontinuado — o Resend segue apenas
+// para RECEBIMENTO (MX/inbound webhook).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
-import { resolveResendKey, ResendNotConfiguredError } from "../_shared/resend-gateway.ts";
 import { sendMessage as nylasSendMessage } from "../_shared/nylas.ts";
 
 const corsHeaders = {
@@ -9,10 +9,15 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const RESEND_API = "https://api.resend.com";
-
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req) => {
@@ -27,20 +32,17 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const {
       to, subject, html, text, lead_id, conversation_id,
-      in_reply_to_rfc_id, references,
       provider_thread_id, gmail_thread_id, // aceita nome antigo por compat
       company_id, extra_metadata,
-      email_channel, email_grant_id,
+      email_grant_id, // preferência explícita (cadência/aprovação)
     } = body ?? {};
     const threadId = provider_thread_id || gmail_thread_id || null;
 
     if (!to || !subject || (!html && !text)) {
-      return new Response(JSON.stringify({ error: "Campos obrigatórios: to, subject, html|text" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "Campos obrigatórios: to, subject, html|text" }, 400);
     }
 
-    // Resolve company_id
+    // Resolve company_id a partir do conversation/lead se não vier explícito.
     let companyId: string | null = company_id ?? null;
     if (!companyId && conversation_id) {
       const { data: conv } = await supabase
@@ -53,266 +55,81 @@ Deno.serve(async (req) => {
       companyId = lead?.company_id ?? null;
     }
     if (!companyId) {
-      return new Response(JSON.stringify({ error: "company_id não resolvido" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return jsonResponse({ error: "company_id não resolvido" }, 400);
     }
 
     // ============================================================
-    // BRANCH: personal email (Nylas) — user's own OAuth-connected mailbox.
-    // Enabled by explicit body flag from cadence-executor / approval-execute.
+    // Resolve o grant Nylas ativo:
+    //   1) usa email_grant_id passado explicitamente (se ativo e da mesma empresa);
+    //   2) senão, pega o grant ativo mais antigo da empresa.
     // ============================================================
-    if (email_channel === "personal" && email_grant_id) {
-      const { data: grant } = await supabase
+    let grant: any = null;
+    if (email_grant_id) {
+      const { data } = await supabase
         .from("user_email_grants")
         .select("id, grant_id, email, display_name, status, company_id")
         .eq("id", email_grant_id)
         .maybeSingle();
-
-      if (!grant || grant.status !== "active") {
-        return new Response(JSON.stringify({
-          error: "Email pessoal não conectado ou inativo",
-          code: "grant_inactive",
-        }), { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (data && data.status === "active" && data.company_id === companyId) {
+        grant = data;
       }
-      if (grant.company_id !== companyId) {
-        return new Response(JSON.stringify({ error: "Grant não pertence à empresa" }), {
-          status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Native threading via Nylas: use replyToMessageId if metadata provides it.
-      const replyToMessageId = (extra_metadata && typeof extra_metadata === "object")
-        ? (extra_metadata as any).nylas_reply_to_message_id ?? null
-        : null;
-
-      let sendResult;
-      try {
-        sendResult = await nylasSendMessage({
-          grantId: grant.grant_id,
-          to: String(to),
-          fromName: grant.display_name || undefined,
-          subject,
-          bodyHtml: html || `<p>${escapeHtml(text)}</p>`,
-          bodyText: text,
-          replyToMessageId: replyToMessageId || undefined,
-        });
-      } catch (e) {
-        console.error("nylas send failed:", (e as Error).message);
-        await supabase.from("user_email_grants")
-          .update({ last_error: (e as Error).message.slice(0, 500) })
-          .eq("id", grant.id);
-        return new Response(JSON.stringify({
-          error: "Falha ao enviar via email pessoal",
-          details: (e as Error).message,
-        }), { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      }
-
-      // Persist outbound message
-      let conversationId = conversation_id;
-      if (!conversationId && lead_id) {
-        const { data: existing } = await supabase
-          .from("conversations").select("id")
-          .eq("lead_id", lead_id).eq("channel", "email")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (existing) conversationId = existing.id;
-        else {
-          const { data: newConv } = await supabase
-            .from("conversations")
-            .insert({ lead_id, company_id: companyId, channel: "email" })
-            .select("id").single();
-          conversationId = newConv?.id;
-        }
-      }
-
-
-      if (conversationId) {
-        await supabase.from("messages").insert({
-          conversation_id: conversationId,
-          content: text || html,
-          direction: "outbound",
-          ai_suggested: false,
-          provider_message_id: sendResult.id,
-          provider_thread_id: sendResult.thread_id || threadId,
-          rfc_message_id: sendResult.message_id_header,
-          email_provider: "nylas",
-          metadata: {
-            subject, channel: "email", via: "nylas",
-            sender_email: grant.email,
-            grant_id: grant.id,
-            ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}),
-          },
-        });
-      }
-
-      // Increment daily counter (warm-up tracking)
-      const today = new Date().toISOString().slice(0, 10);
-      const { data: cur } = await supabase
+    }
+    if (!grant) {
+      const { data } = await supabase
         .from("user_email_grants")
-        .select("daily_sent_count, daily_sent_date")
-        .eq("id", grant.id).maybeSingle();
-      const sameDay = cur?.daily_sent_date === today;
-      await supabase.from("user_email_grants").update({
-        daily_sent_count: sameDay ? (cur?.daily_sent_count ?? 0) + 1 : 1,
-        daily_sent_date: today,
-        last_synced_at: new Date().toISOString(),
-        last_error: null,
-      }).eq("id", grant.id);
-
-      return new Response(
-        JSON.stringify({
-          success: true,
-          provider: "nylas",
-          provider_message_id: sendResult.id,
-          provider_thread_id: sendResult.thread_id,
-          rfc_message_id: sendResult.message_id_header,
-          conversation_id: conversationId,
-          from: grant.email,
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
-    }
-
-    // ============================================================
-    // BRANCH: company domain (Resend) — legacy/default path.
-    // ============================================================
-    let resendKey: string;
-    try {
-      resendKey = (await resolveResendKey()).key;
-    } catch (e) {
-      if (e instanceof ResendNotConfiguredError) {
-        return new Response(JSON.stringify({ error: "Resend não configurado" }), {
-          status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      throw e;
-    }
-
-    const { data: domainRow } = await supabase
-      .from("company_email_domains")
-      .select("sending_domain, from_email, from_name, reply_to, status")
-      .eq("company_id", companyId)
-      .maybeSingle();
-
-    if (!domainRow || domainRow.status !== "verified" || !domainRow.from_email) {
-      return new Response(JSON.stringify({
-        error: "Domínio de envio da empresa não configurado ou não verificado",
-        code: "no_verified_domain",
-      }), { status: 412, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    const fromName = domainRow.from_name || "SDR";
-    const fromEmail = domainRow.from_email;
-    const from = `${fromName} <${fromEmail}>`;
-
-    // Gera text/plain se só veio HTML (spam-fighter: emails só-HTML pontuam mal)
-    const stripHtml = (h: string) =>
-      h.replace(/<style[\s\S]*?<\/style>/gi, "")
-        .replace(/<script[\s\S]*?<\/script>/gi, "")
-        .replace(/<br\s*\/?>/gi, "\n")
-        .replace(/<\/(p|div|li|h[1-6])>/gi, "\n")
-        .replace(/<[^>]+>/g, "")
-        .replace(/&nbsp;/g, " ")
-        .replace(/&amp;/g, "&")
-        .replace(/&lt;/g, "<")
-        .replace(/&gt;/g, ">")
-        .replace(/&quot;/g, '"')
-        .replace(/&#39;/g, "'")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-    const finalHtml = html || `<p>${escapeHtml(text)}</p>`;
-    const finalText = text || stripHtml(finalHtml);
-    const rfcMessageId = `<${crypto.randomUUID()}@${domainRow.sending_domain}>`;
-
-    // Get/create unsubscribe token para List-Unsubscribe (Gmail/Yahoo 2024)
-    const recipientEmail = String(to).toLowerCase();
-    let unsubToken: string | null = null;
-    try {
-      const { data: existing } = await supabase
-        .from("email_unsubscribe_tokens")
-        .select("token, used_at")
-        .eq("email", recipientEmail)
+        .select("id, grant_id, email, display_name, status, company_id")
+        .eq("company_id", companyId)
+        .eq("status", "active")
+        .order("created_at", { ascending: true })
+        .limit(1)
         .maybeSingle();
-      if (existing && !existing.used_at) {
-        unsubToken = existing.token;
-      } else if (!existing) {
-        const newTok = crypto.randomUUID().replace(/-/g, "");
-        await supabase
-          .from("email_unsubscribe_tokens")
-          .upsert(
-            { token: newTok, email: recipientEmail },
-            { onConflict: "email", ignoreDuplicates: true },
-          );
-        const { data: reread } = await supabase
-          .from("email_unsubscribe_tokens")
-          .select("token")
-          .eq("email", recipientEmail)
-          .maybeSingle();
-        unsubToken = reread?.token ?? newTok;
-      }
+      grant = data ?? null;
+    }
+
+    if (!grant) {
+      return jsonResponse({
+        error: "Nenhuma caixa de email pessoal (Nylas) conectada para esta empresa",
+        code: "no_active_email_grant",
+      }, 412);
+    }
+
+    // Native threading via Nylas: use replyToMessageId if metadata provides it.
+    const replyToMessageId = (extra_metadata && typeof extra_metadata === "object")
+      ? (extra_metadata as any).nylas_reply_to_message_id ?? null
+      : null;
+
+    let sendResult;
+    try {
+      sendResult = await nylasSendMessage({
+        grantId: grant.grant_id,
+        to: String(to),
+        fromName: grant.display_name || undefined,
+        subject,
+        bodyHtml: html || `<p>${escapeHtml(text)}</p>`,
+        bodyText: text,
+        replyToMessageId: replyToMessageId || undefined,
+      });
     } catch (e) {
-      console.warn("unsubscribe token skip:", (e as Error).message);
+      const msg = (e as Error).message;
+      console.error("nylas send failed:", msg);
+      await supabase.from("user_email_grants")
+        .update({ last_error: msg.slice(0, 500) })
+        .eq("id", grant.id);
+      return jsonResponse({
+        error: "Falha ao enviar via email pessoal",
+        code: "nylas_send_failed",
+        details: msg,
+      }, 502);
     }
-
-    const appUrl = Deno.env.get("APP_URL") || "https://app.leaderei.com.br";
-    const unsubUrl = unsubToken ? `${appUrl}/unsubscribe?token=${unsubToken}` : null;
-    const unsubMailto = `unsubscribe@${domainRow.sending_domain}`;
-
-    // Envio via Resend
-    const headers: Record<string, string> = {};
-    if (in_reply_to_rfc_id) headers["In-Reply-To"] = in_reply_to_rfc_id;
-    if (references || in_reply_to_rfc_id) headers["References"] = references || in_reply_to_rfc_id;
-    headers["Message-ID"] = rfcMessageId;
-    // Headers anti-spam (Gmail/Yahoo 2024)
-    if (unsubUrl) {
-      headers["List-Unsubscribe"] = `<${unsubUrl}>, <mailto:${unsubMailto}>`;
-      headers["List-Unsubscribe-Post"] = "List-Unsubscribe=One-Click";
-    } else {
-      headers["List-Unsubscribe"] = `<mailto:${unsubMailto}>`;
-    }
-    headers["X-Entity-Ref-ID"] = crypto.randomUUID();
-
-    const resendPayload: Record<string, unknown> = {
-      from,
-      to: [to],
-      subject,
-      html: finalHtml,
-      text: finalText,
-      headers,
-    };
-    // Reply-To: se vazio, cai no from_email (evita mismatch e sinal ruim)
-    resendPayload.reply_to = domainRow.reply_to || fromEmail;
-
-    const resp = await fetch(`${RESEND_API}/emails`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${resendKey}`,
-      },
-      body: JSON.stringify(resendPayload),
-    });
-
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error(`Resend send failed [${resp.status}]: ${errText}`);
-      return new Response(JSON.stringify({
-        error: "Falha no envio via Resend", status: resp.status, details: errText,
-      }), { status: resp.status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-    }
-
-    const sendData = await resp.json();
-    const providerMessageId = sendData.id as string;
 
     // Persist outbound message
     let conversationId = conversation_id;
     if (!conversationId && lead_id) {
       const { data: existing } = await supabase
-        .from("conversations")
-        .select("id")
-        .eq("lead_id", lead_id)
-        .eq("channel", "email")
+        .from("conversations").select("id")
+        .eq("lead_id", lead_id).eq("channel", "email")
+        .order("created_at", { ascending: false })
+        .limit(1)
         .maybeSingle();
       if (existing) conversationId = existing.id;
       else {
@@ -327,40 +144,48 @@ Deno.serve(async (req) => {
     if (conversationId) {
       await supabase.from("messages").insert({
         conversation_id: conversationId,
-        content: text || finalHtml,
+        content: text || html,
         direction: "outbound",
         ai_suggested: false,
-        provider_message_id: providerMessageId,
-        provider_thread_id: threadId, // Resend não retorna threadId; reusa o passado
-        rfc_message_id: rfcMessageId,
-        email_provider: "resend",
+        provider_message_id: sendResult.id,
+        provider_thread_id: sendResult.thread_id || threadId,
+        rfc_message_id: sendResult.message_id_header,
+        email_provider: "nylas",
         metadata: {
-          subject, channel: "email", via: "resend",
-          sender_email: fromEmail,
-          references: references || in_reply_to_rfc_id || null,
-          in_reply_to: in_reply_to_rfc_id || null,
+          subject, channel: "email", via: "nylas",
+          sender_email: grant.email,
+          grant_id: grant.id,
           ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}),
         },
       });
     }
 
-    return new Response(
-      JSON.stringify({
-        success: true,
-        provider_message_id: providerMessageId,
-        // aliases legados para compat com callers antigos
-        gmail_message_id: providerMessageId,
-        provider_thread_id: threadId,
-        rfc_message_id: rfcMessageId,
-        conversation_id: conversationId,
-        from: fromEmail,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
+    // Increment daily counter (warm-up tracking)
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: cur } = await supabase
+      .from("user_email_grants")
+      .select("daily_sent_count, daily_sent_date")
+      .eq("id", grant.id).maybeSingle();
+    const sameDay = cur?.daily_sent_date === today;
+    await supabase.from("user_email_grants").update({
+      daily_sent_count: sameDay ? (cur?.daily_sent_count ?? 0) + 1 : 1,
+      daily_sent_date: today,
+      last_synced_at: new Date().toISOString(),
+      last_error: null,
+    }).eq("id", grant.id);
+
+    return jsonResponse({
+      success: true,
+      provider: "nylas",
+      provider_message_id: sendResult.id,
+      gmail_message_id: sendResult.id, // alias legado
+      provider_thread_id: sendResult.thread_id || threadId,
+      rfc_message_id: sendResult.message_id_header,
+      conversation_id: conversationId,
+      from: grant.email,
+    });
   } catch (err) {
     console.error("send-outbound-email exception:", err);
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
-      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return jsonResponse({ error: (err as Error).message }, 500);
   }
 });

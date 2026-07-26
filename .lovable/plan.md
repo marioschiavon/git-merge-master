@@ -1,38 +1,62 @@
-## Problema confirmado
+## Diagnóstico do problema imediato
 
-Conferi no banco a conversa do Mario (S7) e há dois bugs que se combinam:
+Os 3 disparos de email da cadência **"teste email 2"** foram aprovados mas nenhum email saiu. Causa: a cadência tem `email_channel = 'domain'`, então `send-outbound-email` cai no branch Resend, encontra `company_email_domains.status = 'verifying'` e retorna 412 silenciosamente. Nenhum fallback para o grant Nylas ativo (`mariors07@gmail.com`) foi acionado.
 
-1. **A conta Nylas conectada (`mariors07@gmail.com`) também está cadastrada como lead** (Mario R Schiavon). Toda vez que enviamos um email por Nylas para `mario@s7.dev.br`, o Google entrega uma cópia no Sent do próprio `mariors07@gmail.com`, e a Nylas dispara `message.created` para essa cópia. O `email-inbound-webhook` faz um `SELECT lead WHERE email = from_email` (o from é o próprio grant), acha o "lead" Mario R Schiavon e cria uma **conversa fantasma** com nossos próprios outbounds como se fossem inbounds.
+## Decisão de arquitetura
 
-2. **Duplicação dentro da conversa correta**: para cada resposta real do `mario@s7.dev.br` aparecem 2 linhas — uma com `nylas_message_id` + `from_email` preenchidos (inserida pelo `email-inbound-webhook`) e outra com `from_email = NULL` inserida logo depois. O `email-inbound-webhook` chama `inbound-webhook` com `skip_insert: true`, mas o `inbound-webhook` está ignorando essa flag em algum caminho e reinserindo a mensagem.
+**Nylas passa a ser o único caminho de envio de email.** Resend fica reservado somente para recepção (webhook inbound / MX de subdomínio dedicado) enquanto ainda houver clientes usando; nenhum código novo de envio vai chamar Resend.
 
-## Correções propostas
+## Escopo das mudanças
 
-### 1. `supabase/functions/email-inbound-webhook/index.ts` — ignorar eventos do próprio grant
+Só backend + UI de configuração/cadência. Sem quebrar dados existentes.
 
-Antes do lookup de lead, comparar `fromEmail` com `grantRow.email` (case-insensitive). Se forem iguais, retornar `200 ok, self-echo ignored` sem tocar em `conversations` nem em `messages`. Isso mata a conversa fantasma criada com o email do Nylas e evita registrar nossos próprios outbounds como inbound.
+### 1. `send-outbound-email` — remover branch Resend de saída
+- Sempre exigir um grant Nylas ativo da empresa. Se `email_grant_id` vier no body, usar; senão resolver automaticamente pelo `company_id` (preferindo grant do usuário atual quando disponível).
+- Se não houver grant ativo, retornar 412 `no_active_email_grant` com mensagem explícita (não silencioso).
+- Remover a leitura de `company_email_domains`, `resolveResendKey`, montagem de headers Resend, `List-Unsubscribe`, DMARC etc do caminho outbound.
+- Manter escape/HTML→text helpers já existentes.
 
-Reforço extra: também ignorar quando o header `X-Gm-Message-State`/`X-Sent`/pasta `SENT` indicar sent (quando disponível em `msg.folders`/`msg.labels`). O check por `fromEmail === grant.email` já cobre 100% dos casos do Google, então esse é opcional.
+### 2. Callers deixam de passar/decidir "domain vs personal"
+- `approval-execute` e `cadence-executor` (dois blocos ~427 e ~727) param de enviar `email_channel`/`email_grant_id`. Delegam a resolução para `send-outbound-email`.
+- Se a cadência tiver `email_grant_id` explícito preenchido, ainda é repassado como preferência.
 
-### 2. `supabase/functions/inbound-webhook/index.ts` — respeitar `skip_insert` de verdade
+### 3. Cadências — UI e schema
+- Em `Cadences` (form/wizard de canal email), remover a opção "Domínio da empresa (Resend)". Só oferecer "Conta pessoal conectada" com dropdown de grants ativos da empresa.
+- `cadences.email_channel` passa a aceitar somente `'personal'` (backfill: qualquer valor `'domain'` vira `'personal'` e, se possível, associa ao primeiro grant ativo da empresa — se não houver, deixa `email_grant_id = null` e a cadência avisa que precisa conectar um email antes de rodar).
 
-Auditar todos os caminhos que fazem `messages.insert` com `direction: 'inbound'` e envolvê-los em `if (!skip_insert) { ... }`. Hoje o código lê `skip_insert` no topo mas ainda existe pelo menos um path (provavelmente na normalização de conteúdo/`content` antes da IA) que insere a mensagem novamente — é ele o responsável pelas linhas com `from_email = NULL` logo após cada inbound com `nylas_message_id`.
+### 4. Tela de configuração de email do cliente (`src/pages/settings/Email.tsx`)
+- Passa a mostrar **apenas** o card de contas pessoais (Nylas) como fonte de envio.
+- A seção "Domínio de envio (Resend)" é ocultada / marcada como legado somente-recepção com um aviso curto ("Envio agora acontece pelas contas conectadas em Emails pessoais").
+- Sem remover a tabela `company_email_domains` (a recepção multi-tenant depende dela).
 
-Também vou garantir que quando `skip_insert` for verdade, o payload passe direto para a etapa da IA usando o `message_id` já recebido, sem criar uma nova linha "espelho".
+### 5. Reprocessar os 3 approvals travados
+Migration idempotente que devolve as approvals `4a285ea0…`, `8ed35e7a…`, `bed26121…` para `status = 'pending'` (limpa `executed_at`, `reviewed_at`, `reviewed_by`, `execution_error`) para o cliente reaprovar e o envio agora sair pelo Nylas.
 
-### 3. Limpeza pontual dos dados atuais do teste
+### 6. Versão
+`src/lib/version.ts` → `beta 0.22`.
 
-Uma vez que as correções estejam ativas, apagar (do lead `mariors07@gmail.com` = 358b199a…):
-- A conversa fantasma criada com o email do grant (id `9809f772-1b2c-46bb-9a94-743413bbbf9c`) e todas as mensagens associadas.
-- As `approval_requests` pendentes vinculadas a essa conversa.
+## O que **não** muda
 
-Isso deixa apenas a conversa correta (`mario@s7.dev.br`) no estado esperado. Nada disso muda schema — só edge functions e um cleanup pontual.
+- Recepção de email continua igual: `resend-inbound-webhook` (MX subdomínio dedicado) + `email-inbound-webhook` (Nylas grants). `company_email_domains`, cron de verificação e backfill de subdomínios de recepção ficam intactos.
+- Nada em WhatsApp, cadências não-email, aprovações de outros canais.
+- Tabelas `user_email_grants`, `cadences`, `approval_requests` mantêm shape (só valor de `email_channel` normalizado).
+- Nenhum secret novo.
 
-### Fora de escopo
+## Detalhes técnicos
 
-- Não vou remover o lead `mariors07@gmail.com` automaticamente (é possível que você tenha criado de propósito). Se quiser, faço isso junto no cleanup.
-- Não vou mexer no `approval-execute` nem no `send-outbound-email` — a origem do problema é o webhook.
+- Arquivos alterados:
+  - `supabase/functions/send-outbound-email/index.ts` (remove branch Resend, sempre Nylas, resolve grant automaticamente).
+  - `supabase/functions/approval-execute/index.ts` (não decide mais canal; propaga erro real do invoke).
+  - `supabase/functions/cadence-executor/index.ts` (dois blocos de envio email + logging do erro em `lead_activities`).
+  - `supabase/functions/cadence-agent-decide/index.ts` (idem, se ainda montar body de envio direto).
+  - `src/pages/Cadences.tsx` / componente do wizard de canal email (remover opção "Domínio da empresa").
+  - `src/pages/settings/Email.tsx` (esconder/marcar legado o card do domínio de envio).
+  - `src/lib/version.ts`.
+- Migrations:
+  - Backfill: `UPDATE cadences SET email_channel = 'personal' WHERE email_channel = 'domain'` + para cada uma, tentar setar `email_grant_id` com um grant ativo da company se ainda estiver null.
+  - Cleanup pontual das 3 approvals travadas.
+- Não mexer em `resend-inbound-webhook`, `resend-inbound-backfill`, `resend-domain-*` (recepção).
 
-## Bump de versão
+## Observação para o cliente
 
-`APP_VERSION` sobe para `beta 0.21` depois da implementação.
+Depois do deploy, cadências de email só rodam se a empresa tiver pelo menos uma conta conectada em **Configurações → Email pessoal**. O domínio Resend continua servindo apenas para receber respostas até migração completa da recepção.

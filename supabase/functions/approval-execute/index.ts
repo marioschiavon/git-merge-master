@@ -267,45 +267,22 @@ serve(async (req) => {
 
 
 
-          // Resolve cadence email routing (Nylas vs Resend) via enrollment.
-          let emailChannel: string | null = null;
+          // Preferência de caixa: se a cadência tem email_grant_id, usa;
+          // caso contrário, o send-outbound-email resolve automaticamente
+          // com o primeiro grant Nylas ativo da empresa.
           let emailGrantId: string | null = null;
           if (approval.enrollment_id) {
             const { data: enr } = await supabase
               .from("cadence_enrollments").select("cadence_id").eq("id", approval.enrollment_id).maybeSingle();
             if (enr?.cadence_id) {
               const { data: cad } = await supabase
-                .from("cadences").select("email_channel, email_grant_id").eq("id", enr.cadence_id).maybeSingle();
-              emailChannel = cad?.email_channel ?? null;
+                .from("cadences").select("email_grant_id").eq("id", enr.cadence_id).maybeSingle();
               emailGrantId = cad?.email_grant_id ?? null;
             }
           }
 
-          // Fallback: if no cadence route and company has no verified sending
-          // domain, try any active personal email grant for the company
-          // (prefer the reviewer's own grant). Prevents "no_verified_domain"
-          // 412 blocking approvals in ad-hoc replies.
-          if (!emailChannel) {
-            const { data: dom } = await supabase
-              .from("company_email_domains")
-              .select("status").eq("company_id", approval.company_id).maybeSingle();
-            if (!dom || dom.status !== "verified") {
-              const { data: grants } = await supabase
-                .from("user_email_grants")
-                .select("id, user_id")
-                .eq("company_id", approval.company_id)
-                .eq("status", "active");
-              const pick = (grants || []).find((g: any) => g.user_id === userId) || (grants || [])[0];
-              if (pick) {
-                emailChannel = "personal";
-                emailGrantId = pick.id;
-              }
-            }
-          }
-
-
           const threadCtx = await getEmailReplyContext(supabase, conversationId);
-          const { error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
+          const { data: sendData, error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
             body: {
               to: lead.email,
               subject: threadCtx.reply_subject || subject || "Continuando nossa conversa",
@@ -318,11 +295,25 @@ serve(async (req) => {
               references: threadCtx.references,
               provider_thread_id: threadCtx.provider_thread_id,
               extra_metadata: { approval_id, hitl_approved: true },
-              email_channel: emailChannel,
               email_grant_id: emailGrantId,
             },
           });
-          if (sendErr) throw new Error(sendErr.message);
+          if (sendErr) {
+            // supabase.functions.invoke não expõe o body do erro — leia do context.
+            let details = sendErr.message;
+            try {
+              const ctx: any = (sendErr as any).context;
+              if (ctx && typeof ctx.text === "function") {
+                const t = await ctx.text();
+                if (t) details = t;
+              }
+            } catch { /* noop */ }
+            throw new Error(details);
+          }
+          if (sendData && (sendData as any).error) {
+            throw new Error((sendData as any).error);
+          }
+
         } else if (channel === "whatsapp") {
           const { data: lead } = await supabase
             .from("leads").select("whatsapp, phone").eq("id", approval.lead_id).maybeSingle();
