@@ -856,15 +856,13 @@ function ReengageSettings({ cadence, onSave, saving }: { cadence: any; onSave: (
 
 
 
-function EmailRoutingCard({ cadence, onSave, saving }: { cadence: any; onSave: (v: { email_channel: "domain" | "personal"; email_grant_id: string | null }) => void; saving: boolean }) {
+function EmailRoutingCard({ cadence, onSave, saving }: { cadence: any; onSave: (v: { email_channel: "personal"; email_grant_id: string | null }) => void; saving: boolean }) {
   const { companyId } = useAuth();
-  const [channel, setChannel] = useState<"domain" | "personal">((cadence?.email_channel as any) || "domain");
   const [grantId, setGrantId] = useState<string | null>(cadence?.email_grant_id ?? null);
 
   useEffect(() => {
-    setChannel((cadence?.email_channel as any) || "domain");
     setGrantId(cadence?.email_grant_id ?? null);
-  }, [cadence?.id, cadence?.email_channel, cadence?.email_grant_id]);
+  }, [cadence?.id, cadence?.email_grant_id]);
 
   const { data: grants } = useQuery({
     queryKey: ["user_email_grants", companyId],
@@ -881,9 +879,8 @@ function EmailRoutingCard({ cadence, onSave, saving }: { cadence: any; onSave: (
     },
   });
 
-  const dirty =
-    channel !== ((cadence?.email_channel as any) || "domain") ||
-    (grantId ?? null) !== (cadence?.email_grant_id ?? null);
+  const dirty = (grantId ?? null) !== (cadence?.email_grant_id ?? null);
+  const hasGrants = !!grants && grants.length > 0;
 
   return (
     <div className="mt-3 rounded-md border p-3 border-border bg-muted/30">
@@ -891,55 +888,41 @@ function EmailRoutingCard({ cadence, onSave, saving }: { cadence: any; onSave: (
         <div className="flex-1">
           <div className="text-sm font-medium flex items-center gap-2">
             <Mail className="h-4 w-4" />
-            Origem dos emails
+            Caixa de envio
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Escolha se os emails desta cadência sairão pelo domínio da empresa (Resend) ou pela caixa pessoal conectada de um usuário.
+            Todos os emails saem pela caixa pessoal conectada via OAuth (Google/Outlook). Escolha qual caixa esta cadência deve usar — se nenhuma for escolhida, será usada a caixa ativa mais antiga da empresa.
           </p>
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <Label className="text-xs">Canal</Label>
-          <Select value={channel} onValueChange={(v: any) => { setChannel(v); if (v === "domain") setGrantId(null); }}>
-            <SelectTrigger className="h-8 mt-1"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="domain">Domínio da empresa</SelectItem>
-              <SelectItem value="personal">Email pessoal conectado</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {channel === "personal" && (
-          <div>
-            <Label className="text-xs">Caixa</Label>
-            <Select value={grantId ?? ""} onValueChange={(v) => setGrantId(v || null)}>
-              <SelectTrigger className="h-8 mt-1">
-                <SelectValue placeholder={grants && grants.length ? "Selecione a caixa" : "Nenhuma caixa conectada"} />
-              </SelectTrigger>
-              <SelectContent>
-                {(grants ?? []).map((g: any) => (
-                  <SelectItem key={g.id} value={g.id}>
-                    {g.display_name ? `${g.display_name} <${g.email}>` : g.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {(!grants || grants.length === 0) && (
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Conecte um email pessoal em Configurações → Email para habilitar.
-              </p>
-            )}
-          </div>
+      <div className="mt-3">
+        <Label className="text-xs">Caixa</Label>
+        <Select value={grantId ?? "__auto__"} onValueChange={(v) => setGrantId(v === "__auto__" ? null : v)}>
+          <SelectTrigger className="h-8 mt-1">
+            <SelectValue placeholder={hasGrants ? "Automático (primeira caixa ativa)" : "Nenhuma caixa conectada"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__auto__">Automático (primeira caixa ativa)</SelectItem>
+            {(grants ?? []).map((g: any) => (
+              <SelectItem key={g.id} value={g.id}>
+                {g.display_name ? `${g.display_name} <${g.email}>` : g.email}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {!hasGrants && (
+          <p className="text-[11px] text-muted-foreground mt-1">
+            Conecte um email pessoal em Configurações → Email para habilitar o envio.
+          </p>
         )}
       </div>
 
       <div className="mt-3 flex justify-end">
         <Button
           size="sm"
-          disabled={!dirty || saving || (channel === "personal" && !grantId)}
-          onClick={() => onSave({ email_channel: channel, email_grant_id: channel === "personal" ? grantId : null })}
+          disabled={!dirty || saving}
+          onClick={() => onSave({ email_channel: "personal", email_grant_id: grantId })}
         >
           {saving ? "Salvando…" : "Salvar"}
         </Button>
@@ -947,3 +930,4 @@ function EmailRoutingCard({ cadence, onSave, saving }: { cadence: any; onSave: (
     </div>
   );
 }
+
