@@ -102,7 +102,6 @@ Deno.serve(async (req) => {
         lead_id: lead.id,
         company_id: grantRow.company_id,
         channel: "email",
-        status: "open",
       })
       .select("id")
       .single();
