@@ -244,7 +244,7 @@ serve(async (req) => {
         const channel = approval.channel || "email";
         const subject = finalPayload.subject ?? null;
         const message = finalPayload.message ?? finalPayload.body ?? "";
-        const conversationId0 = approval.conversation_id;
+        let conversationId = approval.conversation_id;
 
         if (channel === "email") {
           const { data: lead } = await supabase
@@ -253,7 +253,6 @@ serve(async (req) => {
 
           // Reuse existing email conversation if approval has no conversation_id
           // (ad-hoc sdr_reply) to avoid creating an orphan conversation downstream.
-          let conversationId = conversationId0;
           if (!conversationId && approval.lead_id) {
             const { data: existingConv } = await supabase
               .from("conversations")
@@ -265,6 +264,7 @@ serve(async (req) => {
               .maybeSingle();
             if (existingConv?.id) conversationId = existingConv.id;
           }
+
 
 
           // Resolve cadence email routing (Nylas vs Resend) via enrollment.
