@@ -1,28 +1,38 @@
-## Problema
+## Problema confirmado
 
-Nas respostas de email pelo Nylas estão ocorrendo dois defeitos:
+Conferi no banco a conversa do Mario (S7) e há dois bugs que se combinam:
 
-1. **Mensagem inbound duplicada + IA responde duas vezes.** O `email-inbound-webhook` insere a mensagem em `messages` e depois chama `inbound-webhook` **sem** `skip_insert:true` e **sem** `provider`/`provider_message_id`. O `inbound-webhook` então insere a mesma mensagem de novo (não tem chave de deduplicação para pular), e cada retry do Nylas dispara o pipeline inteiro de novo — gerando 2 respostas da IA.
-2. **Fallback do approval-execute cria "conversa nova" com as respostas da IA.** Quando a aprovação é `sdr_reply` avulsa (sem enrollment) e cai no fallback para email pessoal (Nylas), `approval.conversation_id` às vezes vem nulo e o `send-outbound-email` acaba criando uma conversa nova em vez de aproveitar a conversa de email já existente do lead.
+1. **A conta Nylas conectada (`mariors07@gmail.com`) também está cadastrada como lead** (Mario R Schiavon). Toda vez que enviamos um email por Nylas para `mario@s7.dev.br`, o Google entrega uma cópia no Sent do próprio `mariors07@gmail.com`, e a Nylas dispara `message.created` para essa cópia. O `email-inbound-webhook` faz um `SELECT lead WHERE email = from_email` (o from é o próprio grant), acha o "lead" Mario R Schiavon e cria uma **conversa fantasma** com nossos próprios outbounds como se fossem inbounds.
 
-## Correções
+2. **Duplicação dentro da conversa correta**: para cada resposta real do `mario@s7.dev.br` aparecem 2 linhas — uma com `nylas_message_id` + `from_email` preenchidos (inserida pelo `email-inbound-webhook`) e outra com `from_email = NULL` inserida logo depois. O `email-inbound-webhook` chama `inbound-webhook` com `skip_insert: true`, mas o `inbound-webhook` está ignorando essa flag em algum caminho e reinserindo a mensagem.
 
-### 1. `supabase/functions/email-inbound-webhook/index.ts`
-- Antes de inserir em `messages`, checar se já existe uma mensagem com `metadata->>nylas_message_id = msg.id` para a mesma conversa; se sim, responder `200 { deduped: true }` e sair (evita duplicar em retries do Nylas).
-- Ao chamar `inbound-webhook`, passar:
-  - `skip_insert: true` (a mensagem já foi persistida aqui)
-  - `provider: "nylas"`
-  - `provider_message_id: msg.id`
-  - manter `conversation_id`, `lead_id`, `text`, `source: "email"`
+## Correções propostas
 
-### 2. `supabase/functions/approval-execute/index.ts`
-- Antes de invocar `send-outbound-email` no ramo `sdr_reply`/`sensitive_action` com canal email, se `approval.conversation_id` estiver nulo, buscar a conversa existente do lead (`lead_id = approval.lead_id`, `channel = "email"`, mais recente) e usá-la como `conversation_id`. Assim o fallback via Nylas reusa a thread e não cria conversa órfã.
+### 1. `supabase/functions/email-inbound-webhook/index.ts` — ignorar eventos do próprio grant
 
-### 3. `supabase/functions/send-outbound-email/index.ts` (guarda extra)
-- Na ramificação Nylas (`email_channel === "personal"`), trocar o `.maybeSingle()` que procura conversa por `lead_id + channel=email` por `.order("created_at",{ascending:false}).limit(1).maybeSingle()` para não estourar caso haja mais de uma e cair no `insert` (mesma correção que o ramo Resend já tem parcialmente). Só cria conversa nova se realmente não existir nenhuma.
+Antes do lookup de lead, comparar `fromEmail` com `grantRow.email` (case-insensitive). Se forem iguais, retornar `200 ok, self-echo ignored` sem tocar em `conversations` nem em `messages`. Isso mata a conversa fantasma criada com o email do Nylas e evita registrar nossos próprios outbounds como inbound.
 
-### 4. Bump de versão
-- `src/lib/version.ts` → `beta 0.19`.
+Reforço extra: também ignorar quando o header `X-Gm-Message-State`/`X-Sent`/pasta `SENT` indicar sent (quando disponível em `msg.folders`/`msg.labels`). O check por `fromEmail === grant.email` já cobre 100% dos casos do Google, então esse é opcional.
 
-## Fora de escopo
-- Não mexer no `inbound-webhook` em si nem em quem monta os approvals; as três mudanças acima já quebram a cadeia de duplicação e o fallback órfão.
+### 2. `supabase/functions/inbound-webhook/index.ts` — respeitar `skip_insert` de verdade
+
+Auditar todos os caminhos que fazem `messages.insert` com `direction: 'inbound'` e envolvê-los em `if (!skip_insert) { ... }`. Hoje o código lê `skip_insert` no topo mas ainda existe pelo menos um path (provavelmente na normalização de conteúdo/`content` antes da IA) que insere a mensagem novamente — é ele o responsável pelas linhas com `from_email = NULL` logo após cada inbound com `nylas_message_id`.
+
+Também vou garantir que quando `skip_insert` for verdade, o payload passe direto para a etapa da IA usando o `message_id` já recebido, sem criar uma nova linha "espelho".
+
+### 3. Limpeza pontual dos dados atuais do teste
+
+Uma vez que as correções estejam ativas, apagar (do lead `mariors07@gmail.com` = 358b199a…):
+- A conversa fantasma criada com o email do grant (id `9809f772-1b2c-46bb-9a94-743413bbbf9c`) e todas as mensagens associadas.
+- As `approval_requests` pendentes vinculadas a essa conversa.
+
+Isso deixa apenas a conversa correta (`mario@s7.dev.br`) no estado esperado. Nada disso muda schema — só edge functions e um cleanup pontual.
+
+### Fora de escopo
+
+- Não vou remover o lead `mariors07@gmail.com` automaticamente (é possível que você tenha criado de propósito). Se quiser, faço isso junto no cleanup.
+- Não vou mexer no `approval-execute` nem no `send-outbound-email` — a origem do problema é o webhook.
+
+## Bump de versão
+
+`APP_VERSION` sobe para `beta 0.21` depois da implementação.

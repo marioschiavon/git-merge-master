@@ -80,6 +80,22 @@ Deno.serve(async (req) => {
   if (!fromEmailRaw) return new Response("no from", { status: 200 });
   const fromEmail = fromEmailRaw.toLowerCase().trim();
 
+  // Guard: ignore Nylas events for messages sent BY the connected mailbox itself
+  // (Gmail delivers a copy to Sent → Nylas fires message.created with from = grant.email).
+  // Without this we'd treat our own outbound as an inbound reply and, if the grant
+  // email happens to also exist as a lead, create a ghost conversation.
+  const grantEmail = (grantRow as any).email?.toLowerCase?.().trim?.();
+  if (grantEmail && grantEmail === fromEmail) {
+    return new Response("self-echo ignored", { status: 200 });
+  }
+  // Extra defense: some providers expose folder/label info on the message.
+  const labels: string[] = Array.isArray(msg?.folders)
+    ? msg.folders
+    : (Array.isArray(msg?.labels) ? msg.labels : []);
+  if (labels.some((l) => typeof l === "string" && /^sent$/i.test(l))) {
+    return new Response("sent-folder ignored", { status: 200 });
+  }
+
   // Skip auto-replies / bounces even if sender matches a lead.
   const headers: Array<{ name: string; value: string }> = msg?.headers || [];
   const hdr = (n: string) =>
