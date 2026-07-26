@@ -135,9 +135,9 @@ Deno.serve(async (req) => {
 
   // Update lead activity signals
   await admin
-    .from("leads")
+    .from("conversations")
     .update({ last_inbound_at: new Date().toISOString() })
-    .eq("id", lead.id);
+    .eq("id", conversationId);
 
   return new Response(JSON.stringify({ ok: true, lead_id: lead.id }), {
     status: 200,
