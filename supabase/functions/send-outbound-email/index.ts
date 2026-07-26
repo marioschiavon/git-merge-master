@@ -148,7 +148,6 @@ Deno.serve(async (req) => {
       }
 
       // Increment daily counter (warm-up tracking)
-      await supabase.rpc("noop_sql" as any, {}).catch(() => {});
       const today = new Date().toISOString().slice(0, 10);
       const { data: cur } = await supabase
         .from("user_email_grants")
