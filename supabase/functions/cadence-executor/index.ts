@@ -722,9 +722,10 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
           );
         }
         if (currentStep.channel === "email" && lead.email) {
+          let sendErrorDetail: string | null = null;
           try {
             const threadCtx = await getEmailReplyContext(supabase, preConversationAi?.id);
-            const { error: sendError } = await supabase.functions.invoke("send-outbound-email", {
+            const { data: sendData, error: sendError } = await supabase.functions.invoke("send-outbound-email", {
               body: {
                 to: lead.email,
                 subject: threadCtx.reply_subject || parsed.subject || `Mensagem para ${lead.name}`,
@@ -738,17 +739,38 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
                 provider_thread_id: threadCtx.provider_thread_id,
                 extra_metadata: { step_order: currentStep.step_order, auto_generated: true },
                 email_grant_id: cadence.email_grant_id,
-
               },
             });
             if (sendError) {
-              console.error(`Gmail send error for enrollment ${enrollment.id}:`, sendError);
+              sendErrorDetail = sendError.message;
+              try {
+                const ctx: any = (sendError as any).context;
+                if (ctx && typeof ctx.text === "function") {
+                  const t = await ctx.text();
+                  if (t) sendErrorDetail = t;
+                }
+              } catch { /* noop */ }
+              console.error(`email send error for enrollment ${enrollment.id}:`, sendErrorDetail);
+              sendAction = "failed";
+            } else if (sendData && (sendData as any).error) {
+              sendErrorDetail = String((sendData as any).error);
               sendAction = "failed";
             }
           } catch (emailErr) {
-            console.error(`Gmail send exception for enrollment ${enrollment.id}:`, emailErr);
+            sendErrorDetail = (emailErr as Error).message;
+            console.error(`email send exception for enrollment ${enrollment.id}:`, emailErr);
             sendAction = "failed";
           }
+          if (sendAction === "failed") {
+            await supabase.from("lead_activities").insert({
+              company_id: cadence.company_id,
+              lead_id: lead.id,
+              type: "system",
+              description: `⚠️ Falha no envio de email da cadência: ${sendErrorDetail?.slice(0, 400) || "erro desconhecido"}`,
+              metadata: { enrollment_id: enrollment.id, cadence_id: cadence.id, step_order: currentStep.step_order },
+            });
+          }
+
         } else if (currentStep.channel === "whatsapp" && (lead.whatsapp || lead.phone)) {
           // Enfileira no pacer WhatsApp (jitter, caps, warm-up, cooldown)
           const toPhone = lead.whatsapp || lead.phone;
