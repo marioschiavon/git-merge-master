@@ -5,6 +5,27 @@
 //   conversations/messages and trigger the SDR pipeline.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { fetchMessage, verifyWebhookSignature } from "../_shared/nylas.ts";
+import { stripQuotedEmail } from "../_shared/strip-quoted-email.ts";
+
+function htmlToText(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<\/(p|div|br|li|tr|h[1-6])>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n").map((l) => l.trim()).join("\n")
+    .trim();
+}
 
 Deno.serve(async (req) => {
   // Nylas verification challenge (echo back)
@@ -113,9 +134,12 @@ Deno.serve(async (req) => {
   }
 
   const subject: string = msg?.subject || "";
-  const bodyText: string = msg?.body || msg?.snippet || "";
+  const rawBody: string = msg?.body || msg?.snippet || "";
+  // Nylas returns HTML in `body`. Convert to plain text and strip quoted history.
+  const asText = /<[a-z][\s\S]*>/i.test(rawBody) ? htmlToText(rawBody) : rawBody;
+  const bodyText = stripQuotedEmail(asText) || asText;
 
-  const { error: mErr } = await admin.from("messages").insert({
+  const { data: inserted, error: mErr } = await admin.from("messages").insert({
     conversation_id: conversationId,
     direction: "inbound",
     channel: "email",
@@ -127,7 +151,7 @@ Deno.serve(async (req) => {
       from_email: fromEmail,
       subject,
     },
-  });
+  }).select("id").single();
   if (mErr) {
     console.error("[email-inbound] msg insert failed", mErr);
     return new Response("msg failed", { status: 500 });
@@ -138,6 +162,22 @@ Deno.serve(async (req) => {
     .from("conversations")
     .update({ last_inbound_at: new Date().toISOString() })
     .eq("id", conversationId);
+
+  // Trigger SDR pipeline so the AI continues the conversation.
+  try {
+    await admin.functions.invoke("inbound-webhook", {
+      body: {
+        source: "email",
+        lead_id: lead.id,
+        conversation_id: conversationId,
+        message_id: inserted?.id,
+        text: bodyText,
+        from: fromEmail,
+      },
+    });
+  } catch (e) {
+    console.warn("[email-inbound] downstream sdr trigger failed:", (e as Error).message);
+  }
 
   return new Response(JSON.stringify({ ok: true, lead_id: lead.id }), {
     status: 200,
