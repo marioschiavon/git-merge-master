@@ -5,6 +5,27 @@
 //   conversations/messages and trigger the SDR pipeline.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { fetchMessage, verifyWebhookSignature } from "../_shared/nylas.ts";
+import { stripQuotedEmail } from "../_shared/strip-quoted-email.ts";
+
+function htmlToText(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<\/(p|div|br|li|tr|h[1-6])>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n").map((l) => l.trim()).join("\n")
+    .trim();
+}
 
 Deno.serve(async (req) => {
   // Nylas verification challenge (echo back)
