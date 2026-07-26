@@ -134,9 +134,12 @@ Deno.serve(async (req) => {
   }
 
   const subject: string = msg?.subject || "";
-  const bodyText: string = msg?.body || msg?.snippet || "";
+  const rawBody: string = msg?.body || msg?.snippet || "";
+  // Nylas returns HTML in `body`. Convert to plain text and strip quoted history.
+  const asText = /<[a-z][\s\S]*>/i.test(rawBody) ? htmlToText(rawBody) : rawBody;
+  const bodyText = stripQuotedEmail(asText) || asText;
 
-  const { error: mErr } = await admin.from("messages").insert({
+  const { data: inserted, error: mErr } = await admin.from("messages").insert({
     conversation_id: conversationId,
     direction: "inbound",
     channel: "email",
@@ -148,7 +151,7 @@ Deno.serve(async (req) => {
       from_email: fromEmail,
       subject,
     },
-  });
+  }).select("id").single();
   if (mErr) {
     console.error("[email-inbound] msg insert failed", mErr);
     return new Response("msg failed", { status: 500 });
@@ -159,6 +162,22 @@ Deno.serve(async (req) => {
     .from("conversations")
     .update({ last_inbound_at: new Date().toISOString() })
     .eq("id", conversationId);
+
+  // Trigger SDR pipeline so the AI continues the conversation.
+  try {
+    await admin.functions.invoke("inbound-webhook", {
+      body: {
+        source: "email",
+        lead_id: lead.id,
+        conversation_id: conversationId,
+        message_id: inserted?.id,
+        text: bodyText,
+        from: fromEmail,
+      },
+    });
+  } catch (e) {
+    console.warn("[email-inbound] downstream sdr trigger failed:", (e as Error).message);
+  }
 
   return new Response(JSON.stringify({ ok: true, lead_id: lead.id }), {
     status: 200,
