@@ -265,6 +265,29 @@ serve(async (req) => {
             }
           }
 
+          // Fallback: if no cadence route and company has no verified sending
+          // domain, try any active personal email grant for the company
+          // (prefer the reviewer's own grant). Prevents "no_verified_domain"
+          // 412 blocking approvals in ad-hoc replies.
+          if (!emailChannel) {
+            const { data: dom } = await supabase
+              .from("company_email_domains")
+              .select("status").eq("company_id", approval.company_id).maybeSingle();
+            if (!dom || dom.status !== "verified") {
+              const { data: grants } = await supabase
+                .from("user_email_grants")
+                .select("id, user_id")
+                .eq("company_id", approval.company_id)
+                .eq("status", "active");
+              const pick = (grants || []).find((g: any) => g.user_id === userId) || (grants || [])[0];
+              if (pick) {
+                emailChannel = "personal";
+                emailGrantId = pick.id;
+              }
+            }
+          }
+
+
           const threadCtx = await getEmailReplyContext(supabase, conversationId);
           const { error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
             body: {
