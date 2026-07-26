@@ -389,20 +389,32 @@ export default function EmailSettings() {
         )}
       </div>
 
+      <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-sm flex items-start gap-2">
+        <Info className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+        <div>
+          <p className="font-medium">Envio de emails agora é feito pela caixa pessoal conectada</p>
+          <p className="text-muted-foreground mt-1">
+            Todo envio (cadências, respostas, aprovações) sai pela sua caixa Google/Outlook conectada abaixo.
+            O domínio configurado nesta página segue ativo <strong>apenas para recebimento</strong> (MX) e reputação — não envia mais mensagens.
+          </p>
+        </div>
+      </div>
+
       <PersonalEmailCard />
 
       {!domain && (
-        <div className="rounded-md border border-primary/20 bg-primary/5 p-4 text-sm flex items-start gap-2">
-          <Shield className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+        <div className="rounded-md border border-muted bg-muted/30 p-4 text-sm flex items-start gap-2">
+          <Shield className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
           <div>
-            <p className="font-medium">A reputação de envio pertence ao seu domínio</p>
+            <p className="font-medium">Domínio de recebimento (opcional)</p>
             <p className="text-muted-foreground mt-1">
-              Cada empresa envia com seu próprio domínio (ex.: <code>mail.suaempresa.com</code>).
-              Isso protege sua reputação e melhora a entregabilidade dos emails.
+              Configure um subdomínio (ex.: <code>mail.suaempresa.com</code>) para receber respostas em um endereço próprio da empresa. O envio continua saindo pela sua caixa pessoal conectada acima.
             </p>
           </div>
         </div>
       )}
+
+
 
       {/* Passo a passo — só antes do cadastro */}
       {!isLoading && !domain && (
