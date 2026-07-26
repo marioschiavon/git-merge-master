@@ -737,8 +737,8 @@ Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
                 references: threadCtx.references,
                 provider_thread_id: threadCtx.provider_thread_id,
                 extra_metadata: { step_order: currentStep.step_order, auto_generated: true },
-                email_channel: cadence.email_channel,
                 email_grant_id: cadence.email_grant_id,
+
               },
             });
             if (sendError) {
