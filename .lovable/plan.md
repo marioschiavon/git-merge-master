@@ -1,44 +1,28 @@
-## Plano
+## Problema
 
-Vamos transformar o **Executar Agora** em um fluxo de fila, para não depender de uma chamada longa que tenta processar vários leads ao mesmo tempo.
+Nas respostas de email pelo Nylas estão ocorrendo dois defeitos:
 
-### 1. Criar uma fila de execução de cadência
-- Adicionar uma tabela de fila para cada lead inscrito em cadência.
-- Cada item terá: empresa, cadência, enrollment/lead, status (`pending`, `processing`, `done`, `failed`), tentativas, erro, horário agendado e trava anti-duplicidade.
-- Garantir `GRANT` e RLS corretamente no backend.
-- Evitar duplicar o mesmo enrollment na fila quando o usuário clicar várias vezes.
+1. **Mensagem inbound duplicada + IA responde duas vezes.** O `email-inbound-webhook` insere a mensagem em `messages` e depois chama `inbound-webhook` **sem** `skip_insert:true` e **sem** `provider`/`provider_message_id`. O `inbound-webhook` então insere a mesma mensagem de novo (não tem chave de deduplicação para pular), e cada retry do Nylas dispara o pipeline inteiro de novo — gerando 2 respostas da IA.
+2. **Fallback do approval-execute cria "conversa nova" com as respostas da IA.** Quando a aprovação é `sdr_reply` avulsa (sem enrollment) e cai no fallback para email pessoal (Nylas), `approval.conversation_id` às vezes vem nulo e o `send-outbound-email` acaba criando uma conversa nova em vez de aproveitar a conversa de email já existente do lead.
 
-### 2. Mudar o botão “Executar Agora”
-- Ao clicar, o app vai **enfileirar todos os leads ativos da cadência**, não executar só o primeiro.
-- A resposta para o usuário será algo como: “X leads enfileirados para execução”.
-- O botão deixa de depender de todos os envios terminarem dentro da mesma requisição.
+## Correções
 
-### 3. Criar/ajustar worker da fila
-- O worker vai buscar itens `pending` da fila em pequenos lotes.
-- Cada item será processado de forma controlada:
-  - se a cadência for agentic, chama `cadence-agent-decide` para aquele enrollment;
-  - se for cadência por steps, usa o fluxo atual do `cadence-executor` para aquele enrollment.
-- Ao terminar, marca o item como `done`; em erro, marca como `failed` ou reagenda com tentativa.
+### 1. `supabase/functions/email-inbound-webhook/index.ts`
+- Antes de inserir em `messages`, checar se já existe uma mensagem com `metadata->>nylas_message_id = msg.id` para a mesma conversa; se sim, responder `200 { deduped: true }` e sair (evita duplicar em retries do Nylas).
+- Ao chamar `inbound-webhook`, passar:
+  - `skip_insert: true` (a mensagem já foi persistida aqui)
+  - `provider: "nylas"`
+  - `provider_message_id: msg.id`
+  - manter `conversation_id`, `lead_id`, `text`, `source: "email"`
 
-### 4. Manter boas práticas de envio
-- A fila de cadência será responsável por **orquestrar os leads**.
-- O envio final continua respeitando as proteções existentes:
-  - WhatsApp passa pela `whatsapp_send_queue`, com gap, caps e warm-up;
-  - Email pessoal via Nylas continua usando o grant conectado;
-  - HITL/aprovações continuam pausando o enrollment quando necessário.
+### 2. `supabase/functions/approval-execute/index.ts`
+- Antes de invocar `send-outbound-email` no ramo `sdr_reply`/`sensitive_action` com canal email, se `approval.conversation_id` estiver nulo, buscar a conversa existente do lead (`lead_id = approval.lead_id`, `channel = "email"`, mais recente) e usá-la como `conversation_id`. Assim o fallback via Nylas reusa a thread e não cria conversa órfã.
 
-### 5. Agendamento automático
-- Agendar o worker para rodar periodicamente no backend.
-- Quando clicar em “Executar Agora”, além de enfileirar, disparar o worker em background para começar imediatamente.
+### 3. `supabase/functions/send-outbound-email/index.ts` (guarda extra)
+- Na ramificação Nylas (`email_channel === "personal"`), trocar o `.maybeSingle()` que procura conversa por `lead_id + channel=email` por `.order("created_at",{ascending:false}).limit(1).maybeSingle()` para não estourar caso haja mais de uma e cair no `insert` (mesma correção que o ramo Resend já tem parcialmente). Só cria conversa nova se realmente não existir nenhuma.
 
-### 6. Observabilidade
-- Retornar no frontend quantos leads foram enfileirados.
-- Registrar erros por item da fila para sabermos exatamente qual lead falhou e por quê.
-- Opcionalmente exibir no futuro uma visão “Fila da cadência”, mas não vou criar tela nova agora para não aumentar o escopo.
+### 4. Bump de versão
+- `src/lib/version.ts` → `beta 0.19`.
 
-### 7. Versão
-- Incrementar `APP_VERSION` para a próxima beta após a implementação.
-
-## Resultado esperado
-
-Ao clicar em **Executar Agora**, todos os leads ativos daquela cadência entram em uma fila e são processados um a um/por pequenos lotes, sem travar no primeiro lead e sem depender de uma chamada longa que pode estourar timeout.
+## Fora de escopo
+- Não mexer no `inbound-webhook` em si nem em quem monta os approvals; as três mudanças acima já quebram a cadeia de duplicação e o fallback órfão.

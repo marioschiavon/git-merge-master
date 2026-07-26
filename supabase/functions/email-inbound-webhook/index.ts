@@ -139,6 +139,22 @@ Deno.serve(async (req) => {
   const asText = /<[a-z][\s\S]*>/i.test(rawBody) ? htmlToText(rawBody) : rawBody;
   const bodyText = stripQuotedEmail(asText) || asText;
 
+  // Dedupe: if this Nylas message was already ingested (webhook retry), skip.
+  if (msg?.id) {
+    const { data: existingMsg } = await admin
+      .from("messages")
+      .select("id")
+      .eq("conversation_id", conversationId)
+      .filter("metadata->>nylas_message_id", "eq", String(msg.id))
+      .maybeSingle();
+    if (existingMsg?.id) {
+      return new Response(JSON.stringify({ ok: true, deduped: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
+
   const { data: inserted, error: mErr } = await admin.from("messages").insert({
     conversation_id: conversationId,
     direction: "inbound",
@@ -164,6 +180,8 @@ Deno.serve(async (req) => {
     .eq("id", conversationId);
 
   // Trigger SDR pipeline so the AI continues the conversation.
+  // Pass skip_insert (message already persisted here) and provider info so the
+  // downstream dedupe can drop retries.
   try {
     await admin.functions.invoke("inbound-webhook", {
       body: {
@@ -173,11 +191,15 @@ Deno.serve(async (req) => {
         message_id: inserted?.id,
         text: bodyText,
         from: fromEmail,
+        skip_insert: true,
+        provider: "nylas",
+        provider_message_id: msg?.id ?? null,
       },
     });
   } catch (e) {
     console.warn("[email-inbound] downstream sdr trigger failed:", (e as Error).message);
   }
+
 
   return new Response(JSON.stringify({ ok: true, lead_id: lead.id }), {
     status: 200,

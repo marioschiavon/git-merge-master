@@ -113,7 +113,10 @@ Deno.serve(async (req) => {
       if (!conversationId && lead_id) {
         const { data: existing } = await supabase
           .from("conversations").select("id")
-          .eq("lead_id", lead_id).eq("channel", "email").maybeSingle();
+          .eq("lead_id", lead_id).eq("channel", "email")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
         if (existing) conversationId = existing.id;
         else {
           const { data: newConv } = await supabase
@@ -123,6 +126,7 @@ Deno.serve(async (req) => {
           conversationId = newConv?.id;
         }
       }
+
 
       if (conversationId) {
         await supabase.from("messages").insert({
