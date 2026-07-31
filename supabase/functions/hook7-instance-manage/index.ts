@@ -317,7 +317,9 @@ Deno.serve(async (req) => {
 
       let nextStatus: string;
       if (Connected && LoggedIn) nextStatus = "connected";
-      else nextStatus = inst.status === "connected" ? "connected" : "qr_ready";
+      else if (inst.status === "connected") nextStatus = "disconnected";
+      else nextStatus = "qr_ready";
+
 
       // deno-lint-ignore no-explicit-any
       const patch: Record<string, any> = {
