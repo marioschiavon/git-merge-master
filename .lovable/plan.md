@@ -1,56 +1,62 @@
-## Objetivo
+## Diagnóstico do problema imediato
 
-Trocar o Nylas pelo **conector Gmail multi-tenant** da Lovable: um único cliente OAuth (seu), cada usuário faz o próprio consentimento e envia pelo próprio Gmail.
+Os 3 disparos de email da cadência **"teste email 2"** foram aprovados mas nenhum email saiu. Causa: a cadência tem `email_channel = 'domain'`, então `send-outbound-email` cai no branch Resend, encontra `company_email_domains.status = 'verifying'` e retorna 412 silenciosamente. Nenhum fallback para o grant Nylas ativo (`mariors07@gmail.com`) foi acionado.
 
-## Onde cada conexão fica
+## Decisão de arquitetura
 
-```text
-Master Admin -> Gmail da plataforma   ->  caixa geral (fallback global), só master admin
-Configurações -> Integrações          ->  "Meu Gmail" — admin da empresa e demais usuários
-                                          conectam a própria caixa aqui
-```
+**Nylas passa a ser o único caminho de envio de email.** Resend fica reservado somente para recepção (webhook inbound / MX de subdomínio dedicado) enquanto ainda houver clientes usando; nenhum código novo de envio vai chamar Resend.
 
-- O **admin master** conecta a caixa geral na tela de Master Admin.
-- O **admin da empresa** e os **usuários** conectam suas contas em Configurações → Integrações — mesma tela, cada um vê e desconecta apenas a própria.
-- A primeira caixa conectada da empresa vira a padrão de envio (`is_primary`), ajustável pelo admin da empresa na mesma tela.
-- Configurações → Email deixa de hospedar conexão e fica só com o domínio legado.
+## Escopo das mudanças
 
-## Plano de implementação
+Só backend + UI de configuração/cadência. Sem quebrar dados existentes.
 
-### 1. Conector
-- Vincular o conector Gmail ao projeto (card em chat para escolher/criar o cliente OAuth).
-- Escopos: `gmail.send`, `gmail.readonly`, `gmail.modify`, `userinfo.email`, `userinfo.profile`.
-- No Google Cloud, registrar o redirect URI do gateway Lovable.
+### 1. `send-outbound-email` — remover branch Resend de saída
+- Sempre exigir um grant Nylas ativo da empresa. Se `email_grant_id` vier no body, usar; senão resolver automaticamente pelo `company_id` (preferindo grant do usuário atual quando disponível).
+- Se não houver grant ativo, retornar 412 `no_active_email_grant` com mensagem explícita (não silencioso).
+- Remover a leitura de `company_email_domains`, `resolveResendKey`, montagem de headers Resend, `List-Unsubscribe`, DMARC etc do caminho outbound.
+- Manter escape/HTML→text helpers já existentes.
 
-### 2. Conexão por usuário
-- Reaproveitar `user_email_grants`: substituir `grant_id` do Nylas pela chave de conexão (`provider = 'gmail'`), sempre indexada pelo `user.id` autenticado; novas colunas `is_primary`, `is_platform`, `history_id`, `last_polled_at`.
-- Funções `gmail-connect-start` / `gmail-connect-callback` gravam a conexão e o email/perfil. A chave nunca chega ao browser.
-- `is_platform = true` só pode ser gravado por master admin; `is_primary` único por empresa.
+### 2. Callers deixam de passar/decidir "domain vs personal"
+- `approval-execute` e `cadence-executor` (dois blocos ~427 e ~727) param de enviar `email_channel`/`email_grant_id`. Delegam a resolução para `send-outbound-email`.
+- Se a cadência tiver `email_grant_id` explícito preenchido, ainda é repassado como preferência.
 
-### 3. Envio
-- Helper `gmailSend` (MIME RFC822 base64url → `messages/send`) com `threadId` + `In-Reply-To`/`References` para manter a thread.
-- Ordem de resolução em `send-outbound-email`: `email_grant_id` da cadência → caixa do dono da cadência → caixa `is_primary` da empresa → caixa da plataforma. Erro claro se nenhuma existir.
-- `approval-execute`, `cadence-executor` e `cadence-agent-decide` seguem chamando a mesma função, sem mudança de contrato.
+### 3. Cadências — UI e schema
+- Em `Cadences` (form/wizard de canal email), remover a opção "Domínio da empresa (Resend)". Só oferecer "Conta pessoal conectada" com dropdown de grants ativos da empresa.
+- `cadences.email_channel` passa a aceitar somente `'personal'` (backfill: qualquer valor `'domain'` vira `'personal'` e, se possível, associa ao primeiro grant ativo da empresa — se não houver, deixa `email_grant_id = null` e a cadência avisa que precisa conectar um email antes de rodar).
 
-### 4. Recebimento (polling)
-- `gmail-inbox-poll` em cron a cada 2 min: por conexão ativa usa `history.list` a partir do `history_id` salvo (fallback `messages.list` na primeira vez).
-- Filtra só remetentes que são leads cadastrados, ignora enviados, dedupa por `gmail_message_id`.
-- Reaproveita o pipeline atual: limpeza de HTML/citações, gravação em `messages`, `conversations.last_inbound_at` e disparo do agente SDR.
+### 4. Tela de configuração de email do cliente (`src/pages/settings/Email.tsx`)
+- Passa a mostrar **apenas** o card de contas pessoais (Nylas) como fonte de envio.
+- A seção "Domínio de envio (Resend)" é ocultada / marcada como legado somente-recepção com um aviso curto ("Envio agora acontece pelas contas conectadas em Emails pessoais").
+- Sem remover a tabela `company_email_domains` (a recepção multi-tenant depende dela).
 
-### 5. UI
-- **Master Admin**: novo card "Gmail da plataforma" — conectar, status, último polling, desconectar.
-- **Configurações → Integrações**: novo card "Meu Gmail" — conectar/desconectar a própria caixa, ver as caixas dos colegas em leitura, admin marca a padrão da empresa.
-- `PersonalEmailCard` reaproveitado com prop de modo (`platform` | `personal`) e removido da tela de Email.
+### 5. Reprocessar os 3 approvals travados
+Migration idempotente que devolve as approvals `4a285ea0…`, `8ed35e7a…`, `bed26121…` para `status = 'pending'` (limpa `executed_at`, `reviewed_at`, `reviewed_by`, `execution_error`) para o cliente reaprovar e o envio agora sair pelo Nylas.
 
-### 6. Remoção do Nylas
-- Apagar `_shared/nylas.ts` e as funções `email-connect-start`, `email-connect-callback`, `email-disconnect`, `email-inbound-webhook`.
-- Migração marcando grants Nylas existentes como `needs_reconnect` (reconexão em 1 clique) e limpando colunas específicas do Nylas.
-- Remover referências e secrets órfãos do Nylas.
+### 6. Versão
+`src/lib/version.ts` → `beta 0.22`.
 
-### Detalhes técnicos
-- Todas as chamadas ao Gmail saem de Edge Functions via gateway — nenhum token Google no frontend.
-- Limites: ~500 envios/dia (conta grátis) e 2.000 (Workspace); warm-up e caps diários atuais em `user_email_grants` continuam valendo.
-- Outlook fica fora deste escopo; mesmo padrão se aplica depois com o conector Microsoft.
+## O que **não** muda
 
-### Versão
-`APP_VERSION` → `beta 0.23`.
+- Recepção de email continua igual: `resend-inbound-webhook` (MX subdomínio dedicado) + `email-inbound-webhook` (Nylas grants). `company_email_domains`, cron de verificação e backfill de subdomínios de recepção ficam intactos.
+- Nada em WhatsApp, cadências não-email, aprovações de outros canais.
+- Tabelas `user_email_grants`, `cadences`, `approval_requests` mantêm shape (só valor de `email_channel` normalizado).
+- Nenhum secret novo.
+
+## Detalhes técnicos
+
+- Arquivos alterados:
+  - `supabase/functions/send-outbound-email/index.ts` (remove branch Resend, sempre Nylas, resolve grant automaticamente).
+  - `supabase/functions/approval-execute/index.ts` (não decide mais canal; propaga erro real do invoke).
+  - `supabase/functions/cadence-executor/index.ts` (dois blocos de envio email + logging do erro em `lead_activities`).
+  - `supabase/functions/cadence-agent-decide/index.ts` (idem, se ainda montar body de envio direto).
+  - `src/pages/Cadences.tsx` / componente do wizard de canal email (remover opção "Domínio da empresa").
+  - `src/pages/settings/Email.tsx` (esconder/marcar legado o card do domínio de envio).
+  - `src/lib/version.ts`.
+- Migrations:
+  - Backfill: `UPDATE cadences SET email_channel = 'personal' WHERE email_channel = 'domain'` + para cada uma, tentar setar `email_grant_id` com um grant ativo da company se ainda estiver null.
+  - Cleanup pontual das 3 approvals travadas.
+- Não mexer em `resend-inbound-webhook`, `resend-inbound-backfill`, `resend-domain-*` (recepção).
+
+## Observação para o cliente
+
+Depois do deploy, cadências de email só rodam se a empresa tiver pelo menos uma conta conectada em **Configurações → Email pessoal**. O domínio Resend continua servindo apenas para receber respostas até migração completa da recepção.
