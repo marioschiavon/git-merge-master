@@ -571,22 +571,39 @@ export default function Integrations() {
   const { data: hook7Instances } = useQuery({
     queryKey: ["hook7_instances_summary"],
     queryFn: async () => {
-      const { data } = await supabase
-        .from("hook7_instances")
-        .select("id, status, phone_number, connected_profile_name")
-        .is("archived_at", null);
-      return data ?? [];
+      const { data, error } = await supabase.functions.invoke(
+        "hook7-instance-manage",
+        { body: { action: "list" } },
+      );
+      if (error) throw error;
+      return (data?.instances ?? []) as Array<{
+        id: string;
+        status: string;
+        phone_number: string | null;
+        connected_profile_name: string | null;
+      }>;
     },
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: "always",
   });
   const hook7Connected = (hook7Instances ?? []).find(
     (i: any) => i.status === "connected",
   );
+  const hook7HasPending = (hook7Instances ?? []).some((i) =>
+    ["pending_qr", "qr_ready", "pairing"].includes(i.status),
+  );
+  const hook7HasError = (hook7Instances ?? []).some((i) =>
+    ["error", "banned"].includes(i.status),
+  );
   const whatsappStatus: StatusKey =
     hook7Connected
       ? "connected"
-      : (hook7Instances ?? []).length > 0
+      : hook7HasPending
       ? "pending"
-      : "disconnected";
+      : hook7HasError
+        ? "error"
+        : "disconnected";
 
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
