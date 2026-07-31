@@ -143,8 +143,39 @@ Deno.serve(async (req) => {
         .is("archived_at", null)
         .order("created_at", { ascending: false });
       if (error) throw new HttpError(500, error.message);
-      return jsonResponse({ instances: data ?? [] }, 200, CORS);
+
+      // Reconcilia com o Hook7: instâncias marcadas como "connected" no banco
+      // podem ter caído (celular desligado, sessão encerrada no aparelho, ban).
+      const rows = data ?? [];
+      const nowIso = new Date().toISOString();
+      await Promise.all(
+        rows
+          .filter((i) => i.status === "connected")
+          .map(async (i) => {
+            try {
+              const token = await loadInstanceToken(admin, i.id);
+              // deno-lint-ignore no-explicit-any
+              const r: any = await hook7Fetch("/instance/status", {
+                method: "GET",
+                apikey: token,
+                timeoutMs: 6000,
+              });
+              const d = r?.data ?? {};
+              if (d.Connected === true && d.LoggedIn === true) return;
+              i.status = "disconnected";
+              await admin
+                .from("hook7_instances")
+                .update({ status: "disconnected", updated_at: nowIso })
+                .eq("id", i.id);
+            } catch {
+              // erro de rede/timeout: não derruba o status para evitar falso negativo
+            }
+          }),
+      );
+
+      return jsonResponse({ instances: rows }, 200, CORS);
     }
+
 
     // ---------------- CREATE ----------------
     if (action === "create") {
@@ -286,7 +317,9 @@ Deno.serve(async (req) => {
 
       let nextStatus: string;
       if (Connected && LoggedIn) nextStatus = "connected";
-      else nextStatus = inst.status === "connected" ? "connected" : "qr_ready";
+      else if (inst.status === "connected") nextStatus = "disconnected";
+      else nextStatus = "qr_ready";
+
 
       // deno-lint-ignore no-explicit-any
       const patch: Record<string, any> = {
