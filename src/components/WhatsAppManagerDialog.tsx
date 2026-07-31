@@ -154,15 +154,28 @@ export function WhatsAppManagerDialog({
 
   const deleteMut = useMutation({
     mutationFn: async (id: string) =>
-      await callManage({ action: "delete", instance_id: id, reason: "user_delete" }),
-    onSuccess: () => {
-      toast({ title: "Instância removida" });
+      await callManage<{ remote_deleted?: boolean; remote_error?: string | null }>(
+        { action: "delete", instance_id: id, reason: "user_delete" },
+      ),
+    onSuccess: (r) => {
+      if (r?.remote_deleted === false) {
+        toast({
+          title: "Removida no app, mas não no provedor",
+          description:
+            r?.remote_error ??
+            "Não foi possível excluir a instância no Hook7. Tente novamente em instantes.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Instância removida" });
+      }
       if (activeId) setActiveId(null);
       setQrBase64(null);
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
       qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
     },
   });
+
 
   const connectAndFetchQr = useCallback(async (id: string) => {
     setQrLoading(true);

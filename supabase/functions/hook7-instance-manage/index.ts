@@ -435,14 +435,71 @@ Deno.serve(async (req) => {
         );
       }
       const apikey = getHook7GlobalApiKey();
-      if (inst.external_name) {
+
+      // 1) logout da sessão (Evolution/Hook7 recusa DELETE de instância ativa)
+      let instToken: string | null = null;
+      try {
+        instToken = await loadInstanceToken(admin, inst.id);
+      } catch { /* token pode não existir */ }
+
+      if (instToken) {
         try {
-          await hook7Fetch(
-            `/instance/${encodeURIComponent(inst.external_name)}`,
-            { method: "DELETE", apikey, timeoutMs: 10000 },
-          );
-        } catch { /* best-effort */ }
+          await hook7Fetch("/instance/logout", {
+            method: "POST",
+            apikey: instToken,
+            body: {},
+            timeoutMs: 10000,
+          });
+        } catch {
+          try {
+            await hook7Fetch("/instance/disconnect", {
+              method: "POST",
+              apikey: instToken,
+              body: {},
+              timeoutMs: 10000,
+            });
+          } catch { /* best-effort */ }
+        }
+        // pequena espera para a sessão encerrar antes do delete
+        await new Promise((r) => setTimeout(r, 1200));
       }
+
+      // 2) delete remoto — tenta por nome (global), por nome (token) e por id
+      let remoteDeleted = false;
+      let remoteError: string | null = null;
+      const candidates: Array<{ path: string; key: string }> = [];
+      if (inst.external_name) {
+        const p = `/instance/${encodeURIComponent(inst.external_name)}`;
+        candidates.push({ path: p, key: apikey });
+        if (instToken) candidates.push({ path: p, key: instToken });
+      }
+      if (inst.external_id) {
+        candidates.push({
+          path: `/instance/${encodeURIComponent(inst.external_id)}`,
+          key: apikey,
+        });
+      }
+      for (const c of candidates) {
+        try {
+          await hook7Fetch(c.path, {
+            method: "DELETE",
+            apikey: c.key,
+            timeoutMs: 10000,
+          });
+          remoteDeleted = true;
+          remoteError = null;
+          break;
+        } catch (e) {
+          remoteError = e instanceof Error ? e.message : String(e);
+        }
+      }
+      if (!remoteDeleted) {
+        console.error("hook7 delete remoto falhou", {
+          instance: inst.external_name,
+          error: remoteError,
+        });
+      }
+
       const { error: updErr } = await admin
         .from("hook7_instances")
         .update({
@@ -452,7 +509,12 @@ Deno.serve(async (req) => {
         })
         .eq("id", inst.id);
       if (updErr) throw new HttpError(500, updErr.message);
-      return jsonResponse({ ok: true }, 200, CORS);
+      return jsonResponse(
+        { ok: true, remote_deleted: remoteDeleted, remote_error: remoteError },
+        200,
+        CORS,
+      );
+
     }
 
     throw new HttpError(400, `Ação desconhecida: ${action}`);
