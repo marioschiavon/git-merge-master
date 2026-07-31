@@ -590,12 +590,20 @@ export default function Integrations() {
   const hook7Connected = (hook7Instances ?? []).find(
     (i: any) => i.status === "connected",
   );
+  const hook7HasPending = (hook7Instances ?? []).some((i) =>
+    ["pending_qr", "qr_ready", "pairing"].includes(i.status),
+  );
+  const hook7HasError = (hook7Instances ?? []).some((i) =>
+    ["error", "banned"].includes(i.status),
+  );
   const whatsappStatus: StatusKey =
     hook7Connected
       ? "connected"
-      : (hook7Instances ?? []).length > 0
+      : hook7HasPending
       ? "pending"
-      : "disconnected";
+      : hook7HasError
+        ? "error"
+        : "disconnected";
 
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
