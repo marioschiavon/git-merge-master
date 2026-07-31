@@ -509,7 +509,12 @@ Deno.serve(async (req) => {
         })
         .eq("id", inst.id);
       if (updErr) throw new HttpError(500, updErr.message);
-      return jsonResponse({ ok: true }, 200, CORS);
+      return jsonResponse(
+        { ok: true, remote_deleted: remoteDeleted, remote_error: remoteError },
+        200,
+        CORS,
+      );
+
     }
 
     throw new HttpError(400, `Ação desconhecida: ${action}`);
