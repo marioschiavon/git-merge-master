@@ -30,6 +30,7 @@ import {
   serviceClient,
   storeInstanceToken,
   uuidv4,
+  withinUserDisconnectWindow,
 } from "../_shared/hook7.ts";
 
 const CORS = {
@@ -80,7 +81,7 @@ async function loadInstance(instanceId: string) {
   const { data, error } = await admin
     .from("hook7_instances")
     .select(
-      "id, company_id, external_id, external_name, display_name, status, archived_at",
+      "id, company_id, external_id, external_name, display_name, status, archived_at, user_disconnected_at",
     )
     .eq("id", instanceId)
     .maybeSingle();
@@ -315,10 +316,20 @@ Deno.serve(async (req) => {
       const Name: string | null =
         typeof d.Name === "string" && d.Name.length > 0 ? d.Name : null;
 
+      // Se o usuário desconectou manualmente há pouco, ignora uma resposta
+      // "Connected/LoggedIn" desatualizada do Hook7 (mesma proteção que o
+      // webhook já aplica a eventos "Connected"/"PairSuccess"). Sem isso, o
+      // status voltava para "connected" sozinho no próximo poll/refresh.
+      const recentUserDisconnect = withinUserDisconnectWindow(inst);
+
       let nextStatus: string;
-      if (Connected && LoggedIn) nextStatus = "connected";
-      else if (inst.status === "connected") nextStatus = "disconnected";
-      else nextStatus = "qr_ready";
+      if (Connected && LoggedIn) {
+        nextStatus = recentUserDisconnect ? inst.status : "connected";
+      } else if (inst.status === "connected") {
+        nextStatus = "disconnected";
+      } else {
+        nextStatus = "qr_ready";
+      }
 
 
       // deno-lint-ignore no-explicit-any
@@ -358,6 +369,26 @@ Deno.serve(async (req) => {
           });
         } catch { /* swallow */ }
       }
+
+      // Confirma com o Hook7 que a sessão caiu de verdade. Sem essa
+      // confirmação, se o logout/disconnect acima falhou silenciosamente, o
+      // próximo poll de "status" via app real encontraria a sessão ainda
+      // ativa no Hook7 — mas isso agora é ignorado pela janela de
+      // user_disconnected_at, então o alerta abaixo é a forma do admin saber
+      // que o celular pode continuar ativo no WhatsApp mesmo com o app
+      // mostrando "desconectado".
+      let remoteConfirmed = loggedOut;
+      try {
+        // deno-lint-ignore no-explicit-any
+        const r: any = await hook7Fetch("/instance/status", {
+          method: "GET",
+          apikey: token,
+          timeoutMs: 8000,
+        });
+        const d = r?.data ?? {};
+        remoteConfirmed = !(d.Connected === true && d.LoggedIn === true);
+      } catch { /* não deu para confirmar; mantém o valor de loggedOut */ }
+
       const nowIso = new Date().toISOString();
       await admin
         .from("hook7_instances")
@@ -365,9 +396,16 @@ Deno.serve(async (req) => {
           status: "disconnected",
           user_disconnected_at: nowIso,
           updated_at: nowIso,
+          last_error: remoteConfirmed
+            ? null
+            : "hook7_ainda_reporta_sessao_ativa_apos_logout",
         })
         .eq("id", inst.id);
-      return jsonResponse({ ok: true, logged_out: loggedOut }, 200, CORS);
+      return jsonResponse(
+        { ok: true, logged_out: loggedOut, remote_confirmed: remoteConfirmed },
+        200,
+        CORS,
+      );
     }
 
     // ---------------- RECONNECT ----------------

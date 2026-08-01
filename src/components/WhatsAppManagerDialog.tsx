@@ -144,9 +144,20 @@ export function WhatsAppManagerDialog({
 
   const disconnectMut = useMutation({
     mutationFn: async (id: string) =>
-      await callManage({ action: "disconnect", instance_id: id }),
-    onSuccess: () => {
-      toast({ title: "Instância desconectada" });
+      await callManage<{ remote_confirmed?: boolean }>(
+        { action: "disconnect", instance_id: id },
+      ),
+    onSuccess: (r) => {
+      if (r?.remote_confirmed === false) {
+        toast({
+          title: "Desconectado no app, mas o Hook7 ainda reporta ativo",
+          description:
+            "O celular pode continuar conectado ao WhatsApp. Se possível, desconecte também pelo aparelho (Aparelhos conectados).",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Instância desconectada" });
+      }
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
       qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
     },

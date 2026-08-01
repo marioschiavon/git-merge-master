@@ -211,3 +211,18 @@ export async function loadInstanceToken(
   }
   return data;
 }
+
+// ---------------------------------------------------------------------------
+// Janela de tolerância pós-disconnect manual (mesma regra usada no webhook,
+// exportada aqui para não duplicar a lógica em hook7-instance-manage).
+// ---------------------------------------------------------------------------
+
+export function withinUserDisconnectWindow(
+  instance: { user_disconnected_at?: string | null } | null | undefined,
+  windowMs = 5 * 60 * 1000,
+): boolean {
+  const t = instance?.user_disconnected_at
+    ? new Date(instance.user_disconnected_at).getTime()
+    : 0;
+  return t > 0 && Date.now() - t < windowMs;
+}
