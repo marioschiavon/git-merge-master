@@ -414,13 +414,23 @@ async function execTool(
         if (Array.isArray(args.exclude_dates)) widenBody.exclude_dates = args.exclude_dates;
         const widen = await fetchSlots(widenBody);
         const nextAvailable = widen.slots.slice(0, 2);
+        const noAvailability = nextAvailable.length === 0;
         return {
           slots: nextAvailable,
           slots_in_window: [],
           next_available: nextAvailable,
           requested_window: requestedWindow,
-          reason: nextAvailable.length > 0 ? "no_slots_in_window" : "no_availability",
+          reason: noAvailability ? "no_availability" : "no_slots_in_window",
+          ...(noAvailability
+            ? {
+              next_action:
+                "NÃO ofereça horários (proibido inventar datas). Chame finalize com decision=send_message pedindo a preferência de dia/período do lead.",
+              suggested_message:
+                "Vou confirmar a disponibilidade na agenda para não te passar um horário errado. Qual dia e período funcionam melhor pra você?",
+            }
+            : {}),
         };
+
       }
 
       if (first.httpError) return { error: String((first.raw as any)?.error ?? "calcom-slots failed") };
