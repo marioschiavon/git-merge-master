@@ -2630,10 +2630,11 @@ Deno.serve(async (req) => {
           }
 
           if (offered.length === 0) {
-            // Sem holds válidos — NÃO descartar a mensagem. Envia mesmo assim
-            // com aviso curto pra não silenciar o turno e perder o lead.
-            const fallbackMsg = (String(fd.message || "").trim() ||
-              "Os horários que mencionei podem ter sido preenchidos. Me confirma qual funciona pra você e eu reservo na hora.");
+            // Sem holds válidos — NUNCA enviar a mensagem do LLM, pois ela
+            // costuma conter horários inventados. Envia texto neutro, sem
+            // horários, pedindo a preferência do lead.
+            const fallbackMsg =
+              "Vou confirmar a disponibilidade na agenda para não te passar um horário errado. Me diz qual dia e período funcionam melhor pra você que eu já reservo e te envio o convite.";
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
@@ -2644,7 +2645,8 @@ Deno.serve(async (req) => {
               },
             });
             const sent = !execErr && (exec as any)?.result?.sent === true;
-            liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: "no_valid_holds_sent_anyway" };
+            liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: "no_valid_holds_neutral_reply" };
+
           } else {
             // (3) Detectar divergência entre msg do LLM e ISOs validados.
             //     SEMPRE valida que cada slot oferecido aparece (dia + hora) no
