@@ -2520,7 +2520,47 @@ Deno.serve(async (req) => {
             console.error("[sdr-agent] safety-net post-cancel hook failed:", e);
           }
 
+          // ── GUARD anti-confirmação falsa: nunca afirmar que a reunião está
+          // agendada / que o convite chegará se não existe booking ativo nem
+          // hold válido para o lead.
+          try {
+            const CONFIRM_CLAIM =
+              /(confirmad[oa]|agendad[oa]|est[áa] marcad[oa]|reserv(?:ei|ado|ada)|bloquei(?:ei|ado)\s+(?:na\s+)?agenda|receber[áa]\s+(?:um\s+)?convite|te\s+envio\s+o\s+convite|convite\s+(?:no\s+)?(?:seu\s+)?e-?mail|invite\s+no\s+e-?mail)/i;
+            if (msg && CONFIRM_CLAIM.test(msg)) {
+              const nowIso = new Date().toISOString();
+              const [{ data: activeBookings }, { data: activeHolds }] = await Promise.all([
+                supabase
+                  .from("bookings")
+                  .select("id")
+                  .eq("lead_id", lead_id)
+                  .in("status", ["pending", "confirmed", "rescheduled"])
+                  .limit(1),
+                supabase
+                  .from("slot_holds")
+                  .select("id")
+                  .eq("lead_id", lead_id)
+                  .eq("status", "held")
+                  .gt("expires_at", nowIso)
+                  .limit(1),
+              ]);
+              const hasBooking = (activeBookings?.length ?? 0) > 0;
+              const hasHold = (activeHolds?.length ?? 0) > 0;
+              if (!hasBooking && !hasHold) {
+                msg =
+                  "Antes de fechar, preciso confirmar a disponibilidade real na agenda. Me diz qual dia e período funcionam melhor pra você que eu já reservo e te envio o convite oficial.";
+                (finalDecision as any).message = msg;
+                (finalDecision as any).rationale =
+                  ((finalDecision as any).rationale || "") + " | guard: fake_confirmation_blocked";
+                steps.push({ event: "guard_fake_confirmation", replaced: true });
+                console.log("[sdr-agent] guard: bloqueei confirmação sem booking/hold real.");
+              }
+            }
+          } catch (e) {
+            console.error("[sdr-agent] guard fake_confirmation falhou:", e);
+          }
+
           if (msg) {
+
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
