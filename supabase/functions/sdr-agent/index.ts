@@ -414,13 +414,23 @@ async function execTool(
         if (Array.isArray(args.exclude_dates)) widenBody.exclude_dates = args.exclude_dates;
         const widen = await fetchSlots(widenBody);
         const nextAvailable = widen.slots.slice(0, 2);
+        const noAvailability = nextAvailable.length === 0;
         return {
           slots: nextAvailable,
           slots_in_window: [],
           next_available: nextAvailable,
           requested_window: requestedWindow,
-          reason: nextAvailable.length > 0 ? "no_slots_in_window" : "no_availability",
+          reason: noAvailability ? "no_availability" : "no_slots_in_window",
+          ...(noAvailability
+            ? {
+              next_action:
+                "NÃO ofereça horários (proibido inventar datas). Chame finalize com decision=send_message pedindo a preferência de dia/período do lead.",
+              suggested_message:
+                "Vou confirmar a disponibilidade na agenda para não te passar um horário errado. Qual dia e período funcionam melhor pra você?",
+            }
+            : {}),
         };
+
       }
 
       if (first.httpError) return { error: String((first.raw as any)?.error ?? "calcom-slots failed") };
@@ -1419,7 +1429,9 @@ function buildSystemPrompt(ctx: Awaited<ReturnType<typeof loadContext>>): string
     "- **PROIBIDO ABSOLUTAMENTE** responder com frases de espera tipo 'só um momento', 'já te retorno', 'vou verificar e te aviso', 'me dá um instante', 'aguarde um momento' quando o lead pediu horários. Você NÃO tem um turno futuro garantido — se prometer voltar, vai abandonar o lead. SEMPRE execute `check_calendar` + `offer_slots` no MESMO turno.",
     "- Se a MENSAGEM ATUAL do lead já contém uma janela temporal explícita (hoje, amanhã, depois de amanhã, semana que vem, segunda, terça, dia X, próxima semana, etc.) e ele pergunta sobre horários ou disponibilidade, trate como `date_preference` IMEDIATA (não espere estar na memória): chame `update_lead_facts` registrando a janela, depois `check_calendar` cobrindo essa janela, e finalize com `offer_slots` — tudo no mesmo turno.",
     "- Se `check_calendar` retornar `reason: 'no_slots_in_window'`, é PROIBIDO responder 'instabilidade no sistema', 'aguarde', ou 'já te retorno'. Reconheça naturalmente que não há horário no dia/janela pedida (ex.: 'amanhã é sábado e não atendo nesse dia', 'não tenho horário no dia X') e finalize com `offer_slots` usando os `next_available` retornados. A mensagem deve ser natural, sem culpar sistema.",
-    "- Se `check_calendar` retornar `reason: 'no_availability'`, explique que a agenda está cheia pelos próximos dias e peça uma janela maior ao lead, ou use `escalate_to_human` se for crítico. Nunca diga 'sistema instável'.",
+    "- Se `check_calendar` retornar `reason: 'no_availability'` (nenhum slot real), é **PROIBIDO** oferecer/inventar horários e é PROIBIDO usar `offer_slots`. Finalize com `send_message` pedindo a preferência de dia e período do lead. Nunca diga 'sistema instável'.",
+    "- **PROIBIDO ABSOLUTAMENTE** afirmar que a reunião está 'confirmada', 'agendada', 'marcada' ou que o lead 'receberá um convite' se `book_slot` não retornou sucesso. Sem booking real, peça a escolha entre horários reais ou a preferência de agenda.",
+
     "- NUNCA ofereça slots fora da janela `date_preference`. Se `check_calendar` retornar slots fora dela, descarte-os e chame `check_calendar` de novo com a janela correta (start_after maior).",
     "- Chame `check_calendar` no máximo UMA vez por turno. Se já chamou e recebeu slots, use ESSES mesmos slots — não chame de novo na mesma decisão (isso gera reservas duplicadas).",
     "- Se `heldSlots` já contém slots ativos dentro da janela do lead, ofereça ESSES (não chame `check_calendar`).",
@@ -2520,7 +2532,47 @@ Deno.serve(async (req) => {
             console.error("[sdr-agent] safety-net post-cancel hook failed:", e);
           }
 
+          // ── GUARD anti-confirmação falsa: nunca afirmar que a reunião está
+          // agendada / que o convite chegará se não existe booking ativo nem
+          // hold válido para o lead.
+          try {
+            const CONFIRM_CLAIM =
+              /(confirmad[oa]|agendad[oa]|est[áa] marcad[oa]|reserv(?:ei|ado|ada)|bloquei(?:ei|ado)\s+(?:na\s+)?agenda|receber[áa]\s+(?:um\s+)?convite|te\s+envio\s+o\s+convite|convite\s+(?:no\s+)?(?:seu\s+)?e-?mail|invite\s+no\s+e-?mail)/i;
+            if (msg && CONFIRM_CLAIM.test(msg)) {
+              const nowIso = new Date().toISOString();
+              const [{ data: activeBookings }, { data: activeHolds }] = await Promise.all([
+                supabase
+                  .from("bookings")
+                  .select("id")
+                  .eq("lead_id", lead_id)
+                  .in("status", ["pending", "confirmed", "rescheduled"])
+                  .limit(1),
+                supabase
+                  .from("slot_holds")
+                  .select("id")
+                  .eq("lead_id", lead_id)
+                  .eq("status", "held")
+                  .gt("expires_at", nowIso)
+                  .limit(1),
+              ]);
+              const hasBooking = (activeBookings?.length ?? 0) > 0;
+              const hasHold = (activeHolds?.length ?? 0) > 0;
+              if (!hasBooking && !hasHold) {
+                msg =
+                  "Antes de fechar, preciso confirmar a disponibilidade real na agenda. Me diz qual dia e período funcionam melhor pra você que eu já reservo e te envio o convite oficial.";
+                (finalDecision as any).message = msg;
+                (finalDecision as any).rationale =
+                  ((finalDecision as any).rationale || "") + " | guard: fake_confirmation_blocked";
+                steps.push({ event: "guard_fake_confirmation", replaced: true });
+                console.log("[sdr-agent] guard: bloqueei confirmação sem booking/hold real.");
+              }
+            }
+          } catch (e) {
+            console.error("[sdr-agent] guard fake_confirmation falhou:", e);
+          }
+
           if (msg) {
+
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
@@ -2590,10 +2642,11 @@ Deno.serve(async (req) => {
           }
 
           if (offered.length === 0) {
-            // Sem holds válidos — NÃO descartar a mensagem. Envia mesmo assim
-            // com aviso curto pra não silenciar o turno e perder o lead.
-            const fallbackMsg = (String(fd.message || "").trim() ||
-              "Os horários que mencionei podem ter sido preenchidos. Me confirma qual funciona pra você e eu reservo na hora.");
+            // Sem holds válidos — NUNCA enviar a mensagem do LLM, pois ela
+            // costuma conter horários inventados. Envia texto neutro, sem
+            // horários, pedindo a preferência do lead.
+            const fallbackMsg =
+              "Vou confirmar a disponibilidade na agenda para não te passar um horário errado. Me diz qual dia e período funcionam melhor pra você que eu já reservo e te envio o convite.";
             const { data: exec, error: execErr } = await supabase.functions.invoke("execute-action", {
               body: {
                 company_id: ctx.lead.company_id,
@@ -2604,7 +2657,8 @@ Deno.serve(async (req) => {
               },
             });
             const sent = !execErr && (exec as any)?.result?.sent === true;
-            liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: "no_valid_holds_sent_anyway" };
+            liveResult = { action: "offer_slots", ok: !execErr, sent, result: exec, error: "no_valid_holds_neutral_reply" };
+
           } else {
             // (3) Detectar divergência entre msg do LLM e ISOs validados.
             //     SEMPRE valida que cada slot oferecido aparece (dia + hora) no
