@@ -1,62 +1,43 @@
-## Diagnóstico do problema imediato
+# Correção: reunião "confirmada" pelo agente sem convite no Cal.com (empresa Qualé)
 
-Os 3 disparos de email da cadência **"teste email 2"** foram aprovados mas nenhum email saiu. Causa: a cadência tem `email_channel = 'domain'`, então `send-outbound-email` cai no branch Resend, encontra `company_email_domains.status = 'verifying'` e retorna 412 silenciosamente. Nenhum fallback para o grant Nylas ativo (`mariors07@gmail.com`) foi acionado.
+## O que aconteceu na conversa Roger x Nico
 
-## Decisão de arquitetura
+Rastreamento da conversa por email do lead `nico@leaderei.com.br` na empresa Qualé (13/08/2026):
 
-**Nylas passa a ser o único caminho de envio de email.** Resend fica reservado somente para recepção (webhook inbound / MX de subdomínio dedicado) enquanto ainda houver clientes usando; nenhum código novo de envio vai chamar Resend.
+1. 16:04 — lead pede reunião. O agente chamou `check_calendar`, que retornou `reason: "no_availability"` e **zero slots** (os tipos de evento do Cal.com dessa empresa só foram sincronizados às 16:12, depois dessa checagem).
+2. 16:15 — o agente executou a ação `offer_slots` **sem nenhum hold válido**. O resultado ficou registrado como `no_valid_holds_sent_anyway`: o sistema enviou mesmo assim a mensagem escrita pela IA, que continha horários inventados ("quinta 20 às 10h" e "sexta 21 às 15h").
+3. 16:16 — lead escolhe "Sexta dia 21".
+4. 16:17 — o agente chamou `book_slot` com `2026-08-21T15:00:00-03:00` e recebeu `slot_not_offered` ("does not match any offered or currently held slot"). Nenhuma reserva foi criada.
+5. 16:21 — mesmo assim o agente enviou "Confirmado: sexta-feira, dia 21, às 15h. Você receberá um convite no seu e-mail em breve".
 
-## Escopo das mudanças
+Confirmado no banco: **não existe nenhum registro em `bookings` nem em `slot_holds`** para esse lead. Ou seja, o convite nunca foi criado — o Cal.com nunca chegou a ser acionado com sucesso, e o convite que o cliente esperava não existe.
 
-Só backend + UI de configuração/cadência. Sem quebrar dados existentes.
+## Causa raiz
 
-### 1. `send-outbound-email` — remover branch Resend de saída
-- Sempre exigir um grant Nylas ativo da empresa. Se `email_grant_id` vier no body, usar; senão resolver automaticamente pelo `company_id` (preferindo grant do usuário atual quando disponível).
-- Se não houver grant ativo, retornar 412 `no_active_email_grant` com mensagem explícita (não silencioso).
-- Remover a leitura de `company_email_domains`, `resolveResendKey`, montagem de headers Resend, `List-Unsubscribe`, DMARC etc do caminho outbound.
-- Manter escape/HTML→text helpers já existentes.
+Duas falhas encadeadas:
 
-### 2. Callers deixam de passar/decidir "domain vs personal"
-- `approval-execute` e `cadence-executor` (dois blocos ~427 e ~727) param de enviar `email_channel`/`email_grant_id`. Delegam a resolução para `send-outbound-email`.
-- Se a cadência tiver `email_grant_id` explícito preenchido, ainda é repassado como preferência.
+- **A** — Quando `offer_slots` não tem holds válidos, o código atual (`sdr-agent`) envia a mensagem original da IA, que já contém horários inventados. Deveria substituir por um texto seguro, sem horários.
+- **B** — Não existe trava de confirmação: depois de `book_slot` falhar, o agente pode enviar texto afirmando que a reunião está confirmada e que o convite chegará, sem que exista booking.
 
-### 3. Cadências — UI e schema
-- Em `Cadences` (form/wizard de canal email), remover a opção "Domínio da empresa (Resend)". Só oferecer "Conta pessoal conectada" com dropdown de grants ativos da empresa.
-- `cadences.email_channel` passa a aceitar somente `'personal'` (backfill: qualquer valor `'domain'` vira `'personal'` e, se possível, associa ao primeiro grant ativo da empresa — se não houver, deixa `email_grant_id = null` e a cadência avisa que precisa conectar um email antes de rodar).
+## O que será feito
 
-### 4. Tela de configuração de email do cliente (`src/pages/settings/Email.tsx`)
-- Passa a mostrar **apenas** o card de contas pessoais (Nylas) como fonte de envio.
-- A seção "Domínio de envio (Resend)" é ocultada / marcada como legado somente-recepção com um aviso curto ("Envio agora acontece pelas contas conectadas em Emails pessoais").
-- Sem remover a tabela `company_email_domains` (a recepção multi-tenant depende dela).
+1. **Nunca enviar horários não reservados**
+   No caminho "sem holds válidos" do `offer_slots`, descartar a mensagem da IA e enviar sempre um texto neutro ("estou confirmando a agenda e te retorno com horários"), registrando o motivo. Assim o lead nunca recebe um horário que não existe.
 
-### 5. Reprocessar os 3 approvals travados
-Migration idempotente que devolve as approvals `4a285ea0…`, `8ed35e7a…`, `bed26121…` para `status = 'pending'` (limpa `executed_at`, `reviewed_at`, `reviewed_by`, `execution_error`) para o cliente reaprovar e o envio agora sair pelo Nylas.
+2. **Trava anti-confirmação falsa**
+   Antes de enviar qualquer resposta, verificar se o texto afirma agendamento confirmado / envio de convite. Se não existir booking ativo nem hold válido para o lead, reescrever a mensagem para pedir a escolha entre horários reais (ou pedir que o agente ofereça slots de verdade).
 
-### 6. Versão
-`src/lib/version.ts` → `beta 0.22`.
+3. **Fallback quando o calendário está vazio**
+   Se `check_calendar` retornar `no_availability`, o agente deve responder pedindo a preferência do lead e sinalizar internamente que a agenda não respondeu, em vez de seguir para oferta de horários.
 
-## O que **não** muda
+4. **Recuperar o caso do Nico**
+   Verificar se a agenda da Qualé já retorna horários (os event types foram sincronizados às 16:12) e, se sim, sinalizar na Inbox/Aprovações que essa conversa tem uma reunião prometida sem booking, para o time da Qualé criar a reserva de sexta 21/08 15h e disparar o convite.
 
-- Recepção de email continua igual: `resend-inbound-webhook` (MX subdomínio dedicado) + `email-inbound-webhook` (Nylas grants). `company_email_domains`, cron de verificação e backfill de subdomínios de recepção ficam intactos.
-- Nada em WhatsApp, cadências não-email, aprovações de outros canais.
-- Tabelas `user_email_grants`, `cadences`, `approval_requests` mantêm shape (só valor de `email_channel` normalizado).
-- Nenhum secret novo.
+5. **Bump de versão** conforme a regra (+0.1).
 
 ## Detalhes técnicos
 
-- Arquivos alterados:
-  - `supabase/functions/send-outbound-email/index.ts` (remove branch Resend, sempre Nylas, resolve grant automaticamente).
-  - `supabase/functions/approval-execute/index.ts` (não decide mais canal; propaga erro real do invoke).
-  - `supabase/functions/cadence-executor/index.ts` (dois blocos de envio email + logging do erro em `lead_activities`).
-  - `supabase/functions/cadence-agent-decide/index.ts` (idem, se ainda montar body de envio direto).
-  - `src/pages/Cadences.tsx` / componente do wizard de canal email (remover opção "Domínio da empresa").
-  - `src/pages/settings/Email.tsx` (esconder/marcar legado o card do domínio de envio).
-  - `src/lib/version.ts`.
-- Migrations:
-  - Backfill: `UPDATE cadences SET email_channel = 'personal' WHERE email_channel = 'domain'` + para cada uma, tentar setar `email_grant_id` com um grant ativo da company se ainda estiver null.
-  - Cleanup pontual das 3 approvals travadas.
-- Não mexer em `resend-inbound-webhook`, `resend-inbound-backfill`, `resend-domain-*` (recepção).
-
-## Observação para o cliente
-
-Depois do deploy, cadências de email só rodam se a empresa tiver pelo menos uma conta conectada em **Configurações → Email pessoal**. O domínio Resend continua servindo apenas para receber respostas até migração completa da recepção.
+- `supabase/functions/sdr-agent/index.ts` (~linha 2590): trocar `fallbackMsg` para ignorar `fd.message` e usar somente o texto neutro; manter `error: "no_valid_holds"` no log.
+- Mesmo arquivo: adicionar um guard antes do `execute-action` de `send_reply` que detecta padrões de confirmação ("confirmado", "agendado", "receberá um convite", "está marcado") e consulta `bookings` (status ativo) / `slot_holds` (não expirados) do lead; sem registro, substitui a mensagem.
+- Caminho de `check_calendar` com `reason: "no_availability"`: forçar a política para pedir preferência de horário em vez de `offer_slots`.
+- Nenhuma mudança de schema é necessária.
