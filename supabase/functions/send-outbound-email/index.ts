@@ -95,7 +95,22 @@ Deno.serve(async (req) => {
       grant = data ?? null;
     }
 
+    const deliverySource = (extra_metadata && typeof extra_metadata === "object")
+      ? ((extra_metadata as any).source ?? null)
+      : null;
+
     if (!grant) {
+      await logDelivery(supabase, {
+        company_id: companyId,
+        lead_id: lead_id ?? null,
+        conversation_id: conversation_id ?? null,
+        recipient_email: String(to),
+        subject: subject ?? null,
+        provider: "nylas",
+        status: "failed",
+        error_message: "Nenhuma caixa de email pessoal (Nylas) conectada para esta empresa",
+        source: deliverySource,
+      });
       return jsonResponse({
         error: "Nenhuma caixa de email pessoal (Nylas) conectada para esta empresa",
         code: "no_active_email_grant",
@@ -124,6 +139,18 @@ Deno.serve(async (req) => {
       await supabase.from("user_email_grants")
         .update({ last_error: msg.slice(0, 500) })
         .eq("id", grant.id);
+      await logDelivery(supabase, {
+        company_id: companyId,
+        lead_id: lead_id ?? null,
+        conversation_id: conversation_id ?? null,
+        recipient_email: String(to),
+        subject: subject ?? null,
+        provider: "nylas",
+        from_email: grant.email,
+        status: "failed",
+        error_message: msg.slice(0, 500),
+        source: deliverySource,
+      });
       return jsonResponse({
         error: "Falha ao enviar via email pessoal",
         code: "nylas_send_failed",
