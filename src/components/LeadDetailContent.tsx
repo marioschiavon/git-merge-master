@@ -550,6 +550,11 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
 
       <Separator />
 
+      {/* Entrega de email */}
+      <EmailDeliveryCard leadId={lead.id} />
+
+      <Separator />
+
       {/* Agendamento */}
       <div>
         <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
@@ -559,6 +564,7 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
         <BookingCard leadId={lead.id} />
         <SlotHoldsCard leadId={lead.id} />
       </div>
+
 
       <Separator />
 
