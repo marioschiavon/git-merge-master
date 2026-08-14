@@ -18,6 +18,7 @@ import { useLeadInsights, useAnalyzeWebsite } from "@/hooks/useLeadInsights";
 import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { LeadSocialCard } from "@/components/LeadSocialCard";
+import { EmailDeliveryCard } from "@/components/lead/EmailDeliveryCard";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useApproachSuggestions } from "@/hooks/usePreviewCadenceMessages";
@@ -550,6 +551,11 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
 
       <Separator />
 
+      {/* Entrega de email */}
+      <EmailDeliveryCard leadId={lead.id} />
+
+      <Separator />
+
       {/* Agendamento */}
       <div>
         <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
@@ -559,6 +565,7 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
         <BookingCard leadId={lead.id} />
         <SlotHoldsCard leadId={lead.id} />
       </div>
+
 
       <Separator />
 

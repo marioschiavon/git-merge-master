@@ -1529,6 +1529,60 @@ export type Database = {
           },
         ]
       }
+      email_delivery_log: {
+        Row: {
+          attempt: number
+          company_id: string
+          conversation_id: string | null
+          created_at: string
+          error_message: string | null
+          from_email: string | null
+          id: string
+          lead_id: string | null
+          metadata: Json
+          provider: string
+          provider_message_id: string | null
+          recipient_email: string
+          source: string | null
+          status: string
+          subject: string | null
+        }
+        Insert: {
+          attempt?: number
+          company_id: string
+          conversation_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          from_email?: string | null
+          id?: string
+          lead_id?: string | null
+          metadata?: Json
+          provider?: string
+          provider_message_id?: string | null
+          recipient_email: string
+          source?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Update: {
+          attempt?: number
+          company_id?: string
+          conversation_id?: string | null
+          created_at?: string
+          error_message?: string | null
+          from_email?: string | null
+          id?: string
+          lead_id?: string | null
+          metadata?: Json
+          provider?: string
+          provider_message_id?: string | null
+          recipient_email?: string
+          source?: string | null
+          status?: string
+          subject?: string | null
+        }
+        Relationships: []
+      }
       email_send_log: {
         Row: {
           created_at: string

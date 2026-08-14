@@ -20,6 +20,15 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// Registra a tentativa de entrega para acompanhamento na ficha do lead/empresa.
+async function logDelivery(supabase: any, row: Record<string, unknown>) {
+  try {
+    await supabase.from("email_delivery_log").insert(row);
+  } catch (e) {
+    console.error("email_delivery_log insert failed:", (e as Error).message);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -86,7 +95,22 @@ Deno.serve(async (req) => {
       grant = data ?? null;
     }
 
+    const deliverySource = (extra_metadata && typeof extra_metadata === "object")
+      ? ((extra_metadata as any).source ?? null)
+      : null;
+
     if (!grant) {
+      await logDelivery(supabase, {
+        company_id: companyId,
+        lead_id: lead_id ?? null,
+        conversation_id: conversation_id ?? null,
+        recipient_email: String(to),
+        subject: subject ?? null,
+        provider: "nylas",
+        status: "failed",
+        error_message: "Nenhuma caixa de email pessoal (Nylas) conectada para esta empresa",
+        source: deliverySource,
+      });
       return jsonResponse({
         error: "Nenhuma caixa de email pessoal (Nylas) conectada para esta empresa",
         code: "no_active_email_grant",
@@ -115,6 +139,18 @@ Deno.serve(async (req) => {
       await supabase.from("user_email_grants")
         .update({ last_error: msg.slice(0, 500) })
         .eq("id", grant.id);
+      await logDelivery(supabase, {
+        company_id: companyId,
+        lead_id: lead_id ?? null,
+        conversation_id: conversation_id ?? null,
+        recipient_email: String(to),
+        subject: subject ?? null,
+        provider: "nylas",
+        from_email: grant.email,
+        status: "failed",
+        error_message: msg.slice(0, 500),
+        source: deliverySource,
+      });
       return jsonResponse({
         error: "Falha ao enviar via email pessoal",
         code: "nylas_send_failed",
@@ -159,6 +195,20 @@ Deno.serve(async (req) => {
         },
       });
     }
+
+    await logDelivery(supabase, {
+      company_id: companyId,
+      lead_id: lead_id ?? null,
+      conversation_id: conversationId ?? null,
+      recipient_email: String(to),
+      subject: subject ?? null,
+      provider: "nylas",
+      from_email: grant.email,
+      status: "sent",
+      provider_message_id: sendResult.id,
+      source: deliverySource,
+    });
+
 
     // Increment daily counter (warm-up tracking)
     const today = new Date().toISOString().slice(0, 10);
