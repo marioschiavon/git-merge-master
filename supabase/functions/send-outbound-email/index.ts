@@ -20,6 +20,15 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+// Registra a tentativa de entrega para acompanhamento na ficha do lead/empresa.
+async function logDelivery(supabase: any, row: Record<string, unknown>) {
+  try {
+    await supabase.from("email_delivery_log").insert(row);
+  } catch (e) {
+    console.error("email_delivery_log insert failed:", (e as Error).message);
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
