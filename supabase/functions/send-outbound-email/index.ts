@@ -196,6 +196,20 @@ Deno.serve(async (req) => {
       });
     }
 
+    await logDelivery(supabase, {
+      company_id: companyId,
+      lead_id: lead_id ?? null,
+      conversation_id: conversationId ?? null,
+      recipient_email: String(to),
+      subject: subject ?? null,
+      provider: "nylas",
+      from_email: grant.email,
+      status: "sent",
+      provider_message_id: sendResult.id,
+      source: deliverySource,
+    });
+
+
     // Increment daily counter (warm-up tracking)
     const today = new Date().toISOString().slice(0, 10);
     const { data: cur } = await supabase
