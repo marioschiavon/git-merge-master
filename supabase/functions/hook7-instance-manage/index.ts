@@ -258,11 +258,29 @@ Deno.serve(async (req) => {
       const token = await loadInstanceToken(admin, inst.id);
       const slug = await loadCompanySlug(inst.company_id);
       const webhookUrl = buildWebhookUrl(slug);
-      await hook7Fetch("/instance/connect", {
-        method: "POST",
-        apikey: token,
-        body: { immediate: true, webhookUrl, subscribe: HOOK7_SUBSCRIBE_EVENTS },
-      });
+      try {
+        await hook7Fetch("/instance/connect", {
+          method: "POST",
+          apikey: token,
+          body: { immediate: true, webhookUrl, subscribe: HOOK7_SUBSCRIBE_EVENTS },
+        });
+      } catch (e) {
+        const msg = String((e as Error)?.message ?? "");
+        // Sessão já ativa no provedor → não é erro: apenas reflete "conectado".
+        if (/already logged in|already connected|session already/i.test(msg)) {
+          await admin
+            .from("hook7_instances")
+            .update({
+              status: "connected",
+              last_connected_at: new Date().toISOString(),
+              user_disconnected_at: null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", inst.id);
+          return jsonResponse({ ok: true, already_connected: true }, 200, CORS);
+        }
+        throw e;
+      }
       await admin
         .from("hook7_instances")
         .update({
@@ -274,6 +292,7 @@ Deno.serve(async (req) => {
         .eq("id", inst.id);
       return jsonResponse({ ok: true }, 200, CORS);
     }
+
 
     // ---------------- QR ----------------
     if (action === "qr") {

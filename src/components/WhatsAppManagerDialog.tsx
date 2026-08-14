@@ -192,7 +192,19 @@ export function WhatsAppManagerDialog({
     setQrLoading(true);
     setQrBase64(null);
     try {
-      await callManage({ action: "connect", instance_id: id });
+      const c = await callManage<{ already_connected?: boolean }>({
+        action: "connect",
+        instance_id: id,
+      });
+      if (c?.already_connected) {
+        toast({
+          title: "WhatsApp já está conectado",
+          description: "Essa instância já possui uma sessão ativa.",
+        });
+        qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+        qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
+        return;
+      }
       const r = await callManage<{ qrcode_base64: string | null }>({
         action: "qr",
         instance_id: id,
@@ -207,7 +219,8 @@ export function WhatsAppManagerDialog({
     } finally {
       setQrLoading(false);
     }
-  }, []);
+  }, [qc]);
+
 
   // Polling do status enquanto QR está aberto
   useEffect(() => {
