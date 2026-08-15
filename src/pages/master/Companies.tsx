@@ -186,6 +186,19 @@ export default function Companies() {
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Switch
+                          checked={!!municipia[c.id]?.enabled}
+                          onCheckedChange={(v) => toggleMunicipia(c.id, v)}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {municipia[c.id]?.last_import_at
+                            ? `${municipia[c.id]?.last_import_count ?? 0} leads · ${new Date(municipia[c.id]!.last_import_at!).toLocaleDateString("pt-BR")}`
+                            : municipia[c.id]?.enabled ? "Sem importações" : "Desligado"}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
                           checked={c.status !== "inactive"}
                           onCheckedChange={() => handleToggleStatus(c)}
                         />
