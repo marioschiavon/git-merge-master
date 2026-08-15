@@ -319,6 +319,7 @@ export default function Leads() {
                 <TableHead>Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Empresa</TableHead>
+                {municipiaEnabled && <TableHead>Cidade</TableHead>}
                 <TableHead>Website</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>Status</TableHead>
@@ -371,6 +372,9 @@ export default function Leads() {
                     </TableCell>
                     <TableCell>{lead.email || "—"}</TableCell>
                     <TableCell>{lead.company_name || "—"}</TableCell>
+                    {municipiaEnabled && (
+                      <TableCell>{lead.city ? `${lead.city}${lead.state ? `/${lead.state}` : ""}` : "—"}</TableCell>
+                    )}
                     <TableCell>
                       {lead.website ? (
                         <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate max-w-[150px] inline-block" onClick={(e) => e.stopPropagation()}>

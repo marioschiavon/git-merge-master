@@ -167,7 +167,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Operação</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {companyItems.map((item) => (
+              {visibleCompanyItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={isActive(item.url)}>
                     <NavLink to={item.url} end activeClassName="bg-sidebar-accent text-sidebar-accent-foreground font-medium">
