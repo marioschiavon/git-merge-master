@@ -40,6 +40,7 @@ import Onboarding from "@/pages/Onboarding";
 import NotFound from "@/pages/NotFound";
 import ApolloSearch from "@/pages/ApolloSearch";
 import InviteAccept from "@/pages/InviteAccept";
+import Municipia from "@/pages/Municipia";
 
 const queryClient = new QueryClient({
   defaultOptions: {

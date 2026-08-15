@@ -199,8 +199,9 @@ Deno.serve(async (req) => {
     await admin.from("audit_logs").insert({
       company_id: companyId,
       user_id: claims.user_id,
-      action: "municipia.import",
+      event_type: "municipia.import",
       entity_type: "leads",
+      message: `Importação MunicipIA: ${created} criados, ${updated} atualizados`,
       metadata: { created, updated, skipped, municipios: rows.length },
     }).then(() => null, () => null);
 
