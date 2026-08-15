@@ -74,6 +74,7 @@ const App = () => (
               <Route path="/leads/lists" element={<LeadLists />} />
               <Route path="/leads/lists/:listId/launch" element={<CampaignWizard />} />
               <Route path="/apollo" element={<ApolloSearch />} />
+              <Route path="/municipia" element={<Municipia />} />
               <Route path="/cadences" element={<Cadences />} />
               <Route path="/cadences/dashboard" element={<CadencesDashboard />} />
               <Route path="/scripts" element={<Scripts />} />

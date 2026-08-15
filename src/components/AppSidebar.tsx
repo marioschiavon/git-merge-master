@@ -21,12 +21,14 @@ import {
   ListChecks,
   Sparkles,
   FileClock,
+  Landmark,
 } from "lucide-react";
 import leadereiLogo from "@/assets/brand/leaderei-white.png";
 import { APP_VERSION } from "@/lib/version";
 import { Badge } from "@/components/ui/badge";
 import { usePendingApprovalsCount } from "@/hooks/useApprovals";
 import { useInboxQueue } from "@/hooks/useHumanInbox";
+import { useMunicipiaEnabled } from "@/hooks/useMunicipia";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -72,6 +74,7 @@ const companyItems = [
   { title: "Leads", url: "/leads", icon: Target },
   { title: "Listas", url: "/leads/lists", icon: ListChecks },
   { title: "Buscar no Apollo", url: "/apollo", icon: Sparkles },
+  { title: "MunicipIA", url: "/municipia", icon: Landmark },
   { title: "Cadências", url: "/cadences", icon: MessageSquare },
   { title: "Acompanhamento", url: "/cadences/dashboard", icon: Activity },
   { title: "Aprovações", url: "/approvals", icon: ShieldCheck, showApprovalsBadge: true },
@@ -106,6 +109,10 @@ export function AppSidebar() {
   const { data: pendingCount = 0 } = usePendingApprovalsCount();
   const { data: inboxQueue = [] } = useInboxQueue();
   const inboxCount = inboxQueue.length;
+  const { data: municipia } = useMunicipiaEnabled();
+  const visibleCompanyItems = municipia?.enabled
+    ? companyItems
+    : companyItems.filter((i) => i.url !== "/municipia");
 
   const { data: companyName } = useCompanyName(companyId);
 
