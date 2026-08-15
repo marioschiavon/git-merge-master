@@ -168,6 +168,7 @@ export default function Companies() {
                   <TableHead className="text-right">Runs (30d)</TableHead>
                   <TableHead className="text-right">Tokens (30d)</TableHead>
                   <TableHead className="text-right">Custo est. (30d)</TableHead>
+                  <TableHead>MunicipIA</TableHead>
                   <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
