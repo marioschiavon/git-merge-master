@@ -33,13 +33,42 @@ export default function Companies() {
   const [confirmCompany, setConfirmCompany] = useState<Company | null>(null);
   const { data: usageMap } = useCompanyUsageMap(30);
 
+  const [municipia, setMunicipia] = useState<Record<string, { enabled: boolean; last_import_at: string | null; last_import_count: number }>>({});
+
   const fetchCompanies = async () => {
     const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
     setCompanies((data as Company[]) || []);
     setLoading(false);
   };
 
-  useEffect(() => { fetchCompanies(); }, []);
+  const fetchMunicipia = async () => {
+    const { data } = await supabase
+      .from("municipia_integrations")
+      .select("company_id, enabled, last_import_at, last_import_count");
+    const map: Record<string, { enabled: boolean; last_import_at: string | null; last_import_count: number }> = {};
+    for (const row of data ?? []) {
+      map[row.company_id] = {
+        enabled: row.enabled,
+        last_import_at: row.last_import_at,
+        last_import_count: row.last_import_count ?? 0,
+      };
+    }
+    setMunicipia(map);
+  };
+
+  const toggleMunicipia = async (companyId: string, enabled: boolean) => {
+    const { error } = await supabase
+      .from("municipia_integrations")
+      .upsert({ company_id: companyId, enabled }, { onConflict: "company_id" });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(enabled ? "MunicipIA habilitado" : "MunicipIA desabilitado");
+    fetchMunicipia();
+  };
+
+  useEffect(() => { fetchCompanies(); fetchMunicipia(); }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,6 +168,7 @@ export default function Companies() {
                   <TableHead className="text-right">Runs (30d)</TableHead>
                   <TableHead className="text-right">Tokens (30d)</TableHead>
                   <TableHead className="text-right">Custo est. (30d)</TableHead>
+                  <TableHead>MunicipIA</TableHead>
                   <TableHead>Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -153,6 +183,19 @@ export default function Companies() {
                     <TableCell className="text-right">{u?.runs ?? 0}</TableCell>
                     <TableCell className="text-right">{formatTokens(u?.totalTokens ?? 0)}</TableCell>
                     <TableCell className="text-right">{formatBrl((u?.costUsd ?? 0) * USD_TO_BRL)}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          checked={!!municipia[c.id]?.enabled}
+                          onCheckedChange={(v) => toggleMunicipia(c.id, v)}
+                        />
+                        <span className="text-xs text-muted-foreground">
+                          {municipia[c.id]?.last_import_at
+                            ? `${municipia[c.id]?.last_import_count ?? 0} leads · ${new Date(municipia[c.id]!.last_import_at!).toLocaleDateString("pt-BR")}`
+                            : municipia[c.id]?.enabled ? "Sem importações" : "Desligado"}
+                        </span>
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
                         <Switch

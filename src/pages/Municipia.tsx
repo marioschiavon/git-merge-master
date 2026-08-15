@@ -1,0 +1,104 @@
+import { useEffect, useRef, useState } from "react";
+import { ExternalLink, Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { MUNICIPIA_URL, useMunicipiaEnabled, fetchMunicipiaSession } from "@/hooks/useMunicipia";
+import { useAuth } from "@/hooks/useAuth";
+
+const MUNICIPIA_ORIGIN = new URL(MUNICIPIA_URL).origin;
+
+export default function Municipia() {
+  const { data: integration, isLoading } = useMunicipiaEnabled();
+  const { companyId } = useAuth();
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [loaded, setLoaded] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+
+  // Responds to the MunicipIA handshake with a short-lived ingest token.
+  useEffect(() => {
+    const handler = async (event: MessageEvent) => {
+      if (event.origin !== MUNICIPIA_ORIGIN) return;
+      if (event.data?.type !== "municipia:ready") return;
+      const session = await fetchMunicipiaSession();
+      if (!session) return;
+      iframeRef.current?.contentWindow?.postMessage(
+        {
+          type: "leaderei:session",
+          token: session.token,
+          company_id: session.company_id,
+          ingest_url: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/municipia-ingest`,
+        },
+        MUNICIPIA_ORIGIN,
+      );
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [companyId]);
+
+  // If the iframe never loads, assume framing is blocked.
+  useEffect(() => {
+    const t = setTimeout(() => { if (!loaded) setBlocked(true); }, 8000);
+    return () => clearTimeout(t);
+  }, [loaded]);
+
+  if (isLoading) {
+    return (
+      <div className="flex h-[70vh] items-center justify-center text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Carregando…
+      </div>
+    );
+  }
+
+  if (!integration?.enabled) {
+    return (
+      <Card>
+        <CardContent className="space-y-2 p-6">
+          <h1 className="text-lg font-semibold">MunicipIA</h1>
+          <p className="text-sm text-muted-foreground">
+            A integração com o MunicipIA não está habilitada para esta empresa. Fale com o administrador da plataforma.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="-m-6 flex h-[calc(100vh-3.5rem)] flex-col">
+      <div className="flex items-center justify-between border-b px-4 py-2">
+        <div>
+          <h1 className="text-sm font-semibold">MunicipIA</h1>
+          <p className="text-xs text-muted-foreground">
+            Busque municípios e use "Enviar para o Leaderei" para importar os contatos como leads.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" asChild>
+          <a href={MUNICIPIA_URL} target="_blank" rel="noopener noreferrer">
+            Abrir em nova aba <ExternalLink className="ml-1 h-3.5 w-3.5" />
+          </a>
+        </Button>
+      </div>
+
+      {blocked && !loaded ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            O MunicipIA não pôde ser exibido dentro do Leaderei. Abra em uma nova aba para continuar.
+          </p>
+          <Button asChild>
+            <a href={MUNICIPIA_URL} target="_blank" rel="noopener noreferrer">
+              Abrir MunicipIA <ExternalLink className="ml-1 h-4 w-4" />
+            </a>
+          </Button>
+        </div>
+      ) : (
+        <iframe
+          ref={iframeRef}
+          src={MUNICIPIA_URL}
+          title="MunicipIA"
+          className="flex-1 w-full border-0"
+          onLoad={() => setLoaded(true)}
+          allow="clipboard-write"
+        />
+      )}
+    </div>
+  );
+}

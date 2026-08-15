@@ -20,6 +20,7 @@ import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
 import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { EnrichmentQueueBadge } from "@/components/EnrichmentQueueBadge";
+import { useMunicipiaEnabled } from "@/hooks/useMunicipia";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,6 +59,8 @@ const statusLabels: Record<string, string> = {
 };
 
 export default function Leads() {
+  const { data: municipiaIntegration } = useMunicipiaEnabled();
+  const municipiaEnabled = !!municipiaIntegration?.enabled;
   const [params, setParams] = useSearchParams();
   const listId = params.get("list");
   const [search, setSearch] = useState("");
@@ -319,6 +322,7 @@ export default function Leads() {
                 <TableHead>Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Empresa</TableHead>
+                {municipiaEnabled && <TableHead>Cidade</TableHead>}
                 <TableHead>Website</TableHead>
                 <TableHead>Score</TableHead>
                 <TableHead>Status</TableHead>
@@ -329,11 +333,11 @@ export default function Leads() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell>
+                  <TableCell colSpan={municipiaEnabled ? 10 : 9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell>
                 </TableRow>
               ) : leads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum lead encontrado.</TableCell>
+                  <TableCell colSpan={municipiaEnabled ? 10 : 9} className="text-center py-8 text-muted-foreground">Nenhum lead encontrado.</TableCell>
                 </TableRow>
               ) : (
                 leads.map((lead: any) => (
@@ -371,6 +375,9 @@ export default function Leads() {
                     </TableCell>
                     <TableCell>{lead.email || "—"}</TableCell>
                     <TableCell>{lead.company_name || "—"}</TableCell>
+                    {municipiaEnabled && (
+                      <TableCell>{lead.city ? `${lead.city}${lead.state ? `/${lead.state}` : ""}` : "—"}</TableCell>
+                    )}
                     <TableCell>
                       {lead.website ? (
                         <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate max-w-[150px] inline-block" onClick={(e) => e.stopPropagation()}>
