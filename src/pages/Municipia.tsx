@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MUNICIPIA_URL, useMunicipiaEnabled, fetchMunicipiaSession } from "@/hooks/useMunicipia";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
 
 const MUNICIPIA_ORIGIN = new URL(MUNICIPIA_URL).origin;
 
