@@ -1,43 +1,54 @@
 # Integração MunicipIA
 
-Novo item no menu lateral que leva o usuário ao app MunicipIA. Lá ele filtra e seleciona municípios normalmente e, ao exportar, ganha a opção **Enviar para o Leaderei**, que grava os leads direto neste app — com a cidade preenchida.
+Novo item no menu lateral do Leaderei que abre o MunicipIA **dentro** do próprio app. O usuário busca e seleciona municípios normalmente e, junto de "Exportar CSV / Excel", ganha o botão **Enviar para o Leaderei**, que cria os leads aqui já com a cidade preenchida.
 
 ## Como vai funcionar para o usuário
 
-1. **Menu lateral**: novo item **MunicipIA** (em Operação), visível apenas para empresas liberadas pelo master admin. Abre o MunicipIA em nova aba, já com a identificação da empresa Leaderei na URL.
-2. **No MunicipIA**: o usuário usa o app normalmente (filtros, seleção de municípios).
-3. **Exportar**: junto das opções de exportação existentes entra **Enviar para o Leaderei**. Ao confirmar, os registros selecionados são enviados para o Leaderei.
-4. **De volta no Leaderei**: os leads aparecem em Leads com origem `municipia` e a coluna **Cidade** visível para empresas com a integração ativa.
-5. **Painel master**: em Empresas, um switch **MunicipIA** liga/desliga a integração por empresa e mostra data e volume do último envio.
+1. **Menu lateral → MunicipIA**: nova página `/municipia` no Leaderei que carrega `https://municipia.lovable.app/` embutido, ocupando a tela toda (sem sair do app). Se o MunicipIA bloquear a exibição embutida, a página mostra um aviso com botão "Abrir em nova aba" — sem tela branca.
+2. O item só aparece para empresas liberadas pelo master admin.
+3. **No MunicipIA**: filtros, busca e seleção de municípios seguem iguais.
+4. **Exportar**: ao lado de "Exportar CSV" e "Exportar Excel (.xlsx)" entra **Enviar para o Leaderei**. Só aparece quando o MunicipIA está sendo usado de dentro do Leaderei.
+5. **Resultado**: toast com "X leads criados, Y atualizados" e os leads aparecem em Leads, origem `municipia`, com **Cidade** e **UF** preenchidos.
 
-## Segurança do envio
+## Mapeamento dos dados
 
-O MunicipIA é outro projeto (outro backend), então o envio é feito por HTTP para um endpoint de ingestão do Leaderei, protegido por:
-- um **token de ingestão por empresa**, gerado no painel master do Leaderei e configurado no MunicipIA;
-- validação de que a empresa existe e está com a integração habilitada;
-- deduplicação por identificador de origem, e-mail e telefone, para reenvios não duplicarem leads.
+O MunicipIA já exporta: Município, UF, Secretário(a), Cargo, E-mail, Telefone, Horário, Equipe, Fonte, Hierarquia, Data da Busca. Vira lead assim:
+
+- Secretário(a) → nome do lead; Cargo → cargo
+- Município → **cidade**; UF → estado
+- Primeiro e-mail → e-mail (demais em e-mail secundário); primeiro telefone → telefone
+- Município + hierarquia (ex.: "Prefeitura de X — Secretaria de Educação") → empresa
+- Fonte, horário, equipe e data da busca → guardados nas observações/metadados do lead
+- Cada membro da **Equipe** com contato pode virar lead adicional vinculado ao mesmo município (opcional, ligado por padrão)
+
+## Como os dois apps conversam com segurança
+
+O MunicipIA é outro projeto (outro backend), então o envio passa por um endpoint de ingestão do Leaderei. Para não guardar credencial no MunicipIA:
+
+- a página `/municipia` do Leaderei envia ao iframe, por mensagem interna do navegador, a identificação da empresa e um **token de sessão curto** (validade de minutos);
+- o botão "Enviar para o Leaderei" usa esse token no envio;
+- o Leaderei valida token, empresa e se a integração está habilitada, e deduplica por município+cargo, e-mail e telefone, para reenvio não duplicar.
 
 ## Detalhes técnicos
 
-**Banco (migração no Leaderei)**
-- `municipia_integrations`: `company_id` (única), `enabled`, `ingest_token_hash`, `last_import_at`, `last_import_count`, `last_error`, timestamps. GRANT `SELECT` para `authenticated`, `ALL` para `service_role`. RLS: membros leem a própria linha; escrita só por master admin ou service_role.
-- `leads`: adicionar `municipia_source_id text` + índice único parcial `(company_id, municipia_source_id)`. `city` já existe na tabela.
+**Banco (Leaderei, migração)**
+- `municipia_integrations`: `company_id` (única), `enabled`, `last_import_at`, `last_import_count`, `last_error`, timestamps. GRANT `SELECT` para `authenticated`, `ALL` para `service_role`. RLS: membros leem a própria linha; escrita só por master admin ou service_role.
+- `leads`: adicionar `municipia_source_id text` + índice único parcial `(company_id, municipia_source_id)`. `city` já existe.
 
 **Edge functions (Leaderei)**
-- `municipia-ingest` (`verify_jwt = false`): recebe `{ company_id, leads[] }` com header `X-Municipia-Token`; valida token/habilitação, mapeia campos (nome, e-mail, telefone, empresa, site, cidade, UF), deduplica, insere com `source = 'municipia'`, atualiza `last_import_*` e grava em `audit_logs`. Retorna `{ created, updated, skipped }`.
-- `municipia-admin` (master admin): habilita/desabilita a empresa e gera/rotaciona o token de ingestão (token exibido uma única vez).
+- `municipia-session` (JWT do usuário): confere integração habilitada e devolve um token curto assinado (HMAC com segredo do projeto) contendo `company_id`, `user_id` e expiração.
+- `municipia-ingest` (`verify_jwt = false`, CORS liberado para `municipia.lovable.app`): valida o token curto, mapeia as linhas, deduplica, insere leads com `source = 'municipia'`, atualiza `last_import_*` e registra em `audit_logs`. Retorna `{ created, updated, skipped }`.
 
 **Frontend (Leaderei)**
-- `src/hooks/useMunicipiaIntegration.ts`: status da empresa atual + URL do app.
-- `src/components/AppSidebar.tsx`: item **MunicipIA** condicional, abrindo link externo em nova aba.
-- `src/pages/master/Companies.tsx`: switch por empresa, geração de token e resumo do último import.
+- `src/pages/Municipia.tsx`: iframe em tela cheia + detecção de bloqueio (timeout de carregamento) com fallback "Abrir em nova aba"; envia `company_id`, nome da empresa e token via `postMessage` quando o iframe sinaliza que está pronto.
+- `src/App.tsx`: rota `/municipia`.
+- `src/components/AppSidebar.tsx`: item **MunicipIA** condicional à integração.
+- `src/pages/master/Companies.tsx`: switch **MunicipIA** por empresa + último import.
 - `src/pages/Leads.tsx`: coluna **Cidade** exibida quando a integração está ativa.
 
-**Do lado do MunicipIA** (mudança no outro projeto, feita depois que este lado estiver pronto): nova opção "Enviar para o Leaderei" no fluxo de exportação, que faz o POST para `municipia-ingest` com o token da empresa e o `company_id` recebido na URL.
+**No projeto MunicipIA** (mudança separada, feita depois que este lado estiver no ar):
+- permitir ser exibido dentro do Leaderei (liberar framing para o domínio do Leaderei nos headers do servidor);
+- pequeno módulo que faz o handshake `postMessage` com o Leaderei e guarda o token em memória;
+- em `src/components/ExportButtons.tsx`, novo botão "Enviar para o Leaderei" que faz POST em `municipia-ingest` com as mesmas `ExportRow` já usadas no CSV/XLSX.
 
 **Versão**: bump para `beta 0.28`.
-
-## Preciso de você
-
-- A URL pública do app MunicipIA (para o link do menu).
-- Confirmar quais campos o MunicipIA exporta hoje, para eu fechar o mapeamento de colunas dos leads.
