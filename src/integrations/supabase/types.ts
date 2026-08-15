@@ -2513,6 +2513,7 @@ export type Database = {
           linkedin_company_url: string | null
           linkedin_url: string | null
           mobile_phone: string | null
+          municipia_source_id: string | null
           name: string
           parent_company_lead_id: string | null
           pending_email_slot_hold_id: string | null
@@ -2578,6 +2579,7 @@ export type Database = {
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           mobile_phone?: string | null
+          municipia_source_id?: string | null
           name: string
           parent_company_lead_id?: string | null
           pending_email_slot_hold_id?: string | null
@@ -2643,6 +2645,7 @@ export type Database = {
           linkedin_company_url?: string | null
           linkedin_url?: string | null
           mobile_phone?: string | null
+          municipia_source_id?: string | null
           name?: string
           parent_company_lead_id?: string | null
           pending_email_slot_hold_id?: string | null
@@ -2832,6 +2835,47 @@ export type Database = {
             columns: ["conversation_id"]
             isOneToOne: false
             referencedRelation: "conversations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      municipia_integrations: {
+        Row: {
+          company_id: string
+          created_at: string
+          enabled: boolean
+          id: string
+          last_error: string | null
+          last_import_at: string | null
+          last_import_count: number
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_error?: string | null
+          last_import_at?: string | null
+          last_import_count?: number
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          last_error?: string | null
+          last_import_at?: string | null
+          last_import_count?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "municipia_integrations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
         ]
