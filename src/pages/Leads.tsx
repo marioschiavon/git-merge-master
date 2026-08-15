@@ -20,6 +20,7 @@ import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
 import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { EnrichmentQueueBadge } from "@/components/EnrichmentQueueBadge";
+import { useMunicipiaEnabled } from "@/hooks/useMunicipia";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,6 +59,8 @@ const statusLabels: Record<string, string> = {
 };
 
 export default function Leads() {
+  const { data: municipiaIntegration } = useMunicipiaEnabled();
+  const municipiaEnabled = !!municipiaIntegration?.enabled;
   const [params, setParams] = useSearchParams();
   const listId = params.get("list");
   const [search, setSearch] = useState("");
