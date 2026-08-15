@@ -33,13 +33,42 @@ export default function Companies() {
   const [confirmCompany, setConfirmCompany] = useState<Company | null>(null);
   const { data: usageMap } = useCompanyUsageMap(30);
 
+  const [municipia, setMunicipia] = useState<Record<string, { enabled: boolean; last_import_at: string | null; last_import_count: number }>>({});
+
   const fetchCompanies = async () => {
     const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
     setCompanies((data as Company[]) || []);
     setLoading(false);
   };
 
-  useEffect(() => { fetchCompanies(); }, []);
+  const fetchMunicipia = async () => {
+    const { data } = await supabase
+      .from("municipia_integrations")
+      .select("company_id, enabled, last_import_at, last_import_count");
+    const map: Record<string, { enabled: boolean; last_import_at: string | null; last_import_count: number }> = {};
+    for (const row of data ?? []) {
+      map[row.company_id] = {
+        enabled: row.enabled,
+        last_import_at: row.last_import_at,
+        last_import_count: row.last_import_count ?? 0,
+      };
+    }
+    setMunicipia(map);
+  };
+
+  const toggleMunicipia = async (companyId: string, enabled: boolean) => {
+    const { error } = await supabase
+      .from("municipia_integrations")
+      .upsert({ company_id: companyId, enabled }, { onConflict: "company_id" });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(enabled ? "MunicipIA habilitado" : "MunicipIA desabilitado");
+    fetchMunicipia();
+  };
+
+  useEffect(() => { fetchCompanies(); fetchMunicipia(); }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
