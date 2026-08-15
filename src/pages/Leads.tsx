@@ -333,11 +333,11 @@ export default function Leads() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell>
+                  <TableCell colSpan={municipiaEnabled ? 10 : 9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell>
                 </TableRow>
               ) : leads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum lead encontrado.</TableCell>
+                  <TableCell colSpan={municipiaEnabled ? 10 : 9} className="text-center py-8 text-muted-foreground">Nenhum lead encontrado.</TableCell>
                 </TableRow>
               ) : (
                 leads.map((lead: any) => (
