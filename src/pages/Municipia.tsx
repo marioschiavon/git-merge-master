@@ -27,9 +27,7 @@ export default function Municipia() {
           type: "leaderei:session",
           token: session.token,
           company_id: session.company_id,
-          ingest_url: `${supabase.functions.url ?? ""}`.length
-            ? `${supabase.functions.url}/municipia-ingest`
-            : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/municipia-ingest`,
+          ingest_url: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/municipia-ingest`,
         },
         MUNICIPIA_ORIGIN,
       );
