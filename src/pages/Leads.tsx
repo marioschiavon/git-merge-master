@@ -319,7 +319,7 @@ export default function Leads() {
                 <TableHead className="w-10">
                   <Checkbox checked={allChecked} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
                 </TableHead>
-                <TableHead>Nome</TableHead>
+                <TableHead className="min-w-[220px]">Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Empresa</TableHead>
                 {municipiaEnabled && <TableHead>Cidade</TableHead>}
