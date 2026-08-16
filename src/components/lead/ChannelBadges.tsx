@@ -20,15 +20,15 @@ export function ChannelBadges({ lead, size = "sm" }: Props) {
   if (!wpp && !email) return null;
 
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex shrink-0 items-center gap-1">
       {wpp && (
-        <span title={`WhatsApp: ${wpp}`} className="inline-flex">
-          <img src={whatsappIcon.url} alt="WhatsApp" className={dim} />
+        <span title={`WhatsApp: ${wpp}`} className="inline-flex shrink-0">
+          <img src={whatsappIcon.url} alt="WhatsApp" className={`${dim} shrink-0 object-contain`} />
         </span>
       )}
       {email && (
-        <span title={`E-mail: ${email}`} className="inline-flex">
-          <Mail className={`${dim} text-blue-600`} aria-label="E-mail" />
+        <span title={`E-mail: ${email}`} className="inline-flex shrink-0">
+          <Mail className={`${dim} shrink-0 text-blue-600`} aria-label="E-mail" />
         </span>
       )}
     </span>

@@ -319,7 +319,7 @@ export default function Leads() {
                 <TableHead className="w-10">
                   <Checkbox checked={allChecked} onCheckedChange={toggleAll} aria-label="Selecionar todos" />
                 </TableHead>
-                <TableHead>Nome</TableHead>
+                <TableHead className="min-w-[220px]">Nome</TableHead>
                 <TableHead>Email</TableHead>
                 <TableHead>Empresa</TableHead>
                 {municipiaEnabled && <TableHead>Cidade</TableHead>}
@@ -350,23 +350,23 @@ export default function Leads() {
                       />
                     </TableCell>
                     <TableCell className="font-medium">
-                      <div className="flex items-center gap-2">
-                        <span>{lead.name}</span>
-                        <ChannelBadges lead={lead} />
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="truncate min-w-0">{lead.name}</span>
+                        <span className="shrink-0"><ChannelBadges lead={lead} /></span>
                         {lead.lead_kind === "company" && (
-                          <Badge variant="outline" className="bg-amber-50 text-amber-800 border-amber-200 text-[10px] px-1.5 py-0" title="Canal corporativo: sem nome de pessoa identificada">
+                          <Badge variant="outline" className="shrink-0 whitespace-nowrap bg-amber-50 text-amber-800 border-amber-200 text-[10px] px-1.5 py-0" title="Canal corporativo: sem nome de pessoa identificada">
                             🏢 Empresa
                           </Badge>
                         )}
                         {lead.pipeline_mode === "agent" && (
-                          <Badge variant="default" className="text-[10px] px-1.5 py-0" title="Respostas inbound vão pelo Agente SDR (live)">
+                          <Badge variant="default" className="shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0" title="Respostas inbound vão pelo Agente SDR (live)">
                             🤖 Agente
                           </Badge>
                         )}
                         {(() => {
                           const r = computeReadiness(lead, insightsMap[lead.id]);
                           return r ? (
-                            <Badge variant="secondary" className={`${r.cls} text-[10px] px-1.5 py-0`} title={r.tooltip}>
+                            <Badge variant="secondary" className={`${r.cls} shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0`} title={r.tooltip}>
                               {r.label}
                             </Badge>
                           ) : null;
