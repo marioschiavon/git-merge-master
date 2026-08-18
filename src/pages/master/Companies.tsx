@@ -243,6 +243,22 @@ export default function Companies() {
         </CardContent>
       </Card>
 
+      <CompanyDetailsSheet
+        company={detailsCompany as any}
+        open={!!detailsCompany}
+        onOpenChange={(o) => !o && setDetailsCompany(null)}
+        municipiaEnabled={detailsCompany ? !!municipia[detailsCompany.id]?.enabled : false}
+        usage={
+          detailsCompany
+            ? {
+                runs: usageMap.get(detailsCompany.id)?.runs ?? 0,
+                totalTokens: usageMap.get(detailsCompany.id)?.totalTokens ?? 0,
+                costBrl: (usageMap.get(detailsCompany.id)?.costUsd ?? 0) * USD_TO_BRL,
+              }
+            : undefined
+        }
+      />
+
       <AlertDialog open={!!confirmCompany} onOpenChange={(open) => !open && setConfirmCompany(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
