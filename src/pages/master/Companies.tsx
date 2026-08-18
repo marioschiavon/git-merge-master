@@ -32,14 +32,25 @@ export default function Companies() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [confirmCompany, setConfirmCompany] = useState<Company | null>(null);
+  const [detailsCompany, setDetailsCompany] = useState<Company | null>(null);
   const { data: usageMap } = useCompanyUsageMap(30);
 
   const [municipia, setMunicipia] = useState<Record<string, { enabled: boolean; last_import_at: string | null; last_import_count: number }>>({});
+  const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
 
   const fetchCompanies = async () => {
     const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
     setCompanies((data as Company[]) || []);
     setLoading(false);
+  };
+
+  const fetchMemberCounts = async () => {
+    const { data } = await supabase.from("company_members").select("company_id");
+    const map: Record<string, number> = {};
+    for (const row of data ?? []) {
+      map[row.company_id] = (map[row.company_id] ?? 0) + 1;
+    }
+    setMemberCounts(map);
   };
 
   const fetchMunicipia = async () => {
@@ -65,11 +76,15 @@ export default function Companies() {
       toast.error(error.message);
       return;
     }
-    toast.success(enabled ? "MunicipIA habilitado" : "MunicipIA desabilitado");
+    if (enabled && (memberCounts[companyId] ?? 0) === 0) {
+      toast.warning("MunicipIA habilitado, mas esta empresa não tem usuários — ninguém verá o app até alguém entrar por convite.");
+    } else {
+      toast.success(enabled ? "MunicipIA habilitado" : "MunicipIA desabilitado");
+    }
     fetchMunicipia();
   };
 
-  useEffect(() => { fetchCompanies(); fetchMunicipia(); }, []);
+  useEffect(() => { fetchCompanies(); fetchMunicipia(); fetchMemberCounts(); }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
