@@ -8,11 +8,22 @@ import { useAuth } from "@/hooks/useAuth";
 const MUNICIPIA_ORIGIN = new URL(MUNICIPIA_URL).origin;
 
 export default function Municipia() {
-  const { data: integration, isLoading } = useMunicipiaEnabled();
+  const { data: integration, isLoading, refetch } = useMunicipiaEnabled();
   const { companyId } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [companyName, setCompanyName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!companyId) return;
+    supabase
+      .from("companies")
+      .select("name")
+      .eq("id", companyId)
+      .maybeSingle()
+      .then(({ data }) => setCompanyName(data?.name ?? null));
+  }, [companyId]);
 
   // Responds to the MunicipIA handshake with a short-lived ingest token.
   useEffect(() => {
