@@ -52,11 +52,19 @@ export default function Municipia() {
   if (!integration?.enabled) {
     return (
       <Card>
-        <CardContent className="space-y-2 p-6">
+        <CardContent className="space-y-3 p-6">
           <h1 className="text-lg font-semibold">MunicipIA</h1>
           <p className="text-sm text-muted-foreground">
-            A integração com o MunicipIA não está habilitada para esta empresa. Fale com o administrador da plataforma.
+            A integração com o MunicipIA não está habilitada para a empresa em que você está conectado
+            {companyName ? <> (<strong>{companyName}</strong>)</> : null}.
           </p>
+          <p className="text-sm text-muted-foreground">
+            Se o acesso acabou de ser liberado, ele aparece automaticamente em alguns segundos. Se você tem mais de uma
+            empresa, confirme se entrou com a conta correta — o acesso é liberado por empresa, não por usuário.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Verificar novamente
+          </Button>
         </CardContent>
       </Card>
     );
