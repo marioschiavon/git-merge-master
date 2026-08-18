@@ -9,10 +9,11 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Plus } from "lucide-react";
+import { Plus, Users, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useCompanyUsageMap } from "@/hooks/useMasterAiUsage";
 import { formatBrl, formatTokens, USD_TO_BRL } from "@/lib/ai-pricing";
+import { CompanyDetailsSheet } from "@/components/master/CompanyDetailsSheet";
 
 interface Company {
   id: string;
