@@ -181,6 +181,7 @@ export default function Companies() {
                   <TableHead>Nome</TableHead>
                   <TableHead>Slug</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Usuários</TableHead>
                   <TableHead className="text-right">Runs (30d)</TableHead>
                   <TableHead className="text-right">Tokens (30d)</TableHead>
                   <TableHead className="text-right">Custo est. (30d)</TableHead>
@@ -191,11 +192,18 @@ export default function Companies() {
               <TableBody>
                 {companies.map((c) => {
                   const u = usageMap.get(c.id);
+                  const members = memberCounts[c.id] ?? 0;
                   return (
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell>{c.slug}</TableCell>
                     <TableCell><Badge variant={statusColor(c.status)}>{statusLabel(c.status)}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant={members === 0 ? "destructive" : "outline"} className="gap-1">
+                        <Users className="h-3 w-3" />
+                        {members}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-right">{u?.runs ?? 0}</TableCell>
                     <TableCell className="text-right">{formatTokens(u?.totalTokens ?? 0)}</TableCell>
                     <TableCell className="text-right">{formatBrl((u?.costUsd ?? 0) * USD_TO_BRL)}</TableCell>
@@ -208,7 +216,7 @@ export default function Companies() {
                         <span className="text-xs text-muted-foreground">
                           {municipia[c.id]?.last_import_at
                             ? `${municipia[c.id]?.last_import_count ?? 0} leads · ${new Date(municipia[c.id]!.last_import_at!).toLocaleDateString("pt-BR")}`
-                            : municipia[c.id]?.enabled ? "Sem importações" : "Desligado"}
+                            : municipia[c.id]?.enabled ? (members === 0 ? "Sem usuários" : "Sem importações") : "Desligado"}
                         </span>
                       </div>
                     </TableCell>
@@ -221,6 +229,9 @@ export default function Companies() {
                         <span className="text-xs text-muted-foreground">
                           {c.status !== "inactive" ? "Ativa" : "Inativa"}
                         </span>
+                        <Button variant="outline" size="sm" onClick={() => setDetailsCompany(c)}>
+                          <Eye className="mr-1 h-3.5 w-3.5" /> Detalhes
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
