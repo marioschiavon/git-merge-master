@@ -139,6 +139,13 @@ export default function Municipia() {
         </Button>
       </div>
 
+      {sessionError && (
+        <div className="border-b bg-destructive/10 px-4 py-2 text-xs text-destructive">
+          {sessionError} Recarregue a página; se persistir, avise o suporte.
+        </div>
+      )}
+
+
       {blocked && !loaded ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <p className="text-sm text-muted-foreground">
