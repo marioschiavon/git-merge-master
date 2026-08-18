@@ -26,14 +26,28 @@ export default function Municipia() {
       .then(({ data }) => setCompanyName(data?.name ?? null));
   }, [companyId]);
 
-  // Responds to the MunicipIA handshake with a short-lived ingest token.
+  // Handshake com o MunicipIA. O app filho pode ficar pronto antes ou depois de
+  // nós, então além de responder ao "municipia:ready" enviamos a sessão de forma
+  // proativa e repetida até o filho confirmar ("municipia:session-ok").
+  const ackedRef = useRef(false);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+
   useEffect(() => {
-    const handler = async (event: MessageEvent) => {
-      if (event.origin !== MUNICIPIA_ORIGIN) return;
-      if (event.data?.type !== "municipia:ready") return;
+    let cancelled = false;
+    ackedRef.current = false;
+
+    const sendSession = async () => {
+      if (cancelled || ackedRef.current) return;
+      const win = iframeRef.current?.contentWindow;
+      if (!win) return;
       const session = await fetchMunicipiaSession();
-      if (!session) return;
-      iframeRef.current?.contentWindow?.postMessage(
+      if (!session) {
+        if (!cancelled) setSessionError("Não foi possível gerar a sessão do MunicipIA.");
+        return;
+      }
+      if (cancelled) return;
+      setSessionError(null);
+      win.postMessage(
         {
           type: "leaderei:session",
           token: session.token,
@@ -43,9 +57,36 @@ export default function Municipia() {
         MUNICIPIA_ORIGIN,
       );
     };
+
+    const handler = (event: MessageEvent) => {
+      if (event.origin !== MUNICIPIA_ORIGIN) return;
+      const type = event.data?.type;
+      if (type === "municipia:ready") {
+        ackedRef.current = false;
+        void sendSession();
+      } else if (type === "municipia:session-ok") {
+        ackedRef.current = true;
+      }
+    };
     window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, [companyId]);
+
+    // Reenvio proativo: cobre o caso do filho ter ficado pronto antes de nós.
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts += 1;
+      if (ackedRef.current || attempts > 8) {
+        clearInterval(interval);
+        return;
+      }
+      void sendSession();
+    }, 1500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      window.removeEventListener("message", handler);
+    };
+  }, [companyId, integration?.enabled]);
 
   // If the iframe never loads, assume framing is blocked.
   useEffect(() => {
@@ -97,6 +138,13 @@ export default function Municipia() {
           </a>
         </Button>
       </div>
+
+      {sessionError && (
+        <div className="border-b bg-destructive/10 px-4 py-2 text-xs text-destructive">
+          {sessionError} Recarregue a página; se persistir, avise o suporte.
+        </div>
+      )}
+
 
       {blocked && !loaded ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
