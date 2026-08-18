@@ -4,15 +4,27 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MUNICIPIA_URL, useMunicipiaEnabled, fetchMunicipiaSession } from "@/hooks/useMunicipia";
 import { useAuth } from "@/hooks/useAuth";
+import { supabase } from "@/integrations/supabase/client";
 
 const MUNICIPIA_ORIGIN = new URL(MUNICIPIA_URL).origin;
 
 export default function Municipia() {
-  const { data: integration, isLoading } = useMunicipiaEnabled();
+  const { data: integration, isLoading, refetch } = useMunicipiaEnabled();
   const { companyId } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [companyName, setCompanyName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!companyId) return;
+    supabase
+      .from("companies")
+      .select("name")
+      .eq("id", companyId)
+      .maybeSingle()
+      .then(({ data }) => setCompanyName(data?.name ?? null));
+  }, [companyId]);
 
   // Responds to the MunicipIA handshake with a short-lived ingest token.
   useEffect(() => {
@@ -52,11 +64,19 @@ export default function Municipia() {
   if (!integration?.enabled) {
     return (
       <Card>
-        <CardContent className="space-y-2 p-6">
+        <CardContent className="space-y-3 p-6">
           <h1 className="text-lg font-semibold">MunicipIA</h1>
           <p className="text-sm text-muted-foreground">
-            A integração com o MunicipIA não está habilitada para esta empresa. Fale com o administrador da plataforma.
+            A integração com o MunicipIA não está habilitada para a empresa em que você está conectado
+            {companyName ? <> (<strong>{companyName}</strong>)</> : null}.
           </p>
+          <p className="text-sm text-muted-foreground">
+            Se o acesso acabou de ser liberado, ele aparece automaticamente em alguns segundos. Se você tem mais de uma
+            empresa, confirme se entrou com a conta correta — o acesso é liberado por empresa, não por usuário.
+          </p>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            Verificar novamente
+          </Button>
         </CardContent>
       </Card>
     );

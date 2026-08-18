@@ -9,10 +9,11 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Plus } from "lucide-react";
+import { Plus, Users, Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useCompanyUsageMap } from "@/hooks/useMasterAiUsage";
 import { formatBrl, formatTokens, USD_TO_BRL } from "@/lib/ai-pricing";
+import { CompanyDetailsSheet } from "@/components/master/CompanyDetailsSheet";
 
 interface Company {
   id: string;
@@ -31,14 +32,25 @@ export default function Companies() {
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [confirmCompany, setConfirmCompany] = useState<Company | null>(null);
+  const [detailsCompany, setDetailsCompany] = useState<Company | null>(null);
   const { data: usageMap } = useCompanyUsageMap(30);
 
   const [municipia, setMunicipia] = useState<Record<string, { enabled: boolean; last_import_at: string | null; last_import_count: number }>>({});
+  const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
 
   const fetchCompanies = async () => {
     const { data } = await supabase.from("companies").select("*").order("created_at", { ascending: false });
     setCompanies((data as Company[]) || []);
     setLoading(false);
+  };
+
+  const fetchMemberCounts = async () => {
+    const { data } = await supabase.from("company_members").select("company_id");
+    const map: Record<string, number> = {};
+    for (const row of data ?? []) {
+      map[row.company_id] = (map[row.company_id] ?? 0) + 1;
+    }
+    setMemberCounts(map);
   };
 
   const fetchMunicipia = async () => {
@@ -64,11 +76,15 @@ export default function Companies() {
       toast.error(error.message);
       return;
     }
-    toast.success(enabled ? "MunicipIA habilitado" : "MunicipIA desabilitado");
+    if (enabled && (memberCounts[companyId] ?? 0) === 0) {
+      toast.warning("MunicipIA habilitado, mas esta empresa não tem usuários — ninguém verá o app até alguém entrar por convite.");
+    } else {
+      toast.success(enabled ? "MunicipIA habilitado" : "MunicipIA desabilitado");
+    }
     fetchMunicipia();
   };
 
-  useEffect(() => { fetchCompanies(); fetchMunicipia(); }, []);
+  useEffect(() => { fetchCompanies(); fetchMunicipia(); fetchMemberCounts(); }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,6 +181,7 @@ export default function Companies() {
                   <TableHead>Nome</TableHead>
                   <TableHead>Slug</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Usuários</TableHead>
                   <TableHead className="text-right">Runs (30d)</TableHead>
                   <TableHead className="text-right">Tokens (30d)</TableHead>
                   <TableHead className="text-right">Custo est. (30d)</TableHead>
@@ -175,11 +192,18 @@ export default function Companies() {
               <TableBody>
                 {companies.map((c) => {
                   const u = usageMap.get(c.id);
+                  const members = memberCounts[c.id] ?? 0;
                   return (
                   <TableRow key={c.id}>
                     <TableCell className="font-medium">{c.name}</TableCell>
                     <TableCell>{c.slug}</TableCell>
                     <TableCell><Badge variant={statusColor(c.status)}>{statusLabel(c.status)}</Badge></TableCell>
+                    <TableCell className="text-right">
+                      <Badge variant={members === 0 ? "destructive" : "outline"} className="gap-1">
+                        <Users className="h-3 w-3" />
+                        {members}
+                      </Badge>
+                    </TableCell>
                     <TableCell className="text-right">{u?.runs ?? 0}</TableCell>
                     <TableCell className="text-right">{formatTokens(u?.totalTokens ?? 0)}</TableCell>
                     <TableCell className="text-right">{formatBrl((u?.costUsd ?? 0) * USD_TO_BRL)}</TableCell>
@@ -192,7 +216,7 @@ export default function Companies() {
                         <span className="text-xs text-muted-foreground">
                           {municipia[c.id]?.last_import_at
                             ? `${municipia[c.id]?.last_import_count ?? 0} leads · ${new Date(municipia[c.id]!.last_import_at!).toLocaleDateString("pt-BR")}`
-                            : municipia[c.id]?.enabled ? "Sem importações" : "Desligado"}
+                            : municipia[c.id]?.enabled ? (members === 0 ? "Sem usuários" : "Sem importações") : "Desligado"}
                         </span>
                       </div>
                     </TableCell>
@@ -205,6 +229,9 @@ export default function Companies() {
                         <span className="text-xs text-muted-foreground">
                           {c.status !== "inactive" ? "Ativa" : "Inativa"}
                         </span>
+                        <Button variant="outline" size="sm" onClick={() => setDetailsCompany(c)}>
+                          <Eye className="mr-1 h-3.5 w-3.5" /> Detalhes
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -215,6 +242,22 @@ export default function Companies() {
           )}
         </CardContent>
       </Card>
+
+      <CompanyDetailsSheet
+        company={detailsCompany as any}
+        open={!!detailsCompany}
+        onOpenChange={(o) => !o && setDetailsCompany(null)}
+        municipiaEnabled={detailsCompany ? !!municipia[detailsCompany.id]?.enabled : false}
+        usage={
+          detailsCompany
+            ? {
+                runs: usageMap.get(detailsCompany.id)?.runs ?? 0,
+                totalTokens: usageMap.get(detailsCompany.id)?.totalTokens ?? 0,
+                costBrl: (usageMap.get(detailsCompany.id)?.costUsd ?? 0) * USD_TO_BRL,
+              }
+            : undefined
+        }
+      />
 
       <AlertDialog open={!!confirmCompany} onOpenChange={(open) => !open && setConfirmCompany(null)}>
         <AlertDialogContent>
