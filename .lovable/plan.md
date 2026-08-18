@@ -25,9 +25,22 @@
 - Gerar/entregar o **link de convite** para a Revista Qualé, para que os usuários dela entrem na empresa correta. Assim que alguém aceitar, o MunicipIA (já habilitado) aparece automaticamente.
 
 ## Detalhes técnicos
+### 5. Adendo: "Detalhes da empresa" no painel master
+
+Hoje a listagem de empresas não tem nenhuma tela de detalhes — só criar, ativar/inativar e os toggles. Será adicionado:
+
+- Botão **"Detalhes"** em cada linha, abrindo um painel lateral com:
+  - Dados da empresa (nome, slug, status, data de criação, integrações ativas: MunicipIA, Cal.com, e-mail).
+  - **Lista de usuários** da empresa: nome, e-mail, telefone, papel e data de entrada.
+  - Métricas rápidas: total de leads, cadências ativas, uso de IA (tokens/custo estimado) já disponíveis no painel.
+  - Convites pendentes da empresa, com opção de copiar o link do convite.
+- Visível **apenas para o master admin**, que enxerga os usuários de todas as empresas.
+
+## Detalhes técnicos
 
 - `src/hooks/useMunicipia.ts`: adicionar canal realtime em `municipia_integrations` filtrado por `company_id`, invalidando a query; `refetchOnWindowFocus: true`.
 - Migração: `ALTER PUBLICATION supabase_realtime ADD TABLE public.municipia_integrations` (se ainda não estiver na publicação) e `REPLICA IDENTITY FULL`.
-- `src/pages/master/Companies.tsx`: contagem de membros por empresa (agregação em `company_members`) exibida na tabela + aviso ao ativar o toggle com 0 membros.
+- `src/pages/master/Companies.tsx`: contagem de membros por empresa (agregação em `company_members`) exibida na tabela + aviso ao ativar o toggle com 0 membros + botão "Detalhes".
+- Novo `src/components/master/CompanyDetailsSheet.tsx`: usa a função existente `list_company_members` (já permite master admin ver membros de qualquer empresa) e consultas de leads/cadências/convites.
 - `src/pages/Municipia.tsx`: estados de "sem empresa" e "integração desabilitada" com nome da empresa via `useCompanyName`.
 - Bump de versão para `beta 0.30`.
