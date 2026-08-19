@@ -194,6 +194,13 @@ function parseCheckResponse(json: any, phones: string[]): Map<string, boolean> {
   const out = new Map<string, boolean>();
   const rows: any[] = Array.isArray(json)
     ? json
+    // Evolution GO (Hook7): { data: { Users: [...] }, message: "success" }
+    : Array.isArray(json?.data?.Users)
+    ? json.data.Users
+    : Array.isArray(json?.data?.users)
+    ? json.data.users
+    : Array.isArray(json?.Users)
+    ? json.Users
     : Array.isArray(json?.data)
     ? json.data
     // deno-lint-ignore no-explicit-any
@@ -206,10 +213,11 @@ function parseCheckResponse(json: any, phones: string[]): Map<string, boolean> {
   for (const r of rows) {
     if (!r || typeof r !== "object") continue;
     const rawNum = String(
-      r.query ?? r.number ?? r.jid ?? r.JID ?? r.remoteJid ?? r.phone ?? "",
+      r.Query ?? r.query ?? r.number ?? r.jid ?? r.JID ?? r.remoteJid ?? r.phone ?? "",
     );
     const digits = rawNum.replace(/\D/g, "");
-    const rawExists = r.exists ?? r.isInWhatsapp ?? r.IsIn ?? r.isIn ?? r.in_whatsapp;
+    const rawExists = r.exists ?? r.IsInWhatsapp ?? r.isInWhatsapp ?? r.IsIn ?? r.isIn ??
+      r.in_whatsapp;
     const exists = typeof rawExists === "boolean"
       ? rawExists
       : r.status === "valid"
