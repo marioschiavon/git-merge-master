@@ -302,6 +302,7 @@ export async function checkPhonesOnWhatsApp(
       return { ok: true, results };
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
+      console.warn(`hook7 check: falha em ${path}: ${lastError}`);
     }
   }
   return { ok: false, results: new Map(), error: lastError };
