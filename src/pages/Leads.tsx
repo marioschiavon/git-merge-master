@@ -14,6 +14,7 @@ import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
 import { useEnrichMore } from "@/hooks/useScoring";
 import { useCadences } from "@/hooks/useCadences";
 import { useBulkLeadActions } from "@/hooks/useBulkLeadActions";
+import { useVerifyWhatsApp } from "@/hooks/useVerifyWhatsApp";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
