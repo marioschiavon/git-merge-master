@@ -27,8 +27,12 @@ export function useMunicipiaEnabled() {
   // e a página refletem a mudança na hora, sem precisar recarregar.
   useEffect(() => {
     if (!companyId) return;
-    const channel = supabase
-      .channel(`municipia-integration-${companyId}`)
+    // Nome único por montagem: evita reaproveitar um canal já inscrito
+    // (React StrictMode monta o efeito duas vezes).
+    const channel = supabase.channel(
+      `municipia-integration-${companyId}-${Math.random().toString(36).slice(2)}`,
+    );
+    channel
       .on(
         "postgres_changes",
         {
@@ -46,6 +50,7 @@ export function useMunicipiaEnabled() {
       supabase.removeChannel(channel);
     };
   }, [companyId, qc]);
+
 
   return query;
 }
