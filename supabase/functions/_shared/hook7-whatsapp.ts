@@ -142,21 +142,199 @@ export async function getWhatsAppSender(
 export const NO_WHATSAPP_INSTANCE_ERROR =
   "Nenhuma instância WhatsApp (Hook7) conectada para esta empresa";
 
+// ---------------------------------------------------------------------------
+// Checagem de existência de número no WhatsApp (Evolution / Hook7)
+// ---------------------------------------------------------------------------
+
+// Caminhos candidatos: Hook7 usa rotas próprias ("/send/text"), mas o backend
+// é Evolution, que expõe a verificação em lote. Testamos em ordem e memorizamos
+// o primeiro que responder (platform_settings.hook7_number_check_path).
+const NUMBER_CHECK_PATHS = [
+  "/user/check", // Evolution GO (Hook7): { number: [...], formatJid: true }
+  "/chat/whatsappNumbers", // Evolution API clássica: { numbers: [...] }
+];
+
+function checkBodyFor(path: string, nums: string[]): Record<string, unknown> {
+  if (path === "/user/check") return { number: nums, formatJid: true };
+  return { numbers: nums };
+}
+
+async function loadCachedCheckPath(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+): Promise<string | null> {
+  try {
+    const { data } = await admin
+      .from("platform_settings")
+      .select("hook7_number_check_path")
+      .eq("singleton", true)
+      .maybeSingle();
+    const p = data?.hook7_number_check_path;
+    return typeof p === "string" && p.length > 1 ? p : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveCachedCheckPath(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  path: string,
+): Promise<void> {
+  try {
+    await admin
+      .from("platform_settings")
+      .update({ hook7_number_check_path: path })
+      .eq("singleton", true);
+  } catch { /* non-fatal */ }
+}
+
+// deno-lint-ignore no-explicit-any
+function parseCheckResponse(json: any, phones: string[]): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  const rows: any[] = Array.isArray(json)
+    ? json
+    // Evolution GO (Hook7): { data: { Users: [...] }, message: "success" }
+    : Array.isArray(json?.data?.Users)
+    ? json.data.Users
+    : Array.isArray(json?.data?.users)
+    ? json.data.users
+    : Array.isArray(json?.Users)
+    ? json.Users
+    : Array.isArray(json?.data)
+    ? json.data
+    // deno-lint-ignore no-explicit-any
+    : Array.isArray((json as any)?.result)
+    // deno-lint-ignore no-explicit-any
+    ? (json as any).result
+    : json && typeof json === "object"
+    ? [json]
+    : [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    const rawNum = String(
+      r.Query ?? r.query ?? r.number ?? r.jid ?? r.JID ?? r.remoteJid ?? r.phone ?? "",
+    );
+    const digits = rawNum.replace(/\D/g, "");
+    const rawExists = r.exists ?? r.IsInWhatsapp ?? r.isInWhatsapp ?? r.IsIn ?? r.isIn ??
+      r.in_whatsapp;
+    const exists = typeof rawExists === "boolean"
+      ? rawExists
+      : r.status === "valid"
+      ? true
+      : r.status === "invalid"
+      ? false
+      : undefined;
+    if (typeof exists !== "boolean" || !digits) continue;
+    // Evolution pode devolver o JID normalizado (sem o 9, por ex.) — casamos
+    // pelo sufixo mais longo em comum.
+    const match = phones.find((p) => p === digits || p.endsWith(digits.slice(-8)));
+    if (match) out.set(match, exists);
+  }
+  return out;
+}
+
 /**
- * Verifica se um telefone está registrado no WhatsApp.
- * O endpoint público do Hook7 para checagem de número não está documentado
- * neste projeto, então retornamos sempre exists=true para não bloquear envios.
- * Se/quando o endpoint for confirmado, refatorar aqui.
+ * Verifica em lote se números estão registrados no WhatsApp usando a instância
+ * conectada da company. Retorna um Map phone(dígitos) → boolean. Números que
+ * não puderem ser determinados simplesmente não aparecem no Map (unknown).
+ */
+export async function checkPhonesOnWhatsApp(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  instance: Hook7SendInstance,
+  phones: string[],
+): Promise<{ ok: boolean; results: Map<string, boolean>; error?: string }> {
+  const nums = [...new Set(phones.map(normalizePhone).filter(Boolean))];
+  if (!nums.length) return { ok: true, results: new Map() };
+
+  let token: string;
+  try {
+    token = await loadInstanceToken(admin, instance.id);
+  } catch (e) {
+    return { ok: false, results: new Map(), error: e instanceof Error ? e.message : String(e) };
+  }
+  if (!token) return { ok: false, results: new Map(), error: "Token da instância indisponível" };
+
+  const base = await getHook7BaseUrl(admin);
+  const cached = await loadCachedCheckPath(admin);
+  const candidates = cached ? [cached, ...NUMBER_CHECK_PATHS.filter((p) => p !== cached)] : NUMBER_CHECK_PATHS;
+
+  let lastError = "endpoint de verificação indisponível";
+  for (const path of candidates) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 15000);
+      const res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          apikey: token,
+        },
+        body: JSON.stringify(checkBodyFor(path, nums)),
+        signal: ctl.signal,
+      });
+      clearTimeout(t);
+      if (res.status === 404 || res.status === 405) {
+        await res.body?.cancel();
+        lastError = `HTTP ${res.status} em ${path}`;
+        continue;
+      }
+      // deno-lint-ignore no-explicit-any
+      let json: any = null;
+      try { json = await res.json(); } catch { /* ignore */ }
+      if (!res.ok) {
+        lastError = json?.message || json?.error || `HTTP ${res.status}`;
+        console.warn(`hook7 check: ${path} respondeu ${res.status}: ${lastError}`);
+        if (res.status === 401 || res.status === 403) {
+          // Token da instância inválido/expirado: não adianta tentar outras rotas.
+          return {
+            ok: false,
+            results: new Map(),
+            error: "Instância WhatsApp não autorizada (reconecte a instância)",
+          };
+        }
+        continue;
+      }
+      const results = parseCheckResponse(json, nums);
+      if (results.size === 0) {
+        console.warn(
+          `hook7 check: resposta não reconhecida em ${path}:`,
+          JSON.stringify(json).slice(0, 800),
+        );
+        lastError = `resposta não reconhecida em ${path}`;
+        continue;
+      }
+      if (path !== cached) await saveCachedCheckPath(admin, path);
+      return { ok: true, results };
+    } catch (e) {
+      lastError = e instanceof Error ? e.message : String(e);
+      console.warn(`hook7 check: falha em ${path}: ${lastError}`);
+    }
+  }
+  return { ok: false, results: new Map(), error: lastError };
+}
+
+/**
+ * Verifica um único telefone. `exists` indefinido = desconhecido (nunca
+ * bloquear envio nesse caso).
  */
 export async function checkPhoneExistsOnWhatsApp(
   // deno-lint-ignore no-explicit-any
-  _admin: any,
-  _companyId: string,
+  admin: any,
+  companyId: string,
   toPhone: string,
 ): Promise<{ ok: boolean; exists?: boolean; status?: number; error?: string }> {
   const phone = normalizePhone(toPhone);
   if (!phone) return { ok: false, error: "Telefone inválido" };
-  return { ok: true, exists: true };
+  const inst = await getHook7SendInstance(admin, companyId);
+  if (!inst) return { ok: false, error: NO_WHATSAPP_INSTANCE_ERROR };
+  const r = await checkPhonesOnWhatsApp(admin, inst, [phone]);
+  if (!r.ok) return { ok: false, error: r.error };
+  const exists = r.results.get(phone);
+  if (typeof exists !== "boolean") return { ok: false, error: "número não determinado" };
+  return { ok: true, exists };
 }
 
 // ---------------------------------------------------------------------------

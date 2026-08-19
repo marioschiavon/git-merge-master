@@ -27,6 +27,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles, Bot } from "lucide-react";
 import { computeReadiness } from "@/lib/lead-readiness";
+import { useVerifyWhatsApp } from "@/hooks/useVerifyWhatsApp";
 
 
 const statusColors: Record<string, string> = {
@@ -109,6 +110,7 @@ interface Props {
 
 export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Props) {
   const { data: activities = [] } = useLeadActivities(lead?.id ?? null);
+  const verifyWpp = useVerifyWhatsApp();
   const { data: insightData, isLoading: insightsLoading } = useLeadInsights(lead?.id ?? null);
   const analyzeWebsite = useAnalyzeWebsite();
   const qc = useQueryClient();
@@ -308,6 +310,24 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
                 ⚠ Sem WhatsApp
               </Badge>
             )}
+          </div>
+        )}
+        {(lead.whatsapp || lead.phone) && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {lead.whatsapp_valid == null
+                ? "WhatsApp ainda não verificado"
+                : `Última verificação: ${lead.whatsapp_checked_at ? new Date(lead.whatsapp_checked_at).toLocaleString("pt-BR") : "—"}`}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs"
+              disabled={verifyWpp.isPending}
+              onClick={() => verifyWpp.mutate([lead.id])}
+            >
+              {verifyWpp.isPending ? "Verificando..." : "Verificar agora"}
+            </Button>
           </div>
         )}
         {lead.company_name && (

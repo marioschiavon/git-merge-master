@@ -9,7 +9,7 @@
 // Falhas incrementam attempts; após 3 tentativas vira status='failed'.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
-import { sendWhatsAppViaHook7 } from "../_shared/hook7-whatsapp.ts";
+import { checkPhonesOnWhatsApp, sendWhatsAppViaHook7 } from "../_shared/hook7-whatsapp.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -198,6 +198,63 @@ serve(async (req) => {
             results.push({ id: item.id, skipped: "awaiting_lead_reply" });
             continue;
           }
+        }
+      }
+
+      // Verificação de número: antes do primeiro envio a um lead ainda não
+      // checado, confirmamos que o número existe no WhatsApp. Resultado
+      // desconhecido (endpoint indisponível) nunca bloqueia o envio.
+      if (item.lead_id) {
+        const { data: leadRow } = await supabase
+          .from("leads")
+          .select("id, whatsapp_valid, whatsapp_checked_at")
+          .eq("id", item.lead_id)
+          .maybeSingle();
+
+        let valid: boolean | null = leadRow?.whatsapp_valid ?? null;
+        if (leadRow && valid === null) {
+          const chk = await checkPhonesOnWhatsApp(supabase, {
+            id: inst.id,
+            external_name: inst.external_name,
+            phone_number: inst.phone_number,
+          }, [item.to_phone]);
+          const exists = chk.ok
+            ? chk.results.get(String(item.to_phone).replace(/\D/g, ""))
+            : undefined;
+          if (typeof exists === "boolean") {
+            valid = exists;
+            await supabase.from("leads").update({
+              whatsapp_valid: exists,
+              whatsapp_checked_at: new Date().toISOString(),
+              whatsapp_check_error: null,
+            }).eq("id", leadRow.id);
+          } else if (chk.error) {
+            await supabase.from("leads").update({
+              whatsapp_check_error: chk.error.slice(0, 300),
+            }).eq("id", leadRow.id);
+          }
+        }
+
+        if (valid === false) {
+          await supabase.from("whatsapp_send_queue").update({
+            status: "failed",
+            last_error: "lead_has_no_whatsapp",
+          }).eq("id", item.id);
+          if (item.approval_id) {
+            await supabase.from("approval_requests").update({
+              status: "failed",
+              executed_at: new Date().toISOString(),
+              execution_error: "Número não está no WhatsApp",
+            }).eq("id", item.approval_id).eq("status", "queued");
+          }
+          await supabase.from("lead_activities").insert({
+            company_id: item.company_id,
+            lead_id: item.lead_id,
+            type: "system",
+            description: "⚠️ Envio cancelado: o número não está registrado no WhatsApp.",
+          });
+          results.push({ id: item.id, failed: "lead_has_no_whatsapp" });
+          continue;
         }
       }
 

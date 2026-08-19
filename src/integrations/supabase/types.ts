@@ -2935,6 +2935,7 @@ export type Database = {
           gemini_connected_at: string | null
           gemini_last_error: string | null
           hook7_base_url: string
+          hook7_number_check_path: string | null
           id: string
           metadata: Json
           openai_api_key_encrypted: string | null
@@ -2961,6 +2962,7 @@ export type Database = {
           gemini_connected_at?: string | null
           gemini_last_error?: string | null
           hook7_base_url?: string
+          hook7_number_check_path?: string | null
           id?: string
           metadata?: Json
           openai_api_key_encrypted?: string | null
@@ -2987,6 +2989,7 @@ export type Database = {
           gemini_connected_at?: string | null
           gemini_last_error?: string | null
           hook7_base_url?: string
+          hook7_number_check_path?: string | null
           id?: string
           metadata?: Json
           openai_api_key_encrypted?: string | null

@@ -14,6 +14,7 @@ import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
 import { useEnrichMore } from "@/hooks/useScoring";
 import { useCadences } from "@/hooks/useCadences";
 import { useBulkLeadActions } from "@/hooks/useBulkLeadActions";
+import { useVerifyWhatsApp } from "@/hooks/useVerifyWhatsApp";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
 import { LeadFormDialog } from "@/components/LeadFormDialog";
@@ -68,6 +69,7 @@ export default function Leads() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [minScore, setMinScore] = useState<number>(0);
   const [onlyEnriched, setOnlyEnriched] = useState(false);
+  const [onlyWhatsappValid, setOnlyWhatsappValid] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [chosenCadence, setChosenCadence] = useState<string>("");
@@ -93,9 +95,10 @@ export default function Leads() {
   const leads = useMemo(() => {
     let arr: any[] = listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads;
     if (onlyEnriched) arr = arr.filter((l: any) => l.enrichment_status === "completed");
+    if (onlyWhatsappValid) arr = arr.filter((l: any) => l.whatsapp_valid === true);
     if (minScore > 0) arr = arr.filter((l: any) => (l.score ?? 0) >= minScore);
     return arr;
-  }, [allLeads, listId, minScore, onlyEnriched]);
+  }, [allLeads, listId, minScore, onlyEnriched, onlyWhatsappValid]);
   const leadIds = useMemo(() => leads.map((l: any) => l.id), [leads]);
   const { data: insightsMap = {} } = useLeadInsightsBatch(leadIds);
   const syncMutation = useSyncLeads();
@@ -103,6 +106,7 @@ export default function Leads() {
   const isConnected = integration?.status === "active";
   const deleteLead = useDeleteLead();
   const bulk = useBulkLeadActions();
+  const verifyWpp = useVerifyWhatsApp();
 
   const clearListFilter = () => {
     const p = new URLSearchParams(params);
@@ -274,6 +278,10 @@ export default function Leads() {
           <Checkbox checked={onlyEnriched} onCheckedChange={(v) => setOnlyEnriched(!!v)} />
           Só enriquecidos
         </label>
+        <label className="flex items-center gap-2 text-sm" title="Mostra apenas leads cujo número foi confirmado no WhatsApp">
+          <Checkbox checked={onlyWhatsappValid} onCheckedChange={(v) => setOnlyWhatsappValid(!!v)} />
+          WhatsApp válido
+        </label>
       </div>
 
       {/* Bulk action bar */}
@@ -283,6 +291,15 @@ export default function Leads() {
           <div className="flex gap-2">
             <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
               <X className="mr-1 h-3 w-3" /> Limpar
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={verifyWpp.isPending}
+              onClick={() => verifyWpp.mutate(Array.from(selectedIds))}
+              title="Confere na instância conectada se os números existem no WhatsApp"
+            >
+              {verifyWpp.isPending ? "Verificando..." : "Verificar WhatsApp"}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
