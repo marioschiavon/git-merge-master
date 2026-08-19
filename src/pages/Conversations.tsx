@@ -12,6 +12,7 @@ import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw, CalendarCheck, CalendarClock, CalendarX, AlertTriangle, CheckCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
