@@ -282,6 +282,10 @@ export async function checkPhonesOnWhatsApp(
       }
       const results = parseCheckResponse(json, nums);
       if (results.size === 0) {
+        console.warn(
+          `hook7 check: resposta não reconhecida em ${path}:`,
+          JSON.stringify(json).slice(0, 800),
+        );
         lastError = `resposta não reconhecida em ${path}`;
         continue;
       }
