@@ -96,7 +96,14 @@ serve(async (req) => {
         current_step: 0,
         enrolled_at: enrolledAt,
       });
-      if (!insErr) enrolled++;
+      if (!insErr) { enrolled++; enrolledLeadIds.push(ld.id); }
+    }
+    if (enrolledLeadIds.length) {
+      // Marca os leads recém-inscritos como "Em cadência" (só a partir de "Novo").
+      await supabase.from("leads")
+        .update({ status: "enrolled", updated_at: new Date().toISOString() })
+        .in("id", enrolledLeadIds)
+        .eq("status", "new");
     }
     await supabase.from("campaigns").update({ enrolled_count: enrolled }).eq("id", campaign.id);
 
