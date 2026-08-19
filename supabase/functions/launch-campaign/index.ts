@@ -78,6 +78,7 @@ serve(async (req) => {
     // Enroll leads (skip already-enrolled). Schedule respects scheduled_for via enrolled_at.
     const enrolledAt = (mode === "scheduled" && scheduled_for) ? scheduled_for : new Date().toISOString();
     let enrolled = 0;
+    const enrolledLeadIds: string[] = [];
     for (const ld of leadList) {
       const { data: existing } = await supabase
         .from("cadence_enrollments")
@@ -95,7 +96,14 @@ serve(async (req) => {
         current_step: 0,
         enrolled_at: enrolledAt,
       });
-      if (!insErr) enrolled++;
+      if (!insErr) { enrolled++; enrolledLeadIds.push(ld.id); }
+    }
+    if (enrolledLeadIds.length) {
+      // Marca os leads recém-inscritos como "Em cadência" (só a partir de "Novo").
+      await supabase.from("leads")
+        .update({ status: "enrolled", updated_at: new Date().toISOString() })
+        .in("id", enrolledLeadIds)
+        .eq("status", "new");
     }
     await supabase.from("campaigns").update({ enrolled_count: enrolled }).eq("id", campaign.id);
 

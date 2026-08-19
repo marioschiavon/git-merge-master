@@ -5,7 +5,7 @@ import { toast } from "@/hooks/use-toast";
 import { computeLeadDisplayName } from "@/lib/lead-display-name";
 
 type IntegrationProvider = "pipedrive";
-type LeadStatus = "new" | "contacted" | "qualified" | "unqualified" | "converted";
+type LeadStatus = "new" | "enrolled" | "contacted" | "qualified" | "unqualified" | "converted";
 
 export function useIntegration(provider: IntegrationProvider) {
   const { companyId } = useAuth();

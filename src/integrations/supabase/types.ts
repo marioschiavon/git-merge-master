@@ -3853,6 +3853,7 @@ export type Database = {
         | "silence"
       lead_status:
         | "new"
+        | "enrolled"
         | "contacted"
         | "qualified"
         | "unqualified"
@@ -4080,6 +4081,7 @@ export const Constants = {
       ],
       lead_status: [
         "new",
+        "enrolled",
         "contacted",
         "qualified",
         "unqualified",
