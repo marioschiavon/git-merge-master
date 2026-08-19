@@ -1,0 +1,1 @@
+ALTER TABLE public.platform_settings ADD COLUMN IF NOT EXISTS hook7_number_check_path text;
