@@ -168,7 +168,7 @@ export default function Conversations() {
       });
       if (res.error) throw res.error;
       toast.success("Dados de teste resetados com sucesso!");
-      setSelectedLeadId(null);
+      selectLead(null);
       refetch();
     } catch (err: any) {
       toast.error("Erro ao resetar: " + (err.message || "erro desconhecido"));
