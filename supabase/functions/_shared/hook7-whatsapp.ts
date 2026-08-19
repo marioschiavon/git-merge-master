@@ -150,11 +150,14 @@ export const NO_WHATSAPP_INSTANCE_ERROR =
 // é Evolution, que expõe a verificação em lote. Testamos em ordem e memorizamos
 // o primeiro que responder (platform_settings.hook7_number_check_path).
 const NUMBER_CHECK_PATHS = [
-  "/chat/whatsappNumbers",
-  "/chat/whatsapp-numbers",
-  "/chat/check-number",
-  "/misc/onwhatsapp",
+  "/user/check", // Evolution GO (Hook7): { number: [...], formatJid: true }
+  "/chat/whatsappNumbers", // Evolution API clássica: { numbers: [...] }
 ];
+
+function checkBodyFor(path: string, nums: string[]): Record<string, unknown> {
+  if (path === "/user/check") return { number: nums, formatJid: true };
+  return { numbers: nums };
+}
 
 async function loadCachedCheckPath(
   // deno-lint-ignore no-explicit-any
@@ -202,10 +205,13 @@ function parseCheckResponse(json: any, phones: string[]): Map<string, boolean> {
     : [];
   for (const r of rows) {
     if (!r || typeof r !== "object") continue;
-    const rawNum = String(r.number ?? r.jid ?? r.remoteJid ?? r.phone ?? "");
+    const rawNum = String(
+      r.query ?? r.number ?? r.jid ?? r.JID ?? r.remoteJid ?? r.phone ?? "",
+    );
     const digits = rawNum.replace(/\D/g, "");
-    const exists = r.exists ?? r.isBusiness !== undefined
-      ? r.exists
+    const rawExists = r.exists ?? r.isInWhatsapp ?? r.IsIn ?? r.isIn ?? r.in_whatsapp;
+    const exists = typeof rawExists === "boolean"
+      ? rawExists
       : r.status === "valid"
       ? true
       : r.status === "invalid"
@@ -258,7 +264,7 @@ export async function checkPhonesOnWhatsApp(
           Accept: "application/json",
           apikey: token,
         },
-        body: JSON.stringify({ numbers: nums }),
+        body: JSON.stringify(checkBodyFor(path, nums)),
         signal: ctl.signal,
       });
       clearTimeout(t);
