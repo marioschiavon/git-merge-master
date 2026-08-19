@@ -286,6 +286,7 @@ export async function checkPhonesOnWhatsApp(
       try { json = await res.json(); } catch { /* ignore */ }
       if (!res.ok) {
         lastError = json?.message || json?.error || `HTTP ${res.status}`;
+        console.warn(`hook7 check: ${path} respondeu ${res.status}: ${lastError}`);
         continue;
       }
       const results = parseCheckResponse(json, nums);
