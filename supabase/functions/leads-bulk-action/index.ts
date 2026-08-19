@@ -84,6 +84,12 @@ serve(async (req) => {
       }));
       const { error: insErr } = await supabase.from("cadence_enrollments").insert(rows);
       if (insErr) return json({ error: insErr.message }, 500);
+
+      // Marca os leads recém-inscritos como "Em cadência" (só a partir de "Novo").
+      await supabase.from("leads")
+        .update({ status: "enrolled", updated_at: new Date().toISOString() })
+        .in("id", toInsert)
+        .eq("status", "new");
     }
 
     return json({
