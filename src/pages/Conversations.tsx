@@ -391,6 +391,12 @@ export default function Conversations() {
         )}
       </div>
 
+      {!isLoading && leadParam && !selectedGroup && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Esse lead ainda não tem conversas registradas.
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
       ) : leadGroups.length === 0 ? (
