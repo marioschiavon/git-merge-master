@@ -212,7 +212,7 @@ export default function Conversations() {
       <div className="p-6 h-full flex gap-4 min-h-0">
         <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center gap-3 mb-4">
-          <Button variant="ghost" size="icon" onClick={() => { setSelectedLeadId(null); setAiSuggestion(null); }}>
+          <Button variant="ghost" size="icon" onClick={() => { selectLead(null); setAiSuggestion(null); }}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1">
