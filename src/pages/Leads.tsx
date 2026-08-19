@@ -260,6 +260,7 @@ export default function Leads() {
           <SelectContent>
             <SelectItem value="all">Todos os status</SelectItem>
             <SelectItem value="new">Novo</SelectItem>
+            <SelectItem value="enrolled">Em cadência</SelectItem>
             <SelectItem value="contacted">Contatado</SelectItem>
             <SelectItem value="qualified">Qualificado</SelectItem>
             <SelectItem value="unqualified">Desqualificado</SelectItem>
