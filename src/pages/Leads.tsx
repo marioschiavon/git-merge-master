@@ -278,6 +278,10 @@ export default function Leads() {
           <Checkbox checked={onlyEnriched} onCheckedChange={(v) => setOnlyEnriched(!!v)} />
           Só enriquecidos
         </label>
+        <label className="flex items-center gap-2 text-sm" title="Mostra apenas leads cujo número foi confirmado no WhatsApp">
+          <Checkbox checked={onlyWhatsappValid} onCheckedChange={(v) => setOnlyWhatsappValid(!!v)} />
+          WhatsApp válido
+        </label>
       </div>
 
       {/* Bulk action bar */}
