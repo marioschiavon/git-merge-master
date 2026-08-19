@@ -405,7 +405,7 @@ export default function Conversations() {
           {leadGroups.map((g) => {
             const channels = Array.from(new Set(g.conversations.map((c) => c.channel)));
             return (
-              <Card key={g.lead_id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedLeadId(g.lead_id)}>
+              <Card key={g.lead_id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => selectLead(g.lead_id)}>
                 <CardContent className="p-4 flex items-center justify-between">
                   <div>
                     <p className="font-medium text-sm">{g.lead?.name || "Lead"}</p>
