@@ -287,6 +287,14 @@ export async function checkPhonesOnWhatsApp(
       if (!res.ok) {
         lastError = json?.message || json?.error || `HTTP ${res.status}`;
         console.warn(`hook7 check: ${path} respondeu ${res.status}: ${lastError}`);
+        if (res.status === 401 || res.status === 403) {
+          // Token da instância inválido/expirado: não adianta tentar outras rotas.
+          return {
+            ok: false,
+            results: new Map(),
+            error: "Instância WhatsApp não autorizada (reconecte a instância)",
+          };
+        }
         continue;
       }
       const results = parseCheckResponse(json, nums);
