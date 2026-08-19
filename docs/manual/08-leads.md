@@ -42,3 +42,18 @@ Fluxo recomendado para **triagem**: filtre `Só enriquecidos` + `Score ≥ 60` �
 - Descartar leads em massa sem revisar — perde bons por erro de score.
 
 **Próximo passo →** [09. Listas](./09-listas.md)
+
+## Verificação de WhatsApp
+
+Nem todo telefone tem WhatsApp. O Leaderei confere o número diretamente na sua instância conectada e mostra o resultado:
+
+- **Ícone verde/normal** — número confirmado no WhatsApp.
+- **Ícone esmaecido** — ainda não verificado (o envio continua normal).
+- **Ícone riscado** — número **não** está no WhatsApp; o envio por WhatsApp é bloqueado e a cadência multicanal usa e-mail.
+
+Como verificar:
+- **Em lote:** selecione os leads → **Verificar WhatsApp**.
+- **Individual:** abra o lead → **Verificar agora**.
+- **Automático:** uma rotina diária verifica os pendentes, e todo lead é verificado antes do primeiro envio.
+
+Há também o filtro **WhatsApp válido**, para trabalhar só com números confirmados. A verificação exige uma instância WhatsApp conectada; sem ela o status fica como "não verificado" e nada é bloqueado. Resultados são revalidados a cada 30 dias.
