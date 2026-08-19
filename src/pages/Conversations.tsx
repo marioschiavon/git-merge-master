@@ -55,7 +55,22 @@ export default function Conversations() {
   const { data: conversations = [], isLoading, refetch } = useConversations();
   const { isMasterAdmin, isCompanyAdmin, companyId } = useAuth();
   const queryClient = useQueryClient();
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const leadParam = searchParams.get("lead");
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(leadParam);
+
+  const selectLead = (leadId: string | null) => {
+    setSelectedLeadId(leadId);
+    const next = new URLSearchParams(searchParams);
+    if (leadId) next.set("lead", leadId);
+    else next.delete("lead");
+    setSearchParams(next, { replace: true });
+  };
+
+  // Sincroniza seleção com a URL (ex.: vindo de Acompanhamento)
+  useEffect(() => {
+    setSelectedLeadId(leadParam);
+  }, [leadParam]);
 
   // Agrupa conversas por lead
   const leadGroups: LeadGroup[] = useMemo(() => {
