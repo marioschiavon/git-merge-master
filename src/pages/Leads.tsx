@@ -45,6 +45,7 @@ import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles, S
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
+  enrolled: "bg-indigo-100 text-indigo-800",
   contacted: "bg-yellow-100 text-yellow-800",
   qualified: "bg-green-100 text-green-800",
   unqualified: "bg-red-100 text-red-800",
@@ -53,6 +54,7 @@ const statusColors: Record<string, string> = {
 
 const statusLabels: Record<string, string> = {
   new: "Novo",
+  enrolled: "Em cadência",
   contacted: "Contatado",
   qualified: "Qualificado",
   unqualified: "Desqualificado",
