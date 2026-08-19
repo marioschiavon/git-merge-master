@@ -196,6 +196,14 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Primeiro contato efetivo: promove o lead para "Contatado".
+    if (lead_id) {
+      await supabase.from("leads")
+        .update({ status: "contacted", updated_at: new Date().toISOString() })
+        .eq("id", lead_id)
+        .in("status", ["new", "enrolled"]);
+    }
+
     await logDelivery(supabase, {
       company_id: companyId,
       lead_id: lead_id ?? null,
