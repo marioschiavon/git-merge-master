@@ -12,6 +12,7 @@ import { SlotHoldsCard } from "@/components/SlotHoldsCard";
 import { BookingCard } from "@/components/BookingCard";
 import { MessageCircle, Send, Sparkles, Loader2, ArrowLeft, User, Bot, RotateCcw, CalendarCheck, CalendarClock, CalendarX, AlertTriangle, CheckCheck } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -54,7 +55,22 @@ export default function Conversations() {
   const { data: conversations = [], isLoading, refetch } = useConversations();
   const { isMasterAdmin, isCompanyAdmin, companyId } = useAuth();
   const queryClient = useQueryClient();
-  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const leadParam = searchParams.get("lead");
+  const [selectedLeadId, setSelectedLeadId] = useState<string | null>(leadParam);
+
+  const selectLead = (leadId: string | null) => {
+    setSelectedLeadId(leadId);
+    const next = new URLSearchParams(searchParams);
+    if (leadId) next.set("lead", leadId);
+    else next.delete("lead");
+    setSearchParams(next, { replace: true });
+  };
+
+  // Sincroniza seleção com a URL (ex.: vindo de Acompanhamento)
+  useEffect(() => {
+    setSelectedLeadId(leadParam);
+  }, [leadParam]);
 
   // Agrupa conversas por lead
   const leadGroups: LeadGroup[] = useMemo(() => {
@@ -152,7 +168,7 @@ export default function Conversations() {
       });
       if (res.error) throw res.error;
       toast.success("Dados de teste resetados com sucesso!");
-      setSelectedLeadId(null);
+      selectLead(null);
       refetch();
     } catch (err: any) {
       toast.error("Erro ao resetar: " + (err.message || "erro desconhecido"));
@@ -196,7 +212,7 @@ export default function Conversations() {
       <div className="p-6 h-full flex gap-4 min-h-0">
         <div className="flex-1 flex flex-col min-w-0">
         <div className="flex items-center gap-3 mb-4">
-          <Button variant="ghost" size="icon" onClick={() => { setSelectedLeadId(null); setAiSuggestion(null); }}>
+          <Button variant="ghost" size="icon" onClick={() => { selectLead(null); setAiSuggestion(null); }}>
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1">
@@ -375,6 +391,12 @@ export default function Conversations() {
         )}
       </div>
 
+      {!isLoading && leadParam && !selectedGroup && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Esse lead ainda não tem conversas registradas.
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
       ) : leadGroups.length === 0 ? (
@@ -389,7 +411,7 @@ export default function Conversations() {
           {leadGroups.map((g) => {
             const channels = Array.from(new Set(g.conversations.map((c) => c.channel)));
             return (
-              <Card key={g.lead_id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => setSelectedLeadId(g.lead_id)}>
+              <Card key={g.lead_id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => selectLead(g.lead_id)}>
                 <CardContent className="p-4 flex items-center justify-between">
                   <div>
                     <p className="font-medium text-sm">{g.lead?.name || "Lead"}</p>
