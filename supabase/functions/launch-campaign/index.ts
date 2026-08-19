@@ -78,6 +78,7 @@ serve(async (req) => {
     // Enroll leads (skip already-enrolled). Schedule respects scheduled_for via enrolled_at.
     const enrolledAt = (mode === "scheduled" && scheduled_for) ? scheduled_for : new Date().toISOString();
     let enrolled = 0;
+    const enrolledLeadIds: string[] = [];
     for (const ld of leadList) {
       const { data: existing } = await supabase
         .from("cadence_enrollments")
