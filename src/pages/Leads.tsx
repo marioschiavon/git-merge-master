@@ -106,6 +106,7 @@ export default function Leads() {
   const isConnected = integration?.status === "active";
   const deleteLead = useDeleteLead();
   const bulk = useBulkLeadActions();
+  const verifyWpp = useVerifyWhatsApp();
 
   const clearListFilter = () => {
     const p = new URLSearchParams(params);
