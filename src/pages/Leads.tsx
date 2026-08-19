@@ -292,6 +292,15 @@ export default function Leads() {
             <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
               <X className="mr-1 h-3 w-3" /> Limpar
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={verifyWpp.isPending}
+              onClick={() => verifyWpp.mutate(Array.from(selectedIds))}
+              title="Confere na instância conectada se os números existem no WhatsApp"
+            >
+              {verifyWpp.isPending ? "Verificando..." : "Verificar WhatsApp"}
+            </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button size="sm" variant="outline">
