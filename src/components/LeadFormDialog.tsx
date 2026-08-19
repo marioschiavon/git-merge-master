@@ -23,7 +23,7 @@ const schema = z.object({
   linkedin_company_url: z.string().trim().max(255).optional().or(z.literal("")),
   facebook_url: z.string().trim().max(255).optional().or(z.literal("")),
   address: z.string().trim().max(500).optional().or(z.literal("")),
-  status: z.enum(["new", "contacted", "qualified", "unqualified", "converted"]),
+  status: z.enum(["new", "enrolled", "contacted", "qualified", "unqualified", "converted"]),
   source: z.string().trim().max(50).optional().or(z.literal("")),
 }).refine(
   (v) => Boolean(
