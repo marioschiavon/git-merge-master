@@ -248,6 +248,7 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
                     <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                     <SelectContent>
                       <SelectItem value="new">Novo</SelectItem>
+                      <SelectItem value="enrolled">Em cadência</SelectItem>
                       <SelectItem value="contacted">Contatado</SelectItem>
                       <SelectItem value="qualified">Qualificado</SelectItem>
                       <SelectItem value="unqualified">Desqualificado</SelectItem>
