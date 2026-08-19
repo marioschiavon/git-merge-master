@@ -254,10 +254,19 @@ export function WhatsAppManagerDialog({
           qc.invalidateQueries({ queryKey: ["hook7_instances"] });
           qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
         }
-      } catch { /* silent */ }
-    };
-    pollRef.current = window.setInterval(tick, 3000);
-    return () => {
+      } catch (e: any) {
+        // instância arquivada/removida → para o polling
+        if (String(e?.message ?? "").includes("arquivada")) {
+          if (pollRef.current) {
+            window.clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          setActiveId(null);
+          setQrBase64(null);
+          qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+        }
+      }
+
       if (pollRef.current) window.clearInterval(pollRef.current);
     };
   }, [activeId, instances, qc]);
