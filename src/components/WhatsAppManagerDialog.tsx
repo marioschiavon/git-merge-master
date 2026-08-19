@@ -266,10 +266,16 @@ export function WhatsAppManagerDialog({
           qc.invalidateQueries({ queryKey: ["hook7_instances"] });
         }
       }
-
-      if (pollRef.current) window.clearInterval(pollRef.current);
+    };
+    pollRef.current = window.setInterval(tick, 3000);
+    return () => {
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, [activeId, instances, qc]);
+
 
   useEffect(() => {
     if (!open) {
