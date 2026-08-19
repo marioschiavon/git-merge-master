@@ -310,6 +310,24 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
             )}
           </div>
         )}
+        {(lead.whatsapp || lead.phone) && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>
+              {lead.whatsapp_valid == null
+                ? "WhatsApp ainda não verificado"
+                : `Última verificação: ${lead.whatsapp_checked_at ? new Date(lead.whatsapp_checked_at).toLocaleString("pt-BR") : "—"}`}
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs"
+              disabled={verifyWpp.isPending}
+              onClick={() => verifyWpp.mutate([lead.id])}
+            >
+              {verifyWpp.isPending ? "Verificando..." : "Verificar agora"}
+            </Button>
+          </div>
+        )}
         {lead.company_name && (
           <div className="flex items-center gap-2 text-sm">
             <Building2 className="h-4 w-4 text-muted-foreground" />
