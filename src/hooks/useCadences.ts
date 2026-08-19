@@ -203,6 +203,7 @@ export function useEnrollLeads() {
     },
     onSuccess: (_, vars) => {
       qc.invalidateQueries({ queryKey: ["cadence_enrollments", vars.cadenceId] });
+      qc.invalidateQueries({ queryKey: ["leads"] });
       toast.success("Leads associados à cadência!");
     },
     onError: (e: any) => toast.error(e.message),
