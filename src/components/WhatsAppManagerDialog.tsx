@@ -164,10 +164,21 @@ export function WhatsAppManagerDialog({
   });
 
   const deleteMut = useMutation({
+    onMutate: (id: string) => {
+      // interrompe o polling de status antes de arquivar a instância,
+      // senão o próximo tick chama "status" e recebe 410 (arquivada).
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+      setActiveId((cur) => (cur === id ? null : cur));
+      setQrBase64(null);
+    },
     mutationFn: async (id: string) =>
       await callManage<{ remote_deleted?: boolean; remote_error?: string | null }>(
         { action: "delete", instance_id: id, reason: "user_delete" },
       ),
+
     onSuccess: (r) => {
       if (r?.remote_deleted === false) {
         toast({
@@ -243,13 +254,28 @@ export function WhatsAppManagerDialog({
           qc.invalidateQueries({ queryKey: ["hook7_instances"] });
           qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
         }
-      } catch { /* silent */ }
+      } catch (e: any) {
+        // instância arquivada/removida → para o polling
+        if (String(e?.message ?? "").includes("arquivada")) {
+          if (pollRef.current) {
+            window.clearInterval(pollRef.current);
+            pollRef.current = null;
+          }
+          setActiveId(null);
+          setQrBase64(null);
+          qc.invalidateQueries({ queryKey: ["hook7_instances"] });
+        }
+      }
     };
     pollRef.current = window.setInterval(tick, 3000);
     return () => {
-      if (pollRef.current) window.clearInterval(pollRef.current);
+      if (pollRef.current) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
     };
   }, [activeId, instances, qc]);
+
 
   useEffect(() => {
     if (!open) {
