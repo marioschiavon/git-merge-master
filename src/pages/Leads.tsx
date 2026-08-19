@@ -68,6 +68,7 @@ export default function Leads() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [minScore, setMinScore] = useState<number>(0);
   const [onlyEnriched, setOnlyEnriched] = useState(false);
+  const [onlyWhatsappValid, setOnlyWhatsappValid] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [chosenCadence, setChosenCadence] = useState<string>("");
