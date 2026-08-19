@@ -317,6 +317,13 @@ serve(async (req) => {
       }
 
       const nowIso = new Date().toISOString();
+      // Primeiro contato efetivo: promove o lead para "Contatado".
+      if (item.lead_id) {
+        await supabase.from("leads")
+          .update({ status: "contacted", updated_at: nowIso })
+          .eq("id", item.lead_id)
+          .in("status", ["new", "enrolled"]);
+      }
       await supabase.from("whatsapp_send_queue").update({
         status: "sent",
         sent_at: nowIso,
