@@ -94,9 +94,10 @@ export default function Leads() {
   const leads = useMemo(() => {
     let arr: any[] = listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads;
     if (onlyEnriched) arr = arr.filter((l: any) => l.enrichment_status === "completed");
+    if (onlyWhatsappValid) arr = arr.filter((l: any) => l.whatsapp_valid === true);
     if (minScore > 0) arr = arr.filter((l: any) => (l.score ?? 0) >= minScore);
     return arr;
-  }, [allLeads, listId, minScore, onlyEnriched]);
+  }, [allLeads, listId, minScore, onlyEnriched, onlyWhatsappValid]);
   const leadIds = useMemo(() => leads.map((l: any) => l.id), [leads]);
   const { data: insightsMap = {} } = useLeadInsightsBatch(leadIds);
   const syncMutation = useSyncLeads();
