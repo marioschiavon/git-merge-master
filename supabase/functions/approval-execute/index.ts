@@ -344,6 +344,7 @@ serve(async (req) => {
               content: message,
               direction: "outbound",
               ai_suggested: true,
+              channel,
               metadata: { approval_id, hitl_approved: true, channel, pending_manual: true },
             });
           }
