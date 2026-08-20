@@ -179,7 +179,7 @@ serve(async (req) => {
     const earlyStop = async (rationale: string, stop_reason: string) => {
       const d: Decision = { action: "stop", rationale, stop_reason };
       await persistDecision(d);
-      await updateEnrollment({ status: "completed", completed_at: new Date().toISOString(), next_execution_at: null });
+      await updateEnrollment({ status: "completed", paused_reason: stop_reason, completed_at: new Date().toISOString(), next_execution_at: null });
       return new Response(JSON.stringify({ action: "stop", reason: stop_reason, decision: d }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -549,9 +549,10 @@ Decida a próxima ação.`;
         .from("cadence_enrollments")
         .update({
           status: "completed",
+          paused_reason: decision.stop_reason || null,
           completed_at: new Date().toISOString(),
           next_execution_at: null,
-        })
+        } as any)
         .eq("id", enrollment_id);
     } else if (decision.action === "handoff_human") {
       await persistDecision(decision, { model: "google/gemini-2.5-flash" });

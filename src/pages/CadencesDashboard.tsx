@@ -76,6 +76,33 @@ const statusBadge: Record<string, { label: string; cls: string }> = {
   paused: { label: "Pausado", cls: "bg-muted text-muted-foreground border-border" },
 };
 
+// Motivos que indicam que o lead foi descartado/rejeitado (não é uma conclusão positiva)
+const DISQUALIFY_REASONS = new Set([
+  "low_fit",
+  "no_interest",
+  "opt_out",
+  "lead_rejected",
+  "intent_rejection",
+  "no_contact_channel",
+  "hitl_rejected",
+  "disqualified",
+]);
+
+const disqualifiedBadge = { label: "Descartado", cls: "bg-red-100 text-red-800 border-red-200" };
+
+// Status efetivo exibido: "Concluído" só quando o encerramento foi positivo.
+function effectiveStatus(enrollment: any, lead: any): string {
+  const reason = enrollment?.paused_reason as string | null;
+  const leadStatus = lead?.status as string | null;
+  if (
+    (enrollment?.status === "completed" || enrollment?.status === "paused") &&
+    ((reason && DISQUALIFY_REASONS.has(reason)) || leadStatus === "unqualified" || leadStatus === "lost")
+  ) {
+    return "disqualified";
+  }
+  return enrollment?.status;
+}
+
 const initials = (name?: string | null) =>
   (name || "?")
     .split(" ")
@@ -173,7 +200,8 @@ export default function CadencesDashboard() {
       total: r.length,
       active: r.filter((x) => x.enrollment.status === "active").length,
       replied: r.filter((x) => x.enrollment.status === "replied").length,
-      completed: r.filter((x) => x.enrollment.status === "completed").length,
+      completed: r.filter((x) => effectiveStatus(x.enrollment, x.lead) === "completed").length,
+      disqualified: r.filter((x) => effectiveStatus(x.enrollment, x.lead) === "disqualified").length,
       bounced: r.filter((x) => x.enrollment.status === "bounced").length,
       paused: r.filter((x) => x.enrollment.status === "paused").length,
     };
@@ -187,7 +215,7 @@ export default function CadencesDashboard() {
 
   const filtered = useMemo(() => {
     return (rows || []).filter((r) => {
-      if (statusFilter !== "all" && r.enrollment.status !== statusFilter) return false;
+      if (statusFilter !== "all" && effectiveStatus(r.enrollment, r.lead) !== statusFilter) return false;
       if (intentFilter !== "all" && r.lastIntent?.category !== intentFilter) return false;
       if (stepFilter !== "all" && String(r.enrollment.current_step) !== stepFilter) return false;
       if (search) {
@@ -241,6 +269,7 @@ export default function CadencesDashboard() {
             <Kpi icon={<Activity className="h-4 w-4 text-blue-600" />} label="Ativos" value={stats.active} />
             <Kpi icon={<Reply className="h-4 w-4 text-purple-600" />} label="Responderam" value={stats.replied} />
             <Kpi icon={<CheckCircle2 className="h-4 w-4 text-green-600" />} label="Concluídos" value={stats.completed} />
+            <Kpi icon={<XCircle className="h-4 w-4 text-red-600" />} label="Descartados" value={stats.disqualified} />
             <Kpi icon={<XCircle className="h-4 w-4 text-red-600" />} label="Bounces" value={stats.bounced} />
           </div>
 
@@ -288,6 +317,7 @@ export default function CadencesDashboard() {
                 <SelectItem value="active">Ativo</SelectItem>
                 <SelectItem value="replied">Respondeu</SelectItem>
                 <SelectItem value="completed">Concluído</SelectItem>
+                <SelectItem value="disqualified">Descartado</SelectItem>
                 <SelectItem value="bounced">Bounce</SelectItem>
                 <SelectItem value="paused">Pausado</SelectItem>
               </SelectContent>
@@ -353,7 +383,11 @@ export default function CadencesDashboard() {
                     </TableRow>
                   )}
                   {filtered.map((r) => {
-                    const sb = statusBadge[r.enrollment.status] || { label: r.enrollment.status, cls: "" };
+                    const eff = effectiveStatus(r.enrollment, r.lead);
+                    const sb =
+                      eff === "disqualified"
+                        ? disqualifiedBadge
+                        : statusBadge[eff] || { label: eff, cls: "" };
                     const pct = r.totalSteps > 0 ? Math.round(((r.enrollment.current_step - 1) / r.totalSteps) * 100) : 0;
                     return (
                       <TableRow
