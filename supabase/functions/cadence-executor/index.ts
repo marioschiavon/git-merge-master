@@ -488,7 +488,7 @@ serve(async (req) => {
               supabase, lead.id, cadence.company_id, currentStep.channel, enrollment.id
             );
             if (conversation) {
-              await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel, ...deliveryMeta } });
+              await supabase.from("messages").insert({ conversation_id: conversation.id, content: parsed.message, direction: "outbound", ai_suggested: false, channel: currentStep.channel, metadata: { subject: parsed.subject, step_order: currentStep.step_order, custom_message: true, channel: currentStep.channel, ...deliveryMeta } });
             }
           }
 

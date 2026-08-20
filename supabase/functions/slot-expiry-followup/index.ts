@@ -71,6 +71,7 @@ async function sendMessage(
     content: args.message,
     direction: "outbound",
     ai_suggested: false,
+    channel: args.channel,
     metadata: { slot_expiry_followup: true, stage: args.stage, channel: args.channel },
   });
 

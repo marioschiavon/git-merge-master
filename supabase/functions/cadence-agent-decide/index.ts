@@ -695,6 +695,7 @@ Decida a próxima ação.`;
             content: decision.message,
             direction: "outbound",
             ai_suggested: true,
+            channel,
             metadata: { source: "cadence_agent", hook: decision.hook, attempt: attemptNumber, channel, ...deliveryMeta },
           });
         }

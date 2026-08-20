@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
             content: msg,
             direction: "outbound",
             ai_suggested: true,
+            channel,
             metadata: { referral_followup: true, channel, pending_send: channel !== "email" },
           });
         }
