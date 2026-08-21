@@ -513,11 +513,18 @@ export default function Leads() {
                 </div>
               );
             })()}
+            <BulkActionProgress progress={bulk.progress} label="Enviando leads para a cadência" />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEnrollOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setEnrollOpen(false); bulk.resetProgress(); }} disabled={bulk.isPending}>
+              {bulk.progress.status === "error" ? "Fechar" : "Cancelar"}
+            </Button>
             <Button onClick={handleEnroll} disabled={!chosenCadence || bulk.isPending}>
-              {bulk.isPending ? "Enviando..." : "Confirmar envio"}
+              {bulk.isPending
+                ? `Enviando... ${bulk.progress.percent}%`
+                : bulk.progress.status === "error"
+                  ? "Tentar novamente"
+                  : "Confirmar envio"}
             </Button>
           </DialogFooter>
         </DialogContent>
