@@ -36,16 +36,32 @@ serve(async (req) => {
     if (!leadIds.length) return json({ error: "lead_ids vazio" }, 400);
     if (!["enroll", "discard"].includes(action)) return json({ error: "action inválida" }, 400);
 
-    // Filtra apenas leads da empresa
-    const { data: validLeads } = await supabase
-      .from("leads").select("id, email, whatsapp, phone").eq("company_id", companyId).in("id", leadIds);
-    const validIds = (validLeads || []).map((l: any) => l.id);
+    // Chunk helper: evita URLs gigantes (erro em seleções grandes, ex.: 683 leads)
+    const CHUNK = 100;
+    const chunks = <T,>(arr: T[], size = CHUNK): T[][] => {
+      const out: T[][] = [];
+      for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+      return out;
+    };
+
+    // Filtra apenas leads da empresa (em lotes)
+    const validLeads: any[] = [];
+    for (const part of chunks(leadIds)) {
+      const { data, error } = await supabase
+        .from("leads").select("id, email, whatsapp, phone").eq("company_id", companyId).in("id", part);
+      if (error) return json({ error: error.message }, 500);
+      if (data) validLeads.push(...data);
+    }
+    const validIds = validLeads.map((l: any) => l.id);
     if (!validIds.length) return json({ error: "nenhum lead válido" }, 400);
 
     if (action === "discard") {
-      await supabase.from("leads")
-        .update({ status: "unqualified", updated_at: new Date().toISOString() })
-        .in("id", validIds);
+      for (const part of chunks(validIds)) {
+        const { error } = await supabase.from("leads")
+          .update({ status: "unqualified", updated_at: new Date().toISOString() })
+          .in("id", part);
+        if (error) return json({ error: error.message }, 500);
+      }
       return json({ ok: true, discarded: validIds.length });
     }
 
@@ -62,35 +78,42 @@ serve(async (req) => {
       if (cadType === "email") return !!l.email;
       return !!(l.email || l.whatsapp || l.phone);
     };
-    const eligible = (validLeads || []).filter(hasChannel);
-    const skippedNoChannelIds = (validLeads || []).filter((l: any) => !hasChannel(l)).map((l: any) => l.id);
+    const eligible = validLeads.filter(hasChannel);
+    const skippedNoChannelIds = validLeads.filter((l: any) => !hasChannel(l)).map((l: any) => l.id);
     const eligibleIds = eligible.map((l: any) => l.id);
 
-    // Evita duplicar enrollments
-    const { data: existing } = await supabase.from("cadence_enrollments")
-      .select("lead_id").eq("cadence_id", cadenceId).in("lead_id", eligibleIds.length ? eligibleIds : ["00000000-0000-0000-0000-000000000000"]);
-    const alreadyIn = new Set((existing || []).map((r: any) => r.lead_id));
+    // Evita duplicar enrollments (em lotes)
+    const alreadyIn = new Set<string>();
+    for (const part of chunks(eligibleIds)) {
+      const { data, error } = await supabase.from("cadence_enrollments")
+        .select("lead_id").eq("cadence_id", cadenceId).in("lead_id", part);
+      if (error) return json({ error: error.message }, 500);
+      for (const r of data || []) alreadyIn.add((r as any).lead_id);
+    }
     const toInsert = eligibleIds.filter((id) => !alreadyIn.has(id));
 
     if (toInsert.length) {
-      const rows = toInsert.map((lead_id) => ({
-        company_id: companyId,
-        lead_id,
-        cadence_id: cadenceId,
-        status: "active",
-        current_step: 0,
-        first_message_status: "pending_generation",
-        enrolled_at: new Date().toISOString(),
-      }));
-      const { error: insErr } = await supabase.from("cadence_enrollments").insert(rows);
-      if (insErr) return json({ error: insErr.message }, 500);
+      for (const part of chunks(toInsert)) {
+        const rows = part.map((lead_id) => ({
+          company_id: companyId,
+          lead_id,
+          cadence_id: cadenceId,
+          status: "active",
+          current_step: 0,
+          first_message_status: "pending_generation",
+          enrolled_at: new Date().toISOString(),
+        }));
+        const { error: insErr } = await supabase.from("cadence_enrollments").insert(rows);
+        if (insErr) return json({ error: insErr.message }, 500);
 
-      // Marca os leads recém-inscritos como "Em cadência" (só a partir de "Novo").
-      await supabase.from("leads")
-        .update({ status: "enrolled", updated_at: new Date().toISOString() })
-        .in("id", toInsert)
-        .eq("status", "new");
+        // Marca os leads recém-inscritos como "Em cadência" (só a partir de "Novo").
+        await supabase.from("leads")
+          .update({ status: "enrolled", updated_at: new Date().toISOString() })
+          .in("id", part)
+          .eq("status", "new");
+      }
     }
+
 
     return json({
       ok: true,
