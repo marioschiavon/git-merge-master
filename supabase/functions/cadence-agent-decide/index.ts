@@ -4,7 +4,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
 import { buildFirstMessage } from "../_shared/build-first-message.ts";
-import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
+import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover, hasPendingApproval } from "../_shared/hitl-gate.ts";
 import { getEmailReplyContext } from "../_shared/email-thread.ts";
 
 async function findOrCreateConversation(
@@ -136,6 +136,24 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Pending-approval guard: do not decide/send a new step while a previous
+    // message for this lead is still awaiting human approval.
+    if (!dryRun && !bypass_hitl && !override_decision && lead?.id) {
+      const pendingApprovalId = await hasPendingApproval(supabase, { lead_id: lead.id });
+      if (pendingApprovalId) {
+        await supabase.from("cadence_enrollments").update({
+          status: "paused", paused_reason: "hitl_pending", next_execution_at: null,
+        }).eq("id", enrollment_id);
+        console.log("[cadence-agent-decide] paused — approval pending", {
+          enrollment_id, lead_id: lead.id, approval_id: pendingApprovalId,
+        });
+        return new Response(JSON.stringify({ skipped: "approval_pending", approval_id: pendingApprovalId }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+    }
+
 
     const { data: policy } = await supabase
       .from("cadence_policies")

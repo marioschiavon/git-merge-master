@@ -1,7 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { enqueueWhatsAppSend } from "../_shared/whatsapp-pacer.ts";
-import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
+import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover, hasPendingApproval } from "../_shared/hitl-gate.ts";
 import { buildReferrerLabel, sanitizeReferrerMentions } from "../_shared/referrer-label.ts";
 import { getEmailReplyContext } from "../_shared/email-thread.ts";
 
@@ -261,6 +261,22 @@ serve(async (req) => {
           // Another worker already picked this up.
           continue;
         }
+
+        // Pending-approval guard: never advance the cadence while a previous
+        // message for this lead is still waiting for human approval.
+        if (!bypassHitl) {
+          const pendingApprovalId = await hasPendingApproval(supabase, { lead_id: enrollment.lead_id });
+          if (pendingApprovalId) {
+            await supabase.from("cadence_enrollments").update({
+              status: "paused", paused_reason: "hitl_pending", next_execution_at: null,
+            }).eq("id", enrollment.id);
+            console.log("[cadence-executor] paused — approval pending", {
+              enrollment_id: enrollment.id, lead_id: enrollment.lead_id, approval_id: pendingApprovalId,
+            });
+            continue;
+          }
+        }
+
 
         // Parallel-enrollment guard: if another active enrollment for the same lead
         // already executed in the last 24h, skip this one to avoid sending two
