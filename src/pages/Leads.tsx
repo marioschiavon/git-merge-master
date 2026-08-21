@@ -21,6 +21,7 @@ import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
 import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { EnrichmentQueueBadge } from "@/components/EnrichmentQueueBadge";
+import { BulkActionProgress } from "@/components/lead/BulkActionProgress";
 import { useMunicipiaEnabled } from "@/hooks/useMunicipia";
 import {
   AlertDialog,
@@ -143,14 +144,26 @@ export default function Leads() {
 
   const handleEnroll = async () => {
     if (!chosenCadence) return;
-    await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "enroll", cadence_id: chosenCadence });
+    try {
+      await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "enroll", cadence_id: chosenCadence });
+    } catch {
+      return; // mantém o diálogo aberto mostrando o status de falha
+    }
     setSelectedIds(new Set());
-    setEnrollOpen(false);
     setChosenCadence("");
+    setTimeout(() => {
+      setEnrollOpen(false);
+      bulk.resetProgress();
+    }, 1200);
   };
   const handleDiscard = async () => {
-    await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "discard" });
+    try {
+      await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "discard" });
+    } catch {
+      return;
+    }
     setSelectedIds(new Set());
+    setTimeout(() => bulk.resetProgress(), 2500);
   };
 
   const actionButtons = (
@@ -231,6 +244,7 @@ export default function Leads() {
       </div>
 
       <EnrichmentQueueBadge />
+      {!enrollOpen && <BulkActionProgress progress={bulk.progress} label="Processando leads" />}
 
       {activeList && (
         <div className="flex items-center gap-2 text-sm">
@@ -500,11 +514,18 @@ export default function Leads() {
                 </div>
               );
             })()}
+            <BulkActionProgress progress={bulk.progress} label="Enviando leads para a cadência" />
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEnrollOpen(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setEnrollOpen(false); bulk.resetProgress(); }} disabled={bulk.isPending}>
+              {bulk.progress.status === "error" ? "Fechar" : "Cancelar"}
+            </Button>
             <Button onClick={handleEnroll} disabled={!chosenCadence || bulk.isPending}>
-              {bulk.isPending ? "Enviando..." : "Confirmar envio"}
+              {bulk.isPending
+                ? `Enviando... ${bulk.progress.percent}%`
+                : bulk.progress.status === "error"
+                  ? "Tentar novamente"
+                  : "Confirmar envio"}
             </Button>
           </DialogFooter>
         </DialogContent>
