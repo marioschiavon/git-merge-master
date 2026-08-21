@@ -244,6 +244,7 @@ export default function Leads() {
       </div>
 
       <EnrichmentQueueBadge />
+      {!enrollOpen && <BulkActionProgress progress={bulk.progress} label="Processando leads" />}
 
       {activeList && (
         <div className="flex items-center gap-2 text-sm">
