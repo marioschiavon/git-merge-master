@@ -15,3 +15,4 @@ Email via Resend multi-tenant: cada company configura seu próprio sending domai
 - [Guia de Prospecção Liderei](docs/guia-liderei-prospeccao.md) — Referência de produto (03/07/2026): KB multi-tenant, score configurável, controle de volume no enriquecimento, qualidade > volume
 - [Manual do Usuário](docs/manual/README.md) — Passo a passo por menu na ordem de onboarding (PT-BR)
 - [P01 features](mem://features/p01) — Bulk actions em /leads, kickoff KB protegido, historical_wins, resumos IA de LinkedIn/Instagram em lead_insights
+- [Patch logs](mem://features/patch-logs) — A cada bump de APP_VERSION, registrar mudanças do dia em docs/patch-logs/AAAA-MM-DD.md (linguagem de cliente)
