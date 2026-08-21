@@ -21,6 +21,7 @@ import { LeadFormDialog } from "@/components/LeadFormDialog";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
 import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { EnrichmentQueueBadge } from "@/components/EnrichmentQueueBadge";
+import { BulkActionProgress } from "@/components/lead/BulkActionProgress";
 import { useMunicipiaEnabled } from "@/hooks/useMunicipia";
 import {
   AlertDialog,
