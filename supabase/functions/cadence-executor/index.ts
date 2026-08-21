@@ -262,6 +262,22 @@ serve(async (req) => {
           continue;
         }
 
+        // Pending-approval guard: never advance the cadence while a previous
+        // message for this lead is still waiting for human approval.
+        if (!bypassHitl) {
+          const pendingApprovalId = await hasPendingApproval(supabase, { lead_id: enrollment.lead_id });
+          if (pendingApprovalId) {
+            await supabase.from("cadence_enrollments").update({
+              status: "paused", paused_reason: "hitl_pending", next_execution_at: null,
+            }).eq("id", enrollment.id);
+            console.log("[cadence-executor] paused — approval pending", {
+              enrollment_id: enrollment.id, lead_id: enrollment.lead_id, approval_id: pendingApprovalId,
+            });
+            continue;
+          }
+        }
+
+
         // Parallel-enrollment guard: if another active enrollment for the same lead
         // already executed in the last 24h, skip this one to avoid sending two
         // first contacts in parallel from different cadences.
