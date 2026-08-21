@@ -3,6 +3,7 @@
 // runs pendentes do debounce e pausa enrollments para que a IA não interfira.
 // Quando desliga: devolve para IA e (opcional) re-enfileira o agente.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { hasPendingApproval } from "../_shared/hitl-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
