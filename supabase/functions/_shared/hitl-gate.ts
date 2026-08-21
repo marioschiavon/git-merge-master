@@ -181,3 +181,29 @@ function labelFor(kind: HitlScope): string {
     case "sensitive_action": return "ação sensível";
   }
 }
+
+/**
+ * Returns the id of any PENDING approval_request blocking new outbound for this
+ * lead (or specific enrollment). While something is awaiting human approval,
+ * the cadence must not advance to the next step.
+ */
+export async function hasPendingApproval(
+  supabase: any,
+  opts: { lead_id?: string | null; enrollment_id?: string | null },
+): Promise<string | null> {
+  try {
+    let query = supabase
+      .from("approval_requests")
+      .select("id")
+      .eq("status", "pending")
+      .limit(1);
+    if (opts.lead_id) query = query.eq("lead_id", opts.lead_id);
+    else if (opts.enrollment_id) query = query.eq("enrollment_id", opts.enrollment_id);
+    else return null;
+    const { data } = await query.maybeSingle();
+    return data?.id ?? null;
+  } catch (e) {
+    console.error("[hitl-gate] hasPendingApproval error:", e);
+    return null;
+  }
+}
