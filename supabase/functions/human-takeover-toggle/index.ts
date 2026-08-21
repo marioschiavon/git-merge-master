@@ -3,6 +3,7 @@
 // runs pendentes do debounce e pausa enrollments para que a IA não interfira.
 // Quando desliga: devolve para IA e (opcional) re-enfileira o agente.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { hasPendingApproval } from "../_shared/hitl-gate.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -102,6 +103,28 @@ Deno.serve(async (req) => {
         description: "🤖 Conversa devolvida para a IA",
         metadata: { conversation_id, actor: "human", action: "takeover_off", user_id: userId },
       });
+
+      // Se existe aprovação pendente, a cadência NÃO pode voltar a rodar:
+      // a mensagem anterior ainda não foi enviada.
+      const pendingApprovalId = await hasPendingApproval(admin, {
+        lead_id: conv.lead_id,
+        enrollment_id: conv.cadence_enrollment_id,
+      });
+      log("pending_approval_check", { pendingApprovalId });
+
+      if (pendingApprovalId) {
+        await admin.from("lead_activities").insert({
+          company_id: conv.company_id,
+          lead_id: conv.lead_id,
+          type: "system",
+          description: "⏸️ Cadência mantida pausada: existe mensagem aguardando aprovação",
+          metadata: { conversation_id, approval_id: pendingApprovalId, actor: "system" },
+        });
+        return new Response(
+          JSON.stringify({ ok: true, resumed: false, pending_approval_id: pendingApprovalId }),
+          { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
 
       // Inspeciona enrollment antes de despausar
       if (conv.cadence_enrollment_id) {
