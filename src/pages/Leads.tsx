@@ -144,14 +144,26 @@ export default function Leads() {
 
   const handleEnroll = async () => {
     if (!chosenCadence) return;
-    await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "enroll", cadence_id: chosenCadence });
+    try {
+      await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "enroll", cadence_id: chosenCadence });
+    } catch {
+      return; // mantém o diálogo aberto mostrando o status de falha
+    }
     setSelectedIds(new Set());
-    setEnrollOpen(false);
     setChosenCadence("");
+    setTimeout(() => {
+      setEnrollOpen(false);
+      bulk.resetProgress();
+    }, 1200);
   };
   const handleDiscard = async () => {
-    await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "discard" });
+    try {
+      await bulk.mutateAsync({ lead_ids: Array.from(selectedIds), action: "discard" });
+    } catch {
+      return;
+    }
     setSelectedIds(new Set());
+    setTimeout(() => bulk.resetProgress(), 2500);
   };
 
   const actionButtons = (
