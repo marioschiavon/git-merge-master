@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import {
   AlertTriangle,
   ArrowRight,
+  Building2,
   CheckCircle2,
   Circle,
   Clock3,
