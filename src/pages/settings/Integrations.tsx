@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import {
   AlertTriangle,
   ArrowRight,
+  Building2,
   CheckCircle2,
   Circle,
   Clock3,
@@ -627,6 +628,19 @@ export default function Integrations() {
       status: pipedriveStatus,
       syncLabel: pipedrive?.last_synced_at ? relTime(pipedrive.last_synced_at) : null,
       onAction: () => setPipedriveOpen(true),
+    },
+    {
+      key: "bitrix24",
+      name: "Bitrix24",
+      category: "CRM",
+      description:
+        "Sincronize leads e negócios com o CRM Bitrix24. Integração em desenvolvimento.",
+      icon: Building2,
+      iconTint: "text-[#2FC7F7]",
+      status: "disconnected",
+      readinessLabel: "Em desenvolvimento",
+      actionLabel: "Em desenvolvimento",
+      disabled: true,
     },
     {
       key: "email",
