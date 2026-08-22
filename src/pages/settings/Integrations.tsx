@@ -630,6 +630,19 @@ export default function Integrations() {
       onAction: () => setPipedriveOpen(true),
     },
     {
+      key: "bitrix24",
+      name: "Bitrix24",
+      category: "CRM",
+      description:
+        "Sincronize leads e negócios com o CRM Bitrix24. Integração em desenvolvimento.",
+      icon: Building2,
+      iconTint: "text-[#2FC7F7]",
+      status: "disconnected",
+      readinessLabel: "Em desenvolvimento",
+      actionLabel: "Em desenvolvimento",
+      disabled: true,
+    },
+    {
       key: "email",
       name: "Email",
       category: "Email",
