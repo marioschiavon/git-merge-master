@@ -116,24 +116,26 @@ export async function getWhatsAppSender(
 }
 
 export const NO_WHATSAPP_INSTANCE_ERROR =
-  "Nenhuma instância WhatsApp (Hook7) conectada para esta empresa";
+  "Nenhuma conexão de WhatsApp ativa para esta empresa";
 
 // ---------------------------------------------------------------------------
-// Checagem de existência de número no WhatsApp (Evolution / Hook7)
+// Checagem de existência de número no WhatsApp
 // ---------------------------------------------------------------------------
 
-// Caminhos candidatos: Hook7 usa rotas próprias ("/send/text"), mas o backend
-// é Evolution, que expõe a verificação em lote. Testamos em ordem e memorizamos
-// o primeiro que responder (platform_settings.hook7_number_check_path).
+// Templates de rota ({i} = nome da conexão). A primeira é a do padrão atual
+// do provedor; as demais ficam como retrocompatibilidade. Memorizamos a que
+// responder em platform_settings.hook7_number_check_path.
 const NUMBER_CHECK_PATHS = [
-  "/user/check", // Evolution GO (Hook7): { number: [...], formatJid: true }
-  "/chat/whatsappNumbers", // Evolution API clássica: { numbers: [...] }
+  "/chat/whatsappNumbers/{i}", // padrão atual: { numbers: [...] }
+  "/user/check", // padrão anterior: { number: [...], formatJid: true }
+  "/chat/whatsappNumbers",
 ];
 
 function checkBodyFor(path: string, nums: string[]): Record<string, unknown> {
-  if (path === "/user/check") return { number: nums, formatJid: true };
+  if (path.startsWith("/user/check")) return { number: nums, formatJid: true };
   return { numbers: nums };
 }
+
 
 async function loadCachedCheckPath(
   // deno-lint-ignore no-explicit-any
