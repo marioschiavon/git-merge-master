@@ -229,8 +229,10 @@ export function WhatsAppManagerDialog({
       }
       if (c?.qrcode_base64) {
         setQrBase64(c.qrcode_base64);
+        qc.invalidateQueries({ queryKey: ["hook7_instances"] });
         return;
       }
+
       const r = await callManage<{ qrcode_base64: string | null }>({
         action: "qr",
         instance_id: id,
@@ -321,12 +323,13 @@ export function WhatsAppManagerDialog({
               <AlertTriangle className="h-4 w-4" /> Reconexão necessária
             </div>
             <p className="mt-1 text-muted-foreground">
-              O serviço de WhatsApp foi atualizado. As conexões antigas ficaram
-              inativas: remova-as e crie uma nova conexão lendo o QR-Code no
-              celular. Suas mensagens e leads continuam intactos.
+              O serviço de WhatsApp foi atualizado. Selecione a conexão e clique
+              em <strong>Reconectar</strong> para ler o QR-Code novamente — nada
+              é excluído e suas mensagens, leads e cadências continuam intactos.
             </p>
           </div>
         )}
+
 
         <div className="grid gap-6 md:grid-cols-2">
 
@@ -408,9 +411,10 @@ export function WhatsAppManagerDialog({
                       </div>
                       <div className="truncate text-[11px] text-muted-foreground">
                         {isLegacyInstance(inst)
-                          ? "Conexão antiga — precisa ser refeita"
+                          ? "Reconexão necessária"
                           : inst.connected_profile_name ?? inst.phone_number ?? "—"}
                       </div>
+
                     </div>
                     <Badge className={STATUS_CLASS[inst.status]}>
                       {STATUS_LABEL[inst.status]}
@@ -445,18 +449,21 @@ export function WhatsAppManagerDialog({
                   <StatusChip status={activeInstance.status} />
                 </div>
 
-                {isLegacyInstance(activeInstance) ? (
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                {isLegacyInstance(activeInstance) && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
                     <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="h-4 w-4" /> Conexão antiga
+                      <AlertTriangle className="h-4 w-4" /> Reconexão necessária
                     </div>
                     <p className="mt-1 text-muted-foreground">
-                      Esta conexão foi criada em uma versão anterior do serviço e
-                      não pode mais ser usada. Remova-a e crie uma nova conexão
-                      para ler o QR-Code novamente.
+                      Clique em <strong>Reconectar</strong> e leia o QR-Code no
+                      celular. A conexão continua a mesma — histórico e leads
+                      permanecem.
                     </p>
                   </div>
-                ) : activeInstance.status === "connected" ? (
+                )}
+
+                {!isLegacyInstance(activeInstance) && activeInstance.status === "connected" ? (
+
                   <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
                     <div className="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-400">
                       <CheckCircle2 className="h-4 w-4" />
@@ -494,16 +501,22 @@ export function WhatsAppManagerDialog({
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  {activeInstance.status !== "connected" && !isLegacyInstance(activeInstance) && (
+                  {(isLegacyInstance(activeInstance) ||
+                    activeInstance.status !== "connected") && (
                     <Button
                       size="sm"
                       onClick={() => connectAndFetchQr(activeInstance.id)}
                       disabled={qrLoading}
                     >
                       <QrCode className="mr-1 h-4 w-4" />
-                      {qrBase64 ? "Gerar novo QR" : "Gerar QR"}
+                      {isLegacyInstance(activeInstance)
+                        ? "Reconectar"
+                        : qrBase64
+                        ? "Gerar novo QR"
+                        : "Gerar QR"}
                     </Button>
                   )}
+
 
                   {activeInstance.status === "connected" && (
                     <Button

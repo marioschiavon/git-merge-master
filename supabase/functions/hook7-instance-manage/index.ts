@@ -14,8 +14,9 @@
 // Autorização: caller precisa ser company_admin da company da conexão
 // (ou master_admin). Cada company só vê/gerencia as suas.
 //
-// Conexões criadas no motor antigo (engine='legacy') não são operáveis: o
-// usuário precisa criar uma nova conexão e ler o QR-Code novamente.
+// Conexões criadas no motor antigo (engine='legacy') são reprovisionadas na
+// mesma linha ao chamar connect/reconnect/qr — nada precisa ser excluído.
+
 
 import {
   errorResponse,
@@ -51,7 +52,8 @@ const CORS = {
 };
 
 const LEGACY_MSG =
-  "Esta conexão foi criada em uma versão anterior do serviço e precisa ser refeita. Exclua-a e crie uma nova conexão lendo o QR-Code.";
+  "Esta conexão precisa ser reconectada: clique em Reconectar e leia o QR-Code novamente.";
+
 
 async function getCallerCompany(userId: string): Promise<{ id: string; slug: string; name: string; isMaster: boolean; isCompanyAdmin: boolean; }> {
   const admin = serviceClient();
@@ -137,11 +139,24 @@ async function loadCompanySlug(companyId: string): Promise<string> {
   return data?.slug ?? "";
 }
 
+/** Nomes técnicos já usados pela empresa (inclui arquivadas). */
+async function takenNames(companyId: string): Promise<string[]> {
+  const admin = serviceClient();
+  const { data } = await admin
+    .from("hook7_instances")
+    .select("external_name")
+    .eq("company_id", companyId);
+  return (data ?? [])
+    .map((r) => r.external_name)
+    .filter((v): v is string => typeof v === "string" && !!v);
+}
+
 function statusFromState(state: string): "connected" | "pairing" | "disconnected" {
   if (state === "open") return "connected";
   if (state === "connecting") return "pairing";
   return "disconnected";
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
@@ -216,7 +231,12 @@ Deno.serve(async (req) => {
       if (!caller.id) throw new HttpError(400, "Empresa alvo não determinada.");
       await assertCanManage(user.id, caller.id);
 
-      const externalName = buildExternalName(caller.slug, displayName);
+      const externalName = buildExternalName(
+        caller.slug,
+        displayName,
+        await takenNames(caller.id),
+      );
+
       const suggestedToken = uuidv4();
       const webhookUrl = buildWaWebhookUrl(caller.slug);
 
@@ -286,7 +306,70 @@ Deno.serve(async (req) => {
 
     // ---------------- CONNECT / RECONNECT / QR ----------------
     if (action === "connect" || action === "reconnect" || action === "qr") {
-      if (isLegacy) throw new HttpError(409, LEGACY_MSG);
+      // Conexão do motor antigo: reprovisiona na MESMA linha do banco
+      // (nada é excluído; o usuário só lê o QR-Code de novo).
+      if (isLegacy) {
+        const slug = await loadCompanySlug(inst.company_id);
+        const webhookUrl = buildWaWebhookUrl(slug);
+        const newName = buildExternalName(
+          slug,
+          inst.display_name,
+          await takenNames(inst.company_id),
+        );
+        const created = await createInstance({
+          admin,
+          instanceName: newName,
+          token: uuidv4(),
+          webhookUrl,
+        });
+        await storeInstanceToken(admin, inst.id, created.token);
+        const nowIso = new Date().toISOString();
+        await admin
+          .from("hook7_instances")
+          .update({
+            external_id: created.external_id,
+            external_name: created.external_name,
+            engine: ENGINE_EVOLUTION_API,
+            status: created.qrcode_base64 ? "qr_ready" : "pending_qr",
+            phone_number: null,
+            connected_profile_name: null,
+            user_disconnected_at: null,
+            last_error: null,
+            last_qr_at: created.qrcode_base64 ? nowIso : null,
+            updated_at: nowIso,
+          })
+          .eq("id", inst.id);
+
+        // Melhor esforço: remove o resto da instância antiga no provedor.
+        if (inst.external_name && inst.external_name !== created.external_name) {
+          try {
+            await deleteInstance({ admin, instanceName: inst.external_name });
+          } catch { /* pode nem existir mais */ }
+        }
+
+        try {
+          await setInstanceWebhook({
+            admin,
+            instanceName: created.external_name,
+            apikey: created.token,
+            webhookUrl,
+          });
+        } catch { /* non-fatal */ }
+
+        let qr = created.qrcode_base64;
+        if (!qr) {
+          try {
+            const c = await connectInstance({
+              admin,
+              instanceName: created.external_name,
+              apikey: created.token,
+            });
+            qr = c.qrcode_base64;
+          } catch { /* front pode pedir o QR de novo */ }
+        }
+        return jsonResponse({ ok: true, reprovisioned: true, qrcode_base64: qr }, 200, CORS);
+      }
+
       const token = await loadInstanceToken(admin, inst.id);
       const slug = await loadCompanySlug(inst.company_id);
       const webhookUrl = buildWaWebhookUrl(slug);

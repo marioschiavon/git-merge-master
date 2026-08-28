@@ -44,7 +44,9 @@ Clique **Testar conexão** — o Leaderei envia uma mensagem para o próprio nú
 ## Problemas comuns
 
 - **"O QR-Code expirou"** → clique **Gerar novo** e escaneie em até 60 segundos.
+- **"Reconexão necessária"** → selecione a conexão e clique **Reconectar**; leia o QR-Code de novo. Não é preciso excluir nada: a conexão, as conversas e os leads continuam os mesmos.
 - **Status "Desconectado" depois de 1 dia** → o WhatsApp desloga aparelhos que ficam muito tempo sem contato. É só refazer o passo 2 e escanear de novo.
 - **"As mensagens não estão saindo"** → confira se o horário atual está dentro da **janela de envio** configurada em Configurações Gerais.
+
 
 **Próximo passo →** [03b. Email](./03b-email-resend.md)
