@@ -427,7 +427,7 @@ export function WhatsAppManagerDialog({
             {!activeInstance && (
               <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-center text-sm text-muted-foreground">
                 <QrCode className="mb-2 h-10 w-10 opacity-40" />
-                Selecione ou crie uma instância para ver o QR Code.
+                Selecione ou crie uma conexão para ver o QR-Code.
               </div>
             )}
 
@@ -445,7 +445,18 @@ export function WhatsAppManagerDialog({
                   <StatusChip status={activeInstance.status} />
                 </div>
 
-                {activeInstance.status === "connected" ? (
+                {isLegacyInstance(activeInstance) ? (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                    <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="h-4 w-4" /> Conexão antiga
+                    </div>
+                    <p className="mt-1 text-muted-foreground">
+                      Esta conexão foi criada em uma versão anterior do serviço e
+                      não pode mais ser usada. Remova-a e crie uma nova conexão
+                      para ler o QR-Code novamente.
+                    </p>
+                  </div>
+                ) : activeInstance.status === "connected" ? (
                   <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
                     <div className="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-400">
                       <CheckCircle2 className="h-4 w-4" />
@@ -483,7 +494,7 @@ export function WhatsAppManagerDialog({
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  {activeInstance.status !== "connected" && (
+                  {activeInstance.status !== "connected" && !isLegacyInstance(activeInstance) && (
                     <Button
                       size="sm"
                       onClick={() => connectAndFetchQr(activeInstance.id)}
@@ -493,6 +504,7 @@ export function WhatsAppManagerDialog({
                       {qrBase64 ? "Gerar novo QR" : "Gerar QR"}
                     </Button>
                   )}
+
                   {activeInstance.status === "connected" && (
                     <Button
                       size="sm"
