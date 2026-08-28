@@ -304,7 +304,70 @@ Deno.serve(async (req) => {
 
     // ---------------- CONNECT / RECONNECT / QR ----------------
     if (action === "connect" || action === "reconnect" || action === "qr") {
-      if (isLegacy) throw new HttpError(409, LEGACY_MSG);
+      // Conexão do motor antigo: reprovisiona na MESMA linha do banco
+      // (nada é excluído; o usuário só lê o QR-Code de novo).
+      if (isLegacy) {
+        const slug = await loadCompanySlug(inst.company_id);
+        const webhookUrl = buildWaWebhookUrl(slug);
+        const newName = buildExternalName(
+          slug,
+          inst.display_name,
+          await takenNames(inst.company_id),
+        );
+        const created = await createInstance({
+          admin,
+          instanceName: newName,
+          token: uuidv4(),
+          webhookUrl,
+        });
+        await storeInstanceToken(admin, inst.id, created.token);
+        const nowIso = new Date().toISOString();
+        await admin
+          .from("hook7_instances")
+          .update({
+            external_id: created.external_id,
+            external_name: created.external_name,
+            engine: ENGINE_EVOLUTION_API,
+            status: created.qrcode_base64 ? "qr_ready" : "pending_qr",
+            phone_number: null,
+            connected_profile_name: null,
+            user_disconnected_at: null,
+            last_error: null,
+            last_qr_at: created.qrcode_base64 ? nowIso : null,
+            updated_at: nowIso,
+          })
+          .eq("id", inst.id);
+
+        // Melhor esforço: remove o resto da instância antiga no provedor.
+        if (inst.external_name && inst.external_name !== created.external_name) {
+          try {
+            await deleteInstance({ admin, instanceName: inst.external_name });
+          } catch { /* pode nem existir mais */ }
+        }
+
+        try {
+          await setInstanceWebhook({
+            admin,
+            instanceName: created.external_name,
+            apikey: created.token,
+            webhookUrl,
+          });
+        } catch { /* non-fatal */ }
+
+        let qr = created.qrcode_base64;
+        if (!qr) {
+          try {
+            const c = await connectInstance({
+              admin,
+              instanceName: created.external_name,
+              apikey: created.token,
+            });
+            qr = c.qrcode_base64;
+          } catch { /* front pode pedir o QR de novo */ }
+        }
+        return jsonResponse({ ok: true, reprovisioned: true, qrcode_base64: qr }, 200, CORS);
+      }
+
       const token = await loadInstanceToken(admin, inst.id);
       const slug = await loadCompanySlug(inst.company_id);
       const webhookUrl = buildWaWebhookUrl(slug);
