@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 type InstanceStatus =
   | "pending_qr"
@@ -102,6 +103,8 @@ export function WhatsAppManagerDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const qc = useQueryClient();
+  const { isCompanyAdmin, isMasterAdmin } = useAuth();
+  const canManage = isCompanyAdmin || isMasterAdmin;
   const [newName, setNewName] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [qrBase64, setQrBase64] = useState<string | null>(null);
@@ -330,12 +333,19 @@ export function WhatsAppManagerDialog({
           </div>
         )}
 
+        {!canManage && (
+          <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+            Você pode consultar as conexões. Para conectar, reconectar ou remover,
+            solicite a um administrador da empresa.
+          </div>
+        )}
+
 
         <div className="grid gap-6 md:grid-cols-2">
 
           {/* Coluna esquerda: lista + criar */}
           <div className="space-y-4">
-            <div className="rounded-lg border p-3">
+            {canManage && <div className="rounded-lg border p-3">
               <Label htmlFor="new-inst" className="text-xs font-medium">
                 Nova conexão
               </Label>
@@ -366,7 +376,7 @@ export function WhatsAppManagerDialog({
                 O QR abre logo após criar. Escaneie no app do WhatsApp em até 2
                 minutos.
               </p>
-            </div>
+            </div>}
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -500,7 +510,7 @@ export function WhatsAppManagerDialog({
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                {canManage && <div className="flex flex-wrap gap-2">
                   {(isLegacyInstance(activeInstance) ||
                     activeInstance.status !== "connected") && (
                     <Button
@@ -548,7 +558,7 @@ export function WhatsAppManagerDialog({
                     <Trash2 className="mr-1 h-4 w-4" />
                     Remover
                   </Button>
-                </div>
+                </div>}
               </div>
             )}
           </div>
