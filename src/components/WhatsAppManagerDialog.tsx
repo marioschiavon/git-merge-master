@@ -129,23 +129,27 @@ export function WhatsAppManagerDialog({
 
   const createMut = useMutation({
     mutationFn: async (name: string) => {
-      const r = await callManage<{ instance: Hook7Instance }>({
+      const r = await callManage<{ instance: Hook7Instance; qrcode_base64: string | null }>({
         action: "create",
         display_name: name,
       });
-      return r.instance;
+      return r;
     },
-    onSuccess: async (inst) => {
+    onSuccess: async ({ instance: inst, qrcode_base64 }) => {
       setNewName("");
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
       qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
-      // conecta e abre o QR imediatamente
       setActiveId(inst.id);
-      await connectAndFetchQr(inst.id);
+      if (qrcode_base64) {
+        setQrBase64(qrcode_base64);
+      } else {
+        await connectAndFetchQr(inst.id);
+      }
     },
     onError: (e: Error) =>
       toast({ title: "Erro ao criar", description: e.message, variant: "destructive" }),
   });
+
 
   const disconnectMut = useMutation({
     mutationFn: async (id: string) =>
