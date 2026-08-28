@@ -300,12 +300,14 @@ export function WhatsAppManagerDialog({
     }
   }, [open]);
 
+  const hasLegacy = (instances ?? []).some((i) => isLegacyInstance(i));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Smartphone className="h-5 w-5 text-[#25D366]" /> WhatsApp — Instâncias
+            <Smartphone className="h-5 w-5 text-[#25D366]" /> WhatsApp — Conexões
           </DialogTitle>
           <DialogDescription>
             Conecte o WhatsApp da sua empresa para que o agente envie mensagens
@@ -313,7 +315,21 @@ export function WhatsAppManagerDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {hasLegacy && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+            <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-4 w-4" /> Reconexão necessária
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              O serviço de WhatsApp foi atualizado. As conexões antigas ficaram
+              inativas: remova-as e crie uma nova conexão lendo o QR-Code no
+              celular. Suas mensagens e leads continuam intactos.
+            </p>
+          </div>
+        )}
+
         <div className="grid gap-6 md:grid-cols-2">
+
           {/* Coluna esquerda: lista + criar */}
           <div className="space-y-4">
             <div className="rounded-lg border p-3">
