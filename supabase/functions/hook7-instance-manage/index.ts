@@ -137,11 +137,24 @@ async function loadCompanySlug(companyId: string): Promise<string> {
   return data?.slug ?? "";
 }
 
+/** Nomes técnicos já usados pela empresa (inclui arquivadas). */
+async function takenNames(companyId: string): Promise<string[]> {
+  const admin = serviceClient();
+  const { data } = await admin
+    .from("hook7_instances")
+    .select("external_name")
+    .eq("company_id", companyId);
+  return (data ?? [])
+    .map((r) => r.external_name)
+    .filter((v): v is string => typeof v === "string" && !!v);
+}
+
 function statusFromState(state: string): "connected" | "pairing" | "disconnected" {
   if (state === "open") return "connected";
   if (state === "connecting") return "pairing";
   return "disconnected";
 }
+
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
