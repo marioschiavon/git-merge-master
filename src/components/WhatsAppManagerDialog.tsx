@@ -523,9 +523,9 @@ export function WhatsAppManagerDialog({
                     onClick={() => {
                       if (
                         confirm(
-                        "Remover esta conexão? A sessão com o WhatsApp será encerrada.",
-
+                          "Remover esta conexão? A sessão com o WhatsApp será encerrada.",
                         )
+
                       ) {
                         deleteMut.mutate(activeInstance.id);
                       }
