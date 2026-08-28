@@ -1,9 +1,10 @@
-// Hook7 WhatsApp sender — substitui _shared/zapi-whatsapp.ts no fluxo outbound.
-// Cada company tem sua própria instância conectada; usamos o token dedicado
-// (armazenado criptografado em hook7_instances.token_encrypted) para autenticar
-// as chamadas /message/sendText.
+// Envio de WhatsApp pelo provedor. Cada company tem sua própria conexão;
+// usamos o token dedicado (armazenado criptografado em
+// hook7_instances.token_encrypted) para autenticar as chamadas de envio.
 
-import { getHook7BaseUrl, loadInstanceToken } from "./hook7.ts";
+import { loadInstanceToken } from "./hook7.ts";
+import { sendTextMessage } from "./whatsapp-engine.ts";
+
 
 export interface Hook7SendInstance {
   id: string;
