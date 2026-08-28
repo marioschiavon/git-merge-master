@@ -409,9 +409,10 @@ export function WhatsAppManagerDialog({
                       </div>
                       <div className="truncate text-[11px] text-muted-foreground">
                         {isLegacyInstance(inst)
-                          ? "Conexão antiga — precisa ser refeita"
+                          ? "Reconexão necessária"
                           : inst.connected_profile_name ?? inst.phone_number ?? "—"}
                       </div>
+
                     </div>
                     <Badge className={STATUS_CLASS[inst.status]}>
                       {STATUS_LABEL[inst.status]}
