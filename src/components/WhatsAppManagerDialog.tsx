@@ -334,8 +334,9 @@ export function WhatsAppManagerDialog({
           <div className="space-y-4">
             <div className="rounded-lg border p-3">
               <Label htmlFor="new-inst" className="text-xs font-medium">
-                Nova instância
+                Nova conexão
               </Label>
+
               <div className="mt-2 flex gap-2">
                 <Input
                   id="new-inst"
