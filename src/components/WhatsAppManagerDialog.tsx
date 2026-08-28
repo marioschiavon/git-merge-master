@@ -159,14 +159,15 @@ export function WhatsAppManagerDialog({
     onSuccess: (r) => {
       if (r?.remote_confirmed === false) {
         toast({
-          title: "Desconectado no app, mas o Hook7 ainda reporta ativo",
+          title: "Desconectado no app, mas a sessão ainda parece ativa",
           description:
             "O celular pode continuar conectado ao WhatsApp. Se possível, desconecte também pelo aparelho (Aparelhos conectados).",
           variant: "destructive",
         });
       } else {
-        toast({ title: "Instância desconectada" });
+        toast({ title: "Conexão desconectada" });
       }
+
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
       qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
     },
