@@ -229,8 +229,10 @@ export function WhatsAppManagerDialog({
       }
       if (c?.qrcode_base64) {
         setQrBase64(c.qrcode_base64);
+        qc.invalidateQueries({ queryKey: ["hook7_instances"] });
         return;
       }
+
       const r = await callManage<{ qrcode_base64: string | null }>({
         action: "qr",
         instance_id: id,
