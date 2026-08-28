@@ -367,7 +367,7 @@ export function WhatsAppManagerDialog({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">Suas instâncias</h4>
+                <h4 className="text-sm font-medium">Suas conexões</h4>
                 <Button
                   size="icon"
                   variant="ghost"
@@ -389,7 +389,7 @@ export function WhatsAppManagerDialog({
 
               {instances && instances.length === 0 && (
                 <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
-                  Nenhuma instância ainda.
+                  Nenhuma conexão ainda.
                 </p>
               )}
 
@@ -407,9 +407,9 @@ export function WhatsAppManagerDialog({
                         {inst.display_name}
                       </div>
                       <div className="truncate text-[11px] text-muted-foreground">
-                        {inst.connected_profile_name ??
-                          inst.phone_number ??
-                          "—"}
+                        {isLegacyInstance(inst)
+                          ? "Conexão antiga — precisa ser refeita"
+                          : inst.connected_profile_name ?? inst.phone_number ?? "—"}
                       </div>
                     </div>
                     <Badge className={STATUS_CLASS[inst.status]}>
@@ -418,6 +418,7 @@ export function WhatsAppManagerDialog({
                   </div>
                 </button>
               ))}
+
             </div>
           </div>
 
