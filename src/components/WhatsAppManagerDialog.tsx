@@ -499,16 +499,22 @@ export function WhatsAppManagerDialog({
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  {activeInstance.status !== "connected" && !isLegacyInstance(activeInstance) && (
+                  {(isLegacyInstance(activeInstance) ||
+                    activeInstance.status !== "connected") && (
                     <Button
                       size="sm"
                       onClick={() => connectAndFetchQr(activeInstance.id)}
                       disabled={qrLoading}
                     >
                       <QrCode className="mr-1 h-4 w-4" />
-                      {qrBase64 ? "Gerar novo QR" : "Gerar QR"}
+                      {isLegacyInstance(activeInstance)
+                        ? "Reconectar"
+                        : qrBase64
+                        ? "Gerar novo QR"
+                        : "Gerar QR"}
                     </Button>
                   )}
+
 
                   {activeInstance.status === "connected" && (
                     <Button
