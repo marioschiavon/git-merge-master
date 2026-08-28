@@ -41,6 +41,7 @@ interface Hook7Instance {
   display_name: string;
   external_name: string | null;
   status: InstanceStatus;
+  engine?: string | null;
   phone_number: string | null;
   connected_profile_name: string | null;
   owner_user_id: string | null;
@@ -48,6 +49,10 @@ interface Hook7Instance {
   last_qr_at: string | null;
   created_at: string;
 }
+
+const isLegacyInstance = (i: { engine?: string | null } | null) =>
+  (i?.engine ?? "") === "legacy";
+
 
 const STATUS_LABEL: Record<InstanceStatus, string> = {
   pending_qr: "Aguardando QR",
@@ -124,23 +129,27 @@ export function WhatsAppManagerDialog({
 
   const createMut = useMutation({
     mutationFn: async (name: string) => {
-      const r = await callManage<{ instance: Hook7Instance }>({
+      const r = await callManage<{ instance: Hook7Instance; qrcode_base64: string | null }>({
         action: "create",
         display_name: name,
       });
-      return r.instance;
+      return r;
     },
-    onSuccess: async (inst) => {
+    onSuccess: async ({ instance: inst, qrcode_base64 }) => {
       setNewName("");
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
       qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
-      // conecta e abre o QR imediatamente
       setActiveId(inst.id);
-      await connectAndFetchQr(inst.id);
+      if (qrcode_base64) {
+        setQrBase64(qrcode_base64);
+      } else {
+        await connectAndFetchQr(inst.id);
+      }
     },
     onError: (e: Error) =>
       toast({ title: "Erro ao criar", description: e.message, variant: "destructive" }),
   });
+
 
   const disconnectMut = useMutation({
     mutationFn: async (id: string) =>
@@ -150,14 +159,15 @@ export function WhatsAppManagerDialog({
     onSuccess: (r) => {
       if (r?.remote_confirmed === false) {
         toast({
-          title: "Desconectado no app, mas o Hook7 ainda reporta ativo",
+          title: "Desconectado no app, mas a sessão ainda parece ativa",
           description:
             "O celular pode continuar conectado ao WhatsApp. Se possível, desconecte também pelo aparelho (Aparelhos conectados).",
           variant: "destructive",
         });
       } else {
-        toast({ title: "Instância desconectada" });
+        toast({ title: "Conexão desconectada" });
       }
+
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
       qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
     },
@@ -185,12 +195,13 @@ export function WhatsAppManagerDialog({
           title: "Removida no app, mas não no provedor",
           description:
             r?.remote_error ??
-            "Não foi possível excluir a instância no Hook7. Tente novamente em instantes.",
+            "Não foi possível excluir a conexão no provedor. Tente novamente em instantes.",
           variant: "destructive",
         });
       } else {
-        toast({ title: "Instância removida" });
+        toast({ title: "Conexão removida" });
       }
+
       if (activeId) setActiveId(null);
       setQrBase64(null);
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
@@ -203,17 +214,21 @@ export function WhatsAppManagerDialog({
     setQrLoading(true);
     setQrBase64(null);
     try {
-      const c = await callManage<{ already_connected?: boolean }>({
+      const c = await callManage<{ already_connected?: boolean; qrcode_base64: string | null }>({
         action: "connect",
         instance_id: id,
       });
       if (c?.already_connected) {
         toast({
           title: "WhatsApp já está conectado",
-          description: "Essa instância já possui uma sessão ativa.",
+          description: "Esta conexão já possui uma sessão ativa.",
         });
         qc.invalidateQueries({ queryKey: ["hook7_instances"] });
         qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
+        return;
+      }
+      if (c?.qrcode_base64) {
+        setQrBase64(c.qrcode_base64);
         return;
       }
       const r = await callManage<{ qrcode_base64: string | null }>({
@@ -222,6 +237,7 @@ export function WhatsAppManagerDialog({
       });
       setQrBase64(r.qrcode_base64);
     } catch (e: any) {
+
       toast({
         title: "Falha ao gerar QR",
         description: e.message,
@@ -284,12 +300,14 @@ export function WhatsAppManagerDialog({
     }
   }, [open]);
 
+  const hasLegacy = (instances ?? []).some((i) => isLegacyInstance(i));
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Smartphone className="h-5 w-5 text-[#25D366]" /> WhatsApp — Instâncias
+            <Smartphone className="h-5 w-5 text-[#25D366]" /> WhatsApp — Conexões
           </DialogTitle>
           <DialogDescription>
             Conecte o WhatsApp da sua empresa para que o agente envie mensagens
@@ -297,13 +315,28 @@ export function WhatsAppManagerDialog({
           </DialogDescription>
         </DialogHeader>
 
+        {hasLegacy && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+            <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-4 w-4" /> Reconexão necessária
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              O serviço de WhatsApp foi atualizado. As conexões antigas ficaram
+              inativas: remova-as e crie uma nova conexão lendo o QR-Code no
+              celular. Suas mensagens e leads continuam intactos.
+            </p>
+          </div>
+        )}
+
         <div className="grid gap-6 md:grid-cols-2">
+
           {/* Coluna esquerda: lista + criar */}
           <div className="space-y-4">
             <div className="rounded-lg border p-3">
               <Label htmlFor="new-inst" className="text-xs font-medium">
-                Nova instância
+                Nova conexão
               </Label>
+
               <div className="mt-2 flex gap-2">
                 <Input
                   id="new-inst"
@@ -334,7 +367,7 @@ export function WhatsAppManagerDialog({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">Suas instâncias</h4>
+                <h4 className="text-sm font-medium">Suas conexões</h4>
                 <Button
                   size="icon"
                   variant="ghost"
@@ -356,7 +389,7 @@ export function WhatsAppManagerDialog({
 
               {instances && instances.length === 0 && (
                 <p className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
-                  Nenhuma instância ainda.
+                  Nenhuma conexão ainda.
                 </p>
               )}
 
@@ -374,9 +407,9 @@ export function WhatsAppManagerDialog({
                         {inst.display_name}
                       </div>
                       <div className="truncate text-[11px] text-muted-foreground">
-                        {inst.connected_profile_name ??
-                          inst.phone_number ??
-                          "—"}
+                        {isLegacyInstance(inst)
+                          ? "Conexão antiga — precisa ser refeita"
+                          : inst.connected_profile_name ?? inst.phone_number ?? "—"}
                       </div>
                     </div>
                     <Badge className={STATUS_CLASS[inst.status]}>
@@ -385,6 +418,7 @@ export function WhatsAppManagerDialog({
                   </div>
                 </button>
               ))}
+
             </div>
           </div>
 
@@ -393,7 +427,7 @@ export function WhatsAppManagerDialog({
             {!activeInstance && (
               <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-center text-sm text-muted-foreground">
                 <QrCode className="mb-2 h-10 w-10 opacity-40" />
-                Selecione ou crie uma instância para ver o QR Code.
+                Selecione ou crie uma conexão para ver o QR-Code.
               </div>
             )}
 
@@ -411,7 +445,18 @@ export function WhatsAppManagerDialog({
                   <StatusChip status={activeInstance.status} />
                 </div>
 
-                {activeInstance.status === "connected" ? (
+                {isLegacyInstance(activeInstance) ? (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                    <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
+                      <AlertTriangle className="h-4 w-4" /> Conexão antiga
+                    </div>
+                    <p className="mt-1 text-muted-foreground">
+                      Esta conexão foi criada em uma versão anterior do serviço e
+                      não pode mais ser usada. Remova-a e crie uma nova conexão
+                      para ler o QR-Code novamente.
+                    </p>
+                  </div>
+                ) : activeInstance.status === "connected" ? (
                   <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
                     <div className="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-400">
                       <CheckCircle2 className="h-4 w-4" />
@@ -449,7 +494,7 @@ export function WhatsAppManagerDialog({
                 )}
 
                 <div className="flex flex-wrap gap-2">
-                  {activeInstance.status !== "connected" && (
+                  {activeInstance.status !== "connected" && !isLegacyInstance(activeInstance) && (
                     <Button
                       size="sm"
                       onClick={() => connectAndFetchQr(activeInstance.id)}
@@ -459,6 +504,7 @@ export function WhatsAppManagerDialog({
                       {qrBase64 ? "Gerar novo QR" : "Gerar QR"}
                     </Button>
                   )}
+
                   {activeInstance.status === "connected" && (
                     <Button
                       size="sm"
@@ -477,8 +523,9 @@ export function WhatsAppManagerDialog({
                     onClick={() => {
                       if (
                         confirm(
-                          "Remover esta instância? A conexão com o WhatsApp será encerrada.",
+                          "Remover esta conexão? A sessão com o WhatsApp será encerrada.",
                         )
+
                       ) {
                         deleteMut.mutate(activeInstance.id);
                       }

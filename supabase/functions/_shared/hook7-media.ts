@@ -113,6 +113,13 @@ function cleanBase64(base64: string): string {
 }
 
 function keyFromPayload(providerMessageId: string, rawPayload: any): Record<string, unknown> {
+  // Formato atual do provedor: a própria mensagem traz `key`.
+  const rawKey = rawPayload?.key ?? rawPayload?.Key;
+  if (rawKey && typeof rawKey === "object") {
+    const k: Record<string, unknown> = { ...rawKey };
+    if (!k.id) k.id = providerMessageId;
+    return k;
+  }
   const info = rawPayload?.Info ?? rawPayload?.info ?? null;
   const key: Record<string, unknown> = { id: providerMessageId };
   const remoteJid = info?.Chat ?? info?.chat ?? info?.Sender ?? info?.sender;
@@ -123,6 +130,7 @@ function keyFromPayload(providerMessageId: string, rawPayload: any): Record<stri
   if (typeof participant === "string" && participant && participant !== remoteJid) key.participant = participant;
   return key;
 }
+
 
 function messageFromPayload(rawPayload: any): any | null {
   const msg = rawPayload?.Message ?? rawPayload?.message ?? rawPayload;

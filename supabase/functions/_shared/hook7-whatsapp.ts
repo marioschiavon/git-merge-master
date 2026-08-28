@@ -1,9 +1,10 @@
-// Hook7 WhatsApp sender — substitui _shared/zapi-whatsapp.ts no fluxo outbound.
-// Cada company tem sua própria instância conectada; usamos o token dedicado
-// (armazenado criptografado em hook7_instances.token_encrypted) para autenticar
-// as chamadas /message/sendText.
+// Envio de WhatsApp pelo provedor. Cada company tem sua própria conexão;
+// usamos o token dedicado (armazenado criptografado em
+// hook7_instances.token_encrypted) para autenticar as chamadas de envio.
 
 import { getHook7BaseUrl, loadInstanceToken } from "./hook7.ts";
+import { sendTextMessage } from "./whatsapp-engine.ts";
+
 
 export interface Hook7SendInstance {
   id: string;
@@ -52,8 +53,8 @@ export async function getHook7SendInstance(
 }
 
 /**
- * Envia mensagem de texto via Hook7 usando o token dedicado da instância.
- * Retorna resultado no mesmo formato do helper Z-API antigo, para minimizar
+ * Envia mensagem de texto usando o token dedicado da conexão.
+ * Retorna resultado no mesmo formato dos helpers antigos, para minimizar
  * mudanças nos call sites.
  */
 export async function sendWhatsAppViaHook7(
@@ -66,51 +67,26 @@ export async function sendWhatsAppViaHook7(
   const phone = normalizePhone(toPhone);
   if (!phone) return { ok: false, error: "Telefone inválido" };
   if (!instance?.external_name) {
-    return { ok: false, error: "Instância WhatsApp sem external_name" };
+    return { ok: false, error: "Conexão de WhatsApp sem identificador" };
   }
 
   let token: string;
   try {
     token = await loadInstanceToken(admin, instance.id);
   } catch (e) {
-    return { ok: false, error: `Falha lendo token da instância: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, error: `Falha lendo token da conexão: ${e instanceof Error ? e.message : String(e)}` };
   }
-  if (!token) return { ok: false, error: "Token da instância indisponível" };
+  if (!token) return { ok: false, error: "Token da conexão indisponível" };
 
-  const base = await getHook7BaseUrl(admin);
-  const url = `${base}/send/text`;
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        apikey: token,
-      },
-      body: JSON.stringify({ number: phone, text: body }),
-    });
-    // deno-lint-ignore no-explicit-any
-    let json: any = null;
-    try { json = await res.json(); } catch { /* ignore */ }
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: res.status,
-        error: json?.message || json?.error || `HTTP ${res.status}`,
-      };
-    }
-    const sid =
-      json?.key?.id ||
-      json?.messageId ||
-      json?.id ||
-      json?.data?.key?.id ||
-      json?.data?.id;
-    return { ok: true, sid: sid ? String(sid) : undefined, status: res.status };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return await sendTextMessage({
+    admin,
+    instanceName: instance.external_name,
+    apikey: token,
+    number: phone,
+    text: body,
+  });
 }
+
 
 /**
  * Compat helper used by call sites migrated from Z-API. Retorna um "sender"
@@ -140,24 +116,26 @@ export async function getWhatsAppSender(
 }
 
 export const NO_WHATSAPP_INSTANCE_ERROR =
-  "Nenhuma instância WhatsApp (Hook7) conectada para esta empresa";
+  "Nenhuma conexão de WhatsApp ativa para esta empresa";
 
 // ---------------------------------------------------------------------------
-// Checagem de existência de número no WhatsApp (Evolution / Hook7)
+// Checagem de existência de número no WhatsApp
 // ---------------------------------------------------------------------------
 
-// Caminhos candidatos: Hook7 usa rotas próprias ("/send/text"), mas o backend
-// é Evolution, que expõe a verificação em lote. Testamos em ordem e memorizamos
-// o primeiro que responder (platform_settings.hook7_number_check_path).
+// Templates de rota ({i} = nome da conexão). A primeira é a do padrão atual
+// do provedor; as demais ficam como retrocompatibilidade. Memorizamos a que
+// responder em platform_settings.hook7_number_check_path.
 const NUMBER_CHECK_PATHS = [
-  "/user/check", // Evolution GO (Hook7): { number: [...], formatJid: true }
-  "/chat/whatsappNumbers", // Evolution API clássica: { numbers: [...] }
+  "/chat/whatsappNumbers/{i}", // padrão atual: { numbers: [...] }
+  "/user/check", // padrão anterior: { number: [...], formatJid: true }
+  "/chat/whatsappNumbers",
 ];
 
 function checkBodyFor(path: string, nums: string[]): Record<string, unknown> {
-  if (path === "/user/check") return { number: nums, formatJid: true };
+  if (path.startsWith("/user/check")) return { number: nums, formatJid: true };
   return { numbers: nums };
 }
+
 
 async function loadCachedCheckPath(
   // deno-lint-ignore no-explicit-any
@@ -262,10 +240,12 @@ export async function checkPhonesOnWhatsApp(
 
   let lastError = "endpoint de verificação indisponível";
   for (const path of candidates) {
+    const url = `${base}${path.replace("{i}", encodeURIComponent(instance.external_name))}`;
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 15000);
-      const res = await fetch(`${base}${path}`, {
+      const res = await fetch(url, {
+
         method: "POST",
         headers: {
           "Content-Type": "application/json",

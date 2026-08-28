@@ -1,18 +1,21 @@
-// Consolidated Hook7 instance manager (per-company). v2 (auth: getUser)
+// Gerenciador de conexões de WhatsApp por empresa.
 //
 // Actions (JSON body: { action, ... }):
-//   - list                                    → lista instâncias da company do caller
-//   - create   { display_name }               → cria no Hook7 + registra no DB (com token dedicado)
-//   - connect  { instance_id }                → dispara /instance/connect (sub webhook)
-//   - qr       { instance_id }                → busca QR base64
-//   - status   { instance_id }                → poll de status (Connected/LoggedIn)
-//   - disconnect { instance_id }              → logout (fallback: disconnect)
-//   - reconnect  { instance_id }              → /instance/reconnect (fallback: connect)
+//   - list                                    → lista conexões da company do caller
+//   - create   { display_name }               → cria no provedor + registra no DB (token dedicado)
+//   - connect  { instance_id }                → inicia pareamento e devolve QR-Code
+//   - qr       { instance_id }                → busca QR-Code atual
+//   - status   { instance_id }                → poll de status
+//   - disconnect { instance_id }              → logout
+//   - reconnect  { instance_id }              → novo pareamento
 //   - rename   { instance_id, display_name }
-//   - delete   { instance_id, reason? }       → archive local + delete remoto
+//   - delete   { instance_id, reason? }       → arquiva local + remove remoto
 //
-// Autorização: caller precisa ser company_admin da company da instância
+// Autorização: caller precisa ser company_admin da company da conexão
 // (ou master_admin). Cada company só vê/gerencia as suas.
+//
+// Conexões criadas no motor antigo (engine='legacy') não são operáveis: o
+// usuário precisa criar uma nova conexão e ler o QR-Code novamente.
 
 import {
   errorResponse,
@@ -22,16 +25,23 @@ import {
 } from "../_shared/tenant-auth.ts";
 import {
   buildExternalName,
-  buildWebhookUrl,
-  getHook7GlobalApiKey,
-  HOOK7_SUBSCRIBE_EVENTS,
-  hook7Fetch,
   loadInstanceToken,
   serviceClient,
   storeInstanceToken,
   uuidv4,
   withinUserDisconnectWindow,
 } from "../_shared/hook7.ts";
+import {
+  buildWaWebhookUrl,
+  connectInstance,
+  connectionState,
+  createInstance,
+  deleteInstance,
+  ENGINE_EVOLUTION_API,
+  ENGINE_LEGACY,
+  logoutInstance,
+  setInstanceWebhook,
+} from "../_shared/whatsapp-engine.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -40,7 +50,9 @@ const CORS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-// deno-lint-ignore no-explicit-any
+const LEGACY_MSG =
+  "Esta conexão foi criada em uma versão anterior do serviço e precisa ser refeita. Exclua-a e crie uma nova conexão lendo o QR-Code.";
+
 async function getCallerCompany(userId: string): Promise<{ id: string; slug: string; name: string; isMaster: boolean; isCompanyAdmin: boolean; }> {
   const admin = serviceClient();
   const { data: rolesRow } = await admin
@@ -61,9 +73,8 @@ async function getCallerCompany(userId: string): Promise<{ id: string; slug: str
 
   if (!mem && !isMaster) throw new HttpError(403, "Sem empresa ativa.");
 
-  let companyId: string | null = mem?.company_id ?? null;
+  const companyId: string | null = mem?.company_id ?? null;
   if (!companyId && isMaster) {
-    // master sem membership — retorna vazio; ações direcionadas por instance_id resolverão a company
     return { id: "", slug: "", name: "", isMaster, isCompanyAdmin };
   }
 
@@ -81,13 +92,13 @@ async function loadInstance(instanceId: string) {
   const { data, error } = await admin
     .from("hook7_instances")
     .select(
-      "id, company_id, external_id, external_name, display_name, status, archived_at, user_disconnected_at",
+      "id, company_id, external_id, external_name, display_name, status, engine, archived_at, user_disconnected_at",
     )
     .eq("id", instanceId)
     .maybeSingle();
   if (error) throw new HttpError(500, error.message);
-  if (!data) throw new HttpError(404, "Instância não encontrada.");
-  if (data.archived_at) throw new HttpError(410, "Instância arquivada.");
+  if (!data) throw new HttpError(404, "Conexão não encontrada.");
+  if (data.archived_at) throw new HttpError(410, "Conexão arquivada.");
   return data;
 }
 
@@ -100,7 +111,7 @@ async function assertCanManage(userId: string, companyId: string): Promise<void>
   const list = (roles ?? []).map((r) => r.role);
   if (list.includes("master_admin")) return;
   if (!list.includes("company_admin")) {
-    throw new HttpError(403, "Apenas company_admin pode gerenciar instâncias.");
+    throw new HttpError(403, "Apenas administradores da empresa podem gerenciar conexões.");
   }
   const { data: mem } = await admin
     .from("company_members")
@@ -121,6 +132,12 @@ async function loadCompanySlug(companyId: string): Promise<string> {
   return data?.slug ?? "";
 }
 
+function statusFromState(state: string): "connected" | "pairing" | "disconnected" {
+  if (state === "open") return "connected";
+  if (state === "connecting") return "pairing";
+  return "disconnected";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: CORS });
   try {
@@ -138,45 +155,51 @@ Deno.serve(async (req) => {
       const { data, error } = await admin
         .from("hook7_instances")
         .select(
-          "id, display_name, external_name, status, phone_number, connected_profile_name, owner_user_id, last_connected_at, last_qr_at, created_at",
+          "id, display_name, external_name, status, engine, phone_number, connected_profile_name, owner_user_id, last_connected_at, last_qr_at, created_at",
         )
         .eq("company_id", companyId)
         .is("archived_at", null)
         .order("created_at", { ascending: false });
       if (error) throw new HttpError(500, error.message);
 
-      // Reconcilia com o Hook7: instâncias marcadas como "connected" no banco
-      // podem ter caído (celular desligado, sessão encerrada no aparelho, ban).
+      // Reconcilia com o provedor: conexões marcadas como "connected" no banco
+      // podem ter caído (celular desligado, sessão encerrada, banimento).
       const rows = data ?? [];
       const nowIso = new Date().toISOString();
       await Promise.all(
         rows
           .filter((i) => i.status === "connected")
           .map(async (i) => {
+            if (i.engine === ENGINE_LEGACY) {
+              i.status = "disconnected";
+              await admin
+                .from("hook7_instances")
+                .update({ status: "disconnected", updated_at: nowIso })
+                .eq("id", i.id);
+              return;
+            }
             try {
               const token = await loadInstanceToken(admin, i.id);
-              // deno-lint-ignore no-explicit-any
-              const r: any = await hook7Fetch("/instance/status", {
-                method: "GET",
+              const state = await connectionState({
+                admin,
+                instanceName: i.external_name,
                 apikey: token,
                 timeoutMs: 6000,
               });
-              const d = r?.data ?? {};
-              if (d.Connected === true && d.LoggedIn === true) return;
+              if (state === "open" || state === "unknown") return;
               i.status = "disconnected";
               await admin
                 .from("hook7_instances")
                 .update({ status: "disconnected", updated_at: nowIso })
                 .eq("id", i.id);
             } catch {
-              // erro de rede/timeout: não derruba o status para evitar falso negativo
+              // erro de rede/timeout: não derruba o status (evita falso negativo)
             }
           }),
       );
 
       return jsonResponse({ instances: rows }, 200, CORS);
     }
-
 
     // ---------------- CREATE ----------------
     if (action === "create") {
@@ -190,20 +213,14 @@ Deno.serve(async (req) => {
 
       const externalName = buildExternalName(caller.slug, displayName);
       const suggestedToken = uuidv4();
-      const apikey = getHook7GlobalApiKey();
+      const webhookUrl = buildWaWebhookUrl(caller.slug);
 
-      // deno-lint-ignore no-explicit-any
-      const created: any = await hook7Fetch("/instance/create", {
-        method: "POST",
-        apikey,
-        body: { name: externalName, token: suggestedToken },
+      const created = await createInstance({
+        admin,
+        instanceName: externalName,
+        token: suggestedToken,
+        webhookUrl,
       });
-      const extId = created?.data?.id;
-      const extName = created?.data?.name ?? externalName;
-      const token = created?.data?.token ?? suggestedToken;
-      if (!extId || !token) {
-        throw new HttpError(502, "Resposta inesperada do Hook7.");
-      }
 
       const { data: ins, error: insErr } = await admin
         .from("hook7_instances")
@@ -211,40 +228,48 @@ Deno.serve(async (req) => {
           company_id: caller.id,
           owner_user_id: user.id,
           display_name: displayName,
-          external_id: extId,
-          external_name: extName,
-          status: "pending_qr",
+          external_id: created.external_id,
+          external_name: created.external_name,
+          engine: ENGINE_EVOLUTION_API,
+          status: created.qrcode_base64 ? "qr_ready" : "pending_qr",
+          last_qr_at: created.qrcode_base64 ? new Date().toISOString() : null,
           created_by: user.id,
         })
-        .select("id, display_name, external_name, status")
+        .select("id, display_name, external_name, status, engine")
         .single();
 
       if (insErr) {
         try {
-          await hook7Fetch(`/instance/${encodeURIComponent(extName)}`, {
-            method: "DELETE",
-            apikey,
-            timeoutMs: 8000,
-          });
+          await deleteInstance({ admin, instanceName: created.external_name });
         } catch { /* best-effort */ }
         throw new HttpError(500, insErr.message);
       }
 
       try {
-        await storeInstanceToken(admin, ins.id, token);
+        await storeInstanceToken(admin, ins.id, created.token);
       } catch (e) {
         await admin.from("hook7_instances").delete().eq("id", ins.id);
         try {
-          await hook7Fetch(`/instance/${encodeURIComponent(extName)}`, {
-            method: "DELETE",
-            apikey,
-            timeoutMs: 8000,
-          });
+          await deleteInstance({ admin, instanceName: created.external_name });
         } catch { /* best-effort */ }
         throw e;
       }
 
-      return jsonResponse({ instance: ins }, 200, CORS);
+      // Garante o webhook mesmo quando o provedor ignora o bloco do /create.
+      try {
+        await setInstanceWebhook({
+          admin,
+          instanceName: created.external_name,
+          apikey: created.token,
+          webhookUrl,
+        });
+      } catch { /* non-fatal */ }
+
+      return jsonResponse(
+        { instance: ins, qrcode_base64: created.qrcode_base64 },
+        200,
+        CORS,
+      );
     }
 
     // Ações abaixo requerem instance_id
@@ -252,71 +277,87 @@ Deno.serve(async (req) => {
     if (!instanceId) throw new HttpError(400, "instance_id obrigatório.");
     const inst = await loadInstance(instanceId);
     await assertCanManage(user.id, inst.company_id);
+    const isLegacy = inst.engine === ENGINE_LEGACY;
 
-    // ---------------- CONNECT ----------------
-    if (action === "connect") {
+    // ---------------- CONNECT / RECONNECT / QR ----------------
+    if (action === "connect" || action === "reconnect" || action === "qr") {
+      if (isLegacy) throw new HttpError(409, LEGACY_MSG);
       const token = await loadInstanceToken(admin, inst.id);
       const slug = await loadCompanySlug(inst.company_id);
-      const webhookUrl = buildWebhookUrl(slug);
-      try {
-        await hook7Fetch("/instance/connect", {
-          method: "POST",
-          apikey: token,
-          body: { immediate: true, webhookUrl, subscribe: HOOK7_SUBSCRIBE_EVENTS },
-        });
-      } catch (e) {
-        const msg = String((e as Error)?.message ?? "");
-        // Sessão já ativa no provedor → não é erro: apenas reflete "conectado".
-        if (/already logged in|already connected|session already/i.test(msg)) {
-          await admin
-            .from("hook7_instances")
-            .update({
-              status: "connected",
-              last_connected_at: new Date().toISOString(),
-              user_disconnected_at: null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("id", inst.id);
-          return jsonResponse({ ok: true, already_connected: true }, 200, CORS);
-        }
-        throw e;
+      const webhookUrl = buildWaWebhookUrl(slug);
+
+      if (action !== "qr") {
+        try {
+          await setInstanceWebhook({
+            admin,
+            instanceName: inst.external_name,
+            apikey: token,
+            webhookUrl,
+          });
+        } catch { /* non-fatal */ }
       }
-      await admin
-        .from("hook7_instances")
-        .update({
-          status: "qr_ready",
-          last_qr_at: new Date().toISOString(),
-          user_disconnected_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", inst.id);
-      return jsonResponse({ ok: true }, 200, CORS);
-    }
 
-
-    // ---------------- QR ----------------
-    if (action === "qr") {
-      const token = await loadInstanceToken(admin, inst.id);
-      // deno-lint-ignore no-explicit-any
-      const r: any = await hook7Fetch("/instance/qr", {
-        method: "GET",
+      const r = await connectInstance({
+        admin,
+        instanceName: inst.external_name,
         apikey: token,
       });
-      const raw = r?.data?.Qrcode ?? r?.data?.qrcode ?? r?.qrcode ?? null;
-      const qrcode_base64: string | null =
-        typeof raw === "string" && raw.length > 0 ? raw : null;
-      return jsonResponse({ qrcode_base64 }, 200, CORS);
+
+      // Sessão já ativa no provedor: não há QR e o estado volta como "open".
+      if (!r.qrcode_base64 && r.state === "open") {
+        const nowIso = new Date().toISOString();
+        await admin
+          .from("hook7_instances")
+          .update({
+            status: "connected",
+            last_connected_at: nowIso,
+            user_disconnected_at: null,
+            updated_at: nowIso,
+          })
+          .eq("id", inst.id);
+        return jsonResponse(
+          { ok: true, already_connected: true, qrcode_base64: null },
+          200,
+          CORS,
+        );
+      }
+
+      if (r.qrcode_base64) {
+        await admin
+          .from("hook7_instances")
+          .update({
+            status: "qr_ready",
+            last_qr_at: new Date().toISOString(),
+            user_disconnected_at: null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", inst.id);
+      }
+
+      return jsonResponse(
+        { ok: true, qrcode_base64: r.qrcode_base64, pairing_code: r.pairing_code },
+        200,
+        CORS,
+      );
     }
 
     // ---------------- STATUS ----------------
     if (action === "status") {
+      if (isLegacy) {
+        return jsonResponse(
+          { status: "disconnected", connected_profile_name: null, legacy: true, message: LEGACY_MSG },
+          200,
+          CORS,
+        );
+      }
       const token = await loadInstanceToken(admin, inst.id);
-      // deno-lint-ignore no-explicit-any
-      let r: any;
+      let state: string;
       try {
-        r = await hook7Fetch("/instance/status", {
-          method: "GET",
+        state = await connectionState({
+          admin,
+          instanceName: inst.external_name,
           apikey: token,
+          timeoutMs: 8000,
         });
       } catch {
         await admin
@@ -329,95 +370,72 @@ Deno.serve(async (req) => {
           CORS,
         );
       }
-      const d = r?.data ?? {};
-      const Connected: boolean = d.Connected === true;
-      const LoggedIn: boolean = d.LoggedIn === true;
-      const Name: string | null =
-        typeof d.Name === "string" && d.Name.length > 0 ? d.Name : null;
 
-      // Se o usuário desconectou manualmente há pouco, ignora uma resposta
-      // "Connected/LoggedIn" desatualizada do Hook7 (mesma proteção que o
-      // webhook já aplica a eventos "Connected"/"PairSuccess"). Sem isso, o
-      // status voltava para "connected" sozinho no próximo poll/refresh.
-      const recentUserDisconnect = withinUserDisconnectWindow(inst);
-
-      let nextStatus: string;
-      if (Connected && LoggedIn) {
-        nextStatus = recentUserDisconnect ? inst.status : "connected";
-      } else if (inst.status === "connected") {
-        nextStatus = "disconnected";
-      } else {
-        nextStatus = "qr_ready";
+      if (state === "unknown") {
+        return jsonResponse(
+          { status: inst.status, connected_profile_name: null },
+          200,
+          CORS,
+        );
       }
 
+      // Se o usuário desconectou manualmente há pouco, ignora uma resposta
+      // "open" desatualizada do provedor.
+      const recentUserDisconnect = withinUserDisconnectWindow(inst);
+      let nextStatus = statusFromState(state);
+      if (nextStatus === "connected" && recentUserDisconnect) nextStatus = inst.status;
+      if (nextStatus === "disconnected" && inst.status === "qr_ready") {
+        nextStatus = "qr_ready"; // ainda aguardando leitura do QR
+      }
 
       // deno-lint-ignore no-explicit-any
       const patch: Record<string, any> = {
         status: nextStatus,
         updated_at: new Date().toISOString(),
       };
-      if (nextStatus === "connected") {
-        patch.last_connected_at = new Date().toISOString();
-        if (Name) patch.connected_profile_name = Name;
-      }
+      if (nextStatus === "connected") patch.last_connected_at = new Date().toISOString();
       await admin.from("hook7_instances").update(patch).eq("id", inst.id);
-      return jsonResponse(
-        { status: nextStatus, connected_profile_name: Name },
-        200,
-        CORS,
-      );
+      return jsonResponse({ status: nextStatus, connected_profile_name: null }, 200, CORS);
     }
 
     // ---------------- DISCONNECT ----------------
     if (action === "disconnect") {
+      const nowIso = new Date().toISOString();
+      if (isLegacy) {
+        await admin
+          .from("hook7_instances")
+          .update({ status: "disconnected", user_disconnected_at: nowIso, updated_at: nowIso })
+          .eq("id", inst.id);
+        return jsonResponse({ ok: true, logged_out: true, remote_confirmed: true }, 200, CORS);
+      }
+
       const token = await loadInstanceToken(admin, inst.id);
       let loggedOut = false;
       try {
-        await hook7Fetch("/instance/logout", {
-          method: "POST",
-          apikey: token,
-          body: {},
-        });
+        await logoutInstance({ admin, instanceName: inst.external_name, apikey: token });
         loggedOut = true;
-      } catch {
-        try {
-          await hook7Fetch("/instance/disconnect", {
-            method: "POST",
-            apikey: token,
-            body: {},
-          });
-        } catch { /* swallow */ }
+      } catch (e) {
+        console.warn("logout falhou:", String(e));
       }
 
-      // Confirma com o Hook7 que a sessão caiu de verdade. Sem essa
-      // confirmação, se o logout/disconnect acima falhou silenciosamente, o
-      // próximo poll de "status" via app real encontraria a sessão ainda
-      // ativa no Hook7 — mas isso agora é ignorado pela janela de
-      // user_disconnected_at, então o alerta abaixo é a forma do admin saber
-      // que o celular pode continuar ativo no WhatsApp mesmo com o app
-      // mostrando "desconectado".
       let remoteConfirmed = loggedOut;
       try {
-        // deno-lint-ignore no-explicit-any
-        const r: any = await hook7Fetch("/instance/status", {
-          method: "GET",
+        const state = await connectionState({
+          admin,
+          instanceName: inst.external_name,
           apikey: token,
           timeoutMs: 8000,
         });
-        const d = r?.data ?? {};
-        remoteConfirmed = !(d.Connected === true && d.LoggedIn === true);
-      } catch { /* não deu para confirmar; mantém o valor de loggedOut */ }
+        remoteConfirmed = state !== "open";
+      } catch { /* mantém o valor de loggedOut */ }
 
-      const nowIso = new Date().toISOString();
       await admin
         .from("hook7_instances")
         .update({
           status: "disconnected",
           user_disconnected_at: nowIso,
           updated_at: nowIso,
-          last_error: remoteConfirmed
-            ? null
-            : "hook7_ainda_reporta_sessao_ativa_apos_logout",
+          last_error: remoteConfirmed ? null : "sessao_ainda_ativa_apos_logout",
         })
         .eq("id", inst.id);
       return jsonResponse(
@@ -425,40 +443,6 @@ Deno.serve(async (req) => {
         200,
         CORS,
       );
-    }
-
-    // ---------------- RECONNECT ----------------
-    if (action === "reconnect") {
-      const token = await loadInstanceToken(admin, inst.id);
-      const slug = await loadCompanySlug(inst.company_id);
-      const webhookUrl = buildWebhookUrl(slug);
-      try {
-        await hook7Fetch("/instance/reconnect", {
-          method: "POST",
-          apikey: token,
-          body: {},
-        });
-      } catch {
-        await hook7Fetch("/instance/connect", {
-          method: "POST",
-          apikey: token,
-          body: {
-            immediate: true,
-            webhookUrl,
-            subscribe: HOOK7_SUBSCRIBE_EVENTS,
-          },
-        });
-      }
-      await admin
-        .from("hook7_instances")
-        .update({
-          status: "qr_ready",
-          last_qr_at: new Date().toISOString(),
-          user_disconnected_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", inst.id);
-      return jsonResponse({ ok: true }, 200, CORS);
     }
 
     // ---------------- RENAME ----------------
@@ -485,76 +469,52 @@ Deno.serve(async (req) => {
         (reason === "cancel" || reason === "timeout") &&
         inst.status === "connected"
       ) {
-        return jsonResponse(
-          { ok: true, skipped: "connected" },
-          200,
-          CORS,
-        );
+        return jsonResponse({ ok: true, skipped: "connected" }, 200, CORS);
       }
-      const apikey = getHook7GlobalApiKey();
 
-      // 1) logout da sessão (Evolution/Hook7 recusa DELETE de instância ativa)
       let instToken: string | null = null;
       try {
         instToken = await loadInstanceToken(admin, inst.id);
       } catch { /* token pode não existir */ }
 
-      if (instToken) {
-        try {
-          await hook7Fetch("/instance/logout", {
-            method: "POST",
-            apikey: instToken,
-            body: {},
-            timeoutMs: 10000,
-          });
-        } catch {
-          try {
-            await hook7Fetch("/instance/disconnect", {
-              method: "POST",
-              apikey: instToken,
-              body: {},
-              timeoutMs: 10000,
-            });
-          } catch { /* best-effort */ }
-        }
-        // pequena espera para a sessão encerrar antes do delete
-        await new Promise((r) => setTimeout(r, 1200));
-      }
-
-      // 2) delete remoto — tenta por nome (global), por nome (token) e por id
       let remoteDeleted = false;
       let remoteError: string | null = null;
-      const candidates: Array<{ path: string; key: string }> = [];
-      if (inst.external_name) {
-        const p = `/instance/${encodeURIComponent(inst.external_name)}`;
-        candidates.push({ path: p, key: apikey });
-        if (instToken) candidates.push({ path: p, key: instToken });
-      }
-      if (inst.external_id) {
-        candidates.push({
-          path: `/instance/${encodeURIComponent(inst.external_id)}`,
-          key: apikey,
-        });
-      }
-      for (const c of candidates) {
-        try {
-          await hook7Fetch(c.path, {
-            method: "DELETE",
-            apikey: c.key,
-            timeoutMs: 10000,
-          });
-          remoteDeleted = true;
-          remoteError = null;
-          break;
-        } catch (e) {
-          remoteError = e instanceof Error ? e.message : String(e);
+
+      if (!isLegacy && inst.external_name) {
+        // 1) encerra a sessão (o provedor recusa apagar instância ativa)
+        if (instToken) {
+          try {
+            await logoutInstance({
+              admin,
+              instanceName: inst.external_name,
+              apikey: instToken,
+            });
+          } catch { /* best-effort */ }
+          await new Promise((r) => setTimeout(r, 1200));
         }
-      }
-      if (!remoteDeleted) {
-        console.error("hook7 delete remoto falhou", {
-          instance: inst.external_name,
-          error: remoteError,
-        });
+        // 2) apaga a instância (chave global e, se falhar, token da instância)
+        for (const key of [undefined, instToken ?? undefined]) {
+          try {
+            await deleteInstance({
+              admin,
+              instanceName: inst.external_name,
+              apikey: key,
+            });
+            remoteDeleted = true;
+            remoteError = null;
+            break;
+          } catch (e) {
+            remoteError = e instanceof Error ? e.message : String(e);
+          }
+        }
+        if (!remoteDeleted) {
+          console.error("delete remoto falhou", {
+            instance: inst.external_name,
+            error: remoteError,
+          });
+        }
+      } else {
+        remoteDeleted = true; // legado: nada a apagar no motor atual
       }
 
       const { error: updErr } = await admin
@@ -571,7 +531,6 @@ Deno.serve(async (req) => {
         200,
         CORS,
       );
-
     }
 
     throw new HttpError(400, `Ação desconhecida: ${action}`);
