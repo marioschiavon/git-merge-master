@@ -316,7 +316,11 @@ export default function Leads() {
               onClick={() => verifyWpp.mutate(Array.from(selectedIds))}
               title="Confere na instância conectada se os números existem no WhatsApp"
             >
-              {verifyWpp.isPending ? "Verificando..." : "Verificar WhatsApp"}
+              {verifyWpp.isPending
+                ? verifyWpp.progress
+                  ? `Verificando ${verifyWpp.progress.processed}/${verifyWpp.progress.total}...`
+                  : "Verificando..."
+                : "Verificar WhatsApp"}
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
