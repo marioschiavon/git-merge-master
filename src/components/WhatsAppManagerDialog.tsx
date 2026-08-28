@@ -41,6 +41,7 @@ interface Hook7Instance {
   display_name: string;
   external_name: string | null;
   status: InstanceStatus;
+  engine?: string | null;
   phone_number: string | null;
   connected_profile_name: string | null;
   owner_user_id: string | null;
@@ -48,6 +49,10 @@ interface Hook7Instance {
   last_qr_at: string | null;
   created_at: string;
 }
+
+const isLegacyInstance = (i: { engine?: string | null } | null) =>
+  (i?.engine ?? "") === "legacy";
+
 
 const STATUS_LABEL: Record<InstanceStatus, string> = {
   pending_qr: "Aguardando QR",
