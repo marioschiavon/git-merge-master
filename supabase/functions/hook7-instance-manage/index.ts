@@ -229,7 +229,12 @@ Deno.serve(async (req) => {
       if (!caller.id) throw new HttpError(400, "Empresa alvo não determinada.");
       await assertCanManage(user.id, caller.id);
 
-      const externalName = buildExternalName(caller.slug, displayName);
+      const externalName = buildExternalName(
+        caller.slug,
+        displayName,
+        await takenNames(caller.id),
+      );
+
       const suggestedToken = uuidv4();
       const webhookUrl = buildWaWebhookUrl(caller.slug);
 
