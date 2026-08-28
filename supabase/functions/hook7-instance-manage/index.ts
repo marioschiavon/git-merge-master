@@ -128,6 +128,23 @@ async function assertCanManage(userId: string, companyId: string): Promise<void>
   }
 }
 
+async function assertCanAccess(userId: string, companyId: string): Promise<void> {
+  const admin = serviceClient();
+  const { data: roles } = await admin
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId);
+  if ((roles ?? []).some((row) => row.role === "master_admin")) return;
+
+  const { data: membership } = await admin
+    .from("company_members")
+    .select("company_id")
+    .eq("user_id", userId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (!membership) throw new HttpError(403, "Sem acesso a esta empresa.");
+}
+
 
 async function loadCompanySlug(companyId: string): Promise<string> {
   const admin = serviceClient();
@@ -301,7 +318,10 @@ Deno.serve(async (req) => {
     const instanceId = String(body?.instance_id ?? "");
     if (!instanceId) throw new HttpError(400, "instance_id obrigatório.");
     const inst = await loadInstance(instanceId);
-    await assertCanManage(user.id, inst.company_id);
+    await assertCanAccess(user.id, inst.company_id);
+    // Consultar o estado é necessário para a tela de todos os membros. Ações
+    // que alteram a conexão continuam exclusivas de administradores.
+    if (action !== "status") await assertCanManage(user.id, inst.company_id);
     const isLegacy = inst.engine === ENGINE_LEGACY;
 
     // ---------------- CONNECT / RECONNECT / QR ----------------
