@@ -321,12 +321,13 @@ export function WhatsAppManagerDialog({
               <AlertTriangle className="h-4 w-4" /> Reconexão necessária
             </div>
             <p className="mt-1 text-muted-foreground">
-              O serviço de WhatsApp foi atualizado. As conexões antigas ficaram
-              inativas: remova-as e crie uma nova conexão lendo o QR-Code no
-              celular. Suas mensagens e leads continuam intactos.
+              O serviço de WhatsApp foi atualizado. Selecione a conexão e clique
+              em <strong>Reconectar</strong> para ler o QR-Code novamente — nada
+              é excluído e suas mensagens, leads e cadências continuam intactos.
             </p>
           </div>
         )}
+
 
         <div className="grid gap-6 md:grid-cols-2">
 
