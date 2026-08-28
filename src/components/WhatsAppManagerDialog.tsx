@@ -212,17 +212,21 @@ export function WhatsAppManagerDialog({
     setQrLoading(true);
     setQrBase64(null);
     try {
-      const c = await callManage<{ already_connected?: boolean }>({
+      const c = await callManage<{ already_connected?: boolean; qrcode_base64: string | null }>({
         action: "connect",
         instance_id: id,
       });
       if (c?.already_connected) {
         toast({
           title: "WhatsApp já está conectado",
-          description: "Essa instância já possui uma sessão ativa.",
+          description: "Esta conexão já possui uma sessão ativa.",
         });
         qc.invalidateQueries({ queryKey: ["hook7_instances"] });
         qc.invalidateQueries({ queryKey: ["hook7_instances_summary"] });
+        return;
+      }
+      if (c?.qrcode_base64) {
+        setQrBase64(c.qrcode_base64);
         return;
       }
       const r = await callManage<{ qrcode_base64: string | null }>({
@@ -231,6 +235,7 @@ export function WhatsAppManagerDialog({
       });
       setQrBase64(r.qrcode_base64);
     } catch (e: any) {
+
       toast({
         title: "Falha ao gerar QR",
         description: e.message,
