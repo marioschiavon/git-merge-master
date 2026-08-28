@@ -240,10 +240,12 @@ export async function checkPhonesOnWhatsApp(
 
   let lastError = "endpoint de verificação indisponível";
   for (const path of candidates) {
+    const url = `${base}${path.replace("{i}", encodeURIComponent(instance.external_name))}`;
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 15000);
-      const res = await fetch(`${base}${path}`, {
+      const res = await fetch(url, {
+
         method: "POST",
         headers: {
           "Content-Type": "application/json",
