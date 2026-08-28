@@ -1,5 +1,5 @@
-// Master-admin only. Cria uma instância descartável no Hook7 e a apaga
-// para validar HOOK7_GLOBAL_APIKEY + base URL.
+// Master-admin only. Cria uma conexão descartável no provedor e a apaga
+// para validar a chave global + base URL.
 
 import {
   errorResponse,
@@ -9,11 +9,11 @@ import {
 } from "../_shared/tenant-auth.ts";
 import {
   getHook7GlobalApiKey,
-  hook7Fetch,
   INSTANCE_PREFIX,
   shortId,
   uuidv4,
 } from "../_shared/hook7.ts";
+import { createInstance, deleteInstance } from "../_shared/whatsapp-engine.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -28,43 +28,30 @@ Deno.serve(async (req) => {
     const { user } = await requireUser(req);
     await requireRole(user.id, "master_admin");
 
-    let apikey: string;
     try {
-      apikey = getHook7GlobalApiKey();
+      getHook7GlobalApiKey();
     } catch {
       return jsonResponse(
-        { ok: false, message: "Chave global do Hook7 não configurada." },
+        { ok: false, message: "Chave global do serviço de WhatsApp não configurada." },
         200,
         CORS,
       );
     }
 
     const name = `${INSTANCE_PREFIX}-healthcheck-${Date.now()}-${shortId(4)}`;
-    const token = uuidv4();
     try {
-      // deno-lint-ignore no-explicit-any
-      const created: any = await hook7Fetch("/instance/create", {
-        method: "POST",
-        apikey,
-        body: { name, token },
-        timeoutMs: 12000,
+      const created = await createInstance({
+        instanceName: name,
+        token: uuidv4(),
+        webhookUrl: "",
       });
-      const createdName = created?.data?.name ?? name;
       try {
-        await hook7Fetch(`/instance/${encodeURIComponent(createdName)}`, {
-          method: "DELETE",
-          apikey,
-          timeoutMs: 8000,
-        });
+        await deleteInstance({ instanceName: created.external_name });
       } catch { /* non-fatal */ }
       return jsonResponse({ ok: true, message: "Conexão OK." }, 200, CORS);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      return jsonResponse(
-        { ok: false, message: `Falha: ${msg}` },
-        200,
-        CORS,
-      );
+      return jsonResponse({ ok: false, message: `Falha: ${msg}` }, 200, CORS);
     }
   } catch (e) {
     return errorResponse(e, CORS);
