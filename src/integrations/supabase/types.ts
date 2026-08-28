@@ -1747,6 +1747,7 @@ export type Database = {
           created_by: string | null
           daily_send_cap: number
           display_name: string
+          engine: string
           external_id: string | null
           external_name: string | null
           hourly_send_cap: number
@@ -1773,6 +1774,7 @@ export type Database = {
           created_by?: string | null
           daily_send_cap?: number
           display_name: string
+          engine?: string
           external_id?: string | null
           external_name?: string | null
           hourly_send_cap?: number
@@ -1799,6 +1801,7 @@ export type Database = {
           created_by?: string | null
           daily_send_cap?: number
           display_name?: string
+          engine?: string
           external_id?: string | null
           external_name?: string | null
           hourly_send_cap?: number
