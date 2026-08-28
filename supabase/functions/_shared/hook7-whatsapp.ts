@@ -53,8 +53,8 @@ export async function getHook7SendInstance(
 }
 
 /**
- * Envia mensagem de texto via Hook7 usando o token dedicado da instância.
- * Retorna resultado no mesmo formato do helper Z-API antigo, para minimizar
+ * Envia mensagem de texto usando o token dedicado da conexão.
+ * Retorna resultado no mesmo formato dos helpers antigos, para minimizar
  * mudanças nos call sites.
  */
 export async function sendWhatsAppViaHook7(
@@ -67,51 +67,26 @@ export async function sendWhatsAppViaHook7(
   const phone = normalizePhone(toPhone);
   if (!phone) return { ok: false, error: "Telefone inválido" };
   if (!instance?.external_name) {
-    return { ok: false, error: "Instância WhatsApp sem external_name" };
+    return { ok: false, error: "Conexão de WhatsApp sem identificador" };
   }
 
   let token: string;
   try {
     token = await loadInstanceToken(admin, instance.id);
   } catch (e) {
-    return { ok: false, error: `Falha lendo token da instância: ${e instanceof Error ? e.message : String(e)}` };
+    return { ok: false, error: `Falha lendo token da conexão: ${e instanceof Error ? e.message : String(e)}` };
   }
-  if (!token) return { ok: false, error: "Token da instância indisponível" };
+  if (!token) return { ok: false, error: "Token da conexão indisponível" };
 
-  const base = await getHook7BaseUrl(admin);
-  const url = `${base}/send/text`;
-
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        apikey: token,
-      },
-      body: JSON.stringify({ number: phone, text: body }),
-    });
-    // deno-lint-ignore no-explicit-any
-    let json: any = null;
-    try { json = await res.json(); } catch { /* ignore */ }
-    if (!res.ok) {
-      return {
-        ok: false,
-        status: res.status,
-        error: json?.message || json?.error || `HTTP ${res.status}`,
-      };
-    }
-    const sid =
-      json?.key?.id ||
-      json?.messageId ||
-      json?.id ||
-      json?.data?.key?.id ||
-      json?.data?.id;
-    return { ok: true, sid: sid ? String(sid) : undefined, status: res.status };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
+  return await sendTextMessage({
+    admin,
+    instanceName: instance.external_name,
+    apikey: token,
+    number: phone,
+    text: body,
+  });
 }
+
 
 /**
  * Compat helper used by call sites migrated from Z-API. Retorna um "sender"
