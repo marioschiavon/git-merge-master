@@ -97,11 +97,22 @@ export function shortId(len = 6): string {
 export function buildExternalName(
   companySlug: string,
   displayName: string,
+  taken: string[] = [],
 ): string {
   const o = slugify(companySlug) || "company";
   const n = slugify(displayName) || "wa";
-  return `${INSTANCE_PREFIX}-${o}-${n}-${shortId(6)}`;
+  const base = `${INSTANCE_PREFIX}-${o}-${n}`;
+  const used = new Set(
+    (taken ?? []).filter((t): t is string => typeof t === "string" && !!t),
+  );
+  if (!used.has(base)) return base;
+  for (let i = 2; i < 200; i++) {
+    const candidate = `${base}-${i}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return `${base}-${shortId(4)}`;
 }
+
 
 export function uuidv4(): string {
   return crypto.randomUUID();
