@@ -447,18 +447,21 @@ export function WhatsAppManagerDialog({
                   <StatusChip status={activeInstance.status} />
                 </div>
 
-                {isLegacyInstance(activeInstance) ? (
-                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+                {isLegacyInstance(activeInstance) && (
+                  <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
                     <div className="flex items-center gap-2 font-medium text-amber-700 dark:text-amber-400">
-                      <AlertTriangle className="h-4 w-4" /> Conexão antiga
+                      <AlertTriangle className="h-4 w-4" /> Reconexão necessária
                     </div>
                     <p className="mt-1 text-muted-foreground">
-                      Esta conexão foi criada em uma versão anterior do serviço e
-                      não pode mais ser usada. Remova-a e crie uma nova conexão
-                      para ler o QR-Code novamente.
+                      Clique em <strong>Reconectar</strong> e leia o QR-Code no
+                      celular. A conexão continua a mesma — histórico e leads
+                      permanecem.
                     </p>
                   </div>
-                ) : activeInstance.status === "connected" ? (
+                )}
+
+                {!isLegacyInstance(activeInstance) && activeInstance.status === "connected" ? (
+
                   <div className="rounded-md border border-emerald-500/30 bg-emerald-500/5 p-4 text-sm">
                     <div className="flex items-center gap-2 font-medium text-emerald-700 dark:text-emerald-400">
                       <CheckCircle2 className="h-4 w-4" />
