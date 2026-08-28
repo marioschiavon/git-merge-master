@@ -14,8 +14,9 @@
 // Autorização: caller precisa ser company_admin da company da conexão
 // (ou master_admin). Cada company só vê/gerencia as suas.
 //
-// Conexões criadas no motor antigo (engine='legacy') não são operáveis: o
-// usuário precisa criar uma nova conexão e ler o QR-Code novamente.
+// Conexões criadas no motor antigo (engine='legacy') são reprovisionadas na
+// mesma linha ao chamar connect/reconnect/qr — nada precisa ser excluído.
+
 
 import {
   errorResponse,
