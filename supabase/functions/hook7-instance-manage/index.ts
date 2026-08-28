@@ -110,17 +110,22 @@ async function assertCanManage(userId: string, companyId: string): Promise<void>
     .eq("user_id", userId);
   const list = (roles ?? []).map((r) => r.role);
   if (list.includes("master_admin")) return;
-  if (!list.includes("company_admin")) {
-    throw new HttpError(403, "Apenas administradores da empresa podem gerenciar conexões.");
-  }
+
+  // Membership is the source of truth for company scoping; the membership role
+  // also counts as admin (user_roles pode estar dessincronizado).
   const { data: mem } = await admin
     .from("company_members")
-    .select("company_id")
+    .select("company_id, role")
     .eq("user_id", userId)
     .eq("company_id", companyId)
     .maybeSingle();
   if (!mem) throw new HttpError(403, "Sem acesso a esta empresa.");
+
+  if (mem.role !== "company_admin" && !list.includes("company_admin")) {
+    throw new HttpError(403, "Apenas administradores da empresa podem gerenciar conexões.");
+  }
 }
+
 
 async function loadCompanySlug(companyId: string): Promise<string> {
   const admin = serviceClient();
