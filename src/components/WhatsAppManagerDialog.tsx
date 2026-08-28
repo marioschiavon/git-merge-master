@@ -195,12 +195,13 @@ export function WhatsAppManagerDialog({
           title: "Removida no app, mas não no provedor",
           description:
             r?.remote_error ??
-            "Não foi possível excluir a instância no Hook7. Tente novamente em instantes.",
+            "Não foi possível excluir a conexão no provedor. Tente novamente em instantes.",
           variant: "destructive",
         });
       } else {
-        toast({ title: "Instância removida" });
+        toast({ title: "Conexão removida" });
       }
+
       if (activeId) setActiveId(null);
       setQrBase64(null);
       qc.invalidateQueries({ queryKey: ["hook7_instances"] });
