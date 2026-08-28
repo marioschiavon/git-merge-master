@@ -66,7 +66,7 @@ async function verifyCompany(admin: any, companyId: string, leads: any[]) {
       else out.invalid += ids.length;
     }
     // Pequena pausa entre blocos: consultas em rajada são sinal de spam.
-    if (i + CHUNK < leads.length) await new Promise((res) => setTimeout(res, 1200));
+    if (i + CHUNK < leads.length) await new Promise((res) => setTimeout(res, 600));
   }
   return out;
 }
@@ -114,11 +114,19 @@ serve(async (req) => {
     if (!companyId) return json({ error: "no company" }, 403);
     if (!leadIds.length) return json({ error: "lead_ids vazio" }, 400);
 
+    // Sem instância conectada não há como verificar: erro explícito para a UI.
+    const instOk = await getHook7SendInstance(admin, companyId);
+    if (!instOk) {
+      return json({
+        error: "Nenhuma instância do WhatsApp conectada. Conecte em Configurações → Integrações.",
+      }, 409);
+    }
+
     const { data: leads } = await admin
       .from("leads")
       .select("id, company_id, phone, whatsapp")
       .eq("company_id", companyId)
-      .in("id", leadIds.slice(0, 500));
+      .in("id", leadIds.slice(0, 100));
 
     const withPhone = (leads || []).filter((l: any) => digits(l.whatsapp || l.phone));
     const skipped = (leads?.length || 0) - withPhone.length;
