@@ -51,7 +51,8 @@ const CORS = {
 };
 
 const LEGACY_MSG =
-  "Esta conexão foi criada em uma versão anterior do serviço e precisa ser refeita. Exclua-a e crie uma nova conexão lendo o QR-Code.";
+  "Esta conexão precisa ser reconectada: clique em Reconectar e leia o QR-Code novamente.";
+
 
 async function getCallerCompany(userId: string): Promise<{ id: string; slug: string; name: string; isMaster: boolean; isCompanyAdmin: boolean; }> {
   const admin = serviceClient();
