@@ -2,7 +2,7 @@
 // usamos o token dedicado (armazenado criptografado em
 // hook7_instances.token_encrypted) para autenticar as chamadas de envio.
 
-import { loadInstanceToken } from "./hook7.ts";
+import { getHook7BaseUrl, loadInstanceToken } from "./hook7.ts";
 import { sendTextMessage } from "./whatsapp-engine.ts";
 
 
