@@ -17,6 +17,7 @@ Você conecta uma vez e o Leaderei cuida do resto.
 | [Email (domínio próprio)](./03b-email-resend.md) | Enviar e receber emails com o **seu** domínio (`atendimento@suaempresa.com.br`) | Sim, se sua cadência tem passo de email |
 | [Apollo](./03c-apollo.md) | Buscar e importar leads B2B (nome, cargo, empresa, LinkedIn, telefone) | Recomendada |
 | [Pipedrive](./03d-pipedrive.md) | Sincronizar leads e negócios com seu CRM | Opcional |
+| [Bitrix24](./03f-bitrix24.md) | Criar negócios no Bitrix24 quando leads são abordados e avançar etapas no handoff | Opcional |
 | [Cal.com](./03e-calcom.md) | Deixar o agente IA marcar reuniões automaticamente na sua agenda | Obrigatória se a cadência oferece reunião |
 
 ## Ordem recomendada de conexão
