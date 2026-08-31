@@ -1,23 +1,33 @@
-# Guia HTML: Configuração do Google Cloud (OAuth)
+# Guia HTML: Configuração do Google Cloud para conexão de Gmail dos clientes
 
 ## Objetivo
-Criar um arquivo HTML independente em `docs/manual/configuracao-google.html`, para ser enviado ao **dono do app**, detalhando tudo que ele precisa fazer no **Google Cloud Console** para que o login com Google funcione no Leaderei. Depois que ele concluir a parte dele, você finaliza no backend (cole Client ID / Secret).
+Criar `docs/manual/configuracao-google-gmail.html` — um documento autossuficiente (HTML + CSS embutido, mesmo visual do `manual.html`) para você enviar ao dono do app. Ele detalha, passo a passo, tudo que precisa ser feito no **Google Cloud Console** para liberar o OAuth do Gmail, de modo que **qualquer usuário/cliente possa conectar a própria conta Gmail** e enviar e-mails pelo Leaderei. Depois que ele concluir, você finaliza a configuração aqui (Client ID / Client Secret no provedor de e-mail).
 
-## Conteúdo do arquivo
-Guia em linguagem simples, sem jargões desnecessários, com o mesmo visual do `manual.html` (tema claro/escuro, caixas de aviso, blocos de código):
+Não é login social do Google — é acesso à API do Gmail (envio e leitura) por conta conectada.
 
-1. **O que é e por que é necessário** — explicação em 1 parágrafo (o app precisa de credenciais OAuth do Google para o botão "Entrar com Google").
-2. **Pré-requisitos** — conta Google, acesso ao Google Cloud Console.
-3. **Passo 1 — Criar (ou escolher) o projeto** no console.cloud.google.com.
-4. **Passo 2 — Configurar a tela de consentimento OAuth** (OAuth consent screen): tipo Externo, nome do app, e-mail de suporte, logo opcional.
-5. **Passo 3 — Criar as credenciais OAuth 2.0** (Aplicativo da Web):
-   - Nome sugerido: `Leaderei`
-   - **Authorized redirect URIs** — a URL de callback do backend de autenticação (URL do projeto + `/auth/v1/callback`), exibida em bloco de código com instrução clara de copiar exata.
-6. **Passo 4 — Copiar Client ID e Client Secret** e enviar de forma segura (aviso: nunca por e-mail aberto/WhatsApp; idealmente o próprio dono cola no painel ou envia por canal seguro).
-7. **Passo 5 (opcional) — Publicar o app** (sair do modo "Teste") para não limitar a 100 usuários de teste.
-8. **O que acontece depois** — você habilita o provedor Google no backend e testa o login.
-9. **Checklist final** com caixas marcáveis.
+## Conteúdo do guia
 
-## Observações
-- Arquivo **estático e autossuficiente** (CSS inline, sem dependências), pronto para abrir no navegador ou enviar por e-mail.
-- Somente criação do arquivo; nenhuma alteração no app, backend ou rotas.
+1. **Visão geral** — por que o app precisa de um app OAuth próprio do Google e o que muda para o cliente final (ele só clica em "Conectar Gmail" e autoriza).
+2. **Pré-requisitos** — conta Google Workspace do dono, acesso ao Google Cloud Console, domínio verificado (Search Console) e política de privacidade + termos publicados em URL pública.
+3. **Passo 1 — Criar o projeto** no Google Cloud.
+4. **Passo 2 — Ativar as APIs**: Gmail API (e People API para nome/e-mail do usuário).
+5. **Passo 3 — Tela de consentimento OAuth**: tipo **Externo**, nome do app, e-mails de suporte/desenvolvedor, logo, domínio autorizado, links de política de privacidade e termos.
+6. **Passo 4 — Escopos**: lista exata que deve ser adicionada, com a marcação de quais são "restritos" (exigem verificação):
+   - `.../auth/gmail.send`
+   - `.../auth/gmail.readonly`
+   - `.../auth/gmail.modify`
+   - `.../auth/userinfo.email`
+   - `.../auth/userinfo.profile`
+   - `openid`
+7. **Passo 5 — Criar credenciais OAuth 2.0 (Aplicativo da Web)**:
+   - JavaScript origins e **Authorized redirect URIs** exigidos, em bloco de código para copiar exato (URI de callback do provedor de e-mail usado pelo app + a URL do app).
+   - Onde copiar **Client ID** e **Client Secret**.
+8. **Passo 6 — Publicar e enviar para verificação**: sair do modo "Teste" (limite de 100 usuários), submeter para verificação do Google, o que o Google pede (vídeo demonstrando o fluxo, justificativa de cada escopo restrito) e o **CASA security assessment** obrigatório para escopos restritos do Gmail — com aviso de prazo (semanas) e custo possível.
+9. **Passo 7 — Entregar as credenciais com segurança** — não enviar por WhatsApp/e-mail aberto; usar canal seguro ou o próprio painel.
+10. **O que acontece depois** — você cadastra Client ID/Secret, testa a conexão de um Gmail e libera para os clientes.
+11. **Checklist final** e **erros comuns** (`redirect_uri_mismatch`, `access_blocked: app não verificado`, `scope_not_allowed`, limite de usuários de teste).
+
+## Observações técnicas
+- Documento estático, sem dependências externas, pronto para abrir no navegador, imprimir em PDF ou enviar por e-mail.
+- Redirect URI e URL do app preenchidos com os valores reais do projeto.
+- Sem alterações no app, backend, rotas ou credenciais — apenas o arquivo de documentação.
