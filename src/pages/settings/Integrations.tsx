@@ -563,10 +563,13 @@ export default function Integrations() {
   const { data: emailDomain } = useEmailDomain();
 
   const [pipedriveOpen, setPipedriveOpen] = useState(false);
+  const [bitrixOpen, setBitrixOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
   const [apolloOpen, setApolloOpen] = useState(false);
   const { data: apolloStatus } = useApolloStatus();
+  const { data: bitrix } = useBitrix24Integration();
+
 
   // Hook7 (novo WhatsApp) — status agregado por company
   const { data: hook7Instances } = useQuery({
