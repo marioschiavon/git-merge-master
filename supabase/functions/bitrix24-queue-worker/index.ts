@@ -3,8 +3,11 @@ import {
   credsFromIntegration,
   createBitrixClient,
   configIsReady,
+  normalizeFieldMap,
+  buildEntityFields,
   type BitrixClient,
   type BitrixConfig,
+  type BitrixFieldTarget,
 } from "../_shared/bitrix.ts";
 
 const corsHeaders = {
@@ -23,65 +26,61 @@ function json(payload: unknown, status = 200) {
   });
 }
 
-/** Campos do lead disponíveis para o de/para. */
-const LEAD_FIELDS = [
-  "name",
-  "email",
-  "phone",
-  "whatsapp",
-  "title",
-  "company_name",
-  "website",
-  "address",
-  "source",
-  "status",
-  "score",
-] as const;
-
-function mappedFields(lead: Record<string, unknown>, fieldMap: Record<string, string> | null) {
-  const out: Record<string, unknown> = {};
-  if (!fieldMap) return out;
-  for (const [leadField, bitrixCode] of Object.entries(fieldMap)) {
-    if (!bitrixCode) continue;
-    if (!(LEAD_FIELDS as readonly string[]).includes(leadField)) continue;
-    const value = lead[leadField];
-    if (value === null || value === undefined || value === "") continue;
-    out[bitrixCode] = value;
-  }
-  return out;
-}
-
 async function findOrCreateContact(
   bitrix: BitrixClient,
   lead: Record<string, any>,
+  contactFields: Record<string, unknown>,
 ): Promise<number | null> {
-  const email = (lead.email ?? "").trim();
-  const phone = (lead.whatsapp ?? lead.phone ?? "").trim();
+  const email = String(lead.email ?? "").trim();
+  const phone = String(lead.whatsapp ?? lead.phone ?? "").trim();
 
+  let existingId: number | null = null;
   if (email) {
     const res = await bitrix.call<any>("crm.contact.list", {
       filter: { EMAIL: email },
       select: ["ID"],
     });
     const list = Array.isArray(res) ? res : (res?.items ?? []);
-    if (list.length) return Number(list[0].ID);
+    if (list.length) existingId = Number(list[0].ID);
   }
-  if (phone) {
+  if (!existingId && phone) {
     const res = await bitrix.call<any>("crm.contact.list", {
       filter: { PHONE: phone },
       select: ["ID"],
     });
     const list = Array.isArray(res) ? res : (res?.items ?? []);
-    if (list.length) return Number(list[0].ID);
+    if (list.length) existingId = Number(list[0].ID);
   }
 
-  const name = String(lead.name ?? "").trim() || email || phone;
-  if (!name) return null;
+  const fields: Record<string, unknown> = { ...contactFields };
 
-  const fields: Record<string, unknown> = { NAME: name, OPENED: "Y" };
-  if (lead.title) fields.POST = lead.title;
-  if (email) fields.EMAIL = [{ VALUE: email, VALUE_TYPE: "WORK" }];
-  if (phone) fields.PHONE = [{ VALUE: phone, VALUE_TYPE: "WORK" }];
+  if (existingId) {
+    // Nunca sobrescrever cegamente: só preenche o que estiver vazio no CRM do cliente.
+    const codes = Object.keys(fields);
+    if (!codes.length) return existingId;
+    const current = await bitrix.call<any>("crm.contact.get", { id: existingId });
+    const patch: Record<string, unknown> = {};
+    for (const code of codes) {
+      const value = current?.[code];
+      const isEmpty =
+        value === null ||
+        value === undefined ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0);
+      if (isEmpty) patch[code] = fields[code];
+    }
+    if (Object.keys(patch).length) {
+      await bitrix.call("crm.contact.update", { id: existingId, fields: patch });
+    }
+    return existingId;
+  }
+
+  if (!fields.NAME) {
+    const fallback = String(lead.name ?? "").trim() || email || phone;
+    if (!fallback) return null;
+    fields.NAME = fallback;
+  }
+  fields.OPENED = "Y";
 
   const id = await bitrix.call<number>("crm.contact.add", { fields });
   return id ? Number(id) : null;
@@ -197,7 +196,9 @@ Deno.serve(async (req) => {
       }
 
       const { client: bitrix, config } = entry;
-      const fieldMap = (config.field_map ?? {}) as Record<string, string>;
+      const fieldMap: Record<string, BitrixFieldTarget> = normalizeFieldMap(
+        config.field_map ?? null,
+      );
 
       const { data: lead } = await supabase
         .from("leads")
@@ -230,18 +231,25 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const contactId = await findOrCreateContact(bitrix, lead);
+        const leadRow = lead as Record<string, unknown>;
+        const contactFields = buildEntityFields(leadRow, fieldMap, "contact");
+        const contactId = await findOrCreateContact(bitrix, lead, contactFields);
         const companyBitrixId = lead.company_name
           ? await findOrCreateCompany(bitrix, String(lead.company_name))
           : null;
 
         const dealFields: Record<string, unknown> = {
-          TITLE: `${lead.name ?? "Lead"}${lead.company_name ? ` — ${lead.company_name}` : ""}`,
           CATEGORY_ID: config.category_id,
           STAGE_ID: config.stage_created,
           OPENED: "Y",
-          ...mappedFields(lead as Record<string, unknown>, fieldMap),
+          ...buildEntityFields(leadRow, fieldMap, "deal"),
         };
+        // TITLE é obrigatório no Bitrix: nunca pode ficar em branco.
+        if (!dealFields.TITLE) {
+          dealFields.TITLE = `${lead.name ?? "Lead"}${
+            lead.company_name ? ` — ${lead.company_name}` : ""
+          }`;
+        }
         if (config.source_id) dealFields.SOURCE_ID = config.source_id;
         if (contactId) dealFields.CONTACT_ID = contactId;
         if (companyBitrixId) dealFields.COMPANY_ID = companyBitrixId;
@@ -310,7 +318,7 @@ Deno.serve(async (req) => {
           fields: {
             STAGE_ID: config.stage_handoff,
             COMMENTS: comment,
-            ...mappedFields(lead as Record<string, unknown>, fieldMap),
+            ...buildEntityFields(lead as Record<string, unknown>, fieldMap, "deal"),
           },
           params: { REGISTER_SONET_EVENT: "Y" },
         });
