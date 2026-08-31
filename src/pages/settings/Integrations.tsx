@@ -42,6 +42,9 @@ import { toast } from "@/hooks/use-toast";
 import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
 import { WhatsAppManagerDialog } from "@/components/WhatsAppManagerDialog";
 import { ApolloConnectDialog } from "@/components/ApolloConnectDialog";
+import { Bitrix24Dialog } from "@/components/Bitrix24Dialog";
+import { useBitrix24Integration } from "@/hooks/useBitrix24";
+
 import { useApolloStatus } from "@/hooks/useApollo";
 import { useCalcomConnection, useCalcomConnect, useCalcomDisconnect, useCalcomTestConnection } from "@/hooks/useCalcom";
 import { Sparkles } from "lucide-react";
@@ -563,10 +566,13 @@ export default function Integrations() {
   const { data: emailDomain } = useEmailDomain();
 
   const [pipedriveOpen, setPipedriveOpen] = useState(false);
+  const [bitrixOpen, setBitrixOpen] = useState(false);
   const [calcomOpen, setCalcomOpen] = useState(false);
   const [whatsappOpen, setWhatsappOpen] = useState(false);
   const [apolloOpen, setApolloOpen] = useState(false);
   const { data: apolloStatus } = useApolloStatus();
+  const { data: bitrix } = useBitrix24Integration();
+
 
   // Hook7 (novo WhatsApp) — status agregado por company
   const { data: hook7Instances } = useQuery({
@@ -608,6 +614,13 @@ export default function Integrations() {
 
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
+  const bitrixConfig = (bitrix?.config ?? {}) as Record<string, unknown>;
+  const bitrixNeedsMapping =
+    bitrix?.status === "active" &&
+    !(bitrixConfig.category_id && bitrixConfig.stage_created && bitrixConfig.stage_handoff);
+  const bitrixStatus: StatusKey =
+    bitrix?.status === "active" ? (bitrixNeedsMapping ? "pending" : "connected") : "disconnected";
+
   const emailStatus: StatusKey =
     emailDomain?.status === "verified"
       ? "connected"
@@ -634,14 +647,15 @@ export default function Integrations() {
       name: "Bitrix24",
       category: "CRM",
       description:
-        "Sincronize leads e negócios com o CRM Bitrix24. Integração em desenvolvimento.",
+        "Cria o negócio no seu funil quando o lead é abordado e avança de etapa quando a IA passa para uma pessoa.",
       icon: Building2,
       iconTint: "text-[#2FC7F7]",
-      status: "disconnected",
-      readinessLabel: "Em desenvolvimento",
-      actionLabel: "Em desenvolvimento",
-      disabled: true,
+      status: bitrixStatus,
+      operationalLabel: bitrix?.api_domain ?? undefined,
+      readinessLabel: bitrixNeedsMapping ? "Falta configurar o funil" : undefined,
+      onAction: () => setBitrixOpen(true),
     },
+
     {
       key: "email",
       name: "Email",
@@ -761,6 +775,8 @@ export default function Integrations() {
       <EnrichmentSettingsCard />
 
       <PipedriveDialog open={pipedriveOpen} onOpenChange={setPipedriveOpen} />
+      <Bitrix24Dialog open={bitrixOpen} onOpenChange={setBitrixOpen} />
+
       
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
       
