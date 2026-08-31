@@ -67,6 +67,7 @@ export function Bitrix24Dialog({
     setStageHandoff(savedConfig.stage_handoff ?? null);
     setSourceId(savedConfig.source_id ?? null);
     setFieldMap(normalizeFieldMap(savedConfig.field_map));
+    setEntityMap({});
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, integration?.id]);
