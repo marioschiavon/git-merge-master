@@ -48,7 +48,7 @@ Depois de conectado, ainda na tela de Integrações:
 2. **Etapa de criação:** etapa onde o negócio nasce quando o lead é abordado (ex.: "Novo lead").
 3. **Etapa de handoff:** etapa para onde o negócio vai quando a IA passa para um humano (ex.: "Qualificado").
 4. **Fonte:** de onde o lead veio (ex.: "WhatsApp").
-5. **De/para de campos:** à esquerda, os campos do Leaderei (nome, e-mail, telefone, whatsapp, cargo, empresa, site, endereço, origem, status e score); à direita, o campo do Bitrix24 que deve recebê-los — incluindo **campos personalizados** que você criou no CRM.
+5. **De/para de campos:** à esquerda, os campos do Leaderei (nome, e-mail, telefone, whatsapp, cargo, empresa, site, endereço, origem, status e score); no meio, a **entidade** do Bitrix que recebe a informação — **Pessoa** (o contato) ou **Negócio** (o card do funil); à direita, o campo dessa entidade, incluindo campos padrão (Nome, Cargo, E-mail, Telefone) e **campos personalizados** que você criou no CRM. Sugestão: nome, cargo, e-mail, telefone e whatsapp em **Pessoa**; empresa, site, endereço, origem, status e score em **Negócio**.
 6. Salve a configuração. A partir daí, tudo é automático.
 
 ## Acompanhando a fila de sincronização
