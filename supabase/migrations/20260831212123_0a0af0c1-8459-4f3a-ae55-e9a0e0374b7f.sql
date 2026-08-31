@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.enqueue_bitrix_sync() FROM PUBLIC, anon, authenticated;
