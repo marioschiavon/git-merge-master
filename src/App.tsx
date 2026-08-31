@@ -34,6 +34,7 @@ import CalcomSettings from "@/pages/settings/CalcomSettings";
 import EmailSettings from "@/pages/settings/Email";
 import Bookings from "@/pages/Bookings";
 import WhatsAppBestPractices from "@/pages/WhatsAppBestPractices";
+import Manual from "@/pages/Manual";
 import Unsubscribe from "@/pages/Unsubscribe";
 import ResetPassword from "@/pages/ResetPassword";
 import Onboarding from "@/pages/Onboarding";
@@ -100,6 +101,8 @@ const App = () => (
               <Route path="/settings/email" element={<EmailSettings />} />
               <Route path="/bookings" element={<Bookings />} />
               <Route path="/guides/whatsapp" element={<WhatsAppBestPractices />} />
+              <Route path="/guides/manual" element={<Manual />} />
+              <Route path="/guides/manual/:slug" element={<Manual />} />
             </Route>
             <Route path="*" element={<NotFound />} />
           </Routes>

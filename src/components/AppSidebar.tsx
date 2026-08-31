@@ -99,6 +99,7 @@ const settingsItems = [
 
 const guideItems = [
   { title: "Boas práticas WhatsApp", url: "/guides/whatsapp", icon: ShieldCheck },
+  { title: "Manual", url: "/guides/manual", icon: BookOpen },
 ];
 
 export function AppSidebar() {
