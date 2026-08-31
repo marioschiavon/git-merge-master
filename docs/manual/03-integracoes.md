@@ -43,4 +43,4 @@ Só **depois** disso vale a pena importar leads e criar cadências. Fazer o cont
 
 Mesmo que sua estratégia principal seja WhatsApp, vale conectar o email. Quando um número fica sem resposta, o agente IA tenta pelo email como plano B — e isso costuma recuperar 10-20% dos leads.
 
-**Próximos passos →** [03a. WhatsApp](./03a-whatsapp-hook7.md) · [03b. Email](./03b-email-resend.md) · [03c. Apollo](./03c-apollo.md) · [03d. Pipedrive](./03d-pipedrive.md) · [03e. Cal.com](./03e-calcom.md)
+**Próximos passos →** [03a. WhatsApp](./03a-whatsapp-hook7.md) · [03b. Email](./03b-email-resend.md) · [03c. Apollo](./03c-apollo.md) · [03d. Pipedrive](./03d-pipedrive.md) · [03f. Bitrix24](./03f-bitrix24.md) · [03e. Cal.com](./03e-calcom.md)
