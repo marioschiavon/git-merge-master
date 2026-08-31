@@ -614,6 +614,13 @@ export default function Integrations() {
 
   const pipedriveStatus: StatusKey =
     pipedrive?.status === "active" ? "connected" : "disconnected";
+  const bitrixConfig = (bitrix?.config ?? {}) as Record<string, unknown>;
+  const bitrixNeedsMapping =
+    bitrix?.status === "active" &&
+    !(bitrixConfig.category_id && bitrixConfig.stage_created && bitrixConfig.stage_handoff);
+  const bitrixStatus: StatusKey =
+    bitrix?.status === "active" ? (bitrixNeedsMapping ? "pending" : "connected") : "disconnected";
+
   const emailStatus: StatusKey =
     emailDomain?.status === "verified"
       ? "connected"
