@@ -640,14 +640,15 @@ export default function Integrations() {
       name: "Bitrix24",
       category: "CRM",
       description:
-        "Sincronize leads e negócios com o CRM Bitrix24. Integração em desenvolvimento.",
+        "Cria o negócio no seu funil quando o lead é abordado e avança de etapa quando a IA passa para uma pessoa.",
       icon: Building2,
       iconTint: "text-[#2FC7F7]",
-      status: "disconnected",
-      readinessLabel: "Em desenvolvimento",
-      actionLabel: "Em desenvolvimento",
-      disabled: true,
+      status: bitrixStatus,
+      operationalLabel: bitrix?.api_domain ?? undefined,
+      readinessLabel: bitrixNeedsMapping ? "Falta configurar o funil" : undefined,
+      onAction: () => setBitrixOpen(true),
     },
+
     {
       key: "email",
       name: "Email",
