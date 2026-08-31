@@ -42,6 +42,9 @@ import { toast } from "@/hooks/use-toast";
 import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
 import { WhatsAppManagerDialog } from "@/components/WhatsAppManagerDialog";
 import { ApolloConnectDialog } from "@/components/ApolloConnectDialog";
+import { Bitrix24Dialog } from "@/components/Bitrix24Dialog";
+import { useBitrix24Integration } from "@/hooks/useBitrix24";
+
 import { useApolloStatus } from "@/hooks/useApollo";
 import { useCalcomConnection, useCalcomConnect, useCalcomDisconnect, useCalcomTestConnection } from "@/hooks/useCalcom";
 import { Sparkles } from "lucide-react";
