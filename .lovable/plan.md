@@ -1,52 +1,50 @@
-# Integração Bitrix24 — Conexão e Sincronização de Leads
+# Bitrix24 — Fase 1: Leaderei → Bitrix
 
-## Onde estamos
+Sincronização de mão única: quando um lead é abordado, nasce um negócio no Bitrix24 do cliente; quando a IA passa para humano, o negócio avança de etapa com o resumo da conversa. Nada é importado do Bitrix e nada é apagado.
 
-- O **card do Bitrix24** já existe em Configurações → Integrações (categoria CRM), hoje como **"Em desenvolvimento"**, sem ação de conexão.
-- Nada de backend existe ainda para o Bitrix24: sem edge functions, sem colunas na tabela `leads`, sem hooks.
+## Estado atual verificado
 
-## Próximo passo (esta etapa)
+- O card Bitrix24 existe em `src/pages/settings/Integrations.tsx` como "Em desenvolvimento", desabilitado.
+- Não há nenhuma função de backend para Bitrix.
+- A tabela `leads` já tem `handoff_required`, `handoff_reason`, `handoff_at`, `company_name`, `whatsapp` — os gatilhos podem se apoiar neles.
+- `pipedrive-connect` usa `requireCompanyMember` do `_shared/tenant-auth.ts`; será o molde da conexão.
+- Versão atual: `beta 0.47`.
 
-Transformar o card em uma integração funcional, **espelhando o modelo do Pipedrive**: o cliente conecta, sincroniza contatos/leads do Bitrix24 para o Leaderei e desconecta quando quiser.
+## O que será construído
 
-### Autenticação: Webhook de entrada (REST) do Bitrix24
+### Banco de dados (uma migration)
 
-O cliente cola a **URL do webhook de entrada** que o próprio Bitrix24 gera (`https://{portal}.bitrix24.com.br/rest/{user_id}/{token}/`). É o equivalente ao "API token" do Pipedrive — simples para o cliente, sem app OAuth. Validamos a URL chamando `profile` na API do Bitrix24 no momento da conexão.
+1. Novo provedor `bitrix24` no tipo de integrações. Reaproveita a tabela `integrations`: código do webhook, portal e um bloco de configuração (funil, etapa de criação, etapa de handoff, fonte, de/para de campos) — tudo vazio no início.
+2. Fila `bitrix_sync_queue`: um item por lead e por evento (`create_deal`, `move_stage`), com tentativas, próximo horário e último erro. Chave única por lead+evento impede negócio duplicado.
+3. Vínculo `bitrix_deals`: liga cada lead ao negócio criado no Bitrix (e ao contato/empresa lá). Tabela separada — nenhuma coluna nova em `leads`.
+4. Dois gatilhos na tabela `leads` (um único trigger `AFTER UPDATE`) que apenas enfileiram: status virou "abordado" → `create_deal`; handoff ligado → `move_stage` com motivo e horário. Assim nenhuma função existente precisa ser tocada.
 
-### O que será construído
+Ambas as tabelas com RLS: membros da empresa só enxergam as próprias linhas; escrita apenas pelo serviço.
 
-1. **Edge function `bitrix24-connect`**
-   - Recebe a URL do webhook + `company_id`.
-   - Valida chamando `profile` no Bitrix24 (retorna nome do usuário e do portal).
-   - Salva em `integrations` com `provider: "bitrix24"`, status `active` (mesma tabela do Pipedrive, upsert por company+provider).
-   - Guard de tenant + permissão de admin (mesmo padrão das demais funções).
+### Backend (três funções novas)
 
-2. **Edge function `bitrix24-sync`**
-   - Busca **contatos** (`crm.contact.list`, paginado) e **empresas** (`crm.company.list`) do Bitrix24.
-   - Mapeia para `leads`: nome, email(s), telefone(s), cargo, empresa, site, cidade/estado/país; dados brutos em `pipedrive_data`-equivalente (usaremos uma coluna genérica ou `enrichment_data`).
-   - Reconciliação: remove leads cuja origem é bitrix24 e que não existem mais lá.
-   - Atualiza `last_synced_at` da integração.
+- **`bitrix24-connect`** — recebe a URL do webhook, extrai portal/usuário/código, valida chamando `profile`, salva escopado por empresa. A resposta nunca devolve o código; só portal e nome do usuário.
+- **`bitrix24-discover`** — somente leitura: lista funis, etapas, fontes e campos personalizados do Bitrix daquele cliente para montar o mapeamento na tela.
+- **`bitrix24-queue-worker`** — roda por cron. Configuração incompleta → item marcado como "pulado", sem chute. Criação: acha ou cria contato (por e-mail, depois telefone) e empresa, cria o negócio no funil/etapa/fonte configurados com o de/para de campos, e grava o vínculo. Handoff: atualiza o negócio para a etapa seguinte. Erros recuam de forma exponencial (1min, 5min, 25min) e falham após 5 tentativas.
 
-3. **Banco de dados**
-   - Nova coluna `leads.bitrix24_id` (inteiro) + índice único `(company_id, bitrix24_id)` — espelho do `pipedrive_id` existente.
-   - Sem novas tabelas.
+### Tela
 
-4. **Frontend**
-   - Novo hook `src/hooks/useBitrix24.ts` com `useConnectBitrix24`, `useDisconnectBitrix24`, `useSyncBitrix24` (reaproveitando `useIntegration`).
-   - Em `src/pages/settings/Integrations.tsx`: o card do Bitrix24 sai de "Em desenvolvimento" e ganha o mesmo comportamento do card do Pipedrive — dialog de conexão (campo para a URL do webhook + instruções de onde encontrá-la no Bitrix24), botões Sincronizar e Desconectar, e status real.
+- Novo hook `src/hooks/useBitrix24.ts` reaproveitando `useIntegration` (conectar, desconectar, descobrir, salvar configuração). Sem sincronização manual.
+- O card Bitrix24 deixa de ser "em desenvolvimento" e ganha: diálogo de conexão com instruções de onde achar a URL no Bitrix; depois de conectado, selects de funil, etapa de criação, etapa de handoff e fonte; de/para de campos (Leaderei à esquerda, Bitrix à direita); painel da fila com pendentes, falhas e último erro; botão Desconectar.
+- Campos do Leaderei oferecidos no de/para: nome, e-mail, telefone, whatsapp, cargo, empresa, site, endereço, origem, status e score.
 
-5. **Versão e patch log**
-   - Bump em `src/lib/version.ts` e entrada em `docs/patch-logs/2026-08-31.md` em linguagem de cliente.
+### Versão
 
-## O que NÃO entra nesta etapa (futuro)
+`beta 0.48` em `src/lib/version.ts` e entrada nova em `docs/patch-logs/2026-08-31.md`, em linguagem de cliente.
 
-- **Sincronização de negócios (deals/funis)** do Bitrix24 → bidirecional.
-- **Envio do Leaderei → Bitrix24** (criar negócio no CRM quando um lead vira reunião/converte).
-- OAuth app do Bitrix24 Marketplace (mais elegante, mas exige app publicado; o webhook atende agora sem fricção).
+## Notas técnicas
 
-## Detalhes técnicos
+- Toda chamada ao Bitrix acontece em Edge Function. O código do webhook vai na URL (`/rest/USER_ID/CODIGO/metodo`), nunca em header, nunca no navegador, nunca em `VITE_*`.
+- Métodos usados: `profile`, `crm.category.list` (fallback `crm.dealcategory.list`), `crm.dealcategory.stage.list`, `crm.status.list`, `crm.deal.fields`, `crm.contact.list/add`, `crm.company.list/add`, `crm.deal.add/update/get`.
+- Etapas são strings (`NEW`, `C5:UC_...`) e campos personalizados são códigos (`UF_CRM_...`) — sempre vindos de configuração, nunca fixos no código.
+- Worker: timeout de 10s por chamada, no máximo 2 requisições por segundo, ~20 itens por execução, token nunca em log.
+- Nenhum `delete()` em `leads` em nenhum ponto do código novo; nenhuma função existente é modificada.
 
-- Arquivos novos: `supabase/functions/bitrix24-connect/index.ts`, `supabase/functions/bitrix24-sync/index.ts`, `src/hooks/useBitrix24.ts`.
-- Arquivos alterados: `src/pages/settings/Integrations.tsx`, `src/lib/version.ts`, patch log, migração SQL (coluna + grants já existentes na tabela `leads` — apenas `ALTER TABLE`, sem novos GRANTs).
-- Bitrix24 REST: `crm.contact.list` (com `start` para paginação em lotes de 50) e `profile` para validação.
-- Segue o padrão multi-tenant: `requireCompanyMember` + verificação de admin como em `pipedrive-connect`.
+## Fora de escopo
+
+Importar contatos/empresas do Bitrix, webhook de volta quando o vendedor move o card, OAuth do Marketplace, qualquer reconciliação destrutiva.
