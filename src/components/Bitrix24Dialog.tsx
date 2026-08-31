@@ -57,6 +57,8 @@ export function Bitrix24Dialog({
   const [stageHandoff, setStageHandoff] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [fieldMap, setFieldMap] = useState<Record<string, BitrixFieldTarget>>({});
+  const [entityMap, setEntityMap] = useState<Record<string, BitrixEntity>>({});
+
 
   useEffect(() => {
     if (!open) return;
