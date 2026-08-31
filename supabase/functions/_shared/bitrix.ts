@@ -16,14 +16,49 @@ export interface BitrixCreds {
   code: string; // segredo do webhook
 }
 
+export type BitrixEntity = "deal" | "contact";
+
+export interface BitrixFieldTarget {
+  entity: BitrixEntity;
+  field: string;
+}
+
 export interface BitrixConfig {
   user_id?: string | null;
   category_id?: string | number | null;
   stage_created?: string | null;
   stage_handoff?: string | null;
   source_id?: string | null;
-  field_map?: Record<string, string> | null;
+  /** Aceita o formato antigo (string = campo de negócio) e o novo (entidade + campo). */
+  field_map?: Record<string, string | BitrixFieldTarget> | null;
 }
+
+/** Normaliza o de/para: formato antigo (string) vira { entity: "deal", field }. */
+export function normalizeFieldMap(
+  raw: Record<string, string | BitrixFieldTarget> | null | undefined,
+): Record<string, BitrixFieldTarget> {
+  const out: Record<string, BitrixFieldTarget> = {};
+  for (const [leadField, value] of Object.entries(raw ?? {})) {
+    if (!value) continue;
+    if (typeof value === "string") {
+      out[leadField] = { entity: "deal", field: value };
+    } else if (value.field) {
+      out[leadField] = {
+        entity: value.entity === "contact" ? "contact" : "deal",
+        field: value.field,
+      };
+    }
+  }
+  return out;
+}
+
+/** Campos do Bitrix que só aceitam lista (crm_multifield). */
+const MULTIFIELD = new Set(["EMAIL", "PHONE", "IM", "WEB"]);
+
+export function isMultifield(code: string): boolean {
+  return MULTIFIELD.has(code.toUpperCase());
+}
+
 
 const WEBHOOK_RE =
   /^https?:\/\/([a-z0-9.-]+)\/rest\/(\d+)\/([a-z0-9]+)\/?$/i;
