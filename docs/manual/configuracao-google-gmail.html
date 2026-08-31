@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Configuração do Google Cloud para conexão de Gmail | Leaderei</title>
+<meta name="description" content="Guia passo a passo para o dono do app configurar o Google Cloud Console e liberar a conexão de Gmail dos clientes no Leaderei.">
+<style>
+  :root{
+    --bg:#f6f7fb;
+    --bg-elevated:#ffffff;
+    --text:#1c2033;
+    --text-muted:#5b6178;
+    --border:#e4e6f0;
+    --primary:#4f46e5;
+    --primary-hover:#4338ca;
+    --primary-soft:#eef0ff;
+    --accent:#0ea5a4;
+    --accent-soft:#e6fbfa;
+    --warn:#b45309;
+    --warn-soft:#fef3e0;
+    --danger:#be123c;
+    --danger-soft:#fde8ee;
+    --code-bg:#eef0f7;
+    --shadow: 0 1px 2px rgba(20,20,50,.04), 0 8px 24px rgba(20,20,50,.06);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#12131c;
+      --bg-elevated:#1a1c29;
+      --text:#e8e9f2;
+      --text-muted:#9497b0;
+      --border:#2a2d3f;
+      --primary:#8b85ff;
+      --primary-hover:#a29cff;
+      --primary-soft:#232244;
+      --accent:#39d0cf;
+      --accent-soft:#123433;
+      --warn:#f2b756;
+      --warn-soft:#3a2c10;
+      --danger:#ff7597;
+      --danger-soft:#3a1523;
+      --code-bg:#20222f;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.4);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#12131c;
+    --bg-elevated:#1a1c29;
+    --text:#e8e9f2;
+    --text-muted:#9497b0;
+    --border:#2a2d3f;
+    --primary:#8b85ff;
+    --primary-hover:#a29cff;
+    --primary-soft:#232244;
+    --accent:#39d0cf;
+    --accent-soft:#123433;
+    --warn:#f2b756;
+    --warn-soft:#3a2c10;
+    --danger:#ff7597;
+    --danger-soft:#3a1523;
+    --code-bg:#20222f;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.4);
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{max-width:860px;margin:0 auto;padding:40px 22px 90px;}
+  .hero{
+    background: linear-gradient(135deg, var(--primary-soft), var(--accent-soft));
+    border:1px solid var(--border);
+    border-radius: 20px;
+    padding: 36px clamp(20px,4vw,44px);
+    margin-bottom: 34px;
+  }
+  .hero .eyebrow{
+    display:inline-flex; align-items:center; gap:8px;
+    font-size:12px; font-weight:700; letter-spacing:.05em; text-transform:uppercase;
+    color:var(--primary); margin-bottom:12px;
+  }
+  .hero h1{ font-size:clamp(26px,4vw,34px); margin:0 0 12px; letter-spacing:-.02em;}
+  .hero p{ font-size:15.5px; color:var(--text-muted); margin:0; max-width:68ch;}
+  .doc{
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    padding: 26px clamp(18px,3vw,30px) 30px;
+    margin-bottom:22px;
+    scroll-margin-top: 24px;
+  }
+  .doc h2{ margin:0 0 10px; font-size:20px; letter-spacing:-.01em;}
+  .doc h3{ margin:24px 0 10px; font-size:15px; text-transform:uppercase; letter-spacing:.04em; color:var(--primary);}
+  .doc h3:first-of-type{ margin-top:0; }
+  .doc p{ margin:0 0 12px; font-size:14.6px; }
+  .doc ul, .doc ol{ margin:0 0 14px; padding-left:22px; font-size:14.4px; }
+  .doc li{ margin-bottom:8px; }
+  .doc strong{ color:var(--text); }
+  .doc code{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background:var(--code-bg); padding:2px 7px; border-radius:6px; font-size:13px;
+  }
+  .doc pre{
+    background:var(--code-bg); border-radius:10px; padding:14px 16px;
+    overflow-x:auto; font-size:13px; margin:10px 0 14px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space:pre-wrap; word-break:break-word;
+  }
+  .copy-row{
+    display:flex; gap:8px; align-items:stretch; margin:10px 0 14px;
+  }
+  .copy-row pre{ flex:1; margin:0; }
+  .copy-row button{
+    flex:none; border:1px solid var(--border); background:var(--bg-elevated);
+    color:var(--text); border-radius:10px; padding:0 16px; cursor:pointer;
+    font-size:13px; font-weight:600;
+  }
+  .copy-row button:hover{ background:var(--primary-soft); color:var(--primary); }
+  .callout{
+    border-radius:12px; padding:14px 16px; font-size:14px; margin:14px 0 18px;
+    display:flex; gap:10px;
+  }
+  .callout .icon{ flex:none; font-size:18px; line-height:1.3; }
+  .callout.tip{ background:var(--accent-soft); }
+  .callout.warn{ background:var(--warn-soft); }
+  .callout.danger{ background:var(--danger-soft); }
+  .callout p{ margin:0; }
+  .callout p + p{ margin-top:8px; }
+  ol.steps{ list-style:none; padding:0; counter-reset:step; }
+  ol.steps > li{ counter-increment:step; position:relative; padding-left:48px; margin-bottom:30px; }
+  ol.steps > li:last-child{ margin-bottom:0; }
+  ol.steps > li::before{
+    content:counter(step); position:absolute; left:0; top:0;
+    width:34px; height:34px; border-radius:50%; background:var(--primary); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:15px;
+  }
+  ol.steps h3{ margin:0 0 8px; font-size:16px; text-transform:none; letter-spacing:0; color:var(--text); }
+  .checklist{
+    background:var(--bg-elevated);
+    border:1px solid var(--border);
+    border-radius:16px;
+    padding:22px 24px;
+    margin-top:22px;
+    box-shadow:var(--shadow);
+  }
+  .checklist h3{ margin-top:0; font-size:15px;}
+  .checklist ul{ margin:0; padding-left:0; list-style:none;}
+  .checklist li{
+    display:flex; gap:10px; align-items:flex-start;
+    padding:7px 0; font-size:14.5px; border-bottom:1px dashed var(--border);
+  }
+  .checklist li:last-child{ border-bottom:none; }
+  .checklist li .box{
+    flex:none; width:18px;height:18px;margin-top:2px;border-radius:5px;
+    border:2px solid var(--primary);
+  }
+  .theme-toggle{
+    position:fixed; top:18px; right:18px; z-index:20;
+    background:var(--bg-elevated); border:1px solid var(--border);
+    box-shadow:var(--shadow); border-radius:999px;
+    padding:8px 14px; font-size:13px; color:var(--text); cursor:pointer;
+  }
+  footer.manual-footer{
+    text-align:center; padding:50px 20px 10px; color:var(--text-muted); font-size:13.5px;
+  }
+  @media print{
+    .theme-toggle{ display:none !important; }
+    .doc{ break-inside:avoid; box-shadow:none; }
+    .copy-row button{ display:none; }
+  }
+  @media (max-width: 640px){
+    .page{ padding:24px 16px 60px; }
+    .hero{ padding:24px 20px; }
+    .copy-row{ flex-direction:column; }
+    .copy-row button{ padding:10px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙 Modo escuro</button>
+
+<div class="page">
+  <header class="hero">
+    <div class="eyebrow">Documento técnico · uso interno</div>
+    <h1>Configuração do Google Cloud para conexão de Gmail</h1>
+    <p>Guia para o <strong>dono do app</strong> configurar o Google Cloud Console e liberar a conexão de Gmail dos clientes no Leaderei. Ao final, qualquer usuário poderá clicar em “Conectar Gmail” dentro do app e autorizar o acesso de forma segura.</p>
+  </header>
+
+  <main>
+    <article class="doc" id="visao">
+      <h2>O que você vai configurar</h2>
+      <p>O Leaderei precisa de um <strong>aplicativo OAuth próprio</strong> criado dentro do Google Cloud do dono do app. Esse aplicativo pede permissão para enviar e ler e-mails do Gmail dos usuários, mas cada usuário autoriza individualmente — o Leaderei nunca acessa a conta de ninguém sem consentimento.</p>
+      <p>Resumindo, você vai:</p>
+      <ol>
+        <li>Criar um projeto no Google Cloud.</li>
+        <li>Ativar a <strong>Gmail API</strong> (e a People API, se solicitada).</li>
+        <li>Configurar a <strong>tela de consentimento OAuth</strong>.</li>
+        <li>Criar as <strong>credenciais OAuth 2.0</strong> e cadastrar as URLs do app.</li>
+        <li>Enviar o <strong>Client ID</strong> e o <strong>Client Secret</strong> para a equipe Leaderei cadastrar no painel.</li>
+      </ol>
+
+      <div class="callout danger">
+        <span class="icon">🔒</span>
+        <div>
+          <p><strong>Importante:</strong> Client ID e Client Secret são credenciais sensíveis. Não envie por WhatsApp, e-mail aberto ou qualquer canal público. Entregue diretamente pelo painel seguro ou por canal privado combinado com a equipe Leaderei.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="doc" id="passo-a-passo">
+      <h2>Passo a passo no Google Cloud Console</h2>
+
+      <ol class="steps">
+        <li>
+          <h3>Criar (ou escolher) o projeto</h3>
+          <p>Acesse <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> com a conta Google do dono do app.</p>
+          <ul>
+            <li>No topo da tela, clique no seletor de projetos e depois em <strong>Novo projeto</strong>.</li>
+            <li>Dê um nome claro, por exemplo: <code>Leaderei - Gmail</code>.</li>
+            <li>Confirme e aguarde a criação.</li>
+          </ul>
+        </li>
+
+        <li>
+          <h3>Ativar as APIs necessárias</h3>
+          <p>Vá em <strong>APIs e serviços → Biblioteca</strong> e ative:</p>
+          <ul>
+            <li><strong>Gmail API</strong> — essencial para enviar e ler e-mails.</li>
+            <li><strong>People API</strong> — usada para obter nome e e-mail do usuário que autoriza.</li>
+          </ul>
+        </li>
+
+        <li>
+          <h3>Configurar a tela de consentimento OAuth</h3>
+          <p>Vá em <strong>APIs e serviços → Tela de consentimento OAuth</strong>.</p>
+          <ul>
+            <li>Escolha <strong>Externo</strong> (para que qualquer pessoa com Gmail possa usar).</li>
+            <li>Preencha:
+              <ul>
+                <li><strong>Nome do app:</strong> <code>Leaderei</code> (ou o nome público do seu app).</li>
+                <li><strong>E-mail de suporte ao usuário:</strong> um e-mail ativo e monitorado.</li>
+                <li><strong>Logo:</strong> opcional, mas recomendado. Use o logo oficial do app.</li>
+                <li><strong>Domínio do aplicativo:</strong> adicione o domínio principal do app, por exemplo <code>app.leaderei.com.br</code>.</li>
+                <li><strong>Link para a política de privacidade</strong> e <strong>Termos de serviço</strong> — precisam estar publicados em URLs públicas.</li>
+              </ul>
+            </li>
+            <li>Salve e continue até o final.</li>
+          </ul>
+
+          <div class="callout warn">
+            <span class="icon">⚠️</span>
+            <div>
+              <p><strong>Sem política de privacidade e termos públicos, o Google rejeita a verificação.</strong> Tenha essas páginas no ar antes de submeter o app para análise.</p>
+            </div>
+          </div>
+        </li>
+
+        <li>
+          <h3>Adicionar os escopos (Scopes)</h3>
+          <p>Ainda na tela de consentimento, em <strong>Escopos</strong>, adicione todos os escopos abaixo. Eles definem exatamente o que o app pode fazer no Gmail do usuário:</p>
+
+          <div class="copy-row">
+            <pre id="scopes-list">https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/gmail.readonly
+https://www.googleapis.com/auth/gmail.modify
+https://www.googleapis.com/auth/userinfo.email
+https://www.googleapis.com/auth/userinfo.profile
+openid</pre>
+            <button onclick="copyText('scopes-list')">Copiar</button>
+          </div>
+
+          <ul>
+            <li><code>gmail.send</code>, <code>gmail.readonly</code> e <code>gmail.modify</code> são escopos <strong>restritos/sensíveis</strong> do Gmail. O Google exige verificação extra para liberá-los.</li>
+            <li>Os escopos <code>userinfo.email</code>, <code>userinfo.profile</code> e <code>openid</code> servem apenas para identificar o usuário (nome e e-mail).</li>
+          </ul>
+        </li>
+
+        <li>
+          <h3>Criar as credenciais OAuth 2.0</h3>
+          <p>Vá em <strong>APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth</strong>. Escolha <strong>Aplicativo da Web</strong>.</p>
+
+          <h3>Informações gerais</h3>
+          <ul>
+            <li><strong>Nome:</strong> <code>Leaderei Web</code> (pode ser qualquer nome interno).</li>
+          </ul>
+
+          <h3>Origens JavaScript autorizadas</h3>
+          <p>Adicione as URLs públicas do app. Se estiver em dúvida, inclua as três:</p>
+
+          <div class="copy-row">
+            <pre id="origins-list">https://app.leaderei.com.br
+https://leaderei-app.lovable.app
+https://id-preview--b5896184-51c5-4d86-ac16-a70f7aac80fb.lovable.app</pre>
+            <button onclick="copyText('origins-list')">Copiar</button>
+          </div>
+
+          <h3>URI de redirecionamento autorizado</h3>
+          <p>Esta é a URL mais importante. O Google redireciona o usuário de volta para o app exatamente nesse endereço após autorizar. <strong>Copie sem alterar:</strong></p>
+
+          <div class="copy-row">
+            <pre id="redirect-uri">https://plfcbbqzpcbgykfervnp.supabase.co/functions/v1/email-connect-callback</pre>
+            <button onclick="copyText('redirect-uri')">Copiar</button>
+          </div>
+
+          <div class="callout tip">
+            <span class="icon">💡</span>
+            <div>
+              <p>Se aparecer algum erro “redirect_uri_mismatch” no futuro, a causa mais comum é essa URL ter sido copiada com espaço, barra a mais ou a menos.</p>
+            </div>
+          </div>
+
+          <p>Clique em <strong>Criar</strong>. Você verá um popup com o <strong>Client ID</strong> e o <strong>Client Secret</strong>. Anote os dois com segurança.</p>
+        </li>
+
+        <li>
+          <h3>Publicar e submeter para verificação</h3>
+          <p>Com o app em <strong>Modo de teste</strong>, apenas 100 usuários podem usar e todos precisam ser adicionados manualmente como “usuários de teste”. Para liberar para todos os clientes:</p>
+          <ol>
+            <li>Na tela de consentimento, clique em <strong>Publicar aplicativo</strong>.</li>
+            <li>Como os escopos do Gmail são restritos, o Google pedirá uma <strong>verificação de segurança</strong>.</li>
+            <li>Preencha o questionário:
+              <ul>
+                <li>Explique por que o app precisa de cada escopo (ex.: “enviar e-mails de prospecção em nome do usuário, ler respostas para triagem da IA”).</li>
+                <li>Forneça um vídeo curto demonstrando o fluxo: o usuário clica em “Conectar Gmail”, escolhe a conta, vê a tela de permissão e retorna ao app.</li>
+              </ul>
+            </li>
+            <li>Os escopos <code>gmail.send</code>, <code>gmail.readonly</code> e <code>gmail.modify</code> geralmente exigem uma <strong>avaliação de segurança CASA</strong>. O Google indica o parceiro e o custo quando aprova a etapa inicial. O prazo costuma ser de <strong>2 a 8 semanas</strong>.</li>
+          </ol>
+
+          <div class="callout warn">
+            <span class="icon">⚠️</span>
+            <div>
+              <p><strong>Não é possível pular a verificação para uso em escala.</strong> Enquanto ela não é concluída, o app funciona normalmente em modo de teste com até 100 contas previamente autorizadas.</p>
+            </div>
+          </div>
+        </li>
+      </ol>
+    </article>
+
+    <article class="doc" id="apos-configurar">
+      <h2>O que fazer depois de configurado</h2>
+      <p>Envie para a equipe Leaderei, por canal seguro:</p>
+      <ol>
+        <li>O <strong>Client ID</strong> (começa com números, termina com <code>.apps.googleusercontent.com</code>).</li>
+        <li>O <strong>Client Secret</strong> (uma string aleatória de letras e números).</li>
+        <li>A confirmação de que a tela de consentimento foi publicada ou se ainda está em modo de teste.</li>
+      </ol>
+      <p>Com esses dados, a equipe cadastra as credenciais no backend e testa a conexão com uma conta de e-mail de teste.</p>
+
+      <div class="callout danger">
+        <span class="icon">🔒</span>
+        <div>
+          <p><strong>Importante:</strong> guarde o Client Secret em um cofre de senhas. Se ele vazar, qualquer pessoa pode se passar pelo seu app perante o Google. Se achar que vazou, revogue a credencial imediatamente nas Credenciais do Google Cloud e gere um novo par.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="doc" id="erros-comuns">
+      <h2>Erros comuns e como evitar</h2>
+      <ul>
+        <li><strong>“redirect_uri_mismatch”</strong> — a URI cadastrada no Google não está exatamente igual à usada pelo app. Verifique barras finais, http vs https e parâmetros.</li>
+        <li><strong>“Acesso bloqueado: o app não foi verificado pelo Google”</strong> — normal durante o modo de teste. Adicione o e-mail do teste em <strong>Usuários de teste</strong> ou conclua a verificação.</li>
+        <li><strong>“Google hasn’t verified this app”</strong> com opção “Avançado” — o app ainda não passou pela verificação. Usuários de teste conseguem prosseguir; usuários finais só conseguirão após a verificação.</li>
+        <li><strong>Escopos não aparecem na tela de consentimento</strong> — confira se foram salvos na aba <strong>Escopos</strong> e se não há duplicatas.</li>
+        <li><strong>Domínio do app não aceito</strong> — a origem JavaScript deve usar HTTPS e corresponder exatamente ao domínio acessado pelo usuário.</li>
+      </ul>
+    </article>
+
+    <div class="checklist">
+      <h3>✅ Checklist para entregar à equipe Leaderei</h3>
+      <ul>
+        <li><span class="box"></span> Projeto criado no Google Cloud</li>
+        <li><span class="box"></span> Gmail API e People API ativadas</li>
+        <li><span class="box"></span> Tela de consentimento preenchida (nome, e-mail, domínio, política de privacidade e termos)</li>
+        <li><span class="box"></span> Escopos do Gmail e userinfo adicionados</li>
+        <li><span class="box"></span> Credencial “Aplicativo da Web” criada com as origens e redirect URI corretos</li>
+        <li><span class="box"></span> Client ID e Client Secret anotados com segurança</li>
+        <li><span class="box"></span> Aplicativo publicado (ou, se em teste, e-mails de teste adicionados)</li>
+      </ul>
+    </div>
+  </main>
+
+  <footer class="manual-footer">
+    Documento preparado para o dono do app configurar o Google Cloud Console.<br>
+    Dúvidas? Entre em contato com a equipe Leaderei.
+  </footer>
+</div>
+
+<script>
+  function copyText(id){
+    const el = document.getElementById(id);
+    const text = el.innerText.replace(/\n+$/, '');
+    navigator.clipboard.writeText(text).then(function(){
+      if(el.nextElementSibling){
+        el.nextElementSibling.textContent = 'Copiado!';
+        setTimeout(function(){ el.nextElementSibling.textContent = 'Copiar'; }, 1500);
+      }
+    }).catch(function(){
+      const range = document.createRange();
+      range.selectNode(el);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+      alert('Não foi possível copiar automaticamente. Selecione o texto e use Ctrl+C / Cmd+C.');
+    });
+  }
+
+  function toggleTheme(){
+    const root = document.documentElement;
+    const current = root.getAttribute('data-theme');
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    let next;
+    if(!current){ next = prefersDark ? 'light' : 'dark'; }
+    else { next = current === 'dark' ? 'light' : 'dark'; }
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('leaderei-google-guide-theme', next);
+    updateThemeLabel(next);
+  }
+  function updateThemeLabel(mode){
+    const btn = document.getElementById('themeToggle');
+    const isDark = mode === 'dark' || (!mode && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    btn.textContent = isDark ? '☀️ Modo claro' : '🌙 Modo escuro';
+  }
+  (function initTheme(){
+    const saved = localStorage.getItem('leaderei-google-guide-theme');
+    if(saved){ document.documentElement.setAttribute('data-theme', saved); }
+    updateThemeLabel(saved);
+  })();
+</script>
+
+</body>
+</html>
