@@ -20,6 +20,7 @@ import {
 import { AlertTriangle, ExternalLink, Loader2, Plug, Unplug } from "lucide-react";
 import {
   BITRIX_LEAD_FIELDS,
+  normalizeFieldMap,
   useBitrix24Integration,
   useConnectBitrix24,
   useDisconnectBitrix24,
@@ -27,7 +28,10 @@ import {
   useSaveBitrix24Config,
   useBitrix24Queue,
   type Bitrix24Config,
+  type BitrixEntity,
+  type BitrixFieldTarget,
 } from "@/hooks/useBitrix24";
+
 
 const NONE = "__none__";
 
