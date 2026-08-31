@@ -49,6 +49,11 @@ Depois de conectado, ainda na tela de Integrações:
 3. **Etapa de handoff:** etapa para onde o negócio vai quando a IA passa para um humano (ex.: "Qualificado").
 4. **Fonte:** de onde o lead veio (ex.: "WhatsApp").
 5. **De/para de campos:** à esquerda, os campos do Leaderei (nome, e-mail, telefone, whatsapp, cargo, empresa, site, endereço, origem, status e score); no meio, a **entidade** do Bitrix que recebe a informação — **Pessoa** (o contato) ou **Negócio** (o card do funil); à direita, o campo dessa entidade, incluindo campos padrão (Nome, Cargo, E-mail, Telefone) e **campos personalizados** que você criou no CRM. Sugestão: nome, cargo, e-mail, telefone e whatsapp em **Pessoa**; empresa, site, endereço, origem, status e score em **Negócio**.
+
+> **Dados já existentes no Bitrix não são sobrescritos.** Se a Pessoa (contato) já existir no CRM, o Leaderei preenche apenas os campos que estiverem vazios. Os dados que já estão no Bitrix sempre têm prioridade.
+>
+> **Título do negócio preenchido automaticamente.** Se você não mapear o campo `TITLE` do Negócio, o Leaderei usa o nome do lead como título do card. Nunca fica em branco.
+
 6. Salve a configuração. A partir daí, tudo é automático.
 
 ## Acompanhando a fila de sincronização
@@ -64,5 +69,6 @@ No card do Bitrix24, em **Configurações → Integrações**, você acompanha o
 - Se o negócio não apareceu no Bitrix, primeiro olhe o painel da fila — o erro costuma indicar a causa (ex.: funil não configurado).
 - O webhook é do usuário que o criou: se essa pessoa sair da empresa, gere um novo webhook com outro usuário e reconecte aqui.
 - A sincronização é de mão única: o que o vendedor move dentro do Bitrix **não** altera o lead no Leaderei.
+
 
 **Próximo passo →** [04. Base de Conhecimento](./04-base-de-conhecimento.md)
