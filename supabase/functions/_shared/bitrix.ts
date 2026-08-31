@@ -16,14 +16,49 @@ export interface BitrixCreds {
   code: string; // segredo do webhook
 }
 
+export type BitrixEntity = "deal" | "contact";
+
+export interface BitrixFieldTarget {
+  entity: BitrixEntity;
+  field: string;
+}
+
 export interface BitrixConfig {
   user_id?: string | null;
   category_id?: string | number | null;
   stage_created?: string | null;
   stage_handoff?: string | null;
   source_id?: string | null;
-  field_map?: Record<string, string> | null;
+  /** Aceita o formato antigo (string = campo de negócio) e o novo (entidade + campo). */
+  field_map?: Record<string, string | BitrixFieldTarget> | null;
 }
+
+/** Normaliza o de/para: formato antigo (string) vira { entity: "deal", field }. */
+export function normalizeFieldMap(
+  raw: Record<string, string | BitrixFieldTarget> | null | undefined,
+): Record<string, BitrixFieldTarget> {
+  const out: Record<string, BitrixFieldTarget> = {};
+  for (const [leadField, value] of Object.entries(raw ?? {})) {
+    if (!value) continue;
+    if (typeof value === "string") {
+      out[leadField] = { entity: "deal", field: value };
+    } else if (value.field) {
+      out[leadField] = {
+        entity: value.entity === "contact" ? "contact" : "deal",
+        field: value.field,
+      };
+    }
+  }
+  return out;
+}
+
+/** Campos do Bitrix que só aceitam lista (crm_multifield). */
+const MULTIFIELD = new Set(["EMAIL", "PHONE", "IM", "WEB"]);
+
+export function isMultifield(code: string): boolean {
+  return MULTIFIELD.has(code.toUpperCase());
+}
+
 
 const WEBHOOK_RE =
   /^https?:\/\/([a-z0-9.-]+)\/rest\/(\d+)\/([a-z0-9]+)\/?$/i;
@@ -122,4 +157,69 @@ export function configIsReady(cfg: BitrixConfig | null | undefined): boolean {
       cfg.stage_created &&
       cfg.stage_handoff,
   );
+}
+
+/** Campos do lead disponíveis para o de/para. */
+export const BITRIX_LEAD_FIELDS = [
+  "name",
+  "email",
+  "phone",
+  "whatsapp",
+  "title",
+  "company_name",
+  "website",
+  "address",
+  "source",
+  "status",
+  "score",
+] as const;
+
+/**
+ * Monta os campos a gravar em uma entidade do Bitrix a partir do de/para.
+ * Trata multifield (EMAIL/PHONE/WEB/IM) e a divisão de nome/sobrenome.
+ */
+export function buildEntityFields(
+  lead: Record<string, unknown>,
+  fieldMap: Record<string, BitrixFieldTarget>,
+  entity: BitrixEntity,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const targets = Object.entries(fieldMap).filter(([leadField, t]) =>
+    t.entity === entity && (BITRIX_LEAD_FIELDS as readonly string[]).includes(leadField)
+  );
+
+  for (const [leadField, target] of targets) {
+    const raw = lead[leadField];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const code = target.field;
+    const upper = code.toUpperCase();
+
+    if (isMultifield(upper)) {
+      const valueType = leadField === "whatsapp" && upper === "PHONE" ? "MOBILE" : "WORK";
+      const existing = (out[code] as Array<Record<string, string>>) ?? [];
+      existing.push({ VALUE: String(raw), VALUE_TYPE: valueType });
+      out[code] = existing;
+      continue;
+    }
+
+    out[code] = raw;
+  }
+
+  // Divisão explícita de nome: usuário mapeou NAME e LAST_NAME nesta entidade.
+  const hasName = Object.values(fieldMap).some(
+    (t) => t.entity === entity && t.field.toUpperCase() === "NAME",
+  );
+  const hasLastName = Object.values(fieldMap).some(
+    (t) => t.entity === entity && t.field.toUpperCase() === "LAST_NAME",
+  );
+  if (hasName && hasLastName) {
+    const full = String(lead.name ?? "").trim();
+    if (full.includes(" ")) {
+      const [first, ...rest] = full.split(/\s+/);
+      out.NAME = first;
+      out.LAST_NAME = rest.join(" ");
+    }
+  }
+
+  return out;
 }

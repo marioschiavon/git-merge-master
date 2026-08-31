@@ -111,20 +111,45 @@ Deno.serve(async (req) => {
       console.log("status.list falhou:", (err as Error).message);
     }
 
-    // --- Campos personalizados do negócio ---------------------------------
-    let fields: Array<{ code: string; label: string; type: string }> = [];
-    try {
-      const res = await bitrix.call<any>("crm.deal.fields", {});
-      fields = Object.entries(res ?? {})
-        .filter(([code]) => code.startsWith("UF_CRM_"))
-        .map(([code, def]: [string, any]) => ({
-          code,
-          label: String(def?.formLabel || def?.title || code),
-          type: String(def?.type ?? "string"),
-        }));
-    } catch (err) {
-      console.log("deal.fields falhou:", (err as Error).message);
+    // --- Campos de Negócio e Pessoa ---------------------------------------
+    const SYSTEM_FIELDS = new Set([
+      "ID",
+      "DATE_CREATE",
+      "DATE_MODIFY",
+      "CREATED_BY_ID",
+      "MODIFY_BY_ID",
+      "ASSIGNED_BY_ID",
+      "ORIGINATOR_ID",
+      "ORIGIN_ID",
+    ]);
+    const DEAL_EXCLUDE = new Set(["STAGE_ID", "CATEGORY_ID"]);
+
+    async function loadFields(method: string, exclude: Set<string>) {
+      try {
+        const res = await bitrix.call<any>(method, {});
+        return Object.entries(res ?? {})
+          .filter(([code, def]: [string, any]) => {
+            if (SYSTEM_FIELDS.has(code) || exclude.has(code)) return false;
+            if (def?.isReadOnly === true) return false;
+            return true;
+          })
+          .map(([code, def]: [string, any]) => ({
+            code,
+            label: String(def?.formLabel || def?.title || code),
+            type: String(def?.type ?? "string"),
+            required: Boolean(def?.isRequired),
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+      } catch (err) {
+        console.log(`${method} falhou:`, (err as Error).message);
+        return [];
+      }
     }
+
+    const [dealFields, contactFields] = [
+      await loadFields("crm.deal.fields", DEAL_EXCLUDE),
+      await loadFields("crm.contact.fields", new Set<string>()),
+    ];
 
     return json({
       ok: true,
@@ -133,8 +158,12 @@ Deno.serve(async (req) => {
       categories,
       stages,
       sources,
-      fields,
+      deal: dealFields,
+      contact: contactFields,
+      // compatibilidade com versões anteriores da tela
+      fields: dealFields,
     });
+
   } catch (err) {
     if (err instanceof BitrixError) return json({ error: err.message }, err.status);
     return json({ error: (err as Error).message }, 500);

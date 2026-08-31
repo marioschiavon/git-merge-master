@@ -3,13 +3,28 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 
+export type BitrixEntity = "deal" | "contact";
+
+export interface BitrixFieldTarget {
+  entity: BitrixEntity;
+  field: string;
+}
+
 export interface Bitrix24Config {
   user_id?: string | null;
   category_id?: string | null;
   stage_created?: string | null;
   stage_handoff?: string | null;
   source_id?: string | null;
-  field_map?: Record<string, string>;
+  /** Formato antigo (string) é lido como campo de Negócio. */
+  field_map?: Record<string, string | BitrixFieldTarget>;
+}
+
+export interface BitrixFieldDef {
+  code: string;
+  label: string;
+  type: string;
+  required?: boolean;
 }
 
 export interface Bitrix24Discovery {
@@ -18,23 +33,40 @@ export interface Bitrix24Discovery {
   categories: Array<{ id: string; name: string }>;
   stages: Array<{ id: string; name: string }>;
   sources: Array<{ id: string; name: string }>;
-  fields: Array<{ code: string; label: string; type: string }>;
+  deal: BitrixFieldDef[];
+  contact: BitrixFieldDef[];
+}
+
+/** Normaliza o de/para salvo, aceitando o formato antigo. */
+export function normalizeFieldMap(
+  raw: Record<string, string | BitrixFieldTarget> | null | undefined,
+): Record<string, BitrixFieldTarget> {
+  const out: Record<string, BitrixFieldTarget> = {};
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (!value) continue;
+    if (typeof value === "string") out[key] = { entity: "deal", field: value };
+    else if (value.field) {
+      out[key] = { entity: value.entity === "contact" ? "contact" : "deal", field: value.field };
+    }
+  }
+  return out;
 }
 
 /** Campos do Leaderei disponíveis no de/para (existem na tabela leads). */
-export const BITRIX_LEAD_FIELDS: Array<{ key: string; label: string }> = [
-  { key: "name", label: "Nome" },
-  { key: "email", label: "E-mail" },
-  { key: "phone", label: "Telefone" },
-  { key: "whatsapp", label: "WhatsApp" },
-  { key: "title", label: "Cargo" },
-  { key: "company_name", label: "Empresa" },
-  { key: "website", label: "Site" },
-  { key: "address", label: "Endereço" },
-  { key: "source", label: "Origem" },
-  { key: "status", label: "Status" },
-  { key: "score", label: "Score" },
+export const BITRIX_LEAD_FIELDS: Array<{ key: string; label: string; entity: BitrixEntity }> = [
+  { key: "name", label: "Nome", entity: "contact" },
+  { key: "email", label: "E-mail", entity: "contact" },
+  { key: "phone", label: "Telefone", entity: "contact" },
+  { key: "whatsapp", label: "WhatsApp", entity: "contact" },
+  { key: "title", label: "Cargo", entity: "contact" },
+  { key: "company_name", label: "Empresa", entity: "deal" },
+  { key: "website", label: "Site", entity: "deal" },
+  { key: "address", label: "Endereço", entity: "deal" },
+  { key: "source", label: "Origem", entity: "deal" },
+  { key: "status", label: "Status", entity: "deal" },
+  { key: "score", label: "Score", entity: "deal" },
 ];
+
 
 export function useBitrix24Integration() {
   const { companyId } = useAuth();

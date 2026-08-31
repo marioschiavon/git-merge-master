@@ -20,6 +20,7 @@ import {
 import { AlertTriangle, ExternalLink, Loader2, Plug, Unplug } from "lucide-react";
 import {
   BITRIX_LEAD_FIELDS,
+  normalizeFieldMap,
   useBitrix24Integration,
   useConnectBitrix24,
   useDisconnectBitrix24,
@@ -27,7 +28,10 @@ import {
   useSaveBitrix24Config,
   useBitrix24Queue,
   type Bitrix24Config,
+  type BitrixEntity,
+  type BitrixFieldTarget,
 } from "@/hooks/useBitrix24";
+
 
 const NONE = "__none__";
 
@@ -52,7 +56,9 @@ export function Bitrix24Dialog({
   const [stageCreated, setStageCreated] = useState<string | null>(null);
   const [stageHandoff, setStageHandoff] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
-  const [fieldMap, setFieldMap] = useState<Record<string, string>>({});
+  const [fieldMap, setFieldMap] = useState<Record<string, BitrixFieldTarget>>({});
+  const [entityMap, setEntityMap] = useState<Record<string, BitrixEntity>>({});
+
 
   useEffect(() => {
     if (!open) return;
@@ -60,7 +66,9 @@ export function Bitrix24Dialog({
     setStageCreated(savedConfig.stage_created ?? null);
     setStageHandoff(savedConfig.stage_handoff ?? null);
     setSourceId(savedConfig.source_id ?? null);
-    setFieldMap(savedConfig.field_map ?? {});
+    setFieldMap(normalizeFieldMap(savedConfig.field_map));
+    setEntityMap({});
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, integration?.id]);
 
@@ -219,38 +227,75 @@ export function Bitrix24Dialog({
 
                 <div className="space-y-3">
                   <div>
-                    <Label>Campos personalizados</Label>
+                    <Label>De/para de campos</Label>
                     <p className="text-xs text-muted-foreground">
-                      Escolha para qual campo do Bitrix cada informação do Leaderei deve ir.
+                      Para cada informação do Leaderei, escolha se ela é gravada na{" "}
+                      <strong>Pessoa</strong> (contato) ou no <strong>Negócio</strong> do Bitrix, e
+                      em qual campo.
                     </p>
                   </div>
+                  <div className="grid grid-cols-[1fr_130px_1fr] items-center gap-3 text-xs text-muted-foreground">
+                    <span>Campo do Leaderei</span>
+                    <span>Entidade</span>
+                    <span>Campo do Bitrix</span>
+                  </div>
                   <div className="space-y-2">
-                    {BITRIX_LEAD_FIELDS.map((f) => (
-                      <div key={f.key} className="grid grid-cols-2 items-center gap-3">
-                        <span className="text-sm">{f.label}</span>
-                        <Select
-                          value={fieldMap[f.key] ?? NONE}
-                          onValueChange={(v) =>
-                            setFieldMap((prev) => {
-                              const next = { ...prev };
-                              if (v === NONE) delete next[f.key];
-                              else next[f.key] = v;
-                              return next;
-                            })
-                          }
+                    {BITRIX_LEAD_FIELDS.map((f) => {
+                      const target = fieldMap[f.key];
+                      const entity: BitrixEntity = target?.entity ?? entityMap[f.key] ?? f.entity;
+                      const options = entity === "contact" ? (data?.contact ?? []) : (data?.deal ?? []);
+                      return (
+                        <div
+                          key={f.key}
+                          className="grid grid-cols-[1fr_130px_1fr] items-center gap-3"
                         >
-                          <SelectTrigger><SelectValue placeholder="Não enviar" /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value={NONE}>Não enviar</SelectItem>
-                            {(data?.fields ?? []).map((bf) => (
-                              <SelectItem key={bf.code} value={bf.code}>{bf.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
+                          <span className="text-sm">{f.label}</span>
+                          <Select
+                            value={entity}
+                            onValueChange={(v) => {
+                              setEntityMap((prev) => ({ ...prev, [f.key]: v as BitrixEntity }));
+                              setFieldMap((prev) => {
+                                const next = { ...prev };
+                                delete next[f.key];
+                                return next;
+                              });
+                            }}
+                          >
+                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="contact">Pessoa</SelectItem>
+                              <SelectItem value="deal">Negócio</SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          <Select
+                            value={target?.field ?? NONE}
+                            onValueChange={(v) =>
+                              setFieldMap((prev) => {
+                                const next = { ...prev };
+                                if (v === NONE) delete next[f.key];
+                                else next[f.key] = { entity, field: v };
+                                return next;
+                              })
+                            }
+                          >
+                            <SelectTrigger><SelectValue placeholder="Não enviar" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={NONE}>Não enviar</SelectItem>
+                              {options.map((bf) => (
+                                <SelectItem key={bf.code} value={bf.code}>
+                                  {bf.label}
+                                  {bf.required ? " *" : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
+
 
                 <div className="rounded-lg border p-3 text-sm">
                   <div className="mb-1 font-medium">Fila de sincronização</div>
