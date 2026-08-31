@@ -239,7 +239,7 @@ export function Bitrix24Dialog({
                   <div className="space-y-2">
                     {BITRIX_LEAD_FIELDS.map((f) => {
                       const target = fieldMap[f.key];
-                      const entity: BitrixEntity = target?.entity ?? f.entity;
+                      const entity: BitrixEntity = target?.entity ?? entityMap[f.key] ?? f.entity;
                       const options = entity === "contact" ? (data?.contact ?? []) : (data?.deal ?? []);
                       return (
                         <div
@@ -249,28 +249,14 @@ export function Bitrix24Dialog({
                           <span className="text-sm">{f.label}</span>
                           <Select
                             value={entity}
-                            onValueChange={(v) =>
+                            onValueChange={(v) => {
+                              setEntityMap((prev) => ({ ...prev, [f.key]: v as BitrixEntity }));
                               setFieldMap((prev) => {
                                 const next = { ...prev };
                                 delete next[f.key];
                                 return next;
-                              }) ||
-                              setFieldMap((prev) => ({ ...prev }))
-                            }
-                            disabled
-                          >
-                            <SelectTrigger className="hidden" />
-                          </Select>
-                          <Select
-                            value={entity}
-                            onValueChange={(v) =>
-                              setFieldMap((prev) => {
-                                const next = { ...prev };
-                                delete next[f.key];
-                                void v;
-                                return next;
-                              })
-                            }
+                              });
+                            }}
                           >
                             <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
@@ -278,6 +264,7 @@ export function Bitrix24Dialog({
                               <SelectItem value="deal">Negócio</SelectItem>
                             </SelectContent>
                           </Select>
+
                           <Select
                             value={target?.field ?? NONE}
                             onValueChange={(v) =>
