@@ -188,15 +188,6 @@ export function buildEntityFields(
     t.entity === entity && (BITRIX_LEAD_FIELDS as readonly string[]).includes(leadField)
   );
 
-  // Nome só é dividido se NAME e LAST_NAME estiverem ambos mapeados a partir de "name".
-  const nameTarget = targets.find(([k]) => k === "name")?.[1];
-  const splitName = Boolean(
-    nameTarget &&
-      targets.some(([k, t]) => k === "name" && t.field.toUpperCase() === "LAST_NAME") === false &&
-      false,
-  );
-  void splitName;
-
   for (const [leadField, target] of targets) {
     const raw = lead[leadField];
     if (raw === null || raw === undefined || raw === "") continue;
