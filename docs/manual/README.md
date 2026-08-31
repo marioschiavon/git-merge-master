@@ -13,6 +13,7 @@ Fase 1 — Configuração inicial
   ├─ 03b Email (domínio)
   ├─ 03c Apollo
   ├─ 03d Pipedrive (opcional)
+  ├─ 03f Bitrix24 (opcional)
   └─ 03e Cal.com
   04 Base de Conhecimento      → 05 Scripts IA  → 06 Intents & Ações
 
@@ -37,6 +38,7 @@ Fase 4 — Análise
   - [03b — Email (domínio próprio)](./03b-email-resend.md)
   - [03c — Apollo](./03c-apollo.md)
   - [03d — Pipedrive](./03d-pipedrive.md)
+  - [03f — Bitrix24](./03f-bitrix24.md)
   - [03e — Cal.com](./03e-calcom.md)
 - [04 — Base de Conhecimento](./04-base-de-conhecimento.md)
 - [05 — Scripts IA](./05-scripts-ia.md)
