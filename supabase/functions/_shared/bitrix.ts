@@ -158,3 +158,77 @@ export function configIsReady(cfg: BitrixConfig | null | undefined): boolean {
       cfg.stage_handoff,
   );
 }
+
+/** Campos do lead disponíveis para o de/para. */
+export const BITRIX_LEAD_FIELDS = [
+  "name",
+  "email",
+  "phone",
+  "whatsapp",
+  "title",
+  "company_name",
+  "website",
+  "address",
+  "source",
+  "status",
+  "score",
+] as const;
+
+/**
+ * Monta os campos a gravar em uma entidade do Bitrix a partir do de/para.
+ * Trata multifield (EMAIL/PHONE/WEB/IM) e a divisão de nome/sobrenome.
+ */
+export function buildEntityFields(
+  lead: Record<string, unknown>,
+  fieldMap: Record<string, BitrixFieldTarget>,
+  entity: BitrixEntity,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const targets = Object.entries(fieldMap).filter(([leadField, t]) =>
+    t.entity === entity && (BITRIX_LEAD_FIELDS as readonly string[]).includes(leadField)
+  );
+
+  // Nome só é dividido se NAME e LAST_NAME estiverem ambos mapeados a partir de "name".
+  const nameTarget = targets.find(([k]) => k === "name")?.[1];
+  const splitName = Boolean(
+    nameTarget &&
+      targets.some(([k, t]) => k === "name" && t.field.toUpperCase() === "LAST_NAME") === false &&
+      false,
+  );
+  void splitName;
+
+  for (const [leadField, target] of targets) {
+    const raw = lead[leadField];
+    if (raw === null || raw === undefined || raw === "") continue;
+    const code = target.field;
+    const upper = code.toUpperCase();
+
+    if (isMultifield(upper)) {
+      const valueType = leadField === "whatsapp" && upper === "PHONE" ? "MOBILE" : "WORK";
+      const existing = (out[code] as Array<Record<string, string>>) ?? [];
+      existing.push({ VALUE: String(raw), VALUE_TYPE: valueType });
+      out[code] = existing;
+      continue;
+    }
+
+    out[code] = raw;
+  }
+
+  // Divisão explícita de nome: usuário mapeou NAME e LAST_NAME nesta entidade.
+  const hasName = Object.values(fieldMap).some(
+    (t) => t.entity === entity && t.field.toUpperCase() === "NAME",
+  );
+  const hasLastName = Object.values(fieldMap).some(
+    (t) => t.entity === entity && t.field.toUpperCase() === "LAST_NAME",
+  );
+  if (hasName && hasLastName) {
+    const full = String(lead.name ?? "").trim();
+    if (full.includes(" ")) {
+      const [first, ...rest] = full.split(/\s+/);
+      out.NAME = first;
+      out.LAST_NAME = rest.join(" ");
+    }
+  }
+
+  return out;
+}
