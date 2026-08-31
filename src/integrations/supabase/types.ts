@@ -272,6 +272,114 @@ export type Database = {
           },
         ]
       }
+      bitrix_deals: {
+        Row: {
+          bitrix_company_id: number | null
+          company_id: string
+          contact_id: number | null
+          created_at: string
+          current_stage: string | null
+          deal_id: number
+          id: string
+          lead_id: string
+          updated_at: string
+        }
+        Insert: {
+          bitrix_company_id?: number | null
+          company_id: string
+          contact_id?: number | null
+          created_at?: string
+          current_stage?: string | null
+          deal_id: number
+          id?: string
+          lead_id: string
+          updated_at?: string
+        }
+        Update: {
+          bitrix_company_id?: number | null
+          company_id?: string
+          contact_id?: number | null
+          created_at?: string
+          current_stage?: string | null
+          deal_id?: number
+          id?: string
+          lead_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bitrix_deals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bitrix_deals_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bitrix_sync_queue: {
+        Row: {
+          attempts: number
+          company_id: string
+          created_at: string
+          event: string
+          id: string
+          last_error: string | null
+          lead_id: string
+          next_attempt_at: string
+          payload: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          company_id: string
+          created_at?: string
+          event: string
+          id?: string
+          last_error?: string | null
+          lead_id: string
+          next_attempt_at?: string
+          payload?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          company_id?: string
+          created_at?: string
+          event?: string
+          id?: string
+          last_error?: string | null
+          lead_id?: string
+          next_attempt_at?: string
+          payload?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bitrix_sync_queue_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bitrix_sync_queue_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bookings: {
         Row: {
           attendees: Json | null
@@ -3843,6 +3951,7 @@ export type Database = {
         | "apify"
         | "zapi_whatsapp"
         | "apollo"
+        | "bitrix24"
       intent_category:
         | "interest"
         | "info_request"
@@ -4069,6 +4178,7 @@ export const Constants = {
         "apify",
         "zapi_whatsapp",
         "apollo",
+        "bitrix24",
       ],
       intent_category: [
         "interest",
