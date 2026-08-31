@@ -775,6 +775,8 @@ export default function Integrations() {
       <EnrichmentSettingsCard />
 
       <PipedriveDialog open={pipedriveOpen} onOpenChange={setPipedriveOpen} />
+      <Bitrix24Dialog open={bitrixOpen} onOpenChange={setBitrixOpen} />
+
       
       <CalcomDialog open={calcomOpen} onOpenChange={setCalcomOpen} />
       
