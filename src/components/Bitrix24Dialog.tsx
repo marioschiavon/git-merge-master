@@ -56,7 +56,7 @@ export function Bitrix24Dialog({
   const [stageCreated, setStageCreated] = useState<string | null>(null);
   const [stageHandoff, setStageHandoff] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
-  const [fieldMap, setFieldMap] = useState<Record<string, string>>({});
+  const [fieldMap, setFieldMap] = useState<Record<string, BitrixFieldTarget>>({});
 
   useEffect(() => {
     if (!open) return;
@@ -64,7 +64,8 @@ export function Bitrix24Dialog({
     setStageCreated(savedConfig.stage_created ?? null);
     setStageHandoff(savedConfig.stage_handoff ?? null);
     setSourceId(savedConfig.source_id ?? null);
-    setFieldMap(savedConfig.field_map ?? {});
+    setFieldMap(normalizeFieldMap(savedConfig.field_map));
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, integration?.id]);
 
