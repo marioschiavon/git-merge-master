@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Configuração do Google Cloud para conexão de Gmail | Leaderei</title>
-<meta name="description" content="Guia passo a passo para o dono do app configurar o Google Cloud Console e liberar a conexão de Gmail dos clientes no Leaderei.">
+<meta name="description" content="Guia passo a passo para você configurar o Google Cloud Console e liberar a conexão de Gmail dos seus usuários no Leaderei.">
 <style>
   :root{
     --bg:#f6f7fb;
@@ -190,28 +190,28 @@
 
 <div class="page">
   <header class="hero">
-    <div class="eyebrow">Documento técnico · uso interno</div>
-    <h1>Configuração do Google Cloud para conexão de Gmail</h1>
-    <p>Guia para o <strong>dono do app</strong> configurar o Google Cloud Console e liberar a conexão de Gmail dos clientes no Leaderei. Ao final, qualquer usuário poderá clicar em “Conectar Gmail” dentro do app e autorizar o acesso de forma segura.</p>
+    <div class="eyebrow">Passo a passo · configuração do Google Cloud</div>
+    <h1>Configure o Google Cloud para conectar Gmail no Leaderei</h1>
+    <p>A gente precisa da sua ajuda para fazer uma configuração no <strong>Google Cloud Console</strong>. Com isso pronto, seus usuários vão conseguir clicar em “Conectar Gmail” dentro do Leaderei e usar o próprio e-mail para enviar e receber mensagens pelo app. Siga os passos abaixo e, no final, nos envie as credenciais de forma segura.</p>
   </header>
 
   <main>
     <article class="doc" id="visao">
-      <h2>O que você vai configurar</h2>
-      <p>O Leaderei precisa de um <strong>aplicativo OAuth próprio</strong> criado dentro do Google Cloud do dono do app. Esse aplicativo pede permissão para enviar e ler e-mails do Gmail dos usuários, mas cada usuário autoriza individualmente — o Leaderei nunca acessa a conta de ninguém sem consentimento.</p>
-      <p>Resumindo, você vai:</p>
+      <h2>O que você vai fazer</h2>
+      <p>Você vai criar um <strong>aplicativo OAuth próprio</strong> dentro do Google Cloud da sua conta. Esse aplicativo é quem pede permissão para acessar o Gmail dos seus usuários, mas cada um autoriza individualmente — o Leaderei nunca acessa a conta de ninguém sem consentimento.</p>
+      <p>Resumindo, é só você:</p>
       <ol>
         <li>Criar um projeto no Google Cloud.</li>
         <li>Ativar a <strong>Gmail API</strong> (e a People API, se solicitada).</li>
         <li>Configurar a <strong>tela de consentimento OAuth</strong>.</li>
         <li>Criar as <strong>credenciais OAuth 2.0</strong> e cadastrar as URLs do app.</li>
-        <li>Enviar o <strong>Client ID</strong> e o <strong>Client Secret</strong> para a equipe Leaderei cadastrar no painel.</li>
+        <li>Enviar o <strong>Client ID</strong> e o <strong>Client Secret</strong> para a gente cadastrar no painel.</li>
       </ol>
 
       <div class="callout danger">
         <span class="icon">🔒</span>
         <div>
-          <p><strong>Importante:</strong> Client ID e Client Secret são credenciais sensíveis. Não envie por WhatsApp, e-mail aberto ou qualquer canal público. Entregue diretamente pelo painel seguro ou por canal privado combinado com a equipe Leaderei.</p>
+          <p><strong>Importante:</strong> Client ID e Client Secret são credenciais sensíveis. Não envie por WhatsApp, e-mail aberto ou qualquer canal público. Use apenas o canal seguro combinado com a equipe Leaderei.</p>
         </div>
       </div>
     </article>
@@ -221,8 +221,8 @@
 
       <ol class="steps">
         <li>
-          <h3>Criar (ou escolher) o projeto</h3>
-          <p>Acesse <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> com a conta Google do dono do app.</p>
+          <h3>Crie (ou escolha) o projeto</h3>
+          <p>Acesse <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a> com a conta Google que você quer usar como dono do app.</p>
           <ul>
             <li>No topo da tela, clique no seletor de projetos e depois em <strong>Novo projeto</strong>.</li>
             <li>Dê um nome claro, por exemplo: <code>Leaderei - Gmail</code>.</li>
@@ -231,7 +231,7 @@
         </li>
 
         <li>
-          <h3>Ativar as APIs necessárias</h3>
+          <h3>Ative as APIs necessárias</h3>
           <p>Vá em <strong>APIs e serviços → Biblioteca</strong> e ative:</p>
           <ul>
             <li><strong>Gmail API</strong> — essencial para enviar e ler e-mails.</li>
@@ -240,7 +240,7 @@
         </li>
 
         <li>
-          <h3>Configurar a tela de consentimento OAuth</h3>
+          <h3>Configure a tela de consentimento OAuth</h3>
           <p>Vá em <strong>APIs e serviços → Tela de consentimento OAuth</strong>.</p>
           <ul>
             <li>Escolha <strong>Externo</strong> (para que qualquer pessoa com Gmail possa usar).</li>
@@ -265,7 +265,7 @@
         </li>
 
         <li>
-          <h3>Adicionar os escopos (Scopes)</h3>
+          <h3>Adicione os escopos (Scopes)</h3>
           <p>Ainda na tela de consentimento, em <strong>Escopos</strong>, adicione todos os escopos abaixo. Eles definem exatamente o que o app pode fazer no Gmail do usuário:</p>
 
           <div class="copy-row">
@@ -285,7 +285,7 @@ openid</pre>
         </li>
 
         <li>
-          <h3>Criar as credenciais OAuth 2.0</h3>
+          <h3>Crie as credenciais OAuth 2.0</h3>
           <p>Vá em <strong>APIs e serviços → Credenciais → Criar credenciais → ID do cliente OAuth</strong>. Escolha <strong>Aplicativo da Web</strong>.</p>
 
           <h3>Informações gerais</h3>
@@ -322,8 +322,8 @@ https://id-preview--b5896184-51c5-4d86-ac16-a70f7aac80fb.lovable.app</pre>
         </li>
 
         <li>
-          <h3>Publicar e submeter para verificação</h3>
-          <p>Com o app em <strong>Modo de teste</strong>, apenas 100 usuários podem usar e todos precisam ser adicionados manualmente como “usuários de teste”. Para liberar para todos os clientes:</p>
+          <h3>Publique e submeta para verificação</h3>
+          <p>Com o app em <strong>Modo de teste</strong>, apenas 100 usuários podem usar e todos precisam ser adicionados manualmente como “usuários de teste”. Para liberar para todos os seus clientes:</p>
           <ol>
             <li>Na tela de consentimento, clique em <strong>Publicar aplicativo</strong>.</li>
             <li>Como os escopos do Gmail são restritos, o Google pedirá uma <strong>verificação de segurança</strong>.</li>
@@ -348,13 +348,13 @@ https://id-preview--b5896184-51c5-4d86-ac16-a70f7aac80fb.lovable.app</pre>
 
     <article class="doc" id="apos-configurar">
       <h2>O que fazer depois de configurado</h2>
-      <p>Envie para a equipe Leaderei, por canal seguro:</p>
+      <p>Envie para a gente, por canal seguro:</p>
       <ol>
         <li>O <strong>Client ID</strong> (começa com números, termina com <code>.apps.googleusercontent.com</code>).</li>
         <li>O <strong>Client Secret</strong> (uma string aleatória de letras e números).</li>
         <li>A confirmação de que a tela de consentimento foi publicada ou se ainda está em modo de teste.</li>
       </ol>
-      <p>Com esses dados, a equipe cadastra as credenciais no backend e testa a conexão com uma conta de e-mail de teste.</p>
+      <p>Com esses dados, a gente cadastra as credenciais no backend e testa a conexão com uma conta de e-mail de teste.</p>
 
       <div class="callout danger">
         <span class="icon">🔒</span>
@@ -390,8 +390,8 @@ https://id-preview--b5896184-51c5-4d86-ac16-a70f7aac80fb.lovable.app</pre>
   </main>
 
   <footer class="manual-footer">
-    Documento preparado para o dono do app configurar o Google Cloud Console.<br>
-    Dúvidas? Entre em contato com a equipe Leaderei.
+    Documento preparado para você configurar o Google Cloud Console.<br>
+    Qualquer dúvida, é só chamar a equipe Leaderei.
   </footer>
 </div>
 
