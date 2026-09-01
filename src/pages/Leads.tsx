@@ -110,6 +110,7 @@ export default function Leads() {
   const deleteLead = useDeleteLead();
   const bulk = useBulkLeadActions();
   const verifyWpp = useVerifyWhatsApp();
+  const { data: hasWhatsApp = false } = useHasConnectedWhatsApp();
 
   const clearListFilter = () => {
     const p = new URLSearchParams(params);
@@ -312,9 +313,13 @@ export default function Leads() {
             <Button
               size="sm"
               variant="outline"
-              disabled={verifyWpp.isPending}
+              disabled={verifyWpp.isPending || !hasWhatsApp}
               onClick={() => verifyWpp.mutate(Array.from(selectedIds))}
-              title="Confere na instância conectada se os números existem no WhatsApp"
+              title={
+                hasWhatsApp
+                  ? "Confere na instância conectada se os números existem no WhatsApp"
+                  : "Conecte uma instância de WhatsApp em Configurações → Integrações para verificar números"
+              }
             >
               {verifyWpp.isPending
                 ? verifyWpp.progress

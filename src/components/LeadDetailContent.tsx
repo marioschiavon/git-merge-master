@@ -111,6 +111,7 @@ interface Props {
 export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Props) {
   const { data: activities = [] } = useLeadActivities(lead?.id ?? null);
   const verifyWpp = useVerifyWhatsApp();
+  const { data: hasWhatsApp = false } = useHasConnectedWhatsApp();
   const { data: insightData, isLoading: insightsLoading } = useLeadInsights(lead?.id ?? null);
   const analyzeWebsite = useAnalyzeWebsite();
   const qc = useQueryClient();
@@ -323,8 +324,13 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
               size="sm"
               variant="ghost"
               className="h-6 px-2 text-xs"
-              disabled={verifyWpp.isPending}
+              disabled={verifyWpp.isPending || !hasWhatsApp}
               onClick={() => verifyWpp.mutate([lead.id])}
+              title={
+                hasWhatsApp
+                  ? undefined
+                  : "Conecte uma instância de WhatsApp em Configurações → Integrações para verificar números"
+              }
             >
               {verifyWpp.isPending ? "Verificando..." : "Verificar agora"}
             </Button>
