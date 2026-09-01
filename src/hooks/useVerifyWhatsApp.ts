@@ -43,6 +43,16 @@ export function useVerifyWhatsApp() {
 
   const mutation = useMutation({
     mutationFn: async (leadIds: string[]) => {
+      const { count, error: instErr } = await supabase
+        .from("hook7_instances")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "connected");
+      if (instErr) throw instErr;
+      if (!count) {
+        throw new Error(
+          "Nenhuma instância de WhatsApp conectada. Conecte uma em Configurações → Integrações para verificar números.",
+        );
+      }
       const ids = [...new Set(leadIds)];
       const totals = { valid: 0, invalid: 0, unknown: 0, skipped_no_phone: 0 };
       let firstError: string | null = null;
