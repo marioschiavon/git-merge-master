@@ -505,6 +505,25 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
               </Table>
             </div>
 
+            {(() => {
+              const dups = [...fieldToCol.entries()].filter(([f, idxs]) => f !== "extra" && idxs.length > 1);
+              if (dups.length === 0) return null;
+              return (
+                <Alert variant="default" className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/30">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  <AlertTitle>Colunas duplicadas no mesmo campo</AlertTitle>
+                  <AlertDescription className="text-xs space-y-1">
+                    <div>Só o primeiro valor preenchido de cada campo é gravado — os demais são descartados:</div>
+                    {dups.map(([f, idxs]) => (
+                      <div key={f}>
+                        <strong>{FIELD_LABELS[f]}</strong>: {idxs.map((i) => rawHeaders[i]).join(" · ")}
+                      </div>
+                    ))}
+                  </AlertDescription>
+                </Alert>
+              );
+            })()}
+
             {!mappingValid.ok && (
               <Alert variant="destructive">
                 <AlertTitle>Mapeamento incompleto</AlertTitle>
