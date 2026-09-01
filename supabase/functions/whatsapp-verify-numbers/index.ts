@@ -117,10 +117,17 @@ serve(async (req) => {
     // Sem instância conectada não há como verificar: erro explícito para a UI.
     const instOk = await getHook7SendInstance(admin, companyId);
     if (!instOk) {
+      // 200 para a UI tratar como aviso amigável (evita erro de runtime no cliente).
       return json({
+        ok: false,
+        valid: 0,
+        invalid: 0,
+        unknown: 0,
+        skipped_no_phone: 0,
         error: "Nenhuma instância do WhatsApp conectada. Conecte em Configurações → Integrações.",
-      }, 409);
+      }, 200);
     }
+
 
     const { data: leads } = await admin
       .from("leads")
