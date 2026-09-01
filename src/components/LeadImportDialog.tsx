@@ -96,10 +96,12 @@ const AUTO_SUGGEST: [RegExp, FieldKey][] = [
   [/(job.?title|cargo|title|posi[cç][aã]o|role)/i, "title"],
   [/senior/i, "seniority"],
   [/(depart|setor|area|área)/i, "department"],
+  [/(website|site|^url$|url.?(site|web)|web.?site|dom[ií]nio|homepage|p[aá]gina)/i, "website"],
   [/(company.?name|company|empresa|organiza|conta|account)/i, "company_name"],
   [/(indust|segment|nicho|vertical)/i, "industry"],
   [/(employ|funcion|colabor|headcount|company.?size|# ?employees|num ?employees)/i, "employee_count"],
-  [/(website|site|url|web|dom[ií]nio)/i, "website"],
+  [/(url|web)/i, "website"],
+
   [/(cidade|^city$|city)/i, "city"],
   [/(estado|^state$|state|uf|prov[ií]nc)/i, "state"],
   [/(pa[ií]s|country)/i, "country"],
