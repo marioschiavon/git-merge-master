@@ -1,7 +1,26 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+
+/**
+ * Indica se a empresa tem ao menos uma instância de WhatsApp conectada.
+ * Usado para habilitar/desabilitar a verificação de números.
+ */
+export function useHasConnectedWhatsApp() {
+  return useQuery({
+    queryKey: ["hook7_has_connected_instance"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("hook7_instances")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "connected");
+      if (error) throw error;
+      return (count ?? 0) > 0;
+    },
+    staleTime: 30_000,
+  });
+}
 
 const BATCH = 40;
 
@@ -24,6 +43,16 @@ export function useVerifyWhatsApp() {
 
   const mutation = useMutation({
     mutationFn: async (leadIds: string[]) => {
+      const { count, error: instErr } = await supabase
+        .from("hook7_instances")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "connected");
+      if (instErr) throw instErr;
+      if (!count) {
+        throw new Error(
+          "Nenhuma instância de WhatsApp conectada. Conecte uma em Configurações → Integrações para verificar números.",
+        );
+      }
       const ids = [...new Set(leadIds)];
       const totals = { valid: 0, invalid: 0, unknown: 0, skipped_no_phone: 0 };
       let firstError: string | null = null;
