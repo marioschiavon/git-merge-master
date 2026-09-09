@@ -14,6 +14,8 @@ export interface Bitrix24Config {
   user_id?: string | null;
   category_id?: string | null;
   stage_created?: string | null;
+  stage_replied?: string | null;
+  stage_meeting?: string | null;
   stage_handoff?: string | null;
   source_id?: string | null;
   /** Formato antigo (string) é lido como campo de Negócio. */
