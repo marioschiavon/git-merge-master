@@ -51,6 +51,8 @@ Depois de conectado, ainda na tela de Integrações:
 5. **Etapa de handoff:** etapa para onde o negócio vai quando a IA passa para um humano (ex.: "Atendimento humano").
 
 > **O negócio só avança.** A ordem é: abordagem → em conversa → reunião agendada → atendimento humano. Se o card já estiver mais adiante, ele nunca volta para uma etapa anterior.
+
+> **O negócio só avança.** A ordem é: abordagem → em conversa → reunião agendada → atendimento humano. Se o card já estiver mais adiante, ele nunca volta para uma etapa anterior.
 4. **Fonte:** de onde o lead veio (ex.: "WhatsApp").
 5. **De/para de campos:** à esquerda, os campos do Leaderei (nome, e-mail, telefone, whatsapp, cargo, empresa, site, endereço, origem, status e score); no meio, a **entidade** do Bitrix que recebe a informação — **Pessoa** (o contato) ou **Negócio** (o card do funil); à direita, o campo dessa entidade, incluindo campos padrão (Nome, Cargo, E-mail, Telefone) e **campos personalizados** que você criou no CRM. Sugestão: nome, cargo, e-mail, telefone e whatsapp em **Pessoa**; empresa, site, endereço, origem, status e score em **Negócio**.
 
