@@ -54,6 +54,8 @@ export function Bitrix24Dialog({
   const [webhookUrl, setWebhookUrl] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [stageCreated, setStageCreated] = useState<string | null>(null);
+  const [stageReplied, setStageReplied] = useState<string | null>(null);
+  const [stageMeeting, setStageMeeting] = useState<string | null>(null);
   const [stageHandoff, setStageHandoff] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [fieldMap, setFieldMap] = useState<Record<string, BitrixFieldTarget>>({});
@@ -64,6 +66,8 @@ export function Bitrix24Dialog({
     if (!open) return;
     setCategoryId(savedConfig.category_id ?? null);
     setStageCreated(savedConfig.stage_created ?? null);
+    setStageReplied(savedConfig.stage_replied ?? null);
+    setStageMeeting(savedConfig.stage_meeting ?? null);
     setStageHandoff(savedConfig.stage_handoff ?? null);
     setSourceId(savedConfig.source_id ?? null);
     setFieldMap(normalizeFieldMap(savedConfig.field_map));
