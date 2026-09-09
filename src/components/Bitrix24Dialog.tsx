@@ -367,6 +367,8 @@ export function Bitrix24Dialog({
                         user_id: savedConfig.user_id ?? "1",
                         category_id: categoryId,
                         stage_created: stageCreated,
+                        stage_replied: stageReplied,
+                        stage_meeting: stageMeeting,
                         stage_handoff: stageHandoff,
                         source_id: sourceId,
                         field_map: fieldMap,
