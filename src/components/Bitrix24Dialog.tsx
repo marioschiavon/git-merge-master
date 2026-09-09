@@ -54,6 +54,8 @@ export function Bitrix24Dialog({
   const [webhookUrl, setWebhookUrl] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [stageCreated, setStageCreated] = useState<string | null>(null);
+  const [stageReplied, setStageReplied] = useState<string | null>(null);
+  const [stageMeeting, setStageMeeting] = useState<string | null>(null);
   const [stageHandoff, setStageHandoff] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [fieldMap, setFieldMap] = useState<Record<string, BitrixFieldTarget>>({});
@@ -64,6 +66,8 @@ export function Bitrix24Dialog({
     if (!open) return;
     setCategoryId(savedConfig.category_id ?? null);
     setStageCreated(savedConfig.stage_created ?? null);
+    setStageReplied(savedConfig.stage_replied ?? null);
+    setStageMeeting(savedConfig.stage_meeting ?? null);
     setStageHandoff(savedConfig.stage_handoff ?? null);
     setSourceId(savedConfig.source_id ?? null);
     setFieldMap(normalizeFieldMap(savedConfig.field_map));
@@ -92,8 +96,8 @@ export function Bitrix24Dialog({
         <DialogHeader>
           <DialogTitle>Bitrix24</DialogTitle>
           <DialogDescription>
-            Quando um lead é abordado, o negócio nasce no seu Bitrix24. Quando a IA passa o
-            atendimento para uma pessoa, o negócio avança de etapa com o resumo da conversa.
+            Quando um lead é abordado, o negócio nasce no seu Bitrix24 e vai avançando de etapa
+            conforme o lead responde, agenda reunião ou passa para atendimento humano.
           </DialogDescription>
         </DialogHeader>
 
@@ -166,6 +170,8 @@ export function Bitrix24Dialog({
                       onValueChange={(v) => {
                         setCategoryId(v);
                         setStageCreated(null);
+                        setStageReplied(null);
+                        setStageMeeting(null);
                         setStageHandoff(null);
                       }}
                     >
@@ -210,6 +216,38 @@ export function Bitrix24Dialog({
                   </div>
 
                   <div className="space-y-2">
+                    <Label>Etapa quando o lead responde</Label>
+                    <Select
+                      value={stageReplied ?? NONE}
+                      onValueChange={(v) => setStageReplied(v === NONE ? null : v)}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Não mover" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>Não mover</SelectItem>
+                        {stages.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Etapa quando a reunião é agendada</Label>
+                    <Select
+                      value={stageMeeting ?? NONE}
+                      onValueChange={(v) => setStageMeeting(v === NONE ? null : v)}
+                    >
+                      <SelectTrigger><SelectValue placeholder="Não mover" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NONE}>Não mover</SelectItem>
+                        {stages.map((s) => (
+                          <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
                     <Label>Etapa ao passar para humano</Label>
                     <Select
                       value={stageHandoff ?? undefined}
@@ -224,6 +262,11 @@ export function Bitrix24Dialog({
                     </Select>
                   </div>
                 </div>
+
+                <p className="text-xs text-muted-foreground">
+                  O negócio só avança: abordagem → em conversa → reunião agendada → atendimento
+                  humano. Ele nunca volta para uma etapa anterior.
+                </p>
 
                 <div className="space-y-3">
                   <div>
@@ -324,6 +367,8 @@ export function Bitrix24Dialog({
                         user_id: savedConfig.user_id ?? "1",
                         category_id: categoryId,
                         stage_created: stageCreated,
+                        stage_replied: stageReplied,
+                        stage_meeting: stageMeeting,
                         stage_handoff: stageHandoff,
                         source_id: sourceId,
                         field_map: fieldMap,

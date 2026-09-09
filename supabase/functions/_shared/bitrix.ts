@@ -27,6 +27,8 @@ export interface BitrixConfig {
   user_id?: string | null;
   category_id?: string | number | null;
   stage_created?: string | null;
+  stage_replied?: string | null;
+  stage_meeting?: string | null;
   stage_handoff?: string | null;
   source_id?: string | null;
   /** Aceita o formato antigo (string = campo de negócio) e o novo (entidade + campo). */

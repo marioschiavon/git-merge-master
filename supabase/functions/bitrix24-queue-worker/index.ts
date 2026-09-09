@@ -16,6 +16,25 @@ const corsHeaders = {
 };
 
 const MAX_JOBS = 20;
+
+/** O negócio só avança: criação < em conversa < reunião < atendimento humano. */
+const STAGE_RANK = {
+  create_deal: 1,
+  stage_replied: 2,
+  stage_meeting: 3,
+  move_stage: 4,
+} as const;
+
+function isStageEvent(event: string): boolean {
+  return event === "move_stage" || event === "stage_replied" || event === "stage_meeting";
+}
+
+function stageForEvent(config: BitrixConfig, event: string): string | null {
+  if (event === "stage_replied") return config.stage_replied ?? null;
+  if (event === "stage_meeting") return config.stage_meeting ?? null;
+  if (event === "move_stage") return config.stage_handoff ?? null;
+  return null;
+}
 const MAX_ATTEMPTS = 5;
 const BACKOFF_MIN = [1, 5, 25, 60, 120];
 
@@ -266,6 +285,7 @@ Deno.serve(async (req) => {
           contact_id: contactId,
           bitrix_company_id: companyBitrixId,
           current_stage: config.stage_created,
+          stage_rank: STAGE_RANK.create_deal,
         });
 
         await supabase
@@ -276,7 +296,17 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      if (job.event === "move_stage") {
+      if (isStageEvent(job.event)) {
+        const targetStage = stageForEvent(config, job.event);
+        if (!targetStage) {
+          await supabase
+            .from("bitrix_sync_queue")
+            .update({ status: "skipped", last_error: "Etapa não configurada para este evento." })
+            .eq("id", job.id);
+          results.push({ id: job.id, status: "skipped" });
+          continue;
+        }
+
         if (!existingDeal) {
           // Garante que o negócio seja criado antes e adia este job.
           await supabase
@@ -305,34 +335,48 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        const summary = await conversationSummary(supabase, job.lead_id);
-        const reason = (job.payload as any)?.reason ?? null;
-        const comment = [
-          "Atendimento transferido para humano pela Leaderei.",
-          reason ? `Motivo: ${reason}` : null,
-          summary ? `\nResumo da conversa:\n${summary}` : null,
-        ].filter(Boolean).join("\n");
+        const newRank = STAGE_RANK[job.event as keyof typeof STAGE_RANK] ?? 0;
+        const currentRank = Number(existingDeal.stage_rank ?? 0);
+        if (newRank <= currentRank) {
+          await supabase
+            .from("bitrix_sync_queue")
+            .update({ status: "done", last_error: null })
+            .eq("id", job.id);
+          results.push({ id: job.id, status: "done", reason: "negócio já está adiante" });
+          continue;
+        }
+
+        const fields: Record<string, unknown> = {
+          STAGE_ID: targetStage,
+          ...buildEntityFields(lead as Record<string, unknown>, fieldMap, "deal"),
+        };
+
+        if (job.event === "move_stage") {
+          const summary = await conversationSummary(supabase, job.lead_id);
+          const reason = (job.payload as any)?.reason ?? null;
+          fields.COMMENTS = [
+            "Atendimento transferido para humano pela Leaderei.",
+            reason ? `Motivo: ${reason}` : null,
+            summary ? `\nResumo da conversa:\n${summary}` : null,
+          ].filter(Boolean).join("\n");
+        }
 
         await bitrix.call("crm.deal.update", {
           id: existingDeal.deal_id,
-          fields: {
-            STAGE_ID: config.stage_handoff,
-            COMMENTS: comment,
-            ...buildEntityFields(lead as Record<string, unknown>, fieldMap, "deal"),
-          },
+          fields,
           params: { REGISTER_SONET_EVENT: "Y" },
         });
 
         await supabase
           .from("bitrix_deals")
-          .update({ current_stage: config.stage_handoff })
+          .update({ current_stage: targetStage, stage_rank: newRank })
           .eq("id", existingDeal.id);
 
         await supabase
           .from("bitrix_sync_queue")
           .update({ status: "done", last_error: null })
           .eq("id", job.id);
-        results.push({ id: job.id, status: "done", moved: true });
+        results.push({ id: job.id, status: "done", moved: true, stage: targetStage });
         continue;
       }
 

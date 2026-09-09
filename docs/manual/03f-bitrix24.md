@@ -46,9 +46,13 @@ Depois de conectado, ainda na tela de Integrações:
 
 1. **Funil:** escolha em qual funil do CRM os negócios serão criados.
 2. **Etapa de criação:** etapa onde o negócio nasce quando o lead é abordado (ex.: "Novo lead").
-3. **Etapa de handoff:** etapa para onde o negócio vai quando a IA passa para um humano (ex.: "Qualificado").
-4. **Fonte:** de onde o lead veio (ex.: "WhatsApp").
-5. **De/para de campos:** à esquerda, os campos do Leaderei (nome, e-mail, telefone, whatsapp, cargo, empresa, site, endereço, origem, status e score); no meio, a **entidade** do Bitrix que recebe a informação — **Pessoa** (o contato) ou **Negócio** (o card do funil); à direita, o campo dessa entidade, incluindo campos padrão (Nome, Cargo, E-mail, Telefone) e **campos personalizados** que você criou no CRM. Sugestão: nome, cargo, e-mail, telefone e whatsapp em **Pessoa**; empresa, site, endereço, origem, status e score em **Negócio**.
+3. **Etapa quando o lead responde:** para onde o negócio vai na primeira resposta do lead (ex.: "Em conversa"). Opcional — deixe em "Não mover" se não quiser.
+4. **Etapa quando a reunião é agendada:** para onde o negócio vai assim que uma reunião entra na agenda (ex.: "Reunião agendada"). Também opcional.
+5. **Etapa de handoff:** etapa para onde o negócio vai quando a IA passa para um humano (ex.: "Atendimento humano").
+
+> **O negócio só avança.** A ordem é: abordagem → em conversa → reunião agendada → atendimento humano. Se o card já estiver mais adiante, ele nunca volta para uma etapa anterior.
+6. **Fonte:** de onde o lead veio (ex.: "WhatsApp").
+7. **De/para de campos:** à esquerda, os campos do Leaderei (nome, e-mail, telefone, whatsapp, cargo, empresa, site, endereço, origem, status e score); no meio, a **entidade** do Bitrix que recebe a informação — **Pessoa** (o contato) ou **Negócio** (o card do funil); à direita, o campo dessa entidade, incluindo campos padrão (Nome, Cargo, E-mail, Telefone) e **campos personalizados** que você criou no CRM. Sugestão: nome, cargo, e-mail, telefone e whatsapp em **Pessoa**; empresa, site, endereço, origem, status e score em **Negócio**.
 
 > **Dados já existentes no Bitrix não são sobrescritos.** Se a Pessoa (contato) já existir no CRM, o Leaderei preenche apenas os campos que estiverem vazios. Os dados que já estão no Bitrix sempre têm prioridade.
 >

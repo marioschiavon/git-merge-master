@@ -282,6 +282,7 @@ export type Database = {
           deal_id: number
           id: string
           lead_id: string
+          stage_rank: number
           updated_at: string
         }
         Insert: {
@@ -293,6 +294,7 @@ export type Database = {
           deal_id: number
           id?: string
           lead_id: string
+          stage_rank?: number
           updated_at?: string
         }
         Update: {
@@ -304,6 +306,7 @@ export type Database = {
           deal_id?: number
           id?: string
           lead_id?: string
+          stage_rank?: number
           updated_at?: string
         }
         Relationships: [
