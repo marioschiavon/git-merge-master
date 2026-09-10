@@ -85,4 +85,12 @@ O **Reply-To** dos emails de saída passa a ser automaticamente `atendimento@inb
 - **Colocar o domínio inteiro no campo "Host".** Se o Leaderei mostra `envio.suaempresa.com.br`, você digita **só `envio`** no Host.
 - **Esquecer o registro MX de inbound.** Sem ele, as respostas dos prospects não voltam para dentro do Leaderei.
 
+## Mais de um e-mail conectado na mesma empresa
+
+Se cada vendedor conectou o próprio e-mail, cada conversa fica **presa à caixa que iniciou o contato**:
+
+- A cadência define qual caixa faz a primeira abordagem.
+- Todas as respostas seguintes — inclusive as aprovadas manualmente e as automáticas da IA — saem pela **mesma caixa**, nunca por outra.
+- Se o lead responder para mais de um vendedor, a resposta entra **uma única vez** na conversa e só a caixa responsável continua o atendimento.
+
 **Próximo passo →** [03c. Apollo](./03c-apollo.md)

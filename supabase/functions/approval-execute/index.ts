@@ -280,6 +280,19 @@ serve(async (req) => {
               emailGrantId = cad?.email_grant_id ?? null;
             }
           }
+          // Aprovação avulsa (sem cadência): usa a inscrição ativa do lead para
+          // manter a mesma caixa que iniciou o contato.
+          if (!emailGrantId && approval.lead_id) {
+            const { data: enrs } = await supabase
+              .from("cadence_enrollments")
+              .select("status, created_at, cadences(email_grant_id)")
+              .eq("lead_id", approval.lead_id)
+              .order("created_at", { ascending: false })
+              .limit(5);
+            const rows = (enrs || []) as any[];
+            const preferred = rows.find((r) => r.status === "active") ?? rows[0];
+            emailGrantId = preferred?.cadences?.email_grant_id ?? null;
+          }
 
           const threadCtx = await getEmailReplyContext(supabase, conversationId);
           const { data: sendData, error: sendErr } = await supabase.functions.invoke("send-outbound-email", {
