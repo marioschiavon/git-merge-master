@@ -155,20 +155,57 @@ Deno.serve(async (req) => {
   const asText = /<[a-z][\s\S]*>/i.test(rawBody) ? htmlToText(rawBody) : rawBody;
   const bodyText = stripQuotedEmail(asText) || asText;
 
-  // Dedupe: if this Nylas message was already ingested (webhook retry), skip.
-  if (msg?.id) {
-    const { data: existingMsg } = await admin
-      .from("messages")
-      .select("id")
-      .eq("conversation_id", conversationId)
-      .filter("metadata->>nylas_message_id", "eq", String(msg.id))
-      .maybeSingle();
-    if (existingMsg?.id) {
-      return new Response(JSON.stringify({ ok: true, deduped: true }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      });
+  // Message-ID universal do e-mail: igual em todas as caixas que receberam a
+  // mesma resposta (quando o lead responde para mais de um vendedor).
+  const rfcMessageId = (hdr("Message-Id") || hdr("Message-ID") || "").trim() || null;
+
+  // Dedupe: retry do webhook (mesmo nylas_message_id) OU a mesma resposta
+  // chegando em outra caixa conectada da empresa (mesmo Message-ID RFC).
+  const alreadyIngested = async () => {
+    if (rfcMessageId) {
+      const { data } = await admin
+        .from("messages")
+        .select("id")
+        .eq("conversation_id", conversationId)
+        .eq("rfc_message_id", rfcMessageId)
+        .maybeSingle();
+      if (data?.id) return true;
     }
+    if (msg?.id) {
+      const { data } = await admin
+        .from("messages")
+        .select("id")
+        .eq("conversation_id", conversationId)
+        .filter("metadata->>nylas_message_id", "eq", String(msg.id))
+        .maybeSingle();
+      if (data?.id) return true;
+    }
+    return false;
+  };
+  if (await alreadyIngested()) {
+    return new Response(JSON.stringify({ ok: true, deduped: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  // Cópia para caixa que não conduz a conversa: registra nada e não dispara a IA.
+  // A caixa "dona" é a que enviou a última mensagem outbound desta conversa.
+  const { data: lastOutbound } = await admin
+    .from("messages")
+    .select("metadata")
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .not("metadata->>grant_id", "is", null)
+    .order("sent_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const ownerGrantId = (lastOutbound?.metadata as any)?.grant_id ?? null;
+  if (ownerGrantId && ownerGrantId !== grantRow.id) {
+    return new Response(JSON.stringify({ ok: true, ignored: "copy_to_other_mailbox" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 
   const { data: inserted, error: mErr } = await admin.from("messages").insert({
@@ -177,6 +214,8 @@ Deno.serve(async (req) => {
     channel: "email",
     content: bodyText,
     email_provider: "nylas",
+    rfc_message_id: rfcMessageId,
+    provider_thread_id: msg?.thread_id ?? null,
     metadata: {
       nylas_message_id: msg?.id,
       grant_row_id: grantRow.id,
