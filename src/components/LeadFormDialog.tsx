@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useCreateLead, useUpdateLead } from "@/hooks/usePipedrive";
+import { normalizePhoneBR } from "@/lib/phone";
 
 const schema = z.object({
   name: z.string().trim().max(150).optional().or(z.literal("")),
@@ -123,8 +124,8 @@ export function LeadFormDialog({ open, onOpenChange, lead }: Props) {
       name: values.name,
       status: values.status,
       email: values.email || null,
-      phone: (values.whatsapp || values.phone) || null,
-      whatsapp: (values.whatsapp || values.phone) || null,
+      phone: normalizePhoneBR(values.whatsapp || values.phone),
+      whatsapp: normalizePhoneBR(values.whatsapp || values.phone),
       company_name: values.company_name || null,
       title: values.title || null,
       website: values.website || null,

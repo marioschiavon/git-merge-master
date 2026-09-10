@@ -1,3 +1,4 @@
+import { normalizePhoneBR } from "./phone-br.ts";
 // Shared Apollo.io HTTP client + helpers for edge functions.
 // Docs: https://docs.apollo.io/reference/
 
@@ -350,9 +351,9 @@ export function mapPersonToLeadPayload(p: ApolloPerson, company_id: string): Rec
     department,
     industry: org?.industry ?? null,
     employee_count: typeof org?.estimated_num_employees === "number" ? org.estimated_num_employees : null,
-    phone: primaryPhone,
-    mobile_phone: mobilePhone,
-    corporate_phone: corporatePhone,
+    phone: normalizePhoneBR(primaryPhone),
+    mobile_phone: normalizePhoneBR(mobilePhone),
+    corporate_phone: normalizePhoneBR(corporatePhone),
     source: "apollo",
     apollo_person_id: p.id,
   };

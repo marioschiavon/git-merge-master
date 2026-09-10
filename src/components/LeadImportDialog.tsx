@@ -12,6 +12,7 @@ import { useCadences } from "@/hooks/useCadences";
 import { useCreateLeadList } from "@/hooks/useLeadLists";
 import { Download, AlertTriangle, ChevronLeft, ChevronRight } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { normalizePhoneBR } from "@/lib/phone";
 
 interface Props {
   open: boolean;
@@ -298,10 +299,10 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
         email: get(row, "email").toLowerCase() || null,
         secondary_email: get(row, "secondary_email").toLowerCase() || null,
         personal_email: get(row, "personal_email").toLowerCase() || null,
-        phone: get(row, "phone") || null,
-        mobile_phone: get(row, "mobile_phone") || null,
-        corporate_phone: get(row, "corporate_phone") || null,
-        whatsapp: get(row, "whatsapp") || null,
+        phone: normalizePhoneBR(get(row, "phone")),
+        mobile_phone: normalizePhoneBR(get(row, "mobile_phone")),
+        corporate_phone: normalizePhoneBR(get(row, "corporate_phone")),
+        whatsapp: normalizePhoneBR(get(row, "whatsapp")),
         company_name: get(row, "company_name") || null,
         title: get(row, "title") || null,
         seniority: get(row, "seniority") || null,
