@@ -68,21 +68,52 @@ Deno.serve(async (req) => {
     }
 
     // ============================================================
-    // Resolve o grant Nylas ativo:
-    //   1) usa email_grant_id passado explicitamente (se ativo e da mesma empresa);
-    //   2) senão, pega o grant ativo mais antigo da empresa.
+    // Resolve o grant Nylas ativo (caixa "dona" da conversa):
+    //   1) email_grant_id passado explicitamente;
+    //   2) caixa que já enviou nesta conversa (sticky por thread);
+    //   3) caixa da cadência em que o lead está inscrito;
+    //   4) grant ativo mais antigo da empresa (último recurso).
     // ============================================================
-    let grant: any = null;
-    if (email_grant_id) {
+    const loadGrant = async (id: string | null | undefined) => {
+      if (!id) return null;
       const { data } = await supabase
         .from("user_email_grants")
         .select("id, grant_id, email, display_name, status, company_id")
-        .eq("id", email_grant_id)
+        .eq("id", id)
         .maybeSingle();
-      if (data && data.status === "active" && data.company_id === companyId) {
-        grant = data;
-      }
+      if (data && data.status === "active" && data.company_id === companyId) return data;
+      return null;
+    };
+
+    let grant: any = await loadGrant(email_grant_id);
+
+    // 2) grant já usado nesta conversa
+    if (!grant && conversation_id) {
+      const { data: prev } = await supabase
+        .from("messages")
+        .select("metadata, sent_at")
+        .eq("conversation_id", conversation_id)
+        .eq("direction", "outbound")
+        .not("metadata->>grant_id", "is", null)
+        .order("sent_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      grant = await loadGrant((prev?.metadata as any)?.grant_id ?? null);
     }
+
+    // 3) grant da cadência ativa do lead
+    if (!grant && lead_id) {
+      const { data: enr } = await supabase
+        .from("cadence_enrollments")
+        .select("cadence_id, status, created_at, cadences(email_grant_id)")
+        .eq("lead_id", lead_id)
+        .order("created_at", { ascending: false })
+        .limit(5);
+      const rows = (enr || []) as any[];
+      const preferred = rows.find((r) => r.status === "active") ?? rows[0];
+      grant = await loadGrant(preferred?.cadences?.email_grant_id ?? null);
+    }
+
     if (!grant) {
       const { data } = await supabase
         .from("user_email_grants")
