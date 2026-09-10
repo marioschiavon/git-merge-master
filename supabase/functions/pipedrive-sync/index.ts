@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
+import { normalizePhoneBR } from "../_shared/phone-br.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -180,9 +181,9 @@ Deno.serve(async (req) => {
           last_name,
           email,
           secondary_email,
-          phone,
-          mobile_phone,
-          corporate_phone,
+          phone: normalizePhoneBR(phone),
+          mobile_phone: normalizePhoneBR(mobile_phone),
+          corporate_phone: normalizePhoneBR(corporate_phone),
           company_name: person.org_name || null,
           title: person.job_title || null,
           source: "pipedrive",
