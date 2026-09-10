@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { verifyMunicipiaToken } from "../_shared/municipia-token.ts";
+import { normalizePhoneBR } from "../_shared/phone-br.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -70,7 +71,7 @@ function draftsFromRow(row: IncomingRow, includeTeam: boolean): LeadDraft[] {
 
   const out: LeadDraft[] = [];
   const emails = (r.emails ?? []).filter(Boolean);
-  const phones = (r.telefones ?? []).filter(Boolean);
+  const phones = [...new Set((r.telefones ?? []).map((p) => normalizePhoneBR(p)).filter(Boolean) as string[])];
   const mainName = (r.secretario ?? "").trim() || (municipio ? `Contato ${municipio}` : "Contato");
 
   out.push({
@@ -96,7 +97,7 @@ function draftsFromRow(row: IncomingRow, includeTeam: boolean): LeadDraft[] {
         title: m.cargo ?? null,
         email: m.email ?? null,
         secondary_email: null,
-        phone: m.telefone ?? null,
+        phone: normalizePhoneBR(m.telefone),
         city: municipio || null,
         state: uf,
         company_name: orgName,

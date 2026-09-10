@@ -4,6 +4,7 @@
 
 import { getHook7BaseUrl, loadInstanceToken } from "./hook7.ts";
 import { sendTextMessage } from "./whatsapp-engine.ts";
+import { toWhatsAppDigits } from "./phone-br.ts";
 
 
 export interface Hook7SendInstance {
@@ -21,7 +22,7 @@ export interface WhatsAppSendResult {
 
 // Normaliza para dígitos com DDI (padrão WhatsApp / Evolution API).
 function normalizePhone(num: string): string {
-  return String(num || "").trim().replace(/^whatsapp:/i, "").replace(/\D/g, "");
+  return toWhatsAppDigits(num);
 }
 
 /**

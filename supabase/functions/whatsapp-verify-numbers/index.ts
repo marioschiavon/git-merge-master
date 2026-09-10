@@ -6,6 +6,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { checkPhonesOnWhatsApp, getHook7SendInstance } from "../_shared/hook7-whatsapp.ts";
+import { toWhatsAppDigits } from "../_shared/phone-br.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -19,7 +20,8 @@ const CHUNK = 15;
 const RECHECK_DAYS = 30;
 
 function digits(v: string | null | undefined): string {
-  return String(v || "").replace(/\D/g, "");
+  // Formata no padrão aceito pelo WhatsApp (E.164 sem "+") antes de consultar.
+  return toWhatsAppDigits(v);
 }
 
 // deno-lint-ignore no-explicit-any
