@@ -61,7 +61,9 @@ const STATUS_LABEL: Record<InstanceStatus, string> = {
   pairing: "Pareando",
   connected: "Conectado",
   disconnected: "Desconectado",
-  banned: "Banido",
+  // Nunca afirmamos banimento: o WhatsApp não confirma isso. Indicamos apenas
+  // que houve recusas repetidas e que é preciso reconectar.
+  banned: "Reconexão recusada",
   error: "Erro",
 };
 
