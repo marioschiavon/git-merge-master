@@ -334,9 +334,13 @@ serve(async (req) => {
           }
           results.push({ id: item.id, failed: r.error });
         } else {
+          await supabase.from("whatsapp_send_queue")
+            .update({ send_attempts: sendAttempts })
+            .eq("id", item.id);
           await reschedule(supabase, item.id, 5 * 60, errMsg);
           results.push({ id: item.id, retry: r.error });
         }
+
         continue;
       }
 
