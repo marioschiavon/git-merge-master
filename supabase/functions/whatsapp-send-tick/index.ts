@@ -306,11 +306,15 @@ serve(async (req) => {
 
       if (!r.ok) {
         const errMsg = r.error || `HTTP ${r.status}`;
-        if ((item.attempts || 0) + 1 >= MAX_ATTEMPTS) {
+        // Só erro real de envio conta para o limite de desistência.
+        const sendAttempts = (item.send_attempts || 0) + 1;
+        if (sendAttempts >= MAX_ATTEMPTS) {
           await supabase.from("whatsapp_send_queue").update({
             status: "failed",
+            send_attempts: sendAttempts,
             last_error: errMsg,
           }).eq("id", item.id);
+
           // Fecha o ciclo do approval em falha definitiva.
           if (item.approval_id) {
             await supabase.from("approval_requests").update({
