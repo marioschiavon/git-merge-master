@@ -407,6 +407,8 @@ async function handleConnectionUpdate(admin: any, instance: any, data: any) {
     patch.status = "connected";
     patch.last_connected_at = nowIso;
     patch.last_error = null;
+    // Reconectou: qualquer suspeita anterior de bloqueio é descartada.
+    patch.refusal_count = 0;
     const phone = stripJid(data?.wuid ?? data?.jid ?? data?.instance?.wuid);
     if (phone) patch.phone_number = phone;
     const name = data?.profileName ?? data?.pushName ?? null;
@@ -415,11 +417,21 @@ async function handleConnectionUpdate(admin: any, instance: any, data: any) {
     patch.status = "pairing";
   } else if (state === "close") {
     const reason = Number(data?.statusReason ?? data?.reason ?? 0);
-    patch.status = reason === 403 ? "banned" : reason >= 500 ? "error" : "disconnected";
+    // IMPORTANTE: nunca rotular "banido" a partir de um único 403 — o mesmo
+    // número costuma reconectar normalmente. Só após várias recusas seguidas
+    // (sem nenhuma reconexão no meio) tratamos como suspeita de bloqueio.
+    if (reason === 403) {
+      const refusals = Number(instance?.refusal_count ?? 0) + 1;
+      patch.refusal_count = refusals;
+      patch.status = refusals >= 3 ? "banned" : "disconnected";
+    } else {
+      patch.status = reason >= 500 ? "error" : "disconnected";
+    }
     if (reason) patch.last_error = `connection close reason=${reason}`;
   } else {
     return;
   }
+
 
   await admin.from("hook7_instances").update(patch).eq("id", instance.id);
 }

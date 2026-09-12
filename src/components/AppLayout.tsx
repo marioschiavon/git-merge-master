@@ -1,6 +1,7 @@
 import { Outlet, Navigate } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { WhatsAppConnectionBanner } from "@/components/WhatsAppConnectionBanner";
 import { useAuth } from "@/hooks/useAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -31,6 +32,7 @@ export function AppLayout() {
           <header className="h-14 flex items-center border-b px-4">
             <SidebarTrigger />
           </header>
+          <WhatsAppConnectionBanner />
           <main className="flex-1 p-6">
             <Outlet />
           </main>

@@ -56,6 +56,16 @@ serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // Destrava itens presos em "sending" (função caiu no meio do envio).
+  {
+    const staleIso = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    await supabase
+      .from("whatsapp_send_queue")
+      .update({ status: "pending", last_error: "reclaimed_stale_sending" })
+      .eq("status", "sending")
+      .lt("updated_at", staleIso);
+  }
+
   // Puxa itens vencidos — priority DESC garante que respostas a leads
   // engajados (priority=10) passem à frente do outbound frio (priority=0).
   const { data: items, error } = await supabase
@@ -66,6 +76,7 @@ serve(async (req) => {
     .order("priority", { ascending: false })
     .order("scheduled_for", { ascending: true })
     .limit(BATCH);
+
 
 
   if (error) return json({ error: error.message }, 500);
@@ -79,7 +90,11 @@ serve(async (req) => {
       // Marca como sending com claim otimista (evita corrida entre ticks)
       const { data: claimed } = await supabase
         .from("whatsapp_send_queue")
-        .update({ status: "sending", attempts: (item.attempts || 0) + 1 })
+        .update({
+          status: "sending",
+          attempts: (item.attempts || 0) + 1,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", item.id)
         .eq("status", "pending")
         .select("id")
@@ -98,10 +113,38 @@ serve(async (req) => {
         instanceCapsCache.set(item.instance_id, inst);
       }
       if (!inst || inst.status !== "connected") {
-        await reschedule(supabase, item.id, 30, "instance_disconnected");
+        // Sem conexão: espera 5 min em vez de 30 s. Depois de 6 h sem conexão,
+        // desiste e avisa no histórico do lead (em vez de girar para sempre).
+        const ageMs = Date.now() - new Date(item.created_at).getTime();
+        if (ageMs > 6 * 60 * 60 * 1000) {
+          await supabase.from("whatsapp_send_queue").update({
+            status: "failed",
+            last_error: "instance_disconnected_timeout",
+          }).eq("id", item.id);
+          if (item.lead_id) {
+            await supabase.from("lead_activities").insert({
+              company_id: item.company_id,
+              lead_id: item.lead_id,
+              type: "system",
+              description: "⚠️ Mensagem não enviada: o WhatsApp da empresa ficou desconectado por mais de 6 horas.",
+              metadata: { queue_id: item.id },
+            });
+          }
+          if (item.approval_id) {
+            await supabase.from("approval_requests").update({
+              status: "failed",
+              executed_at: new Date().toISOString(),
+              execution_error: "WhatsApp desconectado por mais de 6 horas",
+            }).eq("id", item.approval_id).eq("status", "queued");
+          }
+          results.push({ id: item.id, failed: "instance_disconnected_timeout" });
+          continue;
+        }
+        await reschedule(supabase, item.id, 5 * 60, "instance_disconnected");
         results.push({ id: item.id, reschedule: "instance_disconnected" });
         continue;
       }
+
 
       // Prioridade alta (>=10) = resposta a lead engajado.
       // Respostas a conversas ativas não devem ser travadas por horário comercial:
@@ -267,11 +310,15 @@ serve(async (req) => {
 
       if (!r.ok) {
         const errMsg = r.error || `HTTP ${r.status}`;
-        if ((item.attempts || 0) + 1 >= MAX_ATTEMPTS) {
+        // Só erro real de envio conta para o limite de desistência.
+        const sendAttempts = (item.send_attempts || 0) + 1;
+        if (sendAttempts >= MAX_ATTEMPTS) {
           await supabase.from("whatsapp_send_queue").update({
             status: "failed",
+            send_attempts: sendAttempts,
             last_error: errMsg,
           }).eq("id", item.id);
+
           // Fecha o ciclo do approval em falha definitiva.
           if (item.approval_id) {
             await supabase.from("approval_requests").update({
@@ -291,9 +338,13 @@ serve(async (req) => {
           }
           results.push({ id: item.id, failed: r.error });
         } else {
+          await supabase.from("whatsapp_send_queue")
+            .update({ send_attempts: sendAttempts })
+            .eq("id", item.id);
           await reschedule(supabase, item.id, 5 * 60, errMsg);
           results.push({ id: item.id, retry: r.error });
         }
+
         continue;
       }
 
