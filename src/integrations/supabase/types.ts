@@ -1871,6 +1871,7 @@ export type Database = {
           min_gap_seconds: number
           owner_user_id: string | null
           phone_number: string | null
+          refusal_count: number
           status: Database["public"]["Enums"]["hook7_instance_status"]
           token_encrypted: string | null
           updated_at: string
@@ -1898,6 +1899,7 @@ export type Database = {
           min_gap_seconds?: number
           owner_user_id?: string | null
           phone_number?: string | null
+          refusal_count?: number
           status?: Database["public"]["Enums"]["hook7_instance_status"]
           token_encrypted?: string | null
           updated_at?: string
@@ -1925,6 +1927,7 @@ export type Database = {
           min_gap_seconds?: number
           owner_user_id?: string | null
           phone_number?: string | null
+          refusal_count?: number
           status?: Database["public"]["Enums"]["hook7_instance_status"]
           token_encrypted?: string | null
           updated_at?: string
@@ -3618,6 +3621,7 @@ export type Database = {
           metadata: Json
           priority: number
           scheduled_for: string
+          send_attempts: number
           sent_at: string | null
           sent_message_id: string | null
           source: string
@@ -3640,6 +3644,7 @@ export type Database = {
           metadata?: Json
           priority?: number
           scheduled_for?: string
+          send_attempts?: number
           sent_at?: string | null
           sent_message_id?: string | null
           source?: string
@@ -3662,6 +3667,7 @@ export type Database = {
           metadata?: Json
           priority?: number
           scheduled_for?: string
+          send_attempts?: number
           sent_at?: string | null
           sent_message_id?: string | null
           source?: string

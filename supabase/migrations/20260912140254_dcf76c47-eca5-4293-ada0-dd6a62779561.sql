@@ -1,0 +1,2 @@
+ALTER TABLE public.whatsapp_send_queue ADD COLUMN IF NOT EXISTS send_attempts integer NOT NULL DEFAULT 0;
+ALTER TABLE public.hook7_instances ADD COLUMN IF NOT EXISTS refusal_count integer NOT NULL DEFAULT 0;
