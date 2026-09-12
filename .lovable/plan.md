@@ -39,5 +39,7 @@ Consultei o banco e o código. A ligação com o serviço de WhatsApp funciona, 
 - `whatsapp_send_queue`: nova coluna `send_attempts` (erros reais de envio) mantendo `attempts` como contador geral; `whatsapp-send-tick` passa a usar `send_attempts` contra `MAX_ATTEMPTS`.
 - `whatsapp-send-tick`: reagendamento por `instance_disconnected` sobe para 300 s; se `created_at` tiver mais de 6 h e a instância seguir desconectada → `status='failed'` + `lead_activities`; no início do tick, reclaim de linhas `sending` com `updated_at < now() - 10 min`.
 - Aviso na interface: hook `useWhatsAppConnectionAlert` lendo `hook7_instances` (status ≠ connected e não arquivada) + banner no `AppLayout`.
-- `WhatsAppManagerDialog.tsx`: seção separada para `status='banned'`.
+- `whatsapp-webhook`: remover o mapeamento direto `reason 403 → status 'banned'`. Toda queda vira `disconnected`; o código fica só em `last_error` e em um contador `refusal_count` na própria instância. `banned` passa a ser usado apenas como suspeita interna (3+ recusas 403 seguidas sem reconexão bem-sucedida).
+- `WhatsAppManagerDialog.tsx` e o banner: texto neutro de reconexão; aviso de possível bloqueio só quando a suspeita estiver confirmada pelo contador.
+- Correção de dados: `UPDATE hook7_instances SET status='disconnected', archived_at=now()` na conexão antiga da Arrecadeei.
 - Versão beta 0.56 e nova entrada em `docs/patch-logs/`.
