@@ -11,7 +11,7 @@ Consultei o banco e o código. A ligação com o serviço de WhatsApp funciona, 
 | Arrecadeei | 5511971902172 | Conectado (último contato hoje, 12/09) |
 | Hook7 (interna) | 554195472941 | Conectado |
 | Qualé | 5511933371087 | **Desconectado desde 11/09 de madrugada** (o celular deslogou o aparelho) |
-| Arrecadeei (conexão antiga) | 5511971902172 | **Bloqueada pelo WhatsApp** (banimento), ainda aparece na lista |
+| Arrecadeei (conexão antiga) | 5511971902172 | Marcada como "banida" pelo app — **provavelmente rótulo errado**: o mesmo número segue funcionando na conexão nova |
 
 **Problemas confirmados**
 
@@ -20,7 +20,8 @@ Consultei o banco e o código. A ligação com o serviço de WhatsApp funciona, 
 3. **A contagem de tentativas está errada.** Cada reagendamento (fora do horário comercial, limite diário atingido, conexão caída) conta como tentativa. Como o limite de desistência é 3, uma mensagem que esperou o horário comercial é descartada no primeiro erro real de envio, em vez de tentar 3 vezes.
 4. **Item travado.** Há uma mensagem parada no estado "enviando" desde 23/07 — se a função cai no meio do envio, o item nunca volta para a fila.
 5. **A situação só é conferida quando alguém abre a tela.** Não existe rotina automática comparando o que o app mostra com o que o servidor de WhatsApp diz. Por isso uma conexão pode ficar mostrando "Conectado" por horas sem estar.
-6. **Conexão banida continua listada** junto das ativas, sem destaque de que aquele número foi bloqueado pelo WhatsApp.
+6. **Rótulo de "banido" sem base suficiente.** Hoje qualquer queda com código 403 vira "banido". No caso da Arrecadeei isso é falso alarme: o mesmo número foi reconectado normalmente e está ativo. Dizer "banido" sem certeza gera desconfiança do cliente.
+
 
 ## O que proponho alterar
 
