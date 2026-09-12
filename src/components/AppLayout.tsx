@@ -1,6 +1,7 @@
 import { Outlet, Navigate } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { WhatsAppConnectionBanner } from "@/components/WhatsAppConnectionBanner";
 import { useAuth } from "@/hooks/useAuth";
 import { Skeleton } from "@/components/ui/skeleton";
 
