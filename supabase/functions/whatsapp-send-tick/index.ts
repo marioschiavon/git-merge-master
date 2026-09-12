@@ -90,7 +90,11 @@ serve(async (req) => {
       // Marca como sending com claim otimista (evita corrida entre ticks)
       const { data: claimed } = await supabase
         .from("whatsapp_send_queue")
-        .update({ status: "sending", attempts: (item.attempts || 0) + 1 })
+        .update({
+          status: "sending",
+          attempts: (item.attempts || 0) + 1,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", item.id)
         .eq("status", "pending")
         .select("id")
