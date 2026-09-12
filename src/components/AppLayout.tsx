@@ -32,6 +32,7 @@ export function AppLayout() {
           <header className="h-14 flex items-center border-b px-4">
             <SidebarTrigger />
           </header>
+          <WhatsAppConnectionBanner />
           <main className="flex-1 p-6">
             <Outlet />
           </main>
