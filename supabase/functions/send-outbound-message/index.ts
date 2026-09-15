@@ -71,16 +71,44 @@ Deno.serve(async (req) => {
       } else {
         const zCfg = await getZApiConfig(admin, companyId);
         if (!zCfg) {
-          deliveryStatus = "failed";
-          deliveryMeta = { delivery_error: "Nenhuma instância WhatsApp (Hook7) conectada" };
+          deliveryStatus = "queued";
+          deliveryMeta = { delivery_error: "Nenhuma instância WhatsApp conectada" };
         } else {
           const r = await sendWhatsAppViaZApi(zCfg, toNumber, content);
           if (r.ok) {
             deliveryStatus = "delivered";
             deliveryMeta = { zapi_message_id: r.sid, zapi_status: r.status };
           } else {
-            deliveryStatus = "failed";
+            deliveryStatus = "queued";
             deliveryMeta = { zapi_status: r.status, zapi_error: r.error };
+          }
+        }
+        // Rede de segurança: falhou o envio direto → enfileira com prioridade
+        // alta e registra no histórico do lead, em vez de perder a resposta.
+        if (deliveryStatus === "queued") {
+          const q = await enqueueWhatsAppSend(admin, {
+            companyId,
+            toPhone: toNumber,
+            body: String(content),
+            leadId: lead?.id ?? null,
+            conversationId: conversation_id,
+            source: "manual_retry",
+            replyMode: true,
+          });
+          deliveryMeta.requeued = q.ok;
+          if (!q.ok) {
+            deliveryStatus = "failed";
+            deliveryMeta.requeue_error = q.error;
+          }
+          if (lead?.id) {
+            await admin.from("lead_activities").insert({
+              company_id: companyId,
+              lead_id: lead.id,
+              type: "whatsapp",
+              description: q.ok
+                ? "⏳ WhatsApp fora do ar — resposta na fila, será enviada assim que reconectar"
+                : `❌ WhatsApp não enviado (conexão fora do ar): ${deliveryMeta.zapi_error ?? deliveryMeta.delivery_error ?? "sem instância conectada"}`,
+            });
           }
         }
       }
