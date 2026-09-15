@@ -1857,6 +1857,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           daily_send_cap: number
+          disconnect_notified_at: string | null
           display_name: string
           engine: string
           external_id: string | null
@@ -1885,6 +1886,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           daily_send_cap?: number
+          disconnect_notified_at?: string | null
           display_name: string
           engine?: string
           external_id?: string | null
@@ -1913,6 +1915,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           daily_send_cap?: number
+          disconnect_notified_at?: string | null
           display_name?: string
           engine?: string
           external_id?: string | null

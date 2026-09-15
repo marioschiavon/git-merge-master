@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
+import { enqueueWhatsAppSend } from "../_shared/whatsapp-pacer.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 import { getEmailReplyContext } from "../_shared/email-thread.ts";
 
@@ -191,11 +192,11 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
       deliveryMeta.delivery_error = outboundReason;
     } else {
       const cfg = await getZApiConfig(ctx.supabase, ctx.company_id);
+      let needsRequeue = false;
       if (!cfg) {
-        sent = false;
-        outboundReason = "z-api não configurada";
-        deliveryStatus = "failed";
+        outboundReason = "nenhuma conexão de WhatsApp ativa";
         deliveryMeta.delivery_error = outboundReason;
+        needsRequeue = true;
       } else {
         const r = await sendWhatsAppViaZApi(cfg, toNumber, content);
         if (r.ok) {
@@ -203,13 +204,44 @@ async function sendOutbound(ctx: ActionContext, content: string, subject: string
           deliveryMeta.zapi_message_id = r.sid;
           deliveryMeta.zapi_status = r.status;
         } else {
-          console.error("zapi send failed:", r);
-          sent = false;
+          console.error("whatsapp send failed:", r);
           outboundError = r.error || `HTTP ${r.status}`;
-          deliveryStatus = "failed";
           deliveryMeta.zapi_status = r.status;
           deliveryMeta.zapi_error = r.error;
           deliveryMeta.delivery_error = outboundError;
+          needsRequeue = true;
+        }
+      }
+      // Rede de segurança: reenfileira com prioridade alta em vez de perder a
+      // resposta, e registra no histórico do lead.
+      if (needsRequeue) {
+        const q = await enqueueWhatsAppSend(ctx.supabase, {
+          companyId: ctx.company_id,
+          toPhone: toNumber,
+          body: String(content),
+          leadId: (lead as any)?.id ?? null,
+          conversationId: ctx.conversation_id ?? null,
+          source: "execute_action_retry",
+          replyMode: true,
+        });
+        deliveryMeta.requeued = q.ok;
+        if (q.ok) {
+          sent = true;
+          deliveryStatus = "queued";
+        } else {
+          sent = false;
+          deliveryStatus = "failed";
+          deliveryMeta.requeue_error = q.error;
+        }
+        if ((lead as any)?.id) {
+          await ctx.supabase.from("lead_activities").insert({
+            company_id: ctx.company_id,
+            lead_id: (lead as any).id,
+            type: "whatsapp",
+            description: q.ok
+              ? "⏳ WhatsApp fora do ar — resposta na fila, será enviada assim que reconectar"
+              : `❌ WhatsApp não enviado (conexão fora do ar): ${outboundError ?? outboundReason ?? "sem conexão"}`,
+          });
         }
       }
     }

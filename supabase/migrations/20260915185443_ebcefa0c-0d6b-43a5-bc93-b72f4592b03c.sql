@@ -1,0 +1,1 @@
+ALTER TABLE public.hook7_instances ADD COLUMN IF NOT EXISTS disconnect_notified_at timestamptz;

@@ -10,7 +10,9 @@ export interface TemplateEntry {
 }
 
 import { template as cadenceOutreach } from './cadence-outreach.tsx'
+import { template as whatsappDisconnected } from './whatsapp-disconnected.tsx'
 
 export const TEMPLATES: Record<string, TemplateEntry> = {
   'cadence-outreach': cadenceOutreach,
+  'whatsapp-disconnected': whatsappDisconnected,
 }

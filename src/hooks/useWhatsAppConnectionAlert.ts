@@ -23,11 +23,15 @@ export function useWhatsAppConnectionAlert() {
     enabled: !!companyId,
     refetchInterval: 60_000,
     queryFn: async (): Promise<WhatsAppConnectionAlert[]> => {
+      // Só quedas recentes (últimos 7 dias). Conexões abandonadas há mais
+      // tempo são arquivadas pela rotina automática e não geram aviso.
+      const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
       const { data, error } = await supabase
         .from("hook7_instances")
         .select("id, display_name, phone_number, status, refusal_count")
         .eq("company_id", companyId!)
         .is("archived_at", null)
+        .gte("updated_at", cutoff)
         .in("status", ["disconnected", "banned", "error"]);
       if (error) throw error;
       return (data || []).map((i) => ({
