@@ -3,6 +3,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts";
+import { enqueueWhatsAppSend } from "../_shared/whatsapp-pacer.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
