@@ -18,9 +18,44 @@ const corsHeaders = {
 
 const STALE_DAYS = 7;
 const NOTIFY_AFTER_MIN = 30;
+const REMINDER_HOURS = 24;
+const MAX_REMINDERS = 3;
+
+const APP_BASE = "https://app.leaderei.com.br";
+
+/** Traduz o motivo técnico para texto de cliente. */
+function describeReason(lastError?: string | null) {
+  const e = (lastError ?? "").toLowerCase();
+  if (e.includes("403")) {
+    return {
+      text:
+        "o WhatsApp recusou a reconexão deste número — isso costuma acontecer quando há volume alto de envios ou denúncias de contatos",
+      refused: true,
+    };
+  }
+  if (e.includes("401") || e.includes("loggedout")) {
+    return {
+      text:
+        "o aparelho encerrou a sessão (o celular saiu dos aparelhos conectados ou ficou muito tempo sem internet)",
+      refused: false,
+    };
+  }
+  return { text: "a conexão com o celular foi perdida", refused: false };
+}
+
+function describeDownFor(sinceMs: number): string {
+  const min = Math.floor((Date.now() - sinceMs) / 60_000);
+  if (min < 60) return `há ${Math.max(1, min)} minuto${min === 1 ? "" : "s"}`;
+  const h = Math.floor(min / 60);
+  if (h < 48) return `há ${h} hora${h === 1 ? "" : "s"}`;
+  return `há ${Math.floor(h / 24)} dias`;
+}
 
 // deno-lint-ignore no-explicit-any
-async function notifyCompanyAdmins(admin: any, inst: any) {
+async function notifyCompanyAdmins(admin: any, inst: any, opts: {
+  reminder: number;
+  downSinceMs: number;
+}) {
   const { data: members } = await admin
     .from("company_members")
     .select("user_id")
@@ -36,6 +71,7 @@ async function notifyCompanyAdmins(admin: any, inst: any) {
   }
   if (emails.length === 0) return false;
 
+  const reason = describeReason(inst.last_error);
   const url = `${(Deno.env.get("SUPABASE_URL") ?? "").replace(/\/+$/, "")}/functions/v1/send-transactional-email`;
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   let anySent = false;
@@ -51,11 +87,16 @@ async function notifyCompanyAdmins(admin: any, inst: any) {
         body: JSON.stringify({
           templateName: "whatsapp-disconnected",
           recipientEmail: to,
-          idempotencyKey: `wa-down-${inst.id}-${new Date().toISOString().slice(0, 13)}`,
+          idempotencyKey: `wa-down-${inst.id}-r${opts.reminder}`,
           templateData: {
             connectionName: inst.display_name ?? inst.external_name,
             phoneNumber: inst.phone_number ?? "",
-            appUrl: "https://app.leaderei.com.br/settings/integrations",
+            appUrl: `${APP_BASE}/settings/integrations?wa=1`,
+            bestPracticesUrl: `${APP_BASE}/guides/whatsapp`,
+            reason: reason.text,
+            refused: reason.refused,
+            downFor: describeDownFor(opts.downSinceMs),
+            reminder: opts.reminder,
           },
         }),
       });
@@ -68,6 +109,7 @@ async function notifyCompanyAdmins(admin: any, inst: any) {
   return anySent;
 }
 
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -78,7 +120,7 @@ serve(async (req) => {
     const { data: instances } = await admin
       .from("hook7_instances")
       .select(
-        "id, company_id, display_name, phone_number, external_name, status, engine, user_disconnected_at, refusal_count, last_connected_at, created_at, disconnect_notified_at, updated_at",
+        "id, company_id, display_name, phone_number, external_name, status, engine, user_disconnected_at, refusal_count, last_connected_at, created_at, disconnect_notified_at, disconnect_reminder_count, disconnect_last_reminder_at, last_error, updated_at",
       )
       .is("archived_at", null)
       .in("status", ["connected", "disconnected", "pairing", "error", "banned"]);
@@ -135,18 +177,40 @@ serve(async (req) => {
         patch.last_error = null;
         patch.refusal_count = 0;
         patch.disconnect_notified_at = null;
+        patch.disconnect_reminder_count = 0;
+        patch.disconnect_last_reminder_at = null;
       } else if (state === "close") {
         if (inst.status !== "disconnected" && inst.status !== "banned") {
           patch.status = "disconnected";
           patch.last_error = "conexão encerrada no servidor";
         }
-        // Avisa o administrador se já passou de 30 min fora do ar e ainda não
-        // avisamos nesta queda.
+        // Primeiro aviso aos 30 min; depois, um lembrete a cada 24 h (máx. 3).
         const downSince = new Date(inst.last_connected_at ?? inst.updated_at ?? nowIso).getTime();
         const downMin = (Date.now() - downSince) / 60_000;
+        const reminders = inst.disconnect_reminder_count ?? 0;
+        const lastNotice = new Date(
+          inst.disconnect_last_reminder_at ?? inst.disconnect_notified_at ?? 0,
+        ).getTime();
+        const sinceLastH = lastNotice ? (Date.now() - lastNotice) / 3_600_000 : Infinity;
+
         if (!inst.disconnect_notified_at && downMin >= NOTIFY_AFTER_MIN) {
-          const sent = await notifyCompanyAdmins(admin, inst);
-          if (sent) patch.disconnect_notified_at = nowIso;
+          const sent = await notifyCompanyAdmins(admin, inst, { reminder: 0, downSinceMs: downSince });
+          if (sent) {
+            patch.disconnect_notified_at = nowIso;
+            patch.disconnect_last_reminder_at = nowIso;
+          }
+        } else if (
+          inst.disconnect_notified_at && reminders < MAX_REMINDERS &&
+          sinceLastH >= REMINDER_HOURS
+        ) {
+          const sent = await notifyCompanyAdmins(admin, inst, {
+            reminder: reminders + 1,
+            downSinceMs: downSince,
+          });
+          if (sent) {
+            patch.disconnect_reminder_count = reminders + 1;
+            patch.disconnect_last_reminder_at = nowIso;
+          }
         }
         if (Object.keys(patch).length === 1) continue; // só updated_at → nada a fazer
       } else if (state === "connecting") {

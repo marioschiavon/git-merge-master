@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
       const { data, error } = await admin
         .from("hook7_instances")
         .select(
-          "id, display_name, external_name, status, engine, phone_number, connected_profile_name, owner_user_id, last_connected_at, last_qr_at, created_at",
+          "id, display_name, external_name, status, engine, phone_number, connected_profile_name, owner_user_id, last_connected_at, last_qr_at, last_error, created_at",
         )
         .eq("company_id", companyId)
         .is("archived_at", null)

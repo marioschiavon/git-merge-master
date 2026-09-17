@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { describeDownFor, describeWhatsAppDownReason } from "@/lib/whatsapp-status";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -47,6 +49,7 @@ interface Hook7Instance {
   connected_profile_name: string | null;
   owner_user_id: string | null;
   last_connected_at: string | null;
+  last_error?: string | null;
   last_qr_at: string | null;
   created_at: string;
 }
@@ -473,6 +476,37 @@ export function WhatsAppManagerDialog({
                     </p>
                   </div>
                 )}
+
+                {!isLegacyInstance(activeInstance) &&
+                  ["disconnected", "banned", "error"].includes(activeInstance.status) &&
+                  (() => {
+                    const reason = describeWhatsAppDownReason(activeInstance.last_error);
+                    const downFor = describeDownFor(activeInstance.last_connected_at);
+                    return (
+                      <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs">
+                        <div className="flex items-center gap-2 font-medium text-destructive">
+                          <AlertTriangle className="h-4 w-4" />
+                          Fora do ar{downFor ? ` ${downFor}` : ""}
+                        </div>
+                        <p className="mt-1 text-muted-foreground">
+                          O que aconteceu: {reason.text}. Leia o QR-Code de novo
+                          para voltar a enviar e receber mensagens.
+                        </p>
+                        {reason.refused && (
+                          <p className="mt-1 text-muted-foreground">
+                            Quando o WhatsApp recusa um número, quase sempre a
+                            causa é o ritmo de envio.{" "}
+                            <Link to="/guides/whatsapp" className="underline font-medium">
+                              Veja as boas práticas
+                            </Link>{" "}
+                            antes de tentar de novo.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
+
+
 
                 {!isLegacyInstance(activeInstance) && activeInstance.status === "connected" ? (
 

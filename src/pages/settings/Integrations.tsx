@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -572,6 +572,17 @@ export default function Integrations() {
   const [apolloOpen, setApolloOpen] = useState(false);
   const { data: apolloStatus } = useApolloStatus();
   const { data: bitrix } = useBitrix24Integration();
+
+  // Link do aviso de queda (?wa=1) abre direto a janela do WhatsApp.
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get("wa") === "1") {
+      setWhatsappOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("wa");
+      setSearchParams(next, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
 
   // Hook7 (novo WhatsApp) — status agregado por company
