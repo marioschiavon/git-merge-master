@@ -30,6 +30,27 @@ mas nada foi feito desde então.
 4. **Botão direto no aviso.** O aviso do topo ganha um botão "Reconectar" que
    abre a tela da conexão já no passo do QR-Code, em vez de só linkar para
    Integrações.
+5. **Aviso de boas práticas no caso 403 (Arrecadeei).** Quando a queda for
+   recusa do WhatsApp, o aviso e o e-mail incluem um alerta extra: "o WhatsApp
+   pode estar limitando este número por volume ou por denúncias" com link para a
+   página Boas Práticas do app. Assim fica claro que a causa está no uso do
+   número, não no nosso serviço.
+
+## Isso tem a ver com o motor por trás (Evolution API)?
+
+Não. As três quedas são do lado do celular/WhatsApp, não do servidor:
+
+- `401` (Renan e Andrea) é o próprio WhatsApp encerrando a sessão do aparelho —
+  o mesmo que acontece se a pessoa clica em "Sair" nos aparelhos conectados ou
+  troca de celular. Nenhum servidor consegue impedir isso; a única saída é ler
+  o QR-Code de novo.
+- `403` (Arrecadeei) é o WhatsApp recusando a reconexão daquele número, em geral
+  quando há volume alto ou denúncias. Também não vem do motor — mas aqui vale o
+  aviso de boas práticas, porque o comportamento do número é a causa provável.
+- Se fosse falha do motor, veríamos erro de rede/tempo esgotado ou todas as
+  conexões caindo juntas. Não é o caso: a conexão interna (Sup) segue no ar sem
+  interrupção e os envios continuaram normais nesse período.
+
 
 ## Detalhes técnicos
 
