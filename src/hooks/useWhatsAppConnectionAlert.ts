@@ -7,6 +7,10 @@ export interface WhatsAppConnectionAlert {
   display_name: string | null;
   phone_number: string | null;
   status: string;
+  /** Motivo técnico bruto (ex.: "connection close reason=401"). */
+  last_error: string | null;
+  /** Última vez que a conexão esteve no ar. */
+  last_connected_at: string | null;
   /** Suspeita (não confirmação) de bloqueio do número pelo WhatsApp. */
   possiblyBlocked: boolean;
 }
@@ -28,7 +32,9 @@ export function useWhatsAppConnectionAlert() {
       const cutoff = new Date(Date.now() - 7 * 86_400_000).toISOString();
       const { data, error } = await supabase
         .from("hook7_instances")
-        .select("id, display_name, phone_number, status, refusal_count")
+        .select(
+          "id, display_name, phone_number, status, refusal_count, last_error, last_connected_at",
+        )
         .eq("company_id", companyId!)
         .is("archived_at", null)
         .gte("updated_at", cutoff)
@@ -39,6 +45,8 @@ export function useWhatsAppConnectionAlert() {
         display_name: i.display_name,
         phone_number: i.phone_number,
         status: i.status,
+        last_error: i.last_error ?? null,
+        last_connected_at: i.last_connected_at ?? null,
         possiblyBlocked: (i.refusal_count ?? 0) >= 3,
       }));
     },
