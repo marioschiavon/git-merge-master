@@ -10,28 +10,65 @@ interface WhatsAppDisconnectedProps {
   connectionName?: string
   phoneNumber?: string
   appUrl?: string
+  /** Motivo já em linguagem de cliente. */
+  reason?: string
+  /** Ex.: "há 2 dias". */
+  downFor?: string
+  /** Recusa do WhatsApp (403): mostra o bloco de boas práticas. */
+  refused?: boolean
+  /** Número do lembrete (0 = primeiro aviso). */
+  reminder?: number
+  bestPracticesUrl?: string
 }
 
 const WhatsAppDisconnectedEmail = (
-  { connectionName, phoneNumber, appUrl }: WhatsAppDisconnectedProps,
+  {
+    connectionName,
+    phoneNumber,
+    appUrl,
+    reason,
+    downFor,
+    refused,
+    reminder,
+    bestPracticesUrl,
+  }: WhatsAppDisconnectedProps,
 ) => (
   <Html lang="pt-BR" dir="ltr">
     <Head />
-    <Preview>Seu WhatsApp está fora do ar</Preview>
+    <Preview>Seu WhatsApp continua fora do ar</Preview>
     <Body style={main}>
       <Container style={container}>
-        <Heading style={h1}>Seu WhatsApp caiu</Heading>
+        <Heading style={h1}>
+          {reminder && reminder > 0 ? 'Seu WhatsApp continua fora do ar' : 'Seu WhatsApp caiu'}
+        </Heading>
         <Text style={text}>
           A conexão <strong>{connectionName || 'WhatsApp'}</strong>
-          {phoneNumber ? ` (${phoneNumber})` : ''} está fora do ar há mais de 30
-          minutos. Enquanto isso, as mensagens de WhatsApp não são enviadas nem
-          recebidas.
+          {phoneNumber ? ` (${phoneNumber})` : ''} está fora do ar
+          {downFor ? ` ${downFor}` : ''}
+          {reason ? `: ${reason}` : '.'} Enquanto isso, as mensagens de WhatsApp
+          não são enviadas nem recebidas.
         </Text>
         <Text style={text}>
           Para voltar a funcionar, abra o {SITE_NAME} em Configurações →
           Integrações → WhatsApp e leia o QR-Code novamente com o celular desse
           número.
         </Text>
+        {refused
+          ? (
+            <Text style={text}>
+              Quando o WhatsApp recusa um número, quase sempre a causa é o ritmo
+              de envio ou denúncias de contatos.{' '}
+              {bestPracticesUrl
+                ? (
+                  <Link href={bestPracticesUrl} style={link}>
+                    Leia as boas práticas de envio
+                  </Link>
+                )
+                : 'Consulte as boas práticas de envio no app'}{' '}
+              antes de reconectar.
+            </Text>
+          )
+          : null}
         {appUrl
           ? (
             <Text style={text}>
@@ -48,13 +85,21 @@ const WhatsAppDisconnectedEmail = (
 
 export const template = {
   component: WhatsAppDisconnectedEmail,
+  // deno-lint-ignore no-explicit-any
   subject: (data: Record<string, any>) =>
-    `WhatsApp fora do ar${data.connectionName ? ` — ${data.connectionName}` : ''}`,
+    `${data.reminder ? 'WhatsApp ainda fora do ar' : 'WhatsApp fora do ar'}${
+      data.connectionName ? ` — ${data.connectionName}` : ''
+    }`,
   displayName: 'Aviso de WhatsApp desconectado',
   previewData: {
     connectionName: 'Comercial',
     phoneNumber: '5511999999999',
-    appUrl: 'https://app.leaderei.com.br/settings/integrations',
+    appUrl: 'https://app.leaderei.com.br/settings/integrations?wa=1',
+    bestPracticesUrl: 'https://app.leaderei.com.br/guides/whatsapp',
+    reason: 'o aparelho encerrou a sessão',
+    downFor: 'há 2 dias',
+    refused: false,
+    reminder: 0,
   },
 } satisfies TemplateEntry
 
