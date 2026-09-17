@@ -47,6 +47,7 @@ interface Hook7Instance {
   connected_profile_name: string | null;
   owner_user_id: string | null;
   last_connected_at: string | null;
+  last_error?: string | null;
   last_qr_at: string | null;
   created_at: string;
 }
