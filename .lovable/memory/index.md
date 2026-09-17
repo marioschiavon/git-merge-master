@@ -16,3 +16,4 @@ Email via Resend multi-tenant: cada company configura seu próprio sending domai
 - [Manual do Usuário](docs/manual/README.md) — Passo a passo por menu na ordem de onboarding (PT-BR)
 - [P01 features](mem://features/p01) — Bulk actions em /leads, kickoff KB protegido, historical_wins, resumos IA de LinkedIn/Instagram em lead_insights
 - [Patch logs](mem://features/patch-logs) — A cada bump de APP_VERSION, registrar mudanças do dia em docs/patch-logs/AAAA-MM-DD.md (linguagem de cliente)
+- [Nomenclatura WhatsApp](mem://features/whatsapp-naming) — Nunca citar "Evolution API"; o provedor é sempre "Hook7", salvo se substituído
