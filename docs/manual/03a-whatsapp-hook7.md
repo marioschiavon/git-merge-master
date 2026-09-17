@@ -41,6 +41,21 @@ Clique **Testar conexão** — o Leaderei envia uma mensagem para o próprio nú
 - **Deixe o celular carregando e conectado ao Wi-Fi.** Se ele ficar horas offline, a conexão cai.
 - **Só responde leads cadastrados.** Mensagens vindas de números que **não** estão como lead na base são ignoradas silenciosamente — o Leaderei não cria lead automático nem responde. Para atender um novo contato, cadastre-o em **Leads** primeiro. Grupos, listas de transmissão e newsletters também são sempre ignorados.
 
+## Quando a conexão cai
+
+Se a conexão cair, o Leaderei avisa de três formas:
+
+1. **Aviso vermelho no topo do app** — diz qual conexão caiu, **o motivo** em linguagem simples e **há quanto tempo** ela está fora (ex.: "fora do ar há 2 dias"). O botão **Reconectar** abre direto a janela do WhatsApp, pronta para a leitura do QR-Code.
+2. **E-mail ao administrador** — o primeiro aviso chega 30 minutos após a queda. Se a conexão continuar fora, chega um **lembrete a cada 24 horas**, até o máximo de 3 lembretes.
+3. **Arquivamento após 7 dias** — se ninguém reconectar em 7 dias, a conexão é arquivada e o aviso some. Ela pode ser reconectada a qualquer momento.
+
+### O que cada motivo significa
+
+- **"O aparelho encerrou a sessão"** → alguém clicou em **Sair** nos aparelhos conectados do WhatsApp, ou o celular ficou muito tempo sem internet. Solução: ler o QR-Code de novo.
+- **"O WhatsApp recusou a reconexão"** → o próprio WhatsApp recusou aquele número, o que costuma acontecer quando há **volume alto de envios ou denúncias de contatos**. Nesse caso, o aviso e o e-mail incluem um link para a página **Boas Práticas de envio** do app — leia antes de tentar de novo, e reduza o ritmo de envios.
+
+> **Importante:** em nenhum desses casos a falha é do Leaderei ou do provedor de conexão — o encerramento parte sempre do WhatsApp/celular. Reconectar lendo o QR-Code resolve a grande maioria dos casos.
+
 ## Problemas comuns
 
 - **"O QR-Code expirou"** → clique **Gerar novo** e escaneie em até 60 segundos.
