@@ -177,18 +177,40 @@ serve(async (req) => {
         patch.last_error = null;
         patch.refusal_count = 0;
         patch.disconnect_notified_at = null;
+        patch.disconnect_reminder_count = 0;
+        patch.disconnect_last_reminder_at = null;
       } else if (state === "close") {
         if (inst.status !== "disconnected" && inst.status !== "banned") {
           patch.status = "disconnected";
           patch.last_error = "conexão encerrada no servidor";
         }
-        // Avisa o administrador se já passou de 30 min fora do ar e ainda não
-        // avisamos nesta queda.
+        // Primeiro aviso aos 30 min; depois, um lembrete a cada 24 h (máx. 3).
         const downSince = new Date(inst.last_connected_at ?? inst.updated_at ?? nowIso).getTime();
         const downMin = (Date.now() - downSince) / 60_000;
+        const reminders = inst.disconnect_reminder_count ?? 0;
+        const lastNotice = new Date(
+          inst.disconnect_last_reminder_at ?? inst.disconnect_notified_at ?? 0,
+        ).getTime();
+        const sinceLastH = lastNotice ? (Date.now() - lastNotice) / 3_600_000 : Infinity;
+
         if (!inst.disconnect_notified_at && downMin >= NOTIFY_AFTER_MIN) {
-          const sent = await notifyCompanyAdmins(admin, inst);
-          if (sent) patch.disconnect_notified_at = nowIso;
+          const sent = await notifyCompanyAdmins(admin, inst, { reminder: 0, downSinceMs: downSince });
+          if (sent) {
+            patch.disconnect_notified_at = nowIso;
+            patch.disconnect_last_reminder_at = nowIso;
+          }
+        } else if (
+          inst.disconnect_notified_at && reminders < MAX_REMINDERS &&
+          sinceLastH >= REMINDER_HOURS
+        ) {
+          const sent = await notifyCompanyAdmins(admin, inst, {
+            reminder: reminders + 1,
+            downSinceMs: downSince,
+          });
+          if (sent) {
+            patch.disconnect_reminder_count = reminders + 1;
+            patch.disconnect_last_reminder_at = nowIso;
+          }
         }
         if (Object.keys(patch).length === 1) continue; // só updated_at → nada a fazer
       } else if (state === "connecting") {
