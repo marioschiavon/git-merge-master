@@ -21,6 +21,19 @@ const NOTIFY_AFTER_MIN = 30;
 const REMINDER_HOURS = 24;
 const MAX_REMINDERS = 3;
 
+// Reinício suave: só para quedas transitórias (sem 401/403). Poucas tentativas,
+// espaçadas, e apenas na primeira hora fora do ar — insistir em reconectar é
+// justamente o que faz o WhatsApp bloquear o número.
+const SOFT_RESTART_MAX = 2;
+const SOFT_RESTART_GAP_MIN = 10;
+const SOFT_RESTART_WINDOW_MIN = 60;
+
+/** Quedas em que a sessão foi cancelada/recusada pelo WhatsApp: exigem QR-Code. */
+function needsQrCode(lastError?: string | null): boolean {
+  const e = (lastError ?? "").toLowerCase();
+  return e.includes("401") || e.includes("403") || e.includes("loggedout");
+}
+
 const APP_BASE = "https://app.leaderei.com.br";
 
 /** Traduz o motivo técnico para texto de cliente. */
