@@ -43,7 +43,11 @@ Clique **Testar conexão** — o Leaderei envia uma mensagem para o próprio nú
 
 ## Quando a conexão cai
 
-Se a conexão cair, o Leaderei avisa de três formas:
+Antes de qualquer aviso, o Leaderei **tenta religar a conexão sozinho**: em quedas passageiras (oscilação de internet no celular, falta de sinal por alguns minutos, reinício do servidor) são feitas até 2 tentativas automáticas, espaçadas em 10 minutos, dentro da primeira hora fora do ar. Se a conexão voltar, nada é exibido e nenhum e-mail é enviado.
+
+A tentativa automática **não acontece** quando o WhatsApp encerrou a sessão (só a leitura do QR-Code resolve) nem quando o WhatsApp recusou o número — nesse caso, insistir é o caminho mais rápido para o bloqueio definitivo.
+
+Se a conexão não voltar sozinha, o Leaderei avisa de três formas:
 
 1. **Aviso vermelho no topo do app** — diz qual conexão caiu, **o motivo** em linguagem simples e **há quanto tempo** ela está fora (ex.: "fora do ar há 2 dias"). O botão **Reconectar** abre direto a janela do WhatsApp, pronta para a leitura do QR-Code.
 2. **E-mail ao administrador** — o primeiro aviso chega 30 minutos após a queda. Se a conexão continuar fora, chega um **lembrete a cada 24 horas**, até o máximo de 3 lembretes.
