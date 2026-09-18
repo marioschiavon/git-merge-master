@@ -409,6 +409,8 @@ async function handleConnectionUpdate(admin: any, instance: any, data: any) {
     patch.last_error = null;
     // Reconectou: qualquer suspeita anterior de bloqueio é descartada.
     patch.refusal_count = 0;
+    patch.auto_restart_attempts = 0;
+    patch.auto_restart_last_at = null;
     const phone = stripJid(data?.wuid ?? data?.jid ?? data?.instance?.wuid);
     if (phone) patch.phone_number = phone;
     const name = data?.profileName ?? data?.pushName ?? null;
