@@ -8,6 +8,7 @@ import {
   Flame,
   Clock,
   RotateCcw,
+  RefreshCw,
   Zap,
   CheckCircle2,
   Lightbulb,
@@ -218,6 +219,57 @@ export default function WhatsAppBestPractices() {
               </li>
             ))}
           </ul>
+        </CardContent>
+      </Card>
+
+      {/* Reconnection explainer */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-xl">
+            <RefreshCw className="h-5 w-5 text-primary" />
+            Por que às vezes preciso ler o QR-Code de novo?
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm leading-relaxed">
+          <p>
+            O Leaderei já tenta religar a conexão sozinho. Quando a queda é passageira — a internet do
+            celular oscilou, o aparelho ficou sem sinal alguns minutos ou houve um reinício do servidor —
+            o sistema faz até duas tentativas automáticas, espaçadas, e na maioria das vezes a conexão
+            volta sem que você precise fazer nada.
+          </p>
+          <p className="text-muted-foreground">
+            Existem, porém, duas situações em que o próprio WhatsApp impede qualquer religamento
+            automático:
+          </p>
+
+          <div className="rounded-md border-l-2 border-primary/40 bg-muted/40 p-3 space-y-1">
+            <p className="font-medium">1. A sessão foi encerrada (o mais comum)</p>
+            <p className="text-muted-foreground">
+              Alguém clicou em <strong className="text-foreground">Sair</strong> em “Aparelhos conectados”
+              no celular, trocou de aparelho, reinstalou o aplicativo ou o telefone ficou muito tempo
+              desligado. O WhatsApp cancela a autorização dada na leitura do QR-Code e não há como
+              reativá-la à distância: é preciso apontar a câmera para um novo QR-Code. O botão
+              <strong className="text-foreground"> Reconectar</strong> do aviso leva direto a essa tela.
+            </p>
+          </div>
+
+          <div className="rounded-md border-l-2 border-amber-500/50 bg-amber-500/5 p-3 space-y-1">
+            <p className="font-medium">2. O WhatsApp recusou o número</p>
+            <p className="text-muted-foreground">
+              O WhatsApp reconheceu o número e não deixou a conexão abrir — geralmente após um volume alto
+              de mensagens em pouco tempo ou quando contatos marcaram as mensagens como spam. Nesse caso o
+              Leaderei <strong className="text-foreground">não insiste de propósito</strong>: tentar
+              reconectar repetidamente logo após uma recusa é o comportamento que o WhatsApp entende como
+              robô e o caminho mais rápido para o bloqueio definitivo. Espere alguns minutos, revise o
+              volume e o conteúdo dos envios e só então tente conectar de novo.
+            </p>
+          </div>
+
+          <p className="text-muted-foreground">
+            <strong className="text-foreground">Em resumo:</strong> oscilação de internet o Leaderei
+            resolve sozinho; sessão encerrada no celular só volta com QR-Code; recusa do WhatsApp pede
+            pausa e cuidado com o volume — nunca insistência.
+          </p>
         </CardContent>
       </Card>
 
