@@ -192,11 +192,44 @@ serve(async (req) => {
         patch.disconnect_notified_at = null;
         patch.disconnect_reminder_count = 0;
         patch.disconnect_last_reminder_at = null;
+        patch.auto_restart_attempts = 0;
+        patch.auto_restart_last_at = null;
       } else if (state === "close") {
         if (inst.status !== "disconnected" && inst.status !== "banned") {
           patch.status = "disconnected";
           patch.last_error = "conexão encerrada no servidor";
         }
+
+        const downRef = new Date(inst.last_connected_at ?? inst.updated_at ?? nowIso).getTime();
+        const downMinutes = (Date.now() - downRef) / 60_000;
+        const attempts = inst.auto_restart_attempts ?? 0;
+        const sinceRestartMin = inst.auto_restart_last_at
+          ? (Date.now() - new Date(inst.auto_restart_last_at).getTime()) / 60_000
+          : Infinity;
+
+        // Reinício suave: a sessão pode continuar válida (queda de internet,
+        // reinício do servidor). Nunca tentamos quando o WhatsApp encerrou ou
+        // recusou a sessão — nesses casos só a leitura do QR-Code resolve.
+        if (
+          !needsQrCode(inst.last_error) &&
+          attempts < SOFT_RESTART_MAX &&
+          downMinutes <= SOFT_RESTART_WINDOW_MIN &&
+          sinceRestartMin >= SOFT_RESTART_GAP_MIN
+        ) {
+          try {
+            await restartInstance({ admin, instanceName: inst.external_name, apikey: token });
+            patch.auto_restart_attempts = attempts + 1;
+            patch.auto_restart_last_at = nowIso;
+            results.push({ id: inst.id, soft_restart: attempts + 1 });
+          } catch (e) {
+            patch.auto_restart_attempts = attempts + 1;
+            patch.auto_restart_last_at = nowIso;
+            results.push({ id: inst.id, soft_restart_failed: String(e).slice(0, 120) });
+          }
+          await admin.from("hook7_instances").update(patch).eq("id", inst.id);
+          continue; // dá tempo de religar antes de avisar o administrador
+        }
+
         // Primeiro aviso aos 30 min; depois, um lembrete a cada 24 h (máx. 3).
         const downSince = new Date(inst.last_connected_at ?? inst.updated_at ?? nowIso).getTime();
         const downMin = (Date.now() - downSince) / 60_000;
