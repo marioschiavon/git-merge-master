@@ -9,7 +9,7 @@
 //  - unknown/erro → não altera nada (evita falso alarme por instabilidade)
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { loadInstanceToken, serviceClient, withinUserDisconnectWindow } from "../_shared/hook7.ts";
-import { connectionState } from "../_shared/whatsapp-engine.ts";
+import { connectionState, restartInstance } from "../_shared/whatsapp-engine.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
