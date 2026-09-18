@@ -1852,6 +1852,8 @@ export type Database = {
       hook7_instances: {
         Row: {
           archived_at: string | null
+          auto_restart_attempts: number
+          auto_restart_last_at: string | null
           company_id: string
           connected_profile_name: string | null
           created_at: string
@@ -1883,6 +1885,8 @@ export type Database = {
         }
         Insert: {
           archived_at?: string | null
+          auto_restart_attempts?: number
+          auto_restart_last_at?: string | null
           company_id: string
           connected_profile_name?: string | null
           created_at?: string
@@ -1914,6 +1918,8 @@ export type Database = {
         }
         Update: {
           archived_at?: string | null
+          auto_restart_attempts?: number
+          auto_restart_last_at?: string | null
           company_id?: string
           connected_profile_name?: string | null
           created_at?: string
