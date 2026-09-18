@@ -124,3 +124,25 @@ Atrasos de alguns minutos ou horas são normais e fazem parte da estratégia. Vo
 > "O Leaderei envia as mensagens de forma distribuída para proteger a sua conta do WhatsApp. Um atraso de alguns minutos é esperado e, na maioria dos casos, é melhor do que mandar tudo de uma vez e correr o risco de bloqueio."
 
 Se o atraso for de muitas horas ou dias, aí vale verificar se a fila está travada, se a conta do WhatsApp está conectada ou se há algum alerta no painel.
+
+---
+
+## 7. Por que às vezes preciso ler o QR-Code de novo?
+
+O Leaderei já tenta religar a conexão sozinho. Quando a queda é passageira — a internet do celular oscilou, o aparelho ficou sem sinal por alguns minutos ou houve um reinício do servidor —, o sistema faz até duas tentativas automáticas, espaçadas, e na maioria das vezes a conexão volta sem que ninguém precise fazer nada.
+
+Só que existem duas situações em que o próprio WhatsApp impede qualquer religamento automático:
+
+### 7.1 A sessão foi encerrada (o mais comum)
+
+Isso acontece quando alguém clicou em **Sair** dentro de *Aparelhos conectados* no WhatsApp do celular, trocou de aparelho, reinstalou o aplicativo ou o telefone ficou muito tempo desligado/sem internet.
+
+Nesse caso o WhatsApp cancela a autorização que havia sido dada quando o QR-Code foi lido. Não existe forma de reativá-la à distância: é preciso abrir a conexão no Leaderei e apontar a câmera do celular para o novo QR-Code. O botão **Reconectar** do aviso vermelho já leva direto para essa tela.
+
+### 7.2 O WhatsApp recusou o número
+
+Aqui o WhatsApp reconheceu o número e simplesmente não deixou a conexão abrir. Costuma acontecer depois de um volume alto de mensagens em pouco tempo ou quando contatos marcaram as mensagens como spam.
+
+Nessa situação o Leaderei **não fica tentando reconectar sozinho de propósito**. Insistir em abrir a conexão logo após uma recusa é exatamente o comportamento que o WhatsApp interpreta como robô — e é o caminho mais rápido para o número ser bloqueado de vez. O correto é esperar alguns minutos, revisar o volume e o conteúdo dos envios (as dicas deste guia) e só então tentar conectar de novo.
+
+> **Em resumo:** oscilação de internet o Leaderei resolve sozinho. Sessão encerrada no celular só volta com QR-Code. Recusa do WhatsApp pede pausa e cuidado com o volume — nunca insistência.
