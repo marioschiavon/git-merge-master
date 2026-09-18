@@ -133,7 +133,7 @@ serve(async (req) => {
     const { data: instances } = await admin
       .from("hook7_instances")
       .select(
-        "id, company_id, display_name, phone_number, external_name, status, engine, user_disconnected_at, refusal_count, last_connected_at, created_at, disconnect_notified_at, disconnect_reminder_count, disconnect_last_reminder_at, last_error, updated_at",
+        "id, company_id, display_name, phone_number, external_name, status, engine, user_disconnected_at, refusal_count, last_connected_at, created_at, disconnect_notified_at, disconnect_reminder_count, disconnect_last_reminder_at, last_error, updated_at, auto_restart_attempts, auto_restart_last_at",
       )
       .is("archived_at", null)
       .in("status", ["connected", "disconnected", "pairing", "error", "banned"]);
