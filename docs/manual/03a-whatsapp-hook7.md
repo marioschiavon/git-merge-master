@@ -69,3 +69,14 @@ Se a conexão não voltar sozinha, o Leaderei avisa de três formas:
 
 
 **Próximo passo →** [03b. Email](./03b-email-resend.md)
+
+## Quando o lead envia um cartão de contato
+
+Se o lead responder com um **cartão de contato** (ex.: "fale com o setor responsável" + cartão), o Leaderei:
+
+1. Mostra na conversa "📇 Contato compartilhado: Nome — telefone".
+2. Cadastra a pessoa como novo lead, marcado como indicado por quem enviou.
+3. Prepara a primeira mensagem para o indicado, citando a indicação.
+4. Agradece a quem indicou e pausa a cadência dele.
+
+Com a aprovação humana ligada, as mensagens aparecem em **Aprovações** antes do envio. Cartões sem telefone ficam só registrados no histórico do lead.
