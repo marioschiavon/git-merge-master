@@ -10,6 +10,7 @@
 //   send.message        → ignorado (messages.upsert com fromMe já cobre)
 
 import { serviceClient } from "../_shared/hook7.ts";
+import { extractSharedContacts, sharedContactsToText, handleSharedContacts } from "../_shared/shared-contact.ts";
 import {
   base64ByteLength,
   downloadHook7Media,
