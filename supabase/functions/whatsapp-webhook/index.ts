@@ -169,6 +169,10 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
 
   let text: string | null = extractText(data?.message);
 
+  // Cartão(ões) de contato compartilhado(s)
+  const sharedContacts = text ? [] : extractSharedContacts(data?.message);
+  if (sharedContacts.length > 0) text = sharedContactsToText(sharedContacts);
+
   let audioMeta: Record<string, unknown> | null = null;
   let transcriptionFailed = false;
   if (!text) {
@@ -296,7 +300,10 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
     provider: "hook7",
     provider_message_id: externalId,
     sent_at: ts,
-    metadata: { hook7: { ...baseMeta, ...(audioMeta ? { audio: audioMeta } : {}) } },
+    metadata: {
+      hook7: { ...baseMeta, ...(audioMeta ? { audio: audioMeta } : {}) },
+      ...(sharedContacts.length ? { shared_contacts: sharedContacts } : {}),
+    },
   });
   if (msgErr) {
     if (!String(msgErr.message || "").toLowerCase().includes("duplicate")) {
@@ -322,7 +329,17 @@ async function handleMessage(admin: any, instance: any, company: any, data: any)
     }
   }
 
-  if (!isOutbound && !transcriptionFailed) {
+  if (!isOutbound && sharedContacts.length > 0) {
+    // Fluxo determinístico: cadastra indicado(s) e inicia contato (com aprovação quando ativa).
+    try {
+      const { data: fullLead } = await admin.from("leads").select("*").eq("id", lead.id).single();
+      await handleSharedContacts(admin, {
+        companyId: company.id, sourceLead: fullLead || lead, conversationId: conv.id, contacts: sharedContacts,
+      });
+    } catch (e) {
+      console.error("[whatsapp-webhook] shared contact handling failed", e);
+    }
+  } else if (!isOutbound && !transcriptionFailed) {
     const invokeUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/inbound-webhook`;
     fetch(invokeUrl, {
       method: "POST",
