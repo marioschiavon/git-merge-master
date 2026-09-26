@@ -238,6 +238,51 @@ serve(async (req) => {
           await supabase.functions.invoke("cadence-executor", {
             body: { enrollment_id: approval.enrollment_id, bypass_hitl: true },
           });
+        } else if (!approval.enrollment_id) {
+          // Primeira mensagem avulsa (ex.: indicação por cartão de contato): envia direto.
+          const channel = approval.channel || "whatsapp";
+          const message = finalPayload.message ?? finalPayload.body ?? "";
+          if (!message) throw new Error("mensagem vazia");
+          const { data: lead } = await supabase
+            .from("leads").select("whatsapp, phone, email").eq("id", approval.lead_id).maybeSingle();
+          if (channel === "whatsapp") {
+            const to = lead?.whatsapp || lead?.phone;
+            if (!to) throw new Error("lead sem whatsapp/phone");
+            const r = await enqueueWhatsAppSend(supabase, {
+              companyId: approval.company_id,
+              toPhone: to,
+              body: message,
+              leadId: approval.lead_id,
+              conversationId: approval.conversation_id,
+              approvalId: approval_id,
+              source: "approval",
+              replyMode: true,
+              metadata: { hitl_approved: true, kind: approval.kind, ...(approval.context || {}) },
+            });
+            if (!r.ok) throw new Error(r.error || "falha ao enfileirar WhatsApp");
+            queuedForDelivery = true;
+            queueId = r.queue_id ?? null;
+          } else if (channel === "email") {
+            if (!lead?.email) throw new Error("lead sem email");
+            const { data: sd, error: se } = await supabase.functions.invoke("send-outbound-email", {
+              body: {
+                to: lead.email,
+                subject: finalPayload.subject || "Olá",
+                html: message.replace(/\n/g, "<br/>"),
+                text: message,
+                lead_id: approval.lead_id,
+                company_id: approval.company_id,
+                conversation_id: approval.conversation_id,
+                extra_metadata: { approval_id, hitl_approved: true },
+              },
+            });
+            if (se) throw new Error(se.message);
+            if (sd && (sd as any).error) throw new Error((sd as any).error);
+          } else {
+            throw new Error(`canal ${channel} não suportado para envio avulso`);
+          }
+        } else {
+          throw new Error("aprovação sem dados suficientes para envio");
         }
       } else if (approval.kind === "sdr_reply" || approval.kind === "sensitive_action") {
         // Send directly through gmail/zapi based on channel.
