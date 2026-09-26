@@ -1276,6 +1276,7 @@ export type Database = {
       }
       companies: {
         Row: {
+          auto_protect_orgs: boolean
           business_hours: Json
           calcom_api_key_encrypted: string | null
           calcom_booking_link: string | null
@@ -1303,6 +1304,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          auto_protect_orgs?: boolean
           business_hours?: Json
           calcom_api_key_encrypted?: string | null
           calcom_booking_link?: string | null
@@ -1330,6 +1332,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          auto_protect_orgs?: boolean
           business_hours?: Json
           calcom_api_key_encrypted?: string | null
           calcom_booking_link?: string | null
@@ -3198,6 +3201,68 @@ export type Database = {
         }
         Relationships: []
       }
+      protected_organizations: {
+        Row: {
+          city: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          domain: string | null
+          id: string
+          kind: string
+          label: string
+          lead_id: string | null
+          name_normalized: string | null
+          note: string | null
+          reason: string
+          source: string
+          state: string | null
+          updated_at: string
+        }
+        Insert: {
+          city?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          domain?: string | null
+          id?: string
+          kind?: string
+          label: string
+          lead_id?: string | null
+          name_normalized?: string | null
+          note?: string | null
+          reason?: string
+          source?: string
+          state?: string | null
+          updated_at?: string
+        }
+        Update: {
+          city?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          domain?: string | null
+          id?: string
+          kind?: string
+          label?: string
+          lead_id?: string | null
+          name_normalized?: string | null
+          note?: string | null
+          reason?: string
+          source?: string
+          state?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "protected_organizations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       script_templates: {
         Row: {
           base_script: string
@@ -3744,6 +3809,10 @@ export type Database = {
         Args: { _token: string; _user_id: string }
         Returns: string
       }
+      auto_protect_lead_org: {
+        Args: { _lead_id: string; _reason: string }
+        Returns: undefined
+      }
       cancel_company_invite: {
         Args: { _invite_id: string }
         Returns: undefined
@@ -3810,6 +3879,15 @@ export type Database = {
         }
         Returns: boolean
       }
+      is_lead_protected: { Args: { _lead_id: string }; Returns: boolean }
+      lead_protection: {
+        Args: { _lead_id: string }
+        Returns: {
+          id: string
+          label: string
+          reason: string
+        }[]
+      }
       list_company_members: {
         Args: { _company_id: string }
         Returns: {
@@ -3844,7 +3922,20 @@ export type Database = {
         }
         Returns: number
       }
+      norm_org_text: { Args: { _t: string }; Returns: string }
       normalize_phone_br: { Args: { _raw: string }; Returns: string }
+      org_domain: {
+        Args: { _email: string; _website: string }
+        Returns: string
+      }
+      protected_lead_ids: {
+        Args: { _company_id: string }
+        Returns: {
+          label: string
+          lead_id: string
+          reason: string
+        }[]
+      }
       read_email_batch: {
         Args: { batch_size: number; queue_name: string; vt: number }
         Returns: {

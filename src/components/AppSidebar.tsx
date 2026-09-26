@@ -22,6 +22,7 @@ import {
   Sparkles,
   FileClock,
   Landmark,
+  ShieldBan,
 } from "lucide-react";
 import leadereiLogo from "@/assets/brand/leaderei-white.png";
 import { APP_VERSION } from "@/lib/version";
@@ -92,6 +93,7 @@ const companyItems = [
 const settingsItems = [
   { title: "Equipe", url: "/settings/team", icon: Users },
   { title: "Integrações", url: "/settings/integrations", icon: Link },
+  { title: "Não prospectar", url: "/settings/nao-prospectar", icon: ShieldBan },
   
   { title: "Cal.com", url: "/settings/calcom", icon: Calendar },
   { title: "Configurações", url: "/settings", icon: Settings },

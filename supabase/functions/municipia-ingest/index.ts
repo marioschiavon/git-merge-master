@@ -137,9 +137,25 @@ Deno.serve(async (req) => {
     if (!integ?.enabled) return json({ error: "Integração MunicipIA não habilitada" }, 403);
 
     const drafts = rows.flatMap((r) => draftsFromRow(r, includeTeam));
-    let created = 0, updated = 0, skipped = 0;
+    let created = 0, updated = 0, skipped = 0, protectedCount = 0;
+
+    // Lista "Não prospectar": prefeituras protegidas não viram lead novo.
+    const norm = (v: string | null | undefined) =>
+      (v ?? "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim();
+    const { data: protectedRows } = await admin
+      .from("protected_organizations")
+      .select("city, state")
+      .eq("company_id", companyId)
+      .eq("kind", "municipio");
+    const protectedSet = new Set((protectedRows ?? []).map((p: any) => `${norm(p.city)}|${(p.state ?? "").toUpperCase()}`));
+    const protectedMunis = new Set<string>();
 
     for (const d of drafts) {
+      if (protectedSet.has(`${norm(d.city)}|${(d.state ?? "").toUpperCase()}`)) {
+        protectedCount++;
+        protectedMunis.add(`${d.city}/${d.state}`);
+        continue;
+      }
       try {
         const { data: existing } = await admin
           .from("leads")

@@ -276,6 +276,22 @@ serve(async (req) => {
             continue;
           }
         }
+        // Protected-organization guard ("Não prospectar"): never send cold
+        // cadence messages to clients or organizations in negotiation.
+        const { data: protection } = await supabase.rpc("lead_protection", { _lead_id: enrollment.lead_id });
+        const prot = Array.isArray(protection) ? protection[0] : null;
+        if (prot) {
+          await supabase.from("cadence_enrollments").update({
+            status: "paused", paused_reason: `Organização protegida: ${prot.label}`, next_execution_at: null,
+          }).eq("id", enrollment.id);
+          await supabase.from("lead_activities").insert({
+            lead_id: enrollment.lead_id,
+            company_id: cadence.company_id,
+            type: "note",
+            description: `Envio da cadência "${cadence.name}" suspenso: a organização "${prot.label}" está na lista Não prospectar.`,
+          }).then(() => null, () => null);
+          continue;
+        }
 
 
         // Parallel-enrollment guard: if another active enrollment for the same lead

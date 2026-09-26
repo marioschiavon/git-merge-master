@@ -57,3 +57,13 @@ Como verificar:
 - **Automático:** uma rotina diária verifica os pendentes, e todo lead é verificado antes do primeiro envio.
 
 Há também o filtro **WhatsApp válido**, para trabalhar só com números confirmados. A verificação exige uma instância WhatsApp conectada; sem ela o status fica como "não verificado" e nada é bloqueado. Resultados são revalidados a cada 30 dias.
+
+## Lista "Não prospectar"
+
+Em **Configurações → Não prospectar** você cadastra prefeituras (município + UF) ou empresas (nome ou site) que não devem ser abordadas — por exemplo, quem já é cliente ou está em negociação.
+
+- Leads dessas organizações ganham o selo **Protegido** e não podem entrar em cadência.
+- O MunicipIA ignora essas prefeituras ao enviar contatos para o Leaderei (o aviso final mostra quantas foram ignoradas).
+- Se um lead já estava numa cadência, o próximo envio é suspenso e fica registrado no histórico.
+- No detalhe do lead, o botão **Não prospectar** protege a organização dele com um clique.
+- **Proteção automática** (ligada por padrão): reunião agendada → "Em negociação"; lead convertido → "Cliente".
