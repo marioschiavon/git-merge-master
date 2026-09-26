@@ -28,6 +28,8 @@ import { useToast } from "@/hooks/use-toast";
 import { Mail, Phone, Building2, User, Calendar, Globe, MapPin, Search, Lightbulb, Target, Package, Star, MessageSquare, Loader2, Trash2, CalendarClock, MessageCircle, Sparkles, Bot } from "lucide-react";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { useVerifyWhatsApp, useHasConnectedWhatsApp } from "@/hooks/useVerifyWhatsApp";
+import { useProtectedLeadMap, useSaveProtectedOrg, protectedInputFromLead, PROTECTED_REASON_LABELS } from "@/hooks/useProtectedOrgs";
+import { ShieldCheck } from "lucide-react";
 
 
 const statusColors: Record<string, string> = {
@@ -120,6 +122,9 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
   );
   const deleteLead = useDeleteLead();
   const { toast } = useToast();
+  const { data: protectedMap } = useProtectedLeadMap();
+  const protection = lead ? protectedMap?.get(lead.id) : undefined;
+  const saveProtected = useSaveProtectedOrg();
 
   const pipelineMode = (lead as any).pipeline_mode === "agent" ? "agent" : "legacy";
   const pipelineMutation = useMutation({
@@ -223,6 +228,33 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
             )}
             {lead.call_requested_at && (
               <Badge variant="outline" className="border-blue-300 text-blue-800">📞 Pediu ligação</Badge>
+            )}
+            {protection ? (
+              <Badge variant="destructive" title={`Na lista Não prospectar: ${protection.label}`}>
+                Protegido · {PROTECTED_REASON_LABELS[protection.reason] ?? protection.reason}
+              </Badge>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                disabled={saveProtected.isPending}
+                onClick={async () => {
+                  const input = protectedInputFromLead(lead as any);
+                  if (!input) {
+                    toast({ title: "Sem dados da organização", description: "Preencha empresa, site ou cidade/UF do lead.", variant: "destructive" });
+                    return;
+                  }
+                  try {
+                    await saveProtected.mutateAsync(input);
+                    toast({ title: "Organização protegida", description: `${input.label} não será mais prospectada.` });
+                  } catch (e: any) {
+                    toast({ title: "Não foi possível proteger", description: e.message, variant: "destructive" });
+                  }
+                }}
+              >
+                <ShieldCheck className="mr-1 h-3 w-3" /> Não prospectar
+              </Button>
             )}
           </span>
           <AlertDialog>

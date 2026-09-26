@@ -23,6 +23,7 @@ import { ChannelBadges } from "@/components/lead/ChannelBadges";
 import { EnrichmentQueueBadge } from "@/components/EnrichmentQueueBadge";
 import { BulkActionProgress } from "@/components/lead/BulkActionProgress";
 import { useMunicipiaEnabled } from "@/hooks/useMunicipia";
+import { useProtectedLeadMap, PROTECTED_REASON_LABELS } from "@/hooks/useProtectedOrgs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,6 +69,7 @@ export default function Leads() {
   const [params, setParams] = useSearchParams();
   const listId = params.get("list");
   const [search, setSearch] = useState("");
+  const { data: protectedMap } = useProtectedLeadMap();
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [minScore, setMinScore] = useState<number>(0);
@@ -404,6 +406,11 @@ export default function Leads() {
                         {lead.pipeline_mode === "agent" && (
                           <Badge variant="default" className="shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0" title="Respostas inbound vão pelo Agente SDR (live)">
                             🤖 Agente
+                          </Badge>
+                        )}
+                        {protectedMap?.get(lead.id) && (
+                          <Badge variant="destructive" className="shrink-0 whitespace-nowrap text-[10px] px-1.5 py-0" title={`Não prospectar: ${protectedMap.get(lead.id)!.label} (${PROTECTED_REASON_LABELS[protectedMap.get(lead.id)!.reason] ?? ""})`}>
+                            Protegido
                           </Badge>
                         )}
                         {(() => {

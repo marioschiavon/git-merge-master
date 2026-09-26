@@ -32,6 +32,7 @@ import SettingsPage from "@/pages/settings/Settings";
 import Intents from "@/pages/settings/Intents";
 import CalcomSettings from "@/pages/settings/CalcomSettings";
 import EmailSettings from "@/pages/settings/Email";
+import ProtectedOrgs from "@/pages/settings/ProtectedOrgs";
 import Bookings from "@/pages/Bookings";
 import WhatsAppBestPractices from "@/pages/WhatsAppBestPractices";
 import Manual from "@/pages/Manual";
@@ -99,6 +100,7 @@ const App = () => (
               <Route path="/settings/intents" element={<Intents />} />
               <Route path="/settings/calcom" element={<CalcomSettings />} />
               <Route path="/settings/email" element={<EmailSettings />} />
+              <Route path="/settings/nao-prospectar" element={<ProtectedOrgs />} />
               <Route path="/bookings" element={<Bookings />} />
               <Route path="/guides/whatsapp" element={<WhatsAppBestPractices />} />
               <Route path="/guides/manual" element={<Manual />} />

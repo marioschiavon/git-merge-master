@@ -92,6 +92,7 @@ const companyItems = [
 const settingsItems = [
   { title: "Equipe", url: "/settings/team", icon: Users },
   { title: "Integrações", url: "/settings/integrations", icon: Link },
+  { title: "Não prospectar", url: "/settings/nao-prospectar", icon: ShieldBan },
   
   { title: "Cal.com", url: "/settings/calcom", icon: Calendar },
   { title: "Configurações", url: "/settings", icon: Settings },
