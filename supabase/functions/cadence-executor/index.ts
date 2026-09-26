@@ -288,7 +288,7 @@ serve(async (req) => {
             lead_id: enrollment.lead_id,
             company_id: cadence.company_id,
             type: "note",
-            content: `Envio da cadência "${cadence.name}" suspenso: a organização "${prot.label}" está na lista Não prospectar.`,
+            description: `Envio da cadência "${cadence.name}" suspenso: a organização "${prot.label}" está na lista Não prospectar.`,
           }).then(() => null, () => null);
           continue;
         }
