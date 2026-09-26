@@ -44,7 +44,7 @@ export default function Dashboard() {
     { title: "Total de Leads", value: String(leads?.total || 0), icon: Target, change: `${leads?.new7d || 0} novos esta semana` },
     { title: "Leads Qualificados", value: String(leads?.byStatus?.qualified || 0), icon: CheckCircle2, change: `de ${leads?.total || 0} leads` },
     { title: "Cadências Ativas", value: String(activeCadences?.length || 0), icon: Zap, change: "em execução" },
-    { title: "Taxa de Conversão", value: `${leads?.conversionRate || 0}%`, icon: TrendingUp, change: "converted / total" },
+    { title: "Taxa de Conversão", value: `${leads?.conversionRate || 0}%`, icon: TrendingUp, change: "qualificados/convertidos sobre leads abordados" },
   ];
 
   return (
