@@ -10,24 +10,27 @@ export function useDashboardStats() {
     queryKey: ["dashboard-leads", companyId],
     queryFn: async () => {
       if (!companyId) return { total: 0, new7d: 0, byStatus: {} as Record<string, number>, conversionRate: 0 };
-      
-      const { data: allLeads, error } = await supabase
-        .from("leads")
-        .select("status, created_at")
-        .eq("company_id", companyId);
-      if (error) throw error;
 
-      const total = allLeads?.length || 0;
+      // Contagens no servidor (evita o limite de 1000 linhas por consulta)
+      const statuses = ["new", "enrolled", "contacted", "qualified", "unqualified", "converted", "discarded"];
       const sevenDaysAgo = subDays(new Date(), 7).toISOString();
-      const new7d = allLeads?.filter(l => l.created_at >= sevenDaysAgo).length || 0;
-      
-      const byStatus: Record<string, number> = {};
-      allLeads?.forEach(l => {
-        byStatus[l.status] = (byStatus[l.status] || 0) + 1;
-      });
+      const base = () => supabase.from("leads").select("id", { count: "exact", head: true }).eq("company_id", companyId);
+      const [totalRes, newRes, ...statusRes] = await Promise.all([
+        base(),
+        base().gte("created_at", sevenDaysAgo),
+        ...statuses.map((s) => base().eq("status", s as any)),
+      ]);
+      if (totalRes.error) throw totalRes.error;
 
-      const converted = byStatus["converted"] || 0;
-      const conversionRate = total > 0 ? Math.round((converted / total) * 100) : 0;
+      const total = totalRes.count || 0;
+      const new7d = newRes.count || 0;
+      const byStatus: Record<string, number> = {};
+      statuses.forEach((s, i) => { byStatus[s] = statusRes[i].count || 0; });
+
+      // Conversão: leads que avançaram (qualificados + convertidos) sobre os já abordados
+      const advanced = byStatus.qualified + byStatus.converted;
+      const approached = total - byStatus.new;
+      const conversionRate = approached > 0 ? Math.round((advanced / approached) * 1000) / 10 : 0;
 
       return { total, new7d, byStatus, conversionRate };
     },
@@ -40,12 +43,18 @@ export function useDashboardStats() {
       if (!companyId) return [];
       const eightWeeksAgo = subDays(new Date(), 56).toISOString();
       
-      const { data, error } = await supabase
-        .from("leads")
-        .select("created_at")
-        .eq("company_id", companyId)
-        .gte("created_at", eightWeeksAgo);
-      if (error) throw error;
+      const data: { created_at: string }[] = [];
+      for (let from = 0; ; from += 1000) {
+        const { data: page, error } = await supabase
+          .from("leads")
+          .select("created_at")
+          .eq("company_id", companyId)
+          .gte("created_at", eightWeeksAgo)
+          .range(from, from + 999);
+        if (error) throw error;
+        data.push(...(page || []));
+        if (!page || page.length < 1000) break;
+      }
 
       const weeks: Record<string, number> = {};
       for (let i = 7; i >= 0; i--) {
@@ -82,7 +91,7 @@ export function useDashboardStats() {
             .from("cadence_enrollments")
             .select("*", { count: "exact", head: true })
             .eq("cadence_id", c.id)
-            .eq("status", "active");
+            .in("status", ["active", "paused"]);
           return { ...c, enrolledCount: count || 0 };
         })
       );
