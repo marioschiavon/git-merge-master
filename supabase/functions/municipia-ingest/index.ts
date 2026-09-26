@@ -218,11 +218,16 @@ Deno.serve(async (req) => {
       user_id: claims.user_id,
       event_type: "municipia.import",
       entity_type: "leads",
-      message: `Importação MunicipIA: ${created} criados, ${updated} atualizados`,
-      metadata: { created, updated, skipped, municipios: rows.length },
+      message: `Importação MunicipIA: ${created} criados, ${updated} atualizados, ${protectedCount} ignorados (protegidos)`,
+      metadata: { created, updated, skipped, protected: protectedCount, protected_municipios: [...protectedMunis], municipios: rows.length },
     }).then(() => null, () => null);
 
-    return json({ success: true, created, updated, skipped });
+    return json({
+      success: true, created, updated, skipped,
+      protected: protectedCount,
+      protected_municipios: [...protectedMunis],
+      message: `${created} criados, ${updated} atualizados, ${protectedCount} ignorados (protegidos)`,
+    });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }
