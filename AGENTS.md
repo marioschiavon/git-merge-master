@@ -1,0 +1,1 @@
+- Organizações protegidas (protected_organizations): toda nova fonte de importação ou disparo frio deve checar lead_protection/is_lead_protected — evita prospectar clientes ou negociações por engano.
