@@ -244,6 +244,12 @@ export async function handleSharedContacts(
 
   if (created.length === 0) return;
 
+  // Cancela respostas da IA ainda pendentes para este lead: o agradecimento
+  // abaixo já responde, evitando dois "obrigado" seguidos.
+  await admin.from("pending_inbound_runs")
+    .update({ status: "cancelled", last_error: "shared_contact_handled" })
+    .eq("lead_id", sourceLead.id).in("status", ["pending"]);
+
   // Contato original: pausa cadência, marca como indicador, agradece.
   await admin.from("cadence_enrollments")
     .update({ status: "paused", paused_reason: "referral_with_contact" })
