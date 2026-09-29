@@ -109,7 +109,7 @@ export default function Leads() {
       arr = arr.filter((l: any) => {
         const hasWa = !!(l.phone || l.whatsapp) && l.whatsapp_valid !== false;
         const hasEmail = !!l.email;
-        const isProtected = !!(protectedMap as any)?.[l.id] || (protectedMap as any)?.get?.(l.id);
+        const isProtected = !!protectedMap?.has(l.id);
         return (hasWa || hasEmail) && !isProtected && l.status !== "unqualified";
       });
     }
