@@ -75,6 +75,8 @@ export default function Leads() {
   const [minScore, setMinScore] = useState<number>(0);
   const [onlyEnriched, setOnlyEnriched] = useState(false);
   const [onlyWhatsappValid, setOnlyWhatsappValid] = useState(false);
+  const [sourceFilter, setSourceFilter] = useState<string>(params.get("source") ?? "all");
+  const [onlyReady, setOnlyReady] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [chosenCadence, setChosenCadence] = useState<string>("");
@@ -99,11 +101,21 @@ export default function Leads() {
   const activeList = useMemo(() => lists.find((l) => l.id === listId), [lists, listId]);
   const leads = useMemo(() => {
     let arr: any[] = listId ? allLeads.filter((l: any) => l.lead_list_id === listId) : allLeads;
+    if (sourceFilter !== "all") arr = arr.filter((l: any) => (l.source ?? "") === sourceFilter);
     if (onlyEnriched) arr = arr.filter((l: any) => l.enrichment_status === "completed");
     if (onlyWhatsappValid) arr = arr.filter((l: any) => l.whatsapp_valid === true);
+    if (onlyReady) {
+      // Pronto para cadência: tem canal utilizável e não está protegido.
+      arr = arr.filter((l: any) => {
+        const hasWa = !!(l.phone || l.whatsapp) && l.whatsapp_valid !== false;
+        const hasEmail = !!l.email;
+        const isProtected = !!(protectedMap as any)?.[l.id] || (protectedMap as any)?.get?.(l.id);
+        return (hasWa || hasEmail) && !isProtected && l.status !== "unqualified";
+      });
+    }
     if (minScore > 0) arr = arr.filter((l: any) => (l.score ?? 0) >= minScore);
     return arr;
-  }, [allLeads, listId, minScore, onlyEnriched, onlyWhatsappValid]);
+  }, [allLeads, listId, sourceFilter, onlyReady, protectedMap, minScore, onlyEnriched, onlyWhatsappValid]);
   const leadIds = useMemo(() => leads.map((l: any) => l.id), [leads]);
   const { data: insightsMap = {} } = useLeadInsightsBatch(leadIds);
   const syncMutation = useSyncLeads();
@@ -302,6 +314,21 @@ export default function Leads() {
           <Checkbox checked={onlyWhatsappValid} onCheckedChange={(v) => setOnlyWhatsappValid(!!v)} />
           WhatsApp válido
         </label>
+        <label className="flex items-center gap-2 text-sm" title="Tem telefone (WhatsApp não recusado) ou e-mail, e não está na lista Não prospectar">
+          <Checkbox checked={onlyReady} onCheckedChange={(v) => setOnlyReady(!!v)} />
+          Pronto para cadência
+        </label>
+        <Select value={sourceFilter} onValueChange={setSourceFilter}>
+          <SelectTrigger className="w-40"><SelectValue placeholder="Origem" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as origens</SelectItem>
+            <SelectItem value="municipia">MunicipIA</SelectItem>
+            <SelectItem value="csv">Planilha</SelectItem>
+            <SelectItem value="apollo">Apollo</SelectItem>
+            <SelectItem value="pipedrive">Pipedrive</SelectItem>
+            <SelectItem value="manual">Manual</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Bulk action bar */}
