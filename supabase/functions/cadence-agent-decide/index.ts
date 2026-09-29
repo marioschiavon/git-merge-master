@@ -87,6 +87,7 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
 
+    (globalThis as any).__lastSendAction = null;
     const reqBody = await req.json();
     const { enrollment_id, bypass_hitl, override_decision, dry_run } = reqBody as {
       enrollment_id?: string;
@@ -754,6 +755,7 @@ Decida a próxima ação.`;
       });
 
       await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+      (globalThis as any).__lastSendAction = { action: sendAction, error: (deliveryMeta as any).delivery_error || (deliveryMeta as any).zapi_error || null };
 
       if (noContactFailure && !isSimulation) {
         // Don't burn the attempt — close the enrollment and stop.
@@ -800,7 +802,7 @@ Decida a próxima ação.`;
         .eq("id", enrollment_id);
     }
 
-    return new Response(JSON.stringify({ decision }), {
+    return new Response(JSON.stringify({ decision, send_action: (globalThis as any).__lastSendAction ?? null }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {
