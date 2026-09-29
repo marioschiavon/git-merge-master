@@ -207,6 +207,17 @@ export default function ApprovalsPage() {
                         <span className="text-[10px] text-muted-foreground">
                           {formatDistanceToNow(new Date(a.created_at), { locale: ptBR, addSuffix: true })}
                         </span>
+                        {a.status === "pending" && Date.now() - new Date(a.created_at).getTime() > 7 * 86400000 && (
+                          <Badge
+                            variant="destructive"
+                            className="text-[10px]"
+                            title={a.context?.recovered
+                              ? "Aprovada antes, mas não foi enviada. Revise se ainda faz sentido enviar."
+                              : "Gerada há mais de 7 dias. Revise se ainda faz sentido enviar."}
+                          >
+                            Antiga
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-xs text-muted-foreground truncate">{preview}</p>
                     </button>

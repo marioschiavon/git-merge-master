@@ -23,5 +23,7 @@ Fila de mensagens que a IA gerou mas está segurando para revisão humana. Apare
 - Nos **primeiros dias** aprove tudo manualmente para calibrar tom da IA.
 - Se as mensagens estão consistentemente boas, mude a cadência para **Automático** com um limite diário (ex.: `auto_approve_max_per_day = 30`).
 - Rejeições viram sinal para IA melhorar: sempre escreva uma anotação explicando por que rejeitou (opcional).
+- Mensagens com o selo **Antiga** foram geradas há mais de 7 dias. Revise antes de aprovar, porque o contexto do lead pode ter mudado.
+- Uma mensagem aprovada é sempre enviada, mesmo que o prazo da cadência já tenha passado. Se o envio não for possível, a aprovação aparece como **Falhou**, com o motivo.
 
 **Próximo passo →** [12. Acompanhamento](./12-acompanhamento.md)
