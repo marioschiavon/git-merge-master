@@ -203,11 +203,14 @@ serve(async (req) => {
       });
     };
 
-    // === DETERMINISTIC STOP CHECKS (sempre ativos) ===
-    if (attemptNumber > policy.max_attempts) {
+    // === DETERMINISTIC STOP CHECKS ===
+    // Mensagem já aprovada por humano (override + bypass) não é cancelada por
+    // prazo/limite de tentativas — esses limites valem só para mensagens novas da IA.
+    const humanApproved = !!(bypass_hitl && override_decision && override_decision.action === "send");
+    if (!humanApproved && attemptNumber > policy.max_attempts) {
       return await earlyStop(`Atingiu máximo de ${policy.max_attempts} tentativas.`, "max_attempts");
     }
-    if (daysSinceEnroll > policy.max_days) {
+    if (!humanApproved && daysSinceEnroll > policy.max_days) {
       return await earlyStop(`Passou do prazo de ${policy.max_days} dias.`, "max_days");
     }
     if (enrollment.meeting_scheduled) {
