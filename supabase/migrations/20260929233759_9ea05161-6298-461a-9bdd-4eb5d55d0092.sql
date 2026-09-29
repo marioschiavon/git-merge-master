@@ -1,0 +1,1 @@
+UPDATE public.leads SET enrichment_data = coalesce(enrichment_data,'{}'::jsonb) || '{"sem_contato": true}'::jsonb WHERE source='municipia' AND email IS NULL AND phone IS NULL;

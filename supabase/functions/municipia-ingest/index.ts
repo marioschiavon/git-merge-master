@@ -136,8 +136,25 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!integ?.enabled) return json({ error: "Integração MunicipIA não habilitada" }, 403);
 
-    const drafts = rows.flatMap((r) => draftsFromRow(r, includeTeam));
+    const allDrafts = rows.flatMap((r) => draftsFromRow(r, includeTeam));
+    // Lead sem telefone e sem e-mail não serve para prospecção: não entra.
+    const drafts = allDrafts.filter((d) => d.email || d.phone);
+    const noContact = allDrafts.length - drafts.length;
     let created = 0, updated = 0, skipped = 0, protectedCount = 0;
+    const touchedIds: string[] = [];
+    const phoneIds: string[] = [];
+
+    // Lote: cada envio vira uma Lista nomeada em Leads → Listas.
+    const d = new Date();
+    const defaultName = `MunicipIA ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}h${String(d.getMinutes()).padStart(2, "0")}`;
+    const listName = (typeof body?.list_name === "string" && body.list_name.trim()) ? body.list_name.trim().slice(0, 120) : defaultName;
+    let listId: string | null = null;
+    if (drafts.length) {
+      const { data: list } = await admin.from("lead_lists").insert({
+        company_id: companyId, name: listName, source: "municipia", created_by: claims.user_id,
+      }).select("id").single();
+      listId = list?.id ?? null;
+    }
 
     // Lista "Não prospectar": prefeituras protegidas não viram lead novo.
     const norm = (v: string | null | undefined) =>
@@ -176,7 +193,7 @@ Deno.serve(async (req) => {
           matchId = byPhone?.id ?? null;
         }
 
-        const payload = {
+        const payload: Record<string, unknown> = {
           company_id: companyId,
           municipia_source_id: d.source_id,
           name: d.name,
@@ -192,18 +209,51 @@ Deno.serve(async (req) => {
           source: "municipia",
           enrichment_data: d.enrichment_data,
         };
+        if (listId) payload.lead_list_id = listId;
 
+        let id: string | null = null;
         if (matchId) {
           const { error } = await admin.from("leads").update(payload).eq("id", matchId);
           if (error) { skipped++; continue; }
-          updated++;
+          updated++; id = matchId;
         } else {
-          const { error } = await admin.from("leads").insert(payload);
+          const { data: ins, error } = await admin.from("leads").insert(payload).select("id").single();
           if (error) { skipped++; continue; }
-          created++;
+          created++; id = ins?.id ?? null;
         }
+        if (id) { touchedIds.push(id); if (d.phone) phoneIds.push(id); }
       } catch {
         skipped++;
+      }
+    }
+
+    if (listId) {
+      if (touchedIds.length) await admin.from("lead_lists").update({ lead_count: touchedIds.length }).eq("id", listId);
+      else { await admin.from("lead_lists").delete().eq("id", listId); listId = null; }
+    }
+
+    // Verificação de WhatsApp automática (sem o cliente clicar em "Verificar").
+    let whatsappVerification: "queued" | "no_instance" | "none" = "none";
+    if (phoneIds.length) {
+      const { data: inst } = await admin.from("hook7_instances").select("id")
+        .eq("company_id", companyId).eq("status", "connected").is("archived_at", null).limit(1);
+      if (inst?.length) {
+        whatsappVerification = "queued";
+        const url = `${Deno.env.get("SUPABASE_URL")}/functions/v1/whatsapp-verify-numbers`;
+        const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const job = (async () => {
+          for (let i = 0; i < phoneIds.length; i += 100) {
+            await fetch(url, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+              body: JSON.stringify({ company_id: companyId, lead_ids: phoneIds.slice(i, i + 100) }),
+            }).catch(() => null);
+          }
+        })();
+        // deno-lint-ignore no-explicit-any
+        (globalThis as any).EdgeRuntime?.waitUntil?.(job);
+      } else {
+        whatsappVerification = "no_instance";
       }
     }
 
@@ -213,20 +263,25 @@ Deno.serve(async (req) => {
       last_error: null,
     }).eq("company_id", companyId);
 
+    const message = `${created} criados, ${updated} atualizados, ${noContact} sem contato (não enviados), ${protectedCount} ignorados (protegidos)`;
     await admin.from("audit_logs").insert({
       company_id: companyId,
       user_id: claims.user_id,
       event_type: "municipia.import",
       entity_type: "leads",
-      message: `Importação MunicipIA: ${created} criados, ${updated} atualizados, ${protectedCount} ignorados (protegidos)`,
-      metadata: { created, updated, skipped, protected: protectedCount, protected_municipios: [...protectedMunis], municipios: rows.length },
+      message: `Importação MunicipIA: ${message}`,
+      metadata: { created, updated, skipped, no_contact: noContact, protected: protectedCount, protected_municipios: [...protectedMunis], municipios: rows.length, list_id: listId },
     }).then(() => null, () => null);
 
     return json({
       success: true, created, updated, skipped,
+      no_contact: noContact,
       protected: protectedCount,
       protected_municipios: [...protectedMunis],
-      message: `${created} criados, ${updated} atualizados, ${protectedCount} ignorados (protegidos)`,
+      list_id: listId,
+      list_name: listId ? listName : null,
+      whatsapp_verification: whatsappVerification,
+      message,
     });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +12,7 @@ const MUNICIPIA_ORIGIN = new URL(MUNICIPIA_URL).origin;
 export default function Municipia() {
   const { data: integration, isLoading, refetch } = useMunicipiaEnabled();
   const { companyId } = useAuth();
+  const navigate = useNavigate();
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loaded, setLoaded] = useState(false);
   const [blocked, setBlocked] = useState(false);
@@ -66,6 +68,9 @@ export default function Municipia() {
         void sendSession();
       } else if (type === "municipia:session-ok") {
         ackedRef.current = true;
+      } else if (type === "municipia:open-leads") {
+        const list = typeof event.data?.list_id === "string" ? event.data.list_id : "";
+        navigate(list ? `/leads?list=${encodeURIComponent(list)}` : "/leads?source=municipia");
       }
     };
     window.addEventListener("message", handler);
