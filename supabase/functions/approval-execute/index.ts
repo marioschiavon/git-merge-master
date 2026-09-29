@@ -204,7 +204,7 @@ serve(async (req) => {
             next_execution_at: new Date().toISOString(),
           }).eq("id", approval.enrollment_id);
 
-          await supabase.functions.invoke("cadence-agent-decide", {
+          const { data: decideRes, error: decideErr } = await supabase.functions.invoke("cadence-agent-decide", {
             body: {
               enrollment_id: approval.enrollment_id,
               bypass_hitl: true,
@@ -218,6 +218,18 @@ serve(async (req) => {
               },
             },
           });
+          // Só considera enviada se o agente realmente disparou a mensagem.
+          if (decideErr) throw new Error(`falha ao executar cadência: ${decideErr.message}`);
+          const r: any = decideRes || {};
+          if (r.error) throw new Error(`falha ao executar cadência: ${r.error}`);
+          if (r.action === "stop") throw new Error(`cadência encerrou o lead sem enviar (${r.reason || "motivo desconhecido"})`);
+          if (r.skipped || r.action === "skipped_human_takeover" || r.action === "pending_approval") {
+            throw new Error(`mensagem não enviada (${r.skipped || r.action})`);
+          }
+          const sa = r.send_action;
+          if (!sa || (sa.action !== "sent" && sa.action !== "simulated")) {
+            throw new Error(`mensagem não enviada${sa?.error ? `: ${sa.error}` : sa?.action ? ` (${sa.action})` : ""}`);
+          }
         } else if (approval.enrollment_id && finalPayload.step_id) {
           // Step-based cadence: save custom message and trigger executor with bypass.
           await supabase.from("cadence_custom_messages").upsert({
