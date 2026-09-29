@@ -110,9 +110,16 @@ serve(async (req) => {
     // ---- modo sob demanda: exige usuário autenticado da empresa ----
     const jwt = (req.headers.get("Authorization") || "").replace("Bearer ", "");
     if (!jwt) return json({ error: "unauthorized" }, 401);
-    const { data: userData } = await admin.auth.getUser(jwt);
-    if (!userData?.user) return json({ error: "unauthorized" }, 401);
-    const { data: companyId } = await admin.rpc("get_user_company_id", { _user_id: userData.user.id });
+    let companyId: string | null = null;
+    if (jwt === SERVICE_KEY && typeof body.company_id === "string") {
+      // Chamada interna (ex.: importação do MunicipIA) já validada no chamador.
+      companyId = body.company_id;
+    } else {
+      const { data: userData } = await admin.auth.getUser(jwt);
+      if (!userData?.user) return json({ error: "unauthorized" }, 401);
+      const { data: cid } = await admin.rpc("get_user_company_id", { _user_id: userData.user.id });
+      companyId = cid;
+    }
     if (!companyId) return json({ error: "no company" }, 403);
     if (!leadIds.length) return json({ error: "lead_ids vazio" }, 400);
 
