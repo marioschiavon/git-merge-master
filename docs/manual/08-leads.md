@@ -67,3 +67,10 @@ Em **Configurações → Não prospectar** você cadastra prefeituras (municípi
 - Se um lead já estava numa cadência, o próximo envio é suspenso e fica registrado no histórico.
 - No detalhe do lead, o botão **Não prospectar** protege a organização dele com um clique.
 - **Proteção automática** (ligada por padrão): reunião agendada → "Em negociação"; lead convertido → "Cliente".
+
+## Leads vindos do MunicipIA
+
+- Só entram contatos com **telefone ou e-mail**. Municípios sem contato ficam de fora, e o aviso final mostra quantos foram deixados de fora.
+- Cada envio vira uma **Lista** com nome (ex.: "MunicipIA 29/09 14h30"), em Leads → Listas.
+- O WhatsApp dos novos leads é **verificado automaticamente** quando há uma conexão de WhatsApp ativa. O enriquecimento também começa sozinho.
+- Use os filtros **Origem: MunicipIA** e **Pronto para cadência** para encontrar o que acabou de chegar e enviar direto para a cadência.
