@@ -49,6 +49,7 @@ import {
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { LeadProgressDrawer } from "@/components/cadence/LeadProgressDrawer";
+import { TablePagination } from "@/components/TablePagination";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -129,15 +130,19 @@ export default function CadencesDashboard() {
     queryKey: ["cadence_enrollment_counts", cadenceIds],
     queryFn: async () => {
       if (!cadenceIds.length) return {} as Record<string, number>;
-      const { data, error } = await supabase
-        .from("cadence_enrollments")
-        .select("cadence_id")
-        .in("cadence_id", cadenceIds);
-      if (error) throw error;
+      // Contagem exata por cadência (evita o teto de 1.000 linhas por resposta)
+      const results = await Promise.all(
+        cadenceIds.map(async (id) => {
+          const { count, error } = await supabase
+            .from("cadence_enrollments")
+            .select("id", { count: "exact", head: true })
+            .eq("cadence_id", id);
+          if (error) throw error;
+          return [id, count ?? 0] as const;
+        }),
+      );
       const counts: Record<string, number> = {};
-      (data || []).forEach((r: any) => {
-        counts[r.cadence_id] = (counts[r.cadence_id] || 0) + 1;
-      });
+      results.forEach(([id, n]) => { counts[id] = n; });
       return counts;
     },
     enabled: cadenceIds.length > 0,
@@ -226,6 +231,21 @@ export default function CadencesDashboard() {
       return true;
     });
   }, [rows, statusFilter, intentFilter, stepFilter, search]);
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useEffect(() => {
+    setPage(1);
+  }, [cadenceId, statusFilter, intentFilter, stepFilter, search]);
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (page > totalPages) setPage(totalPages);
+  }, [filtered.length, pageSize, page]);
+  const pageRows = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize],
+  );
+
 
   return (
     <div className="space-y-5">
@@ -382,7 +402,7 @@ export default function CadencesDashboard() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {filtered.map((r) => {
+                  {pageRows.map((r) => {
                     const eff = effectiveStatus(r.enrollment, r.lead);
                     const sb =
                       eff === "disqualified"
@@ -543,6 +563,16 @@ export default function CadencesDashboard() {
                   })}
                 </TableBody>
               </Table>
+              {filtered.length > 0 && (
+                <TablePagination
+                  total={filtered.length}
+                  page={page}
+                  pageSize={pageSize}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  label="leads"
+                />
+              )}
             </CardContent>
           </Card>
         </>

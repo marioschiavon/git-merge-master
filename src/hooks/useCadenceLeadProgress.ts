@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchAllRows, fetchAllIn } from "@/lib/supabase-paginate";
 
 export type CadenceLeadProgressRow = {
   enrollment: any;
@@ -16,12 +17,15 @@ export function useCadenceLeadProgress(cadenceId: string | null) {
     queryFn: async (): Promise<CadenceLeadProgressRow[]> => {
       if (!cadenceId) return [];
 
-      const [{ data: enrollments }, { data: steps }] = await Promise.all([
-        supabase
-          .from("cadence_enrollments")
-          .select("*, leads(*)")
-          .eq("cadence_id", cadenceId)
-          .order("enrolled_at", { ascending: false }),
+      const [enrollments, { data: steps }] = await Promise.all([
+        fetchAllRows<any>((from, to) =>
+          supabase
+            .from("cadence_enrollments")
+            .select("*, leads(*)")
+            .eq("cadence_id", cadenceId)
+            .order("enrolled_at", { ascending: false })
+            .range(from, to),
+        ),
         supabase
           .from("cadence_steps")
           .select("step_order, channel, subject, template")
@@ -35,30 +39,37 @@ export function useCadenceLeadProgress(cadenceId: string | null) {
       const totalSteps = steps?.length || 0;
 
       // Conversations for these leads
-      const { data: convs } = await supabase
-        .from("conversations")
-        .select("id, lead_id")
-        .in("lead_id", leadIds);
+      const convs = await fetchAllIn<any>(leadIds, (part, from, to) =>
+        supabase.from("conversations").select("id, lead_id").in("lead_id", part).range(from, to),
+      );
 
-      const convIds = (convs || []).map((c) => c.id);
+      const convIds = convs.map((c: any) => c.id);
       const convToLead = new Map<string, string>();
-      (convs || []).forEach((c: any) => convToLead.set(c.id, c.lead_id));
+      convs.forEach((c: any) => convToLead.set(c.id, c.lead_id));
 
-      const [{ data: msgs }, { data: intents }] = await Promise.all([
-        convIds.length
-          ? supabase
+      const [msgs, intents] = await Promise.all([
+        fetchAllIn<any>(
+          convIds,
+          (part, from, to) =>
+            supabase
               .from("messages")
               .select("conversation_id, content, direction, channel, sent_at, metadata")
-              .in("conversation_id", convIds)
+              .in("conversation_id", part)
               .order("sent_at", { ascending: false })
-              .limit(500)
-          : Promise.resolve({ data: [] as any[] }),
-        supabase
-          .from("lead_intents_log")
-          .select("lead_id, category, sub_intent, confidence, created_at")
-          .in("lead_id", leadIds)
-          .order("created_at", { ascending: false })
-          .limit(500),
+              .range(from, to),
+          { idsPerChunk: 50, pageSize: 500 },
+        ),
+        fetchAllIn<any>(
+          leadIds,
+          (part, from, to) =>
+            supabase
+              .from("lead_intents_log")
+              .select("lead_id, category, sub_intent, confidence, created_at")
+              .in("lead_id", part)
+              .order("created_at", { ascending: false })
+              .range(from, to),
+          { idsPerChunk: 100, pageSize: 500 },
+        ),
       ]);
 
       const lastMsgByLead = new Map<string, any>();

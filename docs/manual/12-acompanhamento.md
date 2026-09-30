@@ -43,3 +43,7 @@ Mostra o status de cada tentativa (enviado, falhou, em fila), remetente, horári
 - Muitas falhas em 24h → veja Integrações (WhatsApp/Email) e o card de entrega no lead.
 
 > Observação: os envios são espaçados de propósito (jitter + limite diário + aquecimento) para proteger a reputação do número/domínio. Por isso o próximo envio raramente é "agora".
+
+## Paginação
+
+A tabela mostra 50 leads por página. No rodapé você vê o total de leads da cadência e pode escolher 25, 50, 100 ou 250 por página. O número ao lado do nome da cadência no seletor é o total exato de matriculados.
