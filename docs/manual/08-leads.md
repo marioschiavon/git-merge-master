@@ -74,3 +74,9 @@ Em **Configurações → Não prospectar** você cadastra prefeituras (municípi
 - Cada envio vira uma **Lista** com nome (ex.: "MunicipIA 29/09 14h30"), em Leads → Listas.
 - O WhatsApp dos novos leads é **verificado automaticamente** quando há uma conexão de WhatsApp ativa. O enriquecimento também começa sozinho.
 - Use os filtros **Origem: MunicipIA** e **Pronto para cadência** para encontrar o que acabou de chegar e enviar direto para a cadência.
+
+## Filtrar por lista e excluir em massa
+
+- Use o filtro **Lista** para ver só os leads de uma importação. A caixa do topo da tabela seleciona todos os filtrados.
+- O botão **Excluir** apaga os selecionados. Quem já recebeu mensagem ou está em cadência só é apagado se você marcar essa opção.
+- Na importação, a coluna **Celular** vira o WhatsApp do lead quando não houver uma coluna WhatsApp.
