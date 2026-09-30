@@ -310,6 +310,8 @@ export async function sendTextMessage(opts: {
   ];
   let lastError = "falha ao enviar";
   let lastStatus: number | undefined;
+  let firstError: string | null = null;
+  let firstStatus: number | undefined;
   for (const body of bodies) {
     try {
       // deno-lint-ignore no-explicit-any
@@ -326,11 +328,24 @@ export async function sendTextMessage(opts: {
       const err = e as EngineError;
       lastError = err?.message ?? String(e);
       lastStatus = err?.status;
+      if (firstError === null) { firstError = lastError; firstStatus = lastStatus; }
       // 400 pode significar formato de corpo diferente: tenta a próxima variação.
       if (lastStatus !== 400) break;
     }
   }
-  return { ok: false, error: lastError, status: lastStatus };
+  // O erro da 1ª tentativa é o real; a 2ª variação só existe por compatibilidade
+  // de formato e mascara a causa (ex.: "instance requires property text").
+  const err = firstError ?? lastError;
+  const status = firstStatus ?? lastStatus;
+  return { ok: false, error: friendlySendError(err), status };
+}
+
+function friendlySendError(raw: string): string {
+  const s = String(raw || "");
+  if (/exists"?\s*:\s*false|not.*(exist|registered)|n[aã]o existe/i.test(s)) {
+    return "Este número não tem WhatsApp";
+  }
+  return s;
 }
 
 export async function checkNumbers(opts: {
