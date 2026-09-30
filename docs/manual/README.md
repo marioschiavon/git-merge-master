@@ -56,3 +56,4 @@ Fase 4 — Análise
 - [17 — Dashboard](./17-dashboard.md)
 - [18 — Relatórios](./18-relatorios.md)
 - [19 — Runs do Agente](./19-runs-do-agente.md)
+- [Capacidades do Leaderei (o que faz e o que não faz)](./capacidades-leaderei.md)
