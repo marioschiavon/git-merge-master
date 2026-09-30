@@ -75,6 +75,8 @@ export interface LeadDetailLead {
   email: string | null;
   phone: string | null;
   whatsapp?: string | null;
+  mobile_phone?: string | null;
+  corporate_phone?: string | null;
   company_name: string | null;
   title: string | null;
   website: string | null;
@@ -325,7 +327,22 @@ export function LeadDetailContent({ lead, showHeader = true, onAfterDelete }: Pr
           <div className="flex items-center gap-2 text-sm">
             <Phone className="h-4 w-4 text-muted-foreground" />
             <span>{lead.phone}</span>
+            <span className="text-xs text-muted-foreground">Telefone</span>
             <AutoBadge src={autofill.phone} />
+          </div>
+        )}
+        {lead.mobile_phone && (
+          <div className="flex items-center gap-2 text-sm">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{lead.mobile_phone}</span>
+            <span className="text-xs text-muted-foreground">Celular</span>
+          </div>
+        )}
+        {lead.corporate_phone && (
+          <div className="flex items-center gap-2 text-sm">
+            <Phone className="h-4 w-4 text-muted-foreground" />
+            <span>{lead.corporate_phone}</span>
+            <span className="text-xs text-muted-foreground">Corporativo</span>
           </div>
         )}
         {lead.whatsapp && (

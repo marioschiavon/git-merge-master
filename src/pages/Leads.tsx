@@ -13,7 +13,7 @@ import { useLeadLists } from "@/hooks/useLeadLists";
 import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
 import { useEnrichMore } from "@/hooks/useScoring";
 import { useCadences } from "@/hooks/useCadences";
-import { useBulkLeadActions } from "@/hooks/useBulkLeadActions";
+import { useBulkLeadActions, previewLeadDelete } from "@/hooks/useBulkLeadActions";
 import { useVerifyWhatsApp, useHasConnectedWhatsApp } from "@/hooks/useVerifyWhatsApp";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
@@ -43,7 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles, Send, XCircle } from "lucide-react";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles, Send, XCircle, Loader2 } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -80,6 +80,9 @@ export default function Leads() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [enrollOpen, setEnrollOpen] = useState(false);
   const [chosenCadence, setChosenCadence] = useState<string>("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [contacted, setContacted] = useState<Set<string> | null>(null);
+  const [includeContacted, setIncludeContacted] = useState(false);
 
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -131,6 +134,12 @@ export default function Leads() {
     p.delete("list");
     setParams(p, { replace: true });
   };
+  const setListFilter = (v: string) => {
+    const p = new URLSearchParams(params);
+    if (v === "all") p.delete("list"); else p.set("list", v);
+    setParams(p, { replace: true });
+    setSelectedIds(new Set());
+  };
 
   const enrichMore = useEnrichMore();
   const heldCount = useMemo(
@@ -177,6 +186,31 @@ export default function Leads() {
     } catch {
       return;
     }
+    setSelectedIds(new Set());
+    setTimeout(() => bulk.resetProgress(), 2500);
+  };
+
+  const openDelete = async () => {
+    setContacted(null);
+    setIncludeContacted(false);
+    setDeleteOpen(true);
+    try {
+      setContacted(await previewLeadDelete(Array.from(selectedIds)));
+    } catch {
+      setContacted(new Set());
+    }
+  };
+  const deleteTargets = useMemo(
+    () => Array.from(selectedIds).filter((id) => includeContacted || !contacted?.has(id)),
+    [selectedIds, includeContacted, contacted],
+  );
+  const handleDelete = async () => {
+    try {
+      await bulk.mutateAsync({ lead_ids: deleteTargets, action: "delete" });
+    } catch {
+      return;
+    }
+    setDeleteOpen(false);
     setSelectedIds(new Set());
     setTimeout(() => bulk.resetProgress(), 2500);
   };
@@ -318,6 +352,17 @@ export default function Leads() {
           <Checkbox checked={onlyReady} onCheckedChange={(v) => setOnlyReady(!!v)} />
           Pronto para cadência
         </label>
+        <Select value={listId ?? "all"} onValueChange={setListFilter}>
+          <SelectTrigger className="w-56"><SelectValue placeholder="Lista" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas as listas</SelectItem>
+            {lists.map((l: any) => (
+              <SelectItem key={l.id} value={l.id}>
+                {l.name} · {new Date(l.created_at).toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit" })} · {l.lead_count ?? 0}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Select value={sourceFilter} onValueChange={setSourceFilter}>
           <SelectTrigger className="w-40"><SelectValue placeholder="Origem" /></SelectTrigger>
           <SelectContent>
@@ -372,6 +417,37 @@ export default function Leads() {
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancelar</AlertDialogCancel>
                   <AlertDialogAction onClick={handleDiscard}>Descartar</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+            <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={openDelete}>
+              <Trash2 className="mr-1 h-3 w-3" /> Excluir
+            </Button>
+            <AlertDialog open={deleteOpen} onOpenChange={(o) => !bulk.isPending && setDeleteOpen(o)}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Excluir {selectedIds.size} lead(s) definitivamente?</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2">
+                      <p>Os leads, suas conversas e o histórico serão apagados. Não é possível desfazer.</p>
+                      {contacted === null ? (
+                        <p className="flex items-center gap-2"><Loader2 className="h-3 w-3 animate-spin" /> Conferindo quem já foi contatado…</p>
+                      ) : contacted.size > 0 ? (
+                        <label className="flex items-start gap-2 rounded-md border p-2 text-foreground">
+                          <Checkbox checked={includeContacted} onCheckedChange={(v) => setIncludeContacted(!!v)} className="mt-0.5" />
+                          <span><strong>{contacted.size}</strong> já receberam mensagem ou estão em cadência. Marque para excluí-los também; se não marcar, eles serão mantidos.</span>
+                        </label>
+                      ) : (
+                        <p>Nenhum deles foi contatado ainda.</p>
+                      )}
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={bulk.isPending}>Cancelar</AlertDialogCancel>
+                  <Button variant="destructive" disabled={contacted === null || bulk.isPending || deleteTargets.length === 0} onClick={handleDelete}>
+                    {bulk.isPending ? `Excluindo… ${bulk.progress.percent}%` : `Excluir ${deleteTargets.length}`}
+                  </Button>
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>

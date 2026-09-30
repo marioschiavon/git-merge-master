@@ -302,7 +302,8 @@ export function LeadImportDialog({ open, onOpenChange }: Props) {
         phone: normalizePhoneBR(get(row, "phone")),
         mobile_phone: normalizePhoneBR(get(row, "mobile_phone")),
         corporate_phone: normalizePhoneBR(get(row, "corporate_phone")),
-        whatsapp: normalizePhoneBR(get(row, "whatsapp")),
+        // Celular é o candidato natural a WhatsApp (o corporativo quase nunca tem).
+        whatsapp: normalizePhoneBR(get(row, "whatsapp")) || normalizePhoneBR(get(row, "mobile_phone")),
         company_name: get(row, "company_name") || null,
         title: get(row, "title") || null,
         seniority: get(row, "seniority") || null,

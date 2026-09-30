@@ -17,7 +17,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useLeadLists, useDeleteLeadList, useArchiveLeadList } from "@/hooks/useLeadLists";
 import { LeadImportDialog } from "@/components/LeadImportDialog";
-import { ListChecks, Upload, Trash2, ExternalLink, Rocket, Archive, ArchiveRestore } from "lucide-react";
+import { ListChecks, Upload, Trash2, ExternalLink, Rocket, Archive, ArchiveRestore, Undo2 } from "lucide-react";
+import { useUndoImport } from "@/hooks/useBulkLeadActions";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -27,6 +28,7 @@ export default function LeadLists() {
   const { data: lists = [], isLoading } = useLeadLists({ archived: showArchived });
   const del = useDeleteLeadList();
   const archive = useArchiveLeadList();
+  const undo = useUndoImport();
   const [importOpen, setImportOpen] = useState(false);
 
   return (
@@ -127,9 +129,32 @@ export default function LeadLists() {
                         >
                           {showArchived ? <ArchiveRestore className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
                         </Button>
+                        {l.source === "csv" && (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button variant="ghost" size="icon" title="Desfazer importação" disabled={undo.isPending}>
+                                <Undo2 className="h-4 w-4" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Desfazer a importação "{l.name}"?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  Os leads <strong>criados</strong> por esta importação e que ainda não foram contatados serão apagados, e a lista será removida. Leads que já existiam antes, ou que já receberam mensagem, serão mantidos. Não é possível desfazer esta ação.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => undo.mutate(l.id)}>
+                                  Desfazer importação
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        )}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive">
+                            <Button variant="ghost" size="icon" title="Excluir só a lista" className="text-muted-foreground hover:text-destructive">
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </AlertDialogTrigger>

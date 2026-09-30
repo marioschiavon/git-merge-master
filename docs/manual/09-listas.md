@@ -20,3 +20,7 @@ Listas são "pastas" de leads. Um lead pertence a **uma lista** (ou nenhuma). Ca
 - Se você importa CSV mensalmente, mantenha uma lista por mês para métricas claras.
 
 **Próximo passo →** [10. Cadências](./10-cadencias.md)
+
+## Desfazer importação
+
+Importou com as colunas erradas? Em cada lista de planilha, clique em **Desfazer importação** (seta curva). Os leads criados por ela que ainda não foram contatados são apagados, e a lista é removida. Leads que já existiam ou já receberam mensagem são mantidos. Depois é só importar de novo.
