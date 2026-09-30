@@ -44,6 +44,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles, Send, XCircle, Loader2 } from "lucide-react";
+import { TablePagination } from "@/components/TablePagination";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
@@ -502,7 +503,7 @@ export default function Leads() {
                   <TableCell colSpan={municipiaEnabled ? 10 : 9} className="text-center py-8 text-muted-foreground">Nenhum lead encontrado.</TableCell>
                 </TableRow>
               ) : (
-                leads.map((lead: any) => (
+                pageLeads.map((lead: any) => (
                   <TableRow key={lead.id} className="cursor-pointer" onClick={() => setSelectedLead(lead)}>
                     <TableCell onClick={(e) => e.stopPropagation()}>
                       <Checkbox
@@ -602,6 +603,16 @@ export default function Leads() {
               )}
             </TableBody>
           </Table>
+          {leads.length > 0 && (
+            <TablePagination
+              total={leads.length}
+              page={page}
+              pageSize={pageSize}
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              label="leads"
+            />
+          )}
         </CardContent>
       </Card>
 
