@@ -401,7 +401,7 @@ export default function CadencesDashboard() {
                       </TableCell>
                     </TableRow>
                   )}
-                  {filtered.map((r) => {
+                  {pageRows.map((r) => {
                     const eff = effectiveStatus(r.enrollment, r.lead);
                     const sb =
                       eff === "disqualified"
