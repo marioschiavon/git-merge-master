@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tansta
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { fetchAllIn } from "@/lib/supabase-paginate";
 
 export interface LeadListRow {
   id: string;
@@ -43,16 +44,22 @@ export function useLeadLists(opts?: { archived?: boolean }) {
       const ids = (lists || []).map((l: any) => l.id);
       if (ids.length === 0) return [];
 
-      const { data: leads } = await supabase
-        .from("leads")
-        .select("lead_list_id, enrichment_status")
-        .in("lead_list_id", ids);
+      const leads = await fetchAllIn<any>(ids, (part, from, to) =>
+        supabase
+          .from("leads")
+          .select("lead_list_id, enrichment_status")
+          .in("lead_list_id", part)
+          .range(from, to),
+      );
 
-      const { data: approvals } = await supabase
-        .from("approval_requests")
-        .select("batch_id, status, kind")
-        .in("batch_id", ids)
-        .eq("status", "pending");
+      const approvals = await fetchAllIn<any>(ids, (part, from, to) =>
+        supabase
+          .from("approval_requests")
+          .select("batch_id, status, kind")
+          .in("batch_id", part)
+          .eq("status", "pending")
+          .range(from, to),
+      );
 
       const byList = new Map<string, { total: number; enriched: number; enriching: number; failed: number }>();
       for (const id of ids) byList.set(id, { total: 0, enriched: 0, enriching: 0, failed: 0 });

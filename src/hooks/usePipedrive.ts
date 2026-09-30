@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "@/hooks/use-toast";
 import { computeLeadDisplayName } from "@/lib/lead-display-name";
+import { fetchAllRows } from "@/lib/supabase-paginate";
 
 type IntegrationProvider = "pipedrive";
 type LeadStatus = "new" | "enrolled" | "contacted" | "qualified" | "unqualified" | "converted";
