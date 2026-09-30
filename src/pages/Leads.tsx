@@ -13,7 +13,7 @@ import { useLeadLists } from "@/hooks/useLeadLists";
 import { useLeadInsightsBatch } from "@/hooks/useLeadInsights";
 import { useEnrichMore } from "@/hooks/useScoring";
 import { useCadences } from "@/hooks/useCadences";
-import { useBulkLeadActions } from "@/hooks/useBulkLeadActions";
+import { useBulkLeadActions, previewLeadDelete } from "@/hooks/useBulkLeadActions";
 import { useVerifyWhatsApp, useHasConnectedWhatsApp } from "@/hooks/useVerifyWhatsApp";
 import { computeReadiness } from "@/lib/lead-readiness";
 import { LeadDetail } from "@/components/LeadDetail";
@@ -43,7 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles, Send, XCircle } from "lucide-react";
+import { RefreshCw, Target, Search, Plus, Upload, Trash2, Pencil, X, Sparkles, Send, XCircle, Loader2 } from "lucide-react";
 
 const statusColors: Record<string, string> = {
   new: "bg-blue-100 text-blue-800",
