@@ -11,7 +11,8 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const MAX_BATCH = 20;
+const MAX_BATCH = 5;
+const TIME_BUDGET_MS = 40_000; // para antes do limite do worker
 const MAX_ATTEMPTS = 5;
 const STALE_RUNNING_MIN = 5; // re-arma se ficou "running" sem terminar por > 5min
 
@@ -45,7 +46,9 @@ Deno.serve(async (req) => {
 
     const results: Array<Record<string, unknown>> = [];
 
+    const startedAt = Date.now();
     for (const row of due ?? []) {
+      if (Date.now() - startedAt > TIME_BUDGET_MS) break; // restantes ficam para o próximo tick
       // 2. Lock atômico: só processa quem conseguir marcar como running
       const claimedAt = new Date().toISOString();
       const { data: claimed, error: claimErr } = await supabase

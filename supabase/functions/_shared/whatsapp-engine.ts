@@ -304,6 +304,9 @@ export async function sendTextMessage(opts: {
   number: string;
   text: string;
 }): Promise<SendTextResult> {
+  if (!String(opts.text ?? "").trim()) {
+    return { ok: false, error: "Mensagem vazia: nada para enviar", status: 400 };
+  }
   const bodies: Record<string, unknown>[] = [
     { number: opts.number, text: opts.text },
     { number: opts.number, textMessage: { text: opts.text } },

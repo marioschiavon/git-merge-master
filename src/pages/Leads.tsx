@@ -212,7 +212,9 @@ export default function Leads() {
     try {
       setContacted(await previewLeadDelete(Array.from(selectedIds)));
     } catch {
-      setContacted(new Set());
+      // Sem a checagem de segurança não dá para saber quem já foi contatado.
+      setDeleteOpen(false);
+      toast.error("Não foi possível conferir quem já foi contatado. Tente de novo em instantes.");
     }
   };
   const deleteTargets = useMemo(
@@ -383,7 +385,7 @@ export default function Leads() {
           <SelectContent>
             <SelectItem value="all">Todas as origens</SelectItem>
             <SelectItem value="municipia">MunicipIA</SelectItem>
-            <SelectItem value="csv">Planilha</SelectItem>
+            <SelectItem value="csv_import">Planilha</SelectItem>
             <SelectItem value="apollo">Apollo</SelectItem>
             <SelectItem value="pipedrive">Pipedrive</SelectItem>
             <SelectItem value="manual">Manual</SelectItem>
