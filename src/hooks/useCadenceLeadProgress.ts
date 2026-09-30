@@ -6,6 +6,7 @@ export type CadenceLeadProgressRow = {
   enrollment: any;
   lead: any;
   lastMessage: { content: string | null; direction: string; channel: string | null; sent_at: string; metadata: any } | null;
+  lastInboundAt: string | null;
   lastIntent: { category: string | null; sub_intent: string | null; confidence: number | null; created_at: string } | null;
   nextStep: { step_order: number; channel: string; subject: string | null; template: string | null } | null;
   totalSteps: number;
@@ -73,9 +74,11 @@ export function useCadenceLeadProgress(cadenceId: string | null) {
       ]);
 
       const lastMsgByLead = new Map<string, any>();
+      const lastInboundByLead = new Map<string, string>();
       (msgs || []).forEach((m: any) => {
         const lid = convToLead.get(m.conversation_id);
         if (lid && !lastMsgByLead.has(lid)) lastMsgByLead.set(lid, m);
+        if (lid && m.direction === "inbound" && !lastInboundByLead.has(lid)) lastInboundByLead.set(lid, m.sent_at);
       });
 
       const lastIntentByLead = new Map<string, any>();
@@ -90,6 +93,7 @@ export function useCadenceLeadProgress(cadenceId: string | null) {
         enrollment: e,
         lead: e.leads,
         lastMessage: lastMsgByLead.get(e.lead_id) || null,
+        lastInboundAt: lastInboundByLead.get(e.lead_id) || null,
         lastIntent: lastIntentByLead.get(e.lead_id) || null,
         nextStep: stepByOrder.get(e.current_step) || null,
         totalSteps,
