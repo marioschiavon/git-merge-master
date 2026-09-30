@@ -396,9 +396,9 @@ export default function Leads() {
 
       {/* Bulk action bar */}
       {someChecked && (
-        <div className="flex items-center justify-between gap-3 rounded-md border bg-primary/5 px-4 py-2 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-primary/5 px-4 py-2 text-sm">
           <span className="font-medium">{selectedIds.size} selecionado(s)</span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set())}>
               <X className="mr-1 h-3 w-3" /> Limpar
             </Button>
@@ -438,8 +438,8 @@ export default function Leads() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-            <Button size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={openDelete}>
-              <Trash2 className="mr-1 h-3 w-3" /> Excluir
+            <Button size="sm" variant="destructive" onClick={openDelete}>
+              <Trash2 className="mr-1 h-3 w-3" /> Excluir selecionados
             </Button>
             <AlertDialog open={deleteOpen} onOpenChange={(o) => !bulk.isPending && setDeleteOpen(o)}>
               <AlertDialogContent>
