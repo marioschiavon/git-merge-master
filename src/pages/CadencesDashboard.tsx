@@ -129,15 +129,19 @@ export default function CadencesDashboard() {
     queryKey: ["cadence_enrollment_counts", cadenceIds],
     queryFn: async () => {
       if (!cadenceIds.length) return {} as Record<string, number>;
-      const { data, error } = await supabase
-        .from("cadence_enrollments")
-        .select("cadence_id")
-        .in("cadence_id", cadenceIds);
-      if (error) throw error;
+      // Contagem exata por cadência (evita o teto de 1.000 linhas por resposta)
+      const results = await Promise.all(
+        cadenceIds.map(async (id) => {
+          const { count, error } = await supabase
+            .from("cadence_enrollments")
+            .select("id", { count: "exact", head: true })
+            .eq("cadence_id", id);
+          if (error) throw error;
+          return [id, count ?? 0] as const;
+        }),
+      );
       const counts: Record<string, number> = {};
-      (data || []).forEach((r: any) => {
-        counts[r.cadence_id] = (counts[r.cadence_id] || 0) + 1;
-      });
+      results.forEach(([id, n]) => { counts[id] = n; });
       return counts;
     },
     enabled: cadenceIds.length > 0,
