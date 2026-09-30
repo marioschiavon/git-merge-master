@@ -33,8 +33,7 @@ serve(async (req) => {
     const action: string = body.action;
     const cadenceId: string | null = body.cadence_id || null;
 
-    if (!leadIds.length) return json({ error: "lead_ids vazio" }, 400);
-    if (!["enroll", "discard"].includes(action)) return json({ error: "action inválida" }, 400);
+    if (!["enroll", "discard", "delete_preview", "delete", "undo_import"].includes(action)) return json({ error: "action inválida" }, 400);
 
     // Chunk helper: evita URLs gigantes (erro em seleções grandes, ex.: 683 leads)
     const CHUNK = 100;
@@ -43,6 +42,63 @@ serve(async (req) => {
       for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
       return out;
     };
+
+    const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+
+    // Leads que já tiveram contato: matrícula em cadência ou mensagem registrada.
+    const contactedSet = async (ids: string[]) => {
+      const out = new Set<string>();
+      for (const part of chunks(ids)) {
+        const { data: enr } = await admin.from("cadence_enrollments").select("lead_id").in("lead_id", part);
+        for (const r of enr || []) out.add((r as any).lead_id);
+        const { data: convs } = await admin.from("conversations").select("id, lead_id").in("lead_id", part);
+        const convIds = (convs || []).map((c: any) => c.id);
+        for (const cp of chunks(convIds)) {
+          const { data: msgs } = await admin.from("messages").select("conversation_id").in("conversation_id", cp);
+          const withMsg = new Set((msgs || []).map((m: any) => m.conversation_id));
+          for (const c of convs || []) if (withMsg.has((c as any).id)) out.add((c as any).lead_id);
+        }
+      }
+      return out;
+    };
+    const deleteMany = async (ids: string[]) => {
+      let deleted = 0; const failed: string[] = [];
+      for (let i = 0; i < ids.length; i += 10) {
+        const batch = ids.slice(i, i + 10);
+        const res = await Promise.all(batch.map((id) => supabase.rpc("delete_lead_cascade", { p_lead_id: id })));
+        res.forEach((r, k) => (r.error ? failed.push(batch[k]) : deleted++));
+      }
+      return { deleted, failed: failed.length };
+    };
+    const audit = (event_type: string, message: string, metadata: any) =>
+      admin.from("audit_logs").insert({
+        company_id: companyId, user_id: userData.user.id, user_email: userData.user.email ?? null,
+        event_type, severity: "warning", entity_type: "leads", message, metadata,
+      }).then(() => null, () => null);
+
+    if (action === "undo_import") {
+      const listId: string | null = body.list_id || null;
+      if (!listId) return json({ error: "list_id obrigatório" }, 400);
+      const { data: list } = await admin.from("lead_lists").select("id, name, created_at, company_id")
+        .eq("id", listId).eq("company_id", companyId).maybeSingle();
+      if (!list) return json({ error: "lista não encontrada" }, 404);
+      const since = new Date(new Date((list as any).created_at).getTime() - 60_000).toISOString();
+      const { data: rows, error } = await admin.from("leads").select("id, created_at")
+        .eq("company_id", companyId).eq("lead_list_id", listId).limit(10000);
+      if (error) return json({ error: error.message }, 500);
+      const all = (rows || []) as any[];
+      const created = all.filter((l) => l.created_at >= since).map((l) => l.id);
+      const preExisting = all.length - created.length;
+      const contacted = await contactedSet(created);
+      const toDelete = created.filter((id) => !contacted.has(id));
+      const r = await deleteMany(toDelete);
+      await admin.from("lead_lists").delete().eq("id", listId);
+      await audit("leads.import_undone", `Importação desfeita: ${(list as any).name} (${r.deleted} leads apagados)`,
+        { list_id: listId, list_name: (list as any).name, deleted: r.deleted, kept_contacted: contacted.size, kept_pre_existing: preExisting, failed: r.failed });
+      return json({ ok: true, deleted: r.deleted, kept_contacted: contacted.size, kept_pre_existing: preExisting, failed: r.failed });
+    }
+
+    if (!leadIds.length) return json({ error: "lead_ids vazio" }, 400);
 
     // Filtra apenas leads da empresa (em lotes)
     const validLeads: any[] = [];
@@ -54,6 +110,17 @@ serve(async (req) => {
     }
     const validIds = validLeads.map((l: any) => l.id);
     if (!validIds.length) return json({ error: "nenhum lead válido" }, 400);
+
+    if (action === "delete_preview") {
+      const contacted = await contactedSet(validIds);
+      return json({ ok: true, total: validIds.length, contacted_ids: [...contacted] });
+    }
+
+    if (action === "delete") {
+      const r = await deleteMany(validIds);
+      await audit("leads.bulk_deleted", `${r.deleted} lead(s) excluídos em massa`, { deleted: r.deleted, failed: r.failed });
+      return json({ ok: true, deleted: r.deleted, failed: r.failed });
+    }
 
     if (action === "discard") {
       for (const part of chunks(validIds)) {
