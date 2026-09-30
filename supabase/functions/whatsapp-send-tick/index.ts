@@ -106,7 +106,7 @@ serve(async (req) => {
       if (!inst) {
         const { data } = await supabase
           .from("hook7_instances")
-          .select("id, external_name, status, daily_send_cap, hourly_send_cap, warmup_started_at, phone_number")
+          .select("id, external_name, status, daily_send_cap, hourly_send_cap, warmup_started_at, phone_number, last_connected_at, updated_at")
           .eq("id", item.instance_id)
           .maybeSingle();
         inst = data;
@@ -115,7 +115,14 @@ serve(async (req) => {
       if (!inst || inst.status !== "connected") {
         // Sem conexão: espera 5 min em vez de 30 s. Depois de 6 h sem conexão,
         // desiste e avisa no histórico do lead (em vez de girar para sempre).
-        const ageMs = Date.now() - new Date(item.created_at).getTime();
+        // Mede o tempo real de queda (desde a última conexão/mudança de status),
+        // não a idade da mensagem na fila.
+        const downSince = Math.max(
+          new Date(item.created_at).getTime(),
+          new Date((inst as any)?.last_connected_at ?? 0).getTime(),
+          new Date((inst as any)?.updated_at ?? 0).getTime(),
+        );
+        const ageMs = inst ? Date.now() - downSince : Date.now() - new Date(item.created_at).getTime();
         if (ageMs > 6 * 60 * 60 * 1000) {
           await supabase.from("whatsapp_send_queue").update({
             status: "failed",
@@ -351,7 +358,22 @@ serve(async (req) => {
       // Sucesso: grava messages (se houver conversation) e marca sent
       let messageId: string | null = null;
       if (item.conversation_id) {
-        const { data: msg } = await supabase.from("messages").insert({
+        // Se a resposta já foi registrada como "na fila", atualiza em vez de duplicar.
+        const { data: queuedRow } = item.conversation_id ? await supabase
+          .from("messages")
+          .select("id, metadata")
+          .eq("conversation_id", item.conversation_id)
+          .eq("direction", "outbound")
+          .eq("content", item.body)
+          .eq("metadata->>delivery_status", "queued")
+          .order("sent_at", { ascending: false })
+          .limit(1)
+          .maybeSingle() : { data: null };
+        const { data: msg } = queuedRow
+          ? await supabase.from("messages").update({
+              metadata: { ...((queuedRow.metadata as any) || {}), source: item.source, zapi_message_id: r.sid, delivery_status: "delivered", approval_id: item.approval_id, queue_id: item.id },
+            }).eq("id", queuedRow.id).select("id").maybeSingle()
+          : await supabase.from("messages").insert({
           conversation_id: item.conversation_id,
           content: item.body,
           direction: "outbound",

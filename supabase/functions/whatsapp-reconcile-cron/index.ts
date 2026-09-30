@@ -143,9 +143,24 @@ serve(async (req) => {
     for (const inst of instances || []) {
       // Conexões abandonadas: fora do ar há mais de 7 dias → arquiva e para de
       // gerar aviso/consulta desnecessária.
-      if (inst.status !== "connected") {
-        const ref = new Date(inst.last_connected_at ?? inst.created_at ?? 0).getTime();
-        if (ref && ref < staleCutoff) {
+      if (["disconnected", "error", "banned"].includes(inst.status)) {
+        const ref = Math.max(
+          new Date(inst.last_connected_at ?? 0).getTime(),
+          new Date(inst.updated_at ?? 0).getTime(),
+          new Date(inst.created_at ?? 0).getTime(),
+        );
+        let liveOpen = false;
+        if (ref && ref < staleCutoff && inst.external_name && inst.engine !== "legacy") {
+          // Confere o estado real antes de arquivar: banco pode estar desatualizado.
+          try {
+            const tk = await loadInstanceToken(admin, inst.id);
+            if (tk) {
+              const st = await connectionState({ admin, instanceName: inst.external_name, apikey: tk, timeoutMs: 8000 });
+              liveOpen = st === "open" || st === "connecting";
+            }
+          } catch { /* sem resposta: segue a regra de idade */ }
+        }
+        if (ref && ref < staleCutoff && !liveOpen) {
           await admin
             .from("hook7_instances")
             .update({ archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })

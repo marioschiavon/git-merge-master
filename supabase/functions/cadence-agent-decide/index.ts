@@ -377,7 +377,7 @@ serve(async (req) => {
     if (convIds.length > 0) {
       const { data: msgs } = await supabase
         .from("messages")
-        .select("content, direction, created_at, metadata")
+        .select("content, direction, sent_at, metadata")
         .in("conversation_id", convIds)
         .order("created_at", { ascending: false })
         .limit(10);
