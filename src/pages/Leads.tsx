@@ -84,6 +84,9 @@ export default function Leads() {
   const [contacted, setContacted] = useState<Set<string> | null>(null);
   const [includeContacted, setIncludeContacted] = useState(false);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+
   const [selectedLead, setSelectedLead] = useState<any>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -119,7 +122,18 @@ export default function Leads() {
     if (minScore > 0) arr = arr.filter((l: any) => (l.score ?? 0) >= minScore);
     return arr;
   }, [allLeads, listId, sourceFilter, onlyReady, protectedMap, minScore, onlyEnriched, onlyWhatsappValid]);
-  const leadIds = useMemo(() => leads.map((l: any) => l.id), [leads]);
+  const pageLeads = useMemo(
+    () => leads.slice((page - 1) * pageSize, page * pageSize),
+    [leads, page, pageSize],
+  );
+  useEffect(() => {
+    setPage(1);
+  }, [listId, sourceFilter, statusFilter, debouncedSearch, onlyEnriched, onlyWhatsappValid, onlyReady, minScore]);
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(leads.length / pageSize));
+    if (page > totalPages) setPage(totalPages);
+  }, [leads.length, pageSize, page]);
+  const leadIds = useMemo(() => pageLeads.map((l: any) => l.id), [pageLeads]);
   const { data: insightsMap = {} } = useLeadInsightsBatch(leadIds);
   const syncMutation = useSyncLeads();
   const { data: integration } = useIntegration("pipedrive");
