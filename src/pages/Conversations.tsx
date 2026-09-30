@@ -15,6 +15,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { brtDayKey, formatBRTDayLabel, formatBRTFull, formatBRTMessage } from "@/lib/datetime";
+
+function deliveryLabel(s?: string): string | null {
+  if (!s) return null;
+  if (s === "delivered" || s === "sent") return "Entregue";
+  if (s === "queued") return "Na fila";
+  if (s === "failed") return "Falhou";
+  return null;
+}
 
 import {
   AlertDialog,
@@ -262,7 +271,17 @@ export default function Conversations() {
           {messages.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">Nenhuma mensagem ainda.</p>
           ) : (
-            messages.map((msg: any) => {
+            messages.map((msg: any, i: number) => {
+              const ts: string = msg.sent_at || msg.created_at;
+              const prev: any = messages[i - 1];
+              const prevTs: string | undefined = prev ? prev.sent_at || prev.created_at : undefined;
+              const daySep = !prevTs || brtDayKey(prevTs) !== brtDayKey(ts) ? (
+                <div className="flex items-center gap-2 py-1">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-[11px] font-medium text-muted-foreground">{formatBRTDayLabel(ts)}</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+              ) : null;
               if (msg.direction === "system") {
                 const evType = msg.metadata?.event_type as string | undefined;
                 const iconMap: Record<string, any> = {
@@ -274,17 +293,20 @@ export default function Conversations() {
                 };
                 const Icon = iconMap[evType || ""] || CalendarCheck;
                 return (
-                  <div key={msg.id} className="flex justify-center">
-                    <div className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
-                      <Icon className="h-3 w-3" />
-                      <span>{msg.content}</span>
-                      <span className="opacity-60">· {new Date(msg.sent_at).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                  <div key={msg.id} className="space-y-3">
+                    {daySep}
+                    <div className="flex justify-center">
+                      <div className="inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+                        <Icon className="h-3 w-3" />
+                        <span>{msg.content}</span>
+                        <time className="opacity-60" dateTime={ts} title={formatBRTFull(ts)}>· {formatBRTMessage(ts)}</time>
+                      </div>
                     </div>
                   </div>
                 );
               }
-              return (
-              <div key={msg.id} className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
+              const bubble = (
+              <div className={`flex ${msg.direction === "outbound" ? "justify-end" : "justify-start"}`}>
                 <div className={`max-w-[70%] rounded-lg p-3 ${msg.direction === "outbound" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
                   <div className="flex items-center gap-1 mb-1">
                     {msg.direction === "outbound" ? <User className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
@@ -301,8 +323,20 @@ export default function Conversations() {
                       {msg.metadata.tone_detected}
                     </Badge>
                   )}
+                  <div className="mt-1 flex items-center justify-end gap-1.5 text-[10px] opacity-70">
+                    {msg.direction === "outbound" && deliveryLabel(msg.metadata?.delivery_status) && (
+                      <span>{deliveryLabel(msg.metadata?.delivery_status)} ·</span>
+                    )}
+                    <time dateTime={ts} title={formatBRTFull(ts)}>{formatBRTMessage(ts)}</time>
+                  </div>
                 </div>
               </div>
+              );
+              return (
+                <div key={msg.id} className="space-y-3">
+                  {daySep}
+                  {bubble}
+                </div>
               );
             })
           )}

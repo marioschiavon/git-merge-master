@@ -13,6 +13,10 @@ Um "inbox unificado" só para leitura e busca. Cada thread mostra a linha do tem
 2. Clique numa conversa para ver detalhes: score do lead, resumo IA, últimas intenções detectadas.
 3. Use o campo de busca para achar palavra-chave em conteúdo.
 
+## Data e hora das mensagens
+
+Cada mensagem mostra o dia e a hora do envio (horário de Brasília) e, nas enviadas, o status (Entregue, Na fila ou Falhou). A conversa é separada por dia. Passe o mouse sobre a hora para ver a data completa com segundos.
+
 ## Diferença para Inbox Humana
 
 - **Conversas** = leitura/consulta.
