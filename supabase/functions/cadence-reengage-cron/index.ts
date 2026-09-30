@@ -109,22 +109,22 @@ serve(async (req) => {
           const [{ data: lastInbound }, { data: lastMsg }] = await Promise.all([
             supabase
               .from("messages")
-              .select("created_at")
+              .select("sent_at")
               .in("conversation_id", convIds)
               .eq("direction", "inbound")
-              .order("created_at", { ascending: false })
+              .order("sent_at", { ascending: false })
               .limit(1)
               .maybeSingle(),
             supabase
               .from("messages")
-              .select("created_at")
+              .select("sent_at")
               .in("conversation_id", convIds)
-              .order("created_at", { ascending: false })
+              .order("sent_at", { ascending: false })
               .limit(1)
               .maybeSingle(),
           ]);
-          lastInboundAt = lastInbound?.created_at || null;
-          lastActivityAt = lastMsg?.created_at || null;
+          lastInboundAt = lastInbound?.sent_at || null;
+          lastActivityAt = lastMsg?.sent_at || null;
         }
 
         // Active enrollments need to have engaged at least once (inbound exists) to qualify as "silent".

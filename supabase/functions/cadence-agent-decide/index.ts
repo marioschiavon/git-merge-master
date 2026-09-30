@@ -379,7 +379,7 @@ serve(async (req) => {
         .from("messages")
         .select("content, direction, sent_at, metadata")
         .in("conversation_id", convIds)
-        .order("created_at", { ascending: false })
+        .order("sent_at", { ascending: false })
         .limit(10);
       recentMessages = (msgs || []).reverse();
     }
@@ -387,7 +387,7 @@ serve(async (req) => {
     const historyText = recentMessages
       .map(
         (m) =>
-          `[${m.direction === "outbound" ? "SDR" : "LEAD"} ${new Date(m.created_at).toLocaleDateString("pt-BR")}]: ${(m.content || "").slice(0, 240)}`,
+          `[${m.direction === "outbound" ? "SDR" : "LEAD"} ${new Date(m.sent_at).toLocaleDateString("pt-BR")}]: ${(m.content || "").slice(0, 240)}`,
       )
       .join("\n");
 
