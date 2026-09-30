@@ -49,6 +49,7 @@ import {
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { LeadProgressDrawer } from "@/components/cadence/LeadProgressDrawer";
+import { TablePagination } from "@/components/TablePagination";
 import { formatDistanceToNow, format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -562,6 +563,16 @@ export default function CadencesDashboard() {
                   })}
                 </TableBody>
               </Table>
+              {filtered.length > 0 && (
+                <TablePagination
+                  total={filtered.length}
+                  page={page}
+                  pageSize={pageSize}
+                  onPageChange={setPage}
+                  onPageSizeChange={setPageSize}
+                  label="leads"
+                />
+              )}
             </CardContent>
           </Card>
         </>
