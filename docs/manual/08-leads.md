@@ -80,3 +80,9 @@ Em **Configurações → Não prospectar** você cadastra prefeituras (municípi
 - Use o filtro **Lista** para ver só os leads de uma importação. A caixa do topo da tabela seleciona todos os filtrados.
 - O botão **Excluir** apaga os selecionados. Quem já recebeu mensagem ou está em cadência só é apagado se você marcar essa opção.
 - Na importação, a coluna **Celular** vira o WhatsApp do lead quando não houver uma coluna WhatsApp.
+
+## Paginação
+
+A lista mostra 50 leads por página. No rodapé da tabela você vê quantos leads existem no total ("Mostrando 1–50 de 3.420 leads"), pode escolher 25, 50, 100 ou 250 por página e avançar/voltar.
+
+Atenção: a caixa de seleção do topo marca **todos os leads do filtro atual**, não apenas os da página visível. Isso permite, por exemplo, selecionar de uma vez todos os leads de uma lista importada.
