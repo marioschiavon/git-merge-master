@@ -25,7 +25,24 @@ function normalizeBrLocal(local: string): string | null {
   return `+55${ddd}${rest}`;
 }
 
+const MULTI_SEP = /[,;\/|\n]+|\s+(?:e|ou)\s+/i;
+
+/** Separa campos com vários telefones ("34-99646,34-99239") e normaliza cada um. */
+export function splitPhonesBR(raw: string | null | undefined): string[] {
+  const s = String(raw ?? "");
+  const parts = s.split(MULTI_SEP).map((p) => normalizeSingle(p)).filter(Boolean) as string[];
+  return [...new Set(parts)];
+}
+
+/** Normaliza; com vários números no campo, prioriza o celular (+55DD9...). */
 export function normalizePhoneBR(raw: string | null | undefined): string | null {
+  const s = String(raw ?? "");
+  if (!MULTI_SEP.test(s)) return normalizeSingle(s);
+  const list = splitPhonesBR(s);
+  return list.find((p) => /^\+55\d{2}9\d{8}$/.test(p)) ?? list[0] ?? null;
+}
+
+function normalizeSingle(raw: string | null | undefined): string | null {
   const s = String(raw ?? "").trim().replace(/^whatsapp:/i, "");
   if (!s) return null;
   const hadPlus = s.trimStart().startsWith("+");
