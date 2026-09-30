@@ -3,7 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-type BulkArgs = { lead_ids: string[]; action: "enroll" | "discard"; cadence_id?: string | null };
+type BulkArgs = { lead_ids: string[]; action: "enroll" | "discard" | "delete"; cadence_id?: string | null };
 
 export type BulkProgress = {
   status: "idle" | "running" | "done" | "error";
@@ -32,6 +32,7 @@ export function useBulkLeadActions() {
         skipped: 0,
         skipped_no_channel: 0,
         discarded: 0,
+        deleted: 0,
         cadence_type: undefined as string | undefined,
       };
 
@@ -47,6 +48,7 @@ export function useBulkLeadActions() {
         totals.skipped += d?.skipped ?? 0;
         totals.skipped_no_channel += d?.skipped_no_channel ?? 0;
         totals.discarded += d?.discarded ?? 0;
+        totals.deleted += d?.deleted ?? 0;
         if (d?.cadence_type) totals.cadence_type = d.cadence_type;
 
         const processed = Math.min(i + CHUNK, total);
@@ -67,6 +69,9 @@ export function useBulkLeadActions() {
           parts.push(`${data.skipped_no_channel} ${label}`);
         }
         toast.success(parts.join(" · "));
+      } else if (args.action === "delete") {
+        qc.invalidateQueries({ queryKey: ["lead-lists"] });
+        toast.success(`${data?.deleted ?? 0} lead(s) excluídos.`);
       } else {
         toast.success(`${data?.discarded ?? 0} lead(s) descartados.`);
       }
@@ -80,5 +85,40 @@ export function useBulkLeadActions() {
   return Object.assign(mutation, {
     progress,
     resetProgress: () => setProgress(initialProgress),
+  });
+}
+
+
+/** Retorna quais dos leads já tiveram contato (mensagem ou cadência). */
+export async function previewLeadDelete(lead_ids: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  for (let i = 0; i < lead_ids.length; i += CHUNK) {
+    const { data, error } = await supabase.functions.invoke("leads-bulk-action", {
+      body: { action: "delete_preview", lead_ids: lead_ids.slice(i, i + CHUNK) },
+    });
+    if (error) throw error;
+    for (const id of (data as any)?.contacted_ids || []) out.add(id);
+  }
+  return out;
+}
+
+export function useUndoImport() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (list_id: string) => {
+      const { data, error } = await supabase.functions.invoke("leads-bulk-action", { body: { action: "undo_import", list_id } });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      return data as { deleted: number; kept_contacted: number; kept_pre_existing: number };
+    },
+    onSuccess: (d) => {
+      qc.invalidateQueries({ queryKey: ["leads"] });
+      qc.invalidateQueries({ queryKey: ["lead-lists"] });
+      const parts = [`Importação desfeita: ${d.deleted} lead(s) apagados`];
+      if (d.kept_contacted) parts.push(`${d.kept_contacted} mantidos por já terem sido contatados`);
+      if (d.kept_pre_existing) parts.push(`${d.kept_pre_existing} já existiam antes e foram mantidos`);
+      toast.success(parts.join(" · "));
+    },
+    onError: (e: any) => toast.error(e.message || "Não foi possível desfazer a importação"),
   });
 }
