@@ -84,24 +84,24 @@ export function useLeads(filters?: { status?: string; search?: string }) {
     queryKey: ["leads", companyId, filters],
     queryFn: async () => {
       if (!companyId) return [];
-      let query = supabase
-        .from("leads")
-        .select("*")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false });
+      return await fetchAllRows<any>((from, to) => {
+        let query = supabase
+          .from("leads")
+          .select("*")
+          .eq("company_id", companyId)
+          .order("created_at", { ascending: false })
+          .range(from, to);
 
-      if (filters?.status && filters.status !== "all") {
-        query = query.eq("status", filters.status as LeadStatus);
-      }
-      if (filters?.search) {
-        query = query.or(
-          `name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,company_name.ilike.%${filters.search}%`
-        );
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data || [];
+        if (filters?.status && filters.status !== "all") {
+          query = query.eq("status", filters.status as LeadStatus);
+        }
+        if (filters?.search) {
+          query = query.or(
+            `name.ilike.%${filters.search}%,email.ilike.%${filters.search}%,company_name.ilike.%${filters.search}%`
+          );
+        }
+        return query;
+      });
     },
     enabled: !!companyId,
     placeholderData: keepPreviousData,
