@@ -201,7 +201,18 @@ Deno.serve(async (req) => {
     .limit(1)
     .maybeSingle();
   const ownerGrantId = (lastOutbound?.metadata as any)?.grant_id ?? null;
+  // Só é "cópia" se a caixa dona também recebeu este e-mail (To/Cc). Se o lead
+  // escreveu apenas para esta caixa, a resposta é registrada normalmente.
+  let ownerAlsoReceived = false;
   if (ownerGrantId && ownerGrantId !== grantRow.id) {
+    const { data: ownerGrant } = await admin
+      .from("user_email_grants").select("email").eq("id", ownerGrantId).maybeSingle();
+    const ownerEmail = String(ownerGrant?.email ?? "").toLowerCase().trim();
+    const rcpts = [...(msg?.to ?? []), ...(msg?.cc ?? []), ...(msg?.bcc ?? [])]
+      .map((r: any) => String(r?.email ?? "").toLowerCase().trim());
+    ownerAlsoReceived = !!ownerEmail && rcpts.includes(ownerEmail);
+  }
+  if (ownerGrantId && ownerGrantId !== grantRow.id && ownerAlsoReceived) {
     return new Response(JSON.stringify({ ok: true, ignored: "copy_to_other_mailbox" }), {
       status: 200,
       headers: { "Content-Type": "application/json" },

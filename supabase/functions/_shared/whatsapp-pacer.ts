@@ -64,7 +64,20 @@ export async function enqueueWhatsAppSend(
   if (!input.companyId || !input.toPhone || !input.body) {
     return { ok: false, error: "companyId/toPhone/body são obrigatórios" };
   }
-  const instance = await resolveInstance(admin, input.companyId);
+  let instance = await resolveInstance(admin, input.companyId);
+  if (!instance) {
+    // Queda temporária: enfileira na última conexão conhecida; o envio sai quando reconectar.
+    const { data } = await admin
+      .from("hook7_instances")
+      .select("id, external_name, status, min_gap_seconds, max_gap_seconds, daily_send_cap, hourly_send_cap, warmup_started_at")
+      .eq("company_id", input.companyId)
+      .in("status", ["disconnected", "error", "pairing", "qr_ready"])
+      .is("archived_at", null)
+      .order("last_connected_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    instance = data as any;
+  }
   if (!instance) {
     return { ok: false, error: "Nenhuma instância WhatsApp (Hook7) conectada" };
   }

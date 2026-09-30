@@ -158,7 +158,13 @@ export function Bitrix24Dialog({
             ) : discover.isError ? (
               <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
                 <AlertTriangle className="mt-0.5 h-4 w-4 text-destructive" />
-                <span>{(discover.error as Error).message}</span>
+                <div className="flex-1 space-y-2">
+                  <span className="block">{(discover.error as Error).message}</span>
+                  <p className="text-muted-foreground">Se o webhook foi apagado ou perdeu permissão, desconecte e conecte de novo com um webhook novo.</p>
+                  <Button variant="outline" size="sm" onClick={() => disconnect.mutate()} disabled={disconnect.isPending}>
+                    <Unplug className="mr-2 h-4 w-4" /> Desconectar
+                  </Button>
+                </div>
               </div>
             ) : (
               <>

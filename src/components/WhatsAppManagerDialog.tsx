@@ -108,8 +108,17 @@ export function WhatsAppManagerDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const { isCompanyAdmin, isMasterAdmin } = useAuth();
-  const canManage = isCompanyAdmin || isMasterAdmin;
+  const { isCompanyAdmin, isMasterAdmin, user } = useAuth();
+  // Mesmo critério do servidor: papel em user_roles OU na associação à empresa.
+  const { data: memberIsAdmin } = useQuery({
+    queryKey: ["company_member_role", user?.id],
+    enabled: !!user?.id && !isCompanyAdmin && !isMasterAdmin,
+    queryFn: async () => {
+      const { data } = await supabase.from("company_members").select("role").eq("user_id", user!.id).limit(1).maybeSingle();
+      return (data as any)?.role === "company_admin";
+    },
+  });
+  const canManage = isCompanyAdmin || isMasterAdmin || !!memberIsAdmin;
   const [newName, setNewName] = useState("");
   const [activeId, setActiveId] = useState<string | null>(null);
   const [qrBase64, setQrBase64] = useState<string | null>(null);

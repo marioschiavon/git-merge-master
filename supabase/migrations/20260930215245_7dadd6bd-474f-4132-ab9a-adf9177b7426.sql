@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.requeue_bitrix_skipped_stages() FROM PUBLIC, anon, authenticated;
