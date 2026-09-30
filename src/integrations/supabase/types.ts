@@ -3924,6 +3924,7 @@ export type Database = {
       }
       norm_org_text: { Args: { _t: string }; Returns: string }
       normalize_phone_br: { Args: { _raw: string }; Returns: string }
+      normalize_phone_br_single: { Args: { _raw: string }; Returns: string }
       org_domain: {
         Args: { _email: string; _website: string }
         Returns: string
