@@ -231,6 +231,21 @@ export default function CadencesDashboard() {
     });
   }, [rows, statusFilter, intentFilter, stepFilter, search]);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  useEffect(() => {
+    setPage(1);
+  }, [cadenceId, statusFilter, intentFilter, stepFilter, search]);
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (page > totalPages) setPage(totalPages);
+  }, [filtered.length, pageSize, page]);
+  const pageRows = useMemo(
+    () => filtered.slice((page - 1) * pageSize, page * pageSize),
+    [filtered, page, pageSize],
+  );
+
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
