@@ -2,7 +2,7 @@
 
 ## O que encontramos
 - O botão **Excluir** em massa já existe desde o beta 0.68, na barra que aparece ao marcar leads, logo depois de "Descartar".
-- O print do cliente mostra só "Descartar". O mais provável é que o app publicado (app.leaderei.com.br) ainda esteja numa versão anterior, porque as mudanças só chegam ao cliente depois de publicar.
+- O print do cliente confirma que ele usa uma versão antiga: não aparecem os filtros "Origem" e "Lista", nem o botão "Excluir". Ou seja, o app publicado (app.leaderei.com.br) ainda não recebeu as versões 0.68 em diante. As mudanças só chegam ao cliente depois de publicar.
 - Outro ponto: a barra não quebra linha. Em telas menores, o último botão (Excluir) pode ficar cortado para fora da tela.
 
 ## O que vamos fazer
