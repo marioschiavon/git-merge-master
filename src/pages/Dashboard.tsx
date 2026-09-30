@@ -1,6 +1,11 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Target, MessageSquare, Calendar, TrendingUp, Zap, Clock, CheckCircle2, Plug } from "lucide-react";
+import { Target, MessageSquare, Calendar, TrendingUp, Zap, Clock, CheckCircle2, Plug, ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { fetchAllRows } from "@/lib/supabase-paginate";
 import { useDashboardStats } from "@/hooks/useDashboardStats";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
@@ -23,6 +28,23 @@ const chartConfig = {
 
 export default function Dashboard() {
   const { leads, weeklyLeads, activeCadences, recentActivities, integration, isLoading } = useDashboardStats();
+  const { companyId } = useAuth();
+  const { data: recentReplies } = useQuery({
+    queryKey: ["dashboard-recent-replies", companyId],
+    enabled: !!companyId,
+    queryFn: async () => {
+      const since = new Date(Date.now() - 7 * 86400000).toISOString();
+      const rows = await fetchAllRows<any>((from, to) =>
+        supabase
+          .from("conversations")
+          .select("lead_id")
+          .eq("company_id", companyId!)
+          .gte("last_inbound_at", since)
+          .range(from, to),
+      );
+      return new Set(rows.map((r) => r.lead_id)).size;
+    },
+  });
 
   if (isLoading) {
     return (
@@ -81,6 +103,24 @@ export default function Dashboard() {
           </Card>
         ))}
       </div>
+
+      <Link to="/conversations?filtro=responderam&periodo=7d" className="block">
+        <Card className="hover:bg-muted/50 transition-colors">
+          <CardContent className="p-5 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <MessageSquare className="h-5 w-5 text-primary" />
+              <div>
+                <p className="text-sm font-medium">Respostas recentes</p>
+                <p className="text-xs text-muted-foreground">Leads que responderam nos últimos 7 dias</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl font-bold">{recentReplies ?? "—"}</span>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>

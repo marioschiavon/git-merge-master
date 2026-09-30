@@ -218,9 +218,12 @@ export default function CadencesDashboard() {
     return Array.from(set);
   }, [rows]);
 
+  const [replyFilter, setReplyFilter] = useState<string>("all");
   const filtered = useMemo(() => {
-    return (rows || []).filter((r) => {
+    const list = (rows || []).filter((r) => {
       if (statusFilter !== "all" && effectiveStatus(r.enrollment, r.lead) !== statusFilter) return false;
+      if (replyFilter === "replied" && !r.lastInboundAt) return false;
+      if (replyFilter === "none" && r.lastInboundAt) return false;
       if (intentFilter !== "all" && r.lastIntent?.category !== intentFilter) return false;
       if (stepFilter !== "all" && String(r.enrollment.current_step) !== stepFilter) return false;
       if (search) {
@@ -230,7 +233,9 @@ export default function CadencesDashboard() {
       }
       return true;
     });
-  }, [rows, statusFilter, intentFilter, stepFilter, search]);
+    if (replyFilter === "replied") list.sort((a, b) => ((a.lastInboundAt || "") < (b.lastInboundAt || "") ? 1 : -1));
+    return list;
+  }, [rows, statusFilter, replyFilter, intentFilter, stepFilter, search]);
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
@@ -340,6 +345,16 @@ export default function CadencesDashboard() {
                 <SelectItem value="disqualified">Descartado</SelectItem>
                 <SelectItem value="bounced">Bounce</SelectItem>
                 <SelectItem value="paused">Pausado</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={replyFilter} onValueChange={setReplyFilter}>
+              <SelectTrigger className="w-[170px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas respostas</SelectItem>
+                <SelectItem value="replied">Responderam</SelectItem>
+                <SelectItem value="none">Sem resposta</SelectItem>
               </SelectContent>
             </Select>
             <Select value={intentFilter} onValueChange={setIntentFilter}>

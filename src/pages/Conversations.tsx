@@ -4,7 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { useConversations, useLeadMessages, useSendMessage, useAiReply } from "@/hooks/useConversations";
+import { useConversations, useLeadMessages, useSendMessage, useAiReply, useLastInboundSnippets } from "@/hooks/useConversations";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useConversationTakeover, useTakeoverToggle } from "@/hooks/useHumanInbox";
 import { HumanCopilotPanel } from "@/components/inbox/HumanCopilotPanel";
 import { Switch } from "@/components/ui/switch";
@@ -58,6 +61,15 @@ type LeadGroup = {
   lead: any;
   conversations: any[]; // raw conversation rows
   lastActivity: string;
+  lastReplyAt: string | null;
+  lastReplyConvId: string | null;
+};
+
+const periodLabel: Record<string, string> = {
+  hoje: "hoje",
+  "7d": "nos últimos 7 dias",
+  "30d": "nos últimos 30 dias",
+  tudo: "no total",
 };
 
 export default function Conversations() {
@@ -81,6 +93,16 @@ export default function Conversations() {
     setSelectedLeadId(leadParam);
   }, [leadParam]);
 
+  // Filtros da lista (guardados na URL)
+  const replyFilter = searchParams.get("filtro") || "todas"; // todas | responderam | sem_resposta
+  const period = searchParams.get("periodo") || "tudo"; // hoje | 7d | 30d | tudo
+  const [search, setSearch] = useState("");
+  const setParam = (k: string, v: string, def: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (v === def) next.delete(k); else next.set(k, v);
+    setSearchParams(next, { replace: true });
+  };
+
   // Agrupa conversas por lead
   const leadGroups: LeadGroup[] = useMemo(() => {
     const map = new Map<string, LeadGroup>();
@@ -91,17 +113,62 @@ export default function Conversations() {
       if (g) {
         g.conversations.push(c);
         if (c.created_at > g.lastActivity) g.lastActivity = c.created_at;
+        if (c.last_inbound_at && (!g.lastReplyAt || c.last_inbound_at > g.lastReplyAt)) {
+          g.lastReplyAt = c.last_inbound_at;
+          g.lastReplyConvId = c.id;
+        }
       } else {
         map.set(lid, {
           lead_id: lid,
           lead: c.leads,
           conversations: [c],
           lastActivity: c.created_at,
+          lastReplyAt: c.last_inbound_at || null,
+          lastReplyConvId: c.last_inbound_at ? c.id : null,
         });
       }
     }
-    return Array.from(map.values()).sort((a, b) => (a.lastActivity < b.lastActivity ? 1 : -1));
+    return Array.from(map.values()).sort((a, b) => {
+      const ka = a.lastReplyAt && a.lastReplyAt > a.lastActivity ? a.lastReplyAt : a.lastActivity;
+      const kb = b.lastReplyAt && b.lastReplyAt > b.lastActivity ? b.lastReplyAt : b.lastActivity;
+      return ka < kb ? 1 : -1;
+    });
   }, [conversations]);
+
+  const periodStart = useMemo(() => {
+    const now = new Date();
+    if (period === "hoje") { const d = new Date(now); d.setHours(0, 0, 0, 0); return d.toISOString(); }
+    if (period === "7d") return new Date(now.getTime() - 7 * 86400000).toISOString();
+    if (period === "30d") return new Date(now.getTime() - 30 * 86400000).toISOString();
+    return null;
+  }, [period]);
+
+  const repliedInPeriod = useMemo(
+    () => leadGroups.filter((g) => g.lastReplyAt && (!periodStart || g.lastReplyAt >= periodStart)),
+    [leadGroups, periodStart],
+  );
+
+  const visibleGroups = useMemo(() => {
+    let list = leadGroups;
+    if (replyFilter === "responderam") {
+      list = repliedInPeriod.slice().sort((a, b) => (a.lastReplyAt! < b.lastReplyAt! ? 1 : -1));
+    } else if (replyFilter === "sem_resposta") {
+      list = list.filter((g) => !g.lastReplyAt);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter((g) =>
+        [g.lead?.name, g.lead?.company_name, g.lead?.email].filter(Boolean).join(" ").toLowerCase().includes(q),
+      );
+    }
+    return list;
+  }, [leadGroups, repliedInPeriod, replyFilter, search]);
+
+  const snippetConvIds = useMemo(
+    () => visibleGroups.slice(0, 300).map((g) => g.lastReplyConvId).filter(Boolean) as string[],
+    [visibleGroups],
+  );
+  const { data: snippets } = useLastInboundSnippets(snippetConvIds);
 
   const selectedGroup = leadGroups.find((g) => g.lead_id === selectedLeadId) || null;
   const selectedConvList = useMemo(
@@ -431,6 +498,39 @@ export default function Conversations() {
         </div>
       )}
 
+      {!isLoading && leadGroups.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <Tabs value={replyFilter} onValueChange={(v) => setParam("filtro", v, "todas")}>
+              <TabsList>
+                <TabsTrigger value="todas">Todas</TabsTrigger>
+                <TabsTrigger value="responderam">Responderam</TabsTrigger>
+                <TabsTrigger value="sem_resposta">Sem resposta</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Select value={period} onValueChange={(v) => setParam("periodo", v, "tudo")}>
+              <SelectTrigger className="w-[150px]"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hoje">Hoje</SelectItem>
+                <SelectItem value="7d">Últimos 7 dias</SelectItem>
+                <SelectItem value="30d">Últimos 30 dias</SelectItem>
+                <SelectItem value="tudo">Todo o período</SelectItem>
+              </SelectContent>
+            </Select>
+            <Input
+              placeholder="Buscar por nome ou empresa"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-[240px]"
+            />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">{repliedInPeriod.length}</span>{" "}
+            {repliedInPeriod.length === 1 ? "lead respondeu" : "leads responderam"} {periodLabel[period] || ""}
+          </p>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
       ) : leadGroups.length === 0 ? (
@@ -440,22 +540,35 @@ export default function Conversations() {
             <p className="text-muted-foreground">Nenhuma conversa ainda. As conversas aparecerão aqui quando leads forem contactados.</p>
           </CardContent>
         </Card>
+      ) : visibleGroups.length === 0 ? (
+        <p className="py-8 text-center text-sm text-muted-foreground">Nenhuma conversa encontrada com esses filtros.</p>
       ) : (
         <div className="space-y-2">
-          {leadGroups.map((g) => {
+          {visibleGroups.map((g) => {
             const channels = Array.from(new Set(g.conversations.map((c) => c.channel)));
+            const snip = g.lastReplyConvId ? snippets?.get(g.lastReplyConvId) : null;
             return (
               <Card key={g.lead_id} className="cursor-pointer hover:bg-muted/50 transition-colors" onClick={() => selectLead(g.lead_id)}>
-                <CardContent className="p-4 flex items-center justify-between">
-                  <div>
+                <CardContent className="p-4 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
                     <p className="font-medium text-sm">{g.lead?.name || "Lead"}</p>
                     <p className="text-xs text-muted-foreground">{g.lead?.company_name || ""} · {g.lead?.email || ""}</p>
+                    {snip?.content && (
+                      <p className="text-xs text-muted-foreground mt-1 truncate max-w-[520px]">“{snip.content}”</p>
+                    )}
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 shrink-0">
+                    {g.lastReplyAt && (
+                      <Badge variant="default" className="text-xs" title={formatBRTFull(g.lastReplyAt)}>
+                        Respondeu · {formatBRTMessage(g.lastReplyAt)}
+                      </Badge>
+                    )}
                     {channels.map((ch) => (
                       <Badge key={ch} variant="outline" className="text-xs">{channelLabel(ch)}</Badge>
                     ))}
-                    <span className="text-xs text-muted-foreground">{new Date(g.lastActivity).toLocaleDateString("pt-BR")}</span>
+                    {!g.lastReplyAt && (
+                      <span className="text-xs text-muted-foreground">{new Date(g.lastActivity).toLocaleDateString("pt-BR")}</span>
+                    )}
                   </div>
                 </CardContent>
               </Card>

@@ -3,6 +3,33 @@ import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { fetchAllRows, fetchAllIn } from "@/lib/supabase-paginate";
+
+/** Última mensagem recebida (inbound) por conversa, para mostrar o trecho da resposta. */
+export function useLastInboundSnippets(conversationIds: string[]) {
+  const key = conversationIds.slice().sort().join(",");
+  return useQuery({
+    queryKey: ["last-inbound-snippets", key],
+    enabled: conversationIds.length > 0,
+    queryFn: async () => {
+      const rows = await fetchAllIn<any>(
+        conversationIds,
+        (part, from, to) =>
+          supabase
+            .from("messages")
+            .select("conversation_id, content, sent_at")
+            .in("conversation_id", part)
+            .eq("direction", "inbound")
+            .order("sent_at", { ascending: false })
+            .range(from, to),
+        { idsPerChunk: 50, pageSize: 500 },
+      );
+      const map = new Map<string, { content: string | null; sent_at: string }>();
+      for (const m of rows) if (!map.has(m.conversation_id)) map.set(m.conversation_id, m);
+      return map;
+    },
+  });
+}
 
 export function useConversations() {
   const { companyId } = useAuth();
@@ -43,13 +70,14 @@ export function useConversations() {
     queryKey: ["conversations", companyId],
     queryFn: async () => {
       if (!companyId) return [];
-      const { data, error } = await supabase
-        .from("conversations")
-        .select("*, leads(name, email, company_name)")
-        .eq("company_id", companyId)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data;
+      return await fetchAllRows<any>((from, to) =>
+        supabase
+          .from("conversations")
+          .select("*, leads(name, email, company_name)")
+          .eq("company_id", companyId)
+          .order("created_at", { ascending: false })
+          .range(from, to),
+      );
     },
     enabled: !!companyId,
   });
