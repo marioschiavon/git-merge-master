@@ -106,7 +106,8 @@ async function findLeadByPhone(admin: any, companyId: string, digits: string): P
     .from("leads")
     .select("id, phone, whatsapp, status, enrichment_status")
     .eq("company_id", companyId)
-    .or("phone.not.is.null,whatsapp.not.is.null");
+    .or(`phone.ilike.%${digits.slice(-8)},whatsapp.ilike.%${digits.slice(-8)}`)
+    .limit(50);
   // deno-lint-ignore no-explicit-any
   const lead = (leads || []).find((l: any) => {
     const cands = [l.whatsapp, l.phone]
