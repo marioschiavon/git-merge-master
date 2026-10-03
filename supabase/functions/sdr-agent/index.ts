@@ -1116,7 +1116,7 @@ async function loadContext(leadId: string) {
 
   const { data: company } = await supabase
     .from("companies")
-    .select("id, name, tone, value_proposition")
+    .select("id, name")
     .eq("id", lead.company_id)
     .maybeSingle();
 
