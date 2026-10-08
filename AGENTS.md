@@ -1,1 +1,2 @@
 - Organizações protegidas (protected_organizations): toda nova fonte de importação ou disparo frio deve checar lead_protection/is_lead_protected — evita prospectar clientes ou negociações por engano.
+- Social enrichment (Instagram/LinkedIn) discovers profiles only from the lead's own website and is gated per company by `companies.social_enrichment` (master-only, trigger-guarded) plus the global platform toggle — avoids noisy name-based matches and lets credit use vary per client.
