@@ -298,8 +298,10 @@ async function runJob(job_id: string) {
     const { data: lead } = await supabase.from("leads").select("*").eq("id", job.lead_id).single();
     if (!lead) throw new Error("Lead not found");
 
-    const { data: company } = await supabase.from("companies").select("enrichment_settings").eq("id", job.company_id).single();
+    const { data: company } = await supabase.from("companies").select("enrichment_settings, social_enrichment").eq("id", job.company_id).single();
     const settings: any = company?.enrichment_settings || {};
+    // Liga/desliga + limite mensal por rede, definido pelo master em cada empresa
+    const social: Record<string, { enabled?: boolean; monthly_limit?: number | null }> = (company as any)?.social_enrichment || {};
 
     // Apify is now a platform-wide integration managed by master_admin.
     // Token comes from env; a global toggle (platform_settings.apify_enabled) can disable it for everyone.
@@ -310,35 +312,59 @@ async function runJob(job_id: string) {
       instagram:        { actor_id: "apify/instagram-scraper",             enabled: true },
       facebook:         { actor_id: "apify/facebook-pages-scraper",        enabled: true },
       linkedin_person:  { actor_id: "harvestapi/linkedin-profile-scraper", enabled: true },
-      linkedin_company: { actor_id: "apimaestro/linkedin-company",         enabled: true },
+      linkedin_company: { actor_id: "harvestapi/linkedin-company",         enabled: true },
     };
     const platformActors: Record<string, { actor_id: string; enabled: boolean }> = {
       ...DEFAULT_ACTORS,
       ...((platform?.apify_actors as any) || {}),
     };
     const actorFor = (k: string) => platformActors[k]?.actor_id || DEFAULT_ACTORS[k].actor_id;
-    const actorOn = (k: string) => platformActors[k]?.enabled !== false;
+    const monthStart = new Date(); monthStart.setUTCDate(1); monthStart.setUTCHours(0, 0, 0, 0);
+    const usageCache: Record<string, number> = {};
+    const underLimit = async (k: string) => {
+      const lim = social[k]?.monthly_limit;
+      if (!lim || lim <= 0) return true;
+      if (usageCache[k] === undefined) {
+        const { count } = await supabase.from("lead_social_profiles")
+          .select("id", { count: "exact", head: true })
+          .eq("company_id", job.company_id).eq("network", k)
+          .gte("scraped_at", monthStart.toISOString());
+        usageCache[k] = count || 0;
+      }
+      return usageCache[k] < lim;
+    };
+    const actorOn = (k: string) => platformActors[k]?.enabled !== false && social[k]?.enabled !== false;
 
     const steps: any = { ...(job.steps_done || {}) };
     const leadPatch: any = {};
     const autofillSrc: any = {};
 
     const autofill = settings.autofill_contacts !== false; // default ON
+    const discoverSocials = settings.discover_socials !== false; // default ON (igual à tela)
+    const websiteAnalysis = settings.website_analysis !== false;
 
     // Step 1: fetch website HTML (used for socials, analysis, and contact autofill)
     let pageHtml: string | null = null;
     let pageText = "";
-    const needsHtml = !!lead.website && (settings.website_analysis || settings.discover_socials || autofill);
+    const needsHtml = !!lead.website && (websiteAnalysis || discoverSocials || autofill);
     if (needsHtml) {
       pageHtml = await fetchPageHtml(lead.website);
       if (pageHtml) {
         pageText = htmlToText(pageHtml);
-        if (settings.discover_socials) {
-          const found = extractSocials(pageHtml);
+        if (discoverSocials) {
+          // Instagram/LinkedIn só a partir do site do lead (home + contato/sobre)
+          let found = extractSocials(pageHtml);
+          if (!found.instagram_url || !found.linkedin_company_url) {
+            const extra = await fetchSocialPages(lead.website);
+            if (extra) {
+              const more = extractSocials(extra);
+              for (const k of Object.keys(more)) if (!found[k] && more[k]) found[k] = more[k];
+            }
+          }
           for (const k of Object.keys(found)) {
             if (!lead[k] && found[k]) leadPatch[k] = found[k];
           }
-          steps.discover_socials = "ok";
+          steps.discover_socials = found.instagram_url ? "ok" : "ok_no_instagram";
         }
         if (autofill) {
           const dom = siteDomain(lead.website);
