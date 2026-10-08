@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTeamMembers, usePendingInvites } from "@/hooks/useTeam";
 import { Copy, Users, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { SocialEnrichmentBlock } from "./SocialEnrichmentBlock";
 
 interface CompanyLite {
   id: string;
@@ -114,6 +115,12 @@ export function CompanyDetailsSheet({ company, open, onOpenChange, municipiaEnab
                 </Badge>
               </div>
             </div>
+
+            <Separator />
+
+            <SocialEnrichmentBlock companyId={company.id} />
+
+
 
             {usage && (
               <>
