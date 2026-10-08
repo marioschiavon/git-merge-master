@@ -37,8 +37,13 @@ function extractSocials(html: string) {
   const out: Record<string, string | null> = {
     instagram_url: null, facebook_url: null, linkedin_url: null, linkedin_company_url: null,
   };
-  const ig = html.match(/https?:\/\/(?:www\.)?instagram\.com\/([A-Za-z0-9_.]+)/i);
-  if (ig) out.instagram_url = `https://instagram.com/${ig[1].replace(/\/$/, "")}`;
+  const IG_RESERVED = new Set(["p", "reel", "reels", "explore", "accounts", "share", "stories", "tv", "about", "developer", "legal", "direct", "web"]);
+  for (const m of html.matchAll(/https?:\/\/(?:www\.)?instagram\.com\/([A-Za-z0-9_.]+)/gi)) {
+    const h = m[1].replace(/\.$/, "");
+    if (!h || IG_RESERVED.has(h.toLowerCase())) continue;
+    out.instagram_url = `https://instagram.com/${h}`;
+    break;
+  }
   const fb = html.match(/https?:\/\/(?:www\.|web\.|m\.)?facebook\.com\/([A-Za-z0-9.\-]+)/i);
   if (fb && !["sharer", "plugins", "tr"].includes(fb[1].toLowerCase())) {
     out.facebook_url = `https://facebook.com/${fb[1].replace(/\/$/, "")}`;
