@@ -396,8 +396,8 @@ async function runJob(job_id: string) {
     }
 
 
-    // Step 2: website AI analysis
-    if (lead.website && settings.website_analysis !== false && LOVABLE_API_KEY) {
+    // Step 2: website AI analysis (pula em retentativa se já foi feito)
+    if (lead.website && websiteAnalysis && LOVABLE_API_KEY && steps.website_analysis !== "ok") {
       try {
         const content = pageText || `(Site indisponível; analise por nome/domínio: ${lead.website})`;
         const ai = await callAI([
@@ -419,69 +419,88 @@ async function runJob(job_id: string) {
     if (Object.keys(leadPatch).length) {
       await supabase.from("leads").update(leadPatch).eq("id", lead.id);
       Object.assign(lead, leadPatch);
+      for (const k of Object.keys(leadPatch)) delete leadPatch[k];
     }
 
-    // Step 3: Apify scrape — controlled 100% by master admin (platform_settings)
+    // Step 3: raspagem das redes — global (master) + liga/desliga e limite por empresa
+    let socialRetry = false;
     if (apifyToken) {
       const tasks: Promise<void>[] = [];
+      const socialSteps: Record<string, string> = { ...(steps.social || {}) };
 
       const upsertProfile = async (network: string, handle: string | null, url: string | null, raw: any) => {
         const first = Array.isArray(raw) ? raw[0] : raw;
+        const liBio = [first?.headline, first?.about || first?.description || first?.tagline].filter(Boolean).join(" — ");
         await supabase.from("lead_social_profiles").upsert({
           lead_id: lead.id, company_id: lead.company_id, network, handle, url,
-          bio: first?.biography || first?.description || first?.about || null,
-          followers: first?.followersCount || first?.followers || null,
+          bio: first?.biography || liBio || null,
+          followers: first?.followersCount || first?.followerCount || first?.followers || null,
           recent_posts: first?.latestPosts || first?.posts || null,
           raw: first || raw, scraped_at: new Date().toISOString(),
         }, { onConflict: "lead_id,network" });
       };
 
-      if (actorOn("instagram") && lead.instagram_url) {
-        const handle = handleFromUrl(lead.instagram_url, "instagram\\.com");
-        if (handle) tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, actorFor("instagram"), {
-            directUrls: [lead.instagram_url],
-            resultsType: "posts",
-            resultsLimit: 12,
-            addParentData: true,
-          });
-          if (r && Array.isArray(r) && r.length) {
-            const posts = normalizeInstagramPosts(r);
-            const first: any = r[0] || {};
+      const runNet = (net: string, url: string | null | undefined, fn: () => Promise<ActorResult & { save?: () => Promise<void> }>) => {
+        if (!url || !actorOn(net)) return;
+        if (socialSteps[net] === "ok") return; // já raspado nesta rodada/retentativa
+        tasks.push((async () => {
+          if (!(await underLimit(net))) { socialSteps[net] = "limite_mensal"; return; }
+          const r = await fn();
+          if (r.items && r.items.length && r.save) {
+            await r.save();
+            socialSteps[net] = "ok";
+          } else {
+            socialSteps[net] = `falhou: ${r.error || "sem resultado"}`.slice(0, 200);
+            if (r.retryable) socialRetry = true;
+          }
+        })());
+      };
+
+      const igHandle = lead.instagram_url ? handleFromUrl(lead.instagram_url, "instagram\\.com") : null;
+      runNet("instagram", igHandle ? lead.instagram_url : null, async () => {
+        const r = await runApifyActorDetailed(apifyToken, actorFor("instagram"), {
+          directUrls: [lead.instagram_url], resultsType: "posts", resultsLimit: 12, addParentData: true,
+        });
+        return {
+          ...r,
+          save: async () => {
+            const items = r.items!;
+            const posts = normalizeInstagramPosts(items);
+            const first: any = items[0] || {};
             const owner: any = first.owner || {};
             await supabase.from("lead_social_profiles").upsert({
               lead_id: lead.id, company_id: lead.company_id, network: "instagram",
-              handle: first.ownerUsername || owner.username || handle,
+              handle: first.ownerUsername || owner.username || igHandle,
               url: lead.instagram_url,
               bio: owner.biography || first.ownerFullName || null,
               followers: owner.followersCount || first.ownerFollowersCount || null,
               recent_posts: posts,
               posts_summary: summarizePosts(posts),
-              raw: { sampleSize: r.length, owner, firstPost: first },
+              raw: { sampleSize: items.length, owner, firstPost: first },
               scraped_at: new Date().toISOString(),
             }, { onConflict: "lead_id,network" });
-          }
-        })());
-      }
-      if (actorOn("facebook") && lead.facebook_url) {
-        tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, actorFor("facebook"), { startUrls: [{ url: lead.facebook_url }] });
-          if (r) await upsertProfile("facebook", handleFromUrl(lead.facebook_url, "facebook\\.com"), lead.facebook_url, r);
-        })());
-      }
-      if (actorOn("linkedin_person") && lead.linkedin_url) {
-        tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, actorFor("linkedin_person"), { profileScraperMode: "Full", queries: [lead.linkedin_url], profileUrls: [lead.linkedin_url] });
-          if (r) await upsertProfile("linkedin_person", handleFromUrl(lead.linkedin_url, "linkedin\\.com/in"), lead.linkedin_url, r);
-        })());
-      }
-      if (actorOn("linkedin_company") && lead.linkedin_company_url) {
-        tasks.push((async () => {
-          const r = await runApifyActor(apifyToken, actorFor("linkedin_company"), { companyUrls: [lead.linkedin_company_url] });
-          if (r) await upsertProfile("linkedin_company", handleFromUrl(lead.linkedin_company_url, "linkedin\\.com/company"), lead.linkedin_company_url, r);
-        })());
-      }
+          },
+        };
+      });
+      runNet("facebook", lead.facebook_url, async () => {
+        const r = await runApifyActorDetailed(apifyToken, actorFor("facebook"), { startUrls: [{ url: lead.facebook_url }] });
+        return { ...r, save: () => upsertProfile("facebook", handleFromUrl(lead.facebook_url, "facebook\\.com"), lead.facebook_url, r.items) };
+      });
+      runNet("linkedin_person", lead.linkedin_url, async () => {
+        const url = String(lead.linkedin_url).replace(/^http:/, "https:");
+        const r = await runApifyActorDetailed(apifyToken, actorFor("linkedin_person"), {
+          profileScraperMode: "Profile details no email ($4 per 1k)", queries: [url],
+        });
+        return { ...r, save: () => upsertProfile("linkedin_person", handleFromUrl(url, "linkedin\\.com/in"), url, r.items) };
+      });
+      runNet("linkedin_company", lead.linkedin_company_url, async () => {
+        const url = String(lead.linkedin_company_url).replace(/^http:/, "https:");
+        const r = await runApifyActorDetailed(apifyToken, actorFor("linkedin_company"), { companies: [url] });
+        return { ...r, save: () => upsertProfile("linkedin_company", handleFromUrl(url, "linkedin\\.com/company"), url, r.items) };
+      });
+
       await Promise.allSettled(tasks);
+      steps.social = socialSteps;
       steps.apify_scrape = `ran ${tasks.length}`;
 
       // Step 3.1: gerar resumos IA de LinkedIn e Instagram em lead_insights
