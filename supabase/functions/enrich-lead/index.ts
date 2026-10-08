@@ -275,6 +275,18 @@ async function fetchContactPages(website: string): Promise<string | null> {
   return null;
 }
 
+// Páginas internas do próprio site onde as redes costumam aparecer
+async function fetchSocialPages(website: string): Promise<string | null> {
+  try {
+    const u = new URL(website.startsWith("http") ? website : `https://${website}`);
+    const base = `${u.protocol}//${u.hostname}`;
+    const paths = ["/contato", "/fale-conosco", "/sobre", "/quem-somos", "/contact", "/about"];
+    const pages = await Promise.all(paths.map((p) => fetchPageHtml(base + p).catch(() => null)));
+    const joined = pages.filter(Boolean).join("\n");
+    return joined || null;
+  } catch { return null; }
+}
+
 async function runJob(job_id: string) {
   const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
   // Global timeout guard: if pipeline exceeds 220s, mark failed and bail
