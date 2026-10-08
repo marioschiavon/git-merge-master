@@ -544,6 +544,17 @@ async function runJob(job_id: string) {
       }
     }
 
+    // Raspagem falhou por instabilidade (tempo/servidor): tenta de novo sozinho, sem clique
+    if (socialRetry && (job.attempts || 0) + 1 < 3) {
+      const attemptNo = (job.attempts || 0) + 1;
+      await supabase.from("lead_enrichment_jobs").update({
+        status: "pending", steps_done: steps, error: "raspagem de redes: nova tentativa agendada",
+        next_run_at: new Date(Date.now() + attemptNo * 10 * 60 * 1000).toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq("id", job.id);
+      return;
+    }
+
     // Step 3.5: autofill contacts from social profiles (in order: instagram > facebook > linkedin)
     if (autofill) {
       const missing = !lead.email || !lead.phone || !lead.whatsapp;
