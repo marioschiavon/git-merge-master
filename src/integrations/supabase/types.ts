@@ -1299,6 +1299,7 @@ export type Database = {
           scoring_include: string[]
           scoring_prompt: string | null
           slug: string
+          social_enrichment: Json
           status: Database["public"]["Enums"]["company_status"]
           timezone: string
           updated_at: string
@@ -1327,6 +1328,7 @@ export type Database = {
           scoring_include?: string[]
           scoring_prompt?: string | null
           slug: string
+          social_enrichment?: Json
           status?: Database["public"]["Enums"]["company_status"]
           timezone?: string
           updated_at?: string
@@ -1355,6 +1357,7 @@ export type Database = {
           scoring_include?: string[]
           scoring_prompt?: string | null
           slug?: string
+          social_enrichment?: Json
           status?: Database["public"]["Enums"]["company_status"]
           timezone?: string
           updated_at?: string
