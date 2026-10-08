@@ -76,27 +76,42 @@ function parseJsonBlob(s: string) {
   } catch { return null; }
 }
 
-async function runApifyActor(token: string, actorId: string, input: any): Promise<any[] | null> {
+type ActorResult = { items: any[] | null; error: string | null; retryable: boolean };
+
+async function runApifyActorDetailed(token: string, actorId: string, input: any): Promise<ActorResult> {
   try {
-    const url = `https://api.apify.com/v2/acts/${encodeURIComponent(actorId)}/run-sync-get-dataset-items?token=${token}&timeout=90`;
+    const id = actorId.replace("/", "~");
+    const url = `https://api.apify.com/v2/acts/${encodeURIComponent(id)}/run-sync-get-dataset-items?timeout=110`;
     const ctl = new AbortController();
-    const t = setTimeout(() => ctl.abort(), 95000);
+    const t = setTimeout(() => ctl.abort(), 115000);
     const r = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(input),
       signal: ctl.signal,
     });
     clearTimeout(t);
     if (!r.ok) {
-      console.warn(`Apify ${actorId} ${r.status}: ${await r.text()}`);
-      return null;
+      const body = (await r.text()).slice(0, 300);
+      console.warn(`Apify ${actorId} ${r.status}: ${body}`);
+      // 4xx (input inválido, ator inexistente) não melhora tentando de novo; 408/429/5xx sim
+      const retryable = r.status === 408 || r.status === 429 || r.status >= 500;
+      return { items: null, error: `${r.status}: ${body}`, retryable };
     }
-    return await r.json();
+    const items = await r.json();
+    if (!Array.isArray(items) || !items.length) return { items: [], error: "sem resultado", retryable: false };
+    const errItem = items.find((i: any) => i?.error && !i?.id && !i?.username && !i?.name);
+    if (errItem && items.length === 1) return { items: [], error: String(errItem.error).slice(0, 200), retryable: false };
+    return { items, error: null, retryable: false };
   } catch (e) {
     console.warn(`Apify ${actorId} failed`, e);
-    return null;
+    return { items: null, error: e instanceof Error ? e.message : String(e), retryable: true };
   }
+}
+
+async function runApifyActor(token: string, actorId: string, input: any): Promise<any[] | null> {
+  const r = await runApifyActorDetailed(token, actorId, input);
+  return r.items && r.items.length ? r.items : null;
 }
 
 function handleFromUrl(url: string, prefix: string): string | null {
