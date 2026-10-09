@@ -475,7 +475,7 @@ async function runJob(job_id: string) {
               lead_id: lead.id, company_id: lead.company_id, network: "instagram",
               handle: p.username || igHandle,
               url: lead.instagram_url,
-              bio: [p.biography, p.businessCategoryName ? `(${p.businessCategoryName})` : null].filter(Boolean).join(" ") || p.fullName || null,
+              bio: [p.biography, p.businessCategoryName && p.businessCategoryName !== "None" ? `(${p.businessCategoryName})` : null].filter(Boolean).join(" ") || p.fullName || null,
               followers: p.followersCount ?? null,
               recent_posts: posts,
               posts_summary: summarizePosts(posts),
