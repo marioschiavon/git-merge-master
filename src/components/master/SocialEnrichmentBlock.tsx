@@ -53,21 +53,24 @@ export function SocialEnrichmentBlock({ companyId }: { companyId: string }) {
 
   const save = async () => {
     setSaving(true);
+    const prev = data?.cfg ?? {};
+    const turnedOn = NETWORKS.some((n) => prev[n.key]?.enabled === false && cfg[n.key]?.enabled !== false);
     const { error } = await supabase.from("companies").update({ social_enrichment: cfg } as any).eq("id", companyId);
     setSaving(false);
     if (error) return toast.error(error.message);
     toast.success("Enriquecimento de redes salvo");
     qc.invalidateQueries({ queryKey: ["social-enrichment", companyId] });
+    if (turnedOn) await backfill();
   };
 
   const backfill = async () => {
     setQueuing(true);
     const { data: r, error } = await supabase.functions.invoke("social-enrich-backfill", {
-      body: { company_id: companyId, limit: 200 },
+      body: { company_id: companyId, all: true },
     });
     setQueuing(false);
     if (error || r?.error) return toast.error(r?.error || error?.message || "Falha ao reprocessar");
-    toast.success(`${r.queued} leads na fila de enriquecimento${r.skipped_protected ? ` · ${r.skipped_protected} protegidos ignorados` : ""}`);
+    toast.success(`Reprocessando ${r.candidates} leads da empresa em segundo plano`);
   };
 
   return (
@@ -75,7 +78,7 @@ export function SocialEnrichmentBlock({ companyId }: { companyId: string }) {
       <div>
         <h3 className="text-sm font-semibold">Enriquecimento de redes</h3>
         <p className="text-xs text-muted-foreground">
-          Automático ao entrar cada lead. As redes são buscadas só no site do lead. Limite em branco = sem limite.
+          Automático ao entrar cada lead. Ao ativar uma rede e salvar, todos os leads atuais são reprocessados. As redes são buscadas só no site do lead. Limite em branco = sem limite.
         </p>
       </div>
       <div className="space-y-2">
@@ -107,7 +110,7 @@ export function SocialEnrichmentBlock({ companyId }: { companyId: string }) {
         </Button>
         <Button size="sm" variant="outline" onClick={backfill} disabled={queuing}>
           {queuing ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1 h-3.5 w-3.5" />}
-          Reprocessar leads atuais (até 200)
+          Reprocessar todos os leads
         </Button>
       </div>
     </div>

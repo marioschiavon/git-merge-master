@@ -26,33 +26,52 @@ Deno.serve(async (req) => {
     if (!/^[0-9a-f-]{36}$/i.test(companyId)) return json({ error: "company_id inválido" }, 400);
     const limit = Math.max(1, Math.min(500, Number(body.limit) || 100));
 
-    // Leads com site ou link de rede, sem job aberto
-    const { data: open } = await admin.from("lead_enrichment_jobs").select("lead_id")
-      .eq("company_id", companyId).in("status", ["pending", "processing"]).limit(5000);
-    const openSet = new Set((open || []).map((o: any) => o.lead_id));
+    const run = async (max: number) => {
+      const { data: open } = await admin.from("lead_enrichment_jobs").select("lead_id")
+        .eq("company_id", companyId).in("status", ["pending", "processing"]).limit(10000);
+      const openSet = new Set((open || []).map((o: any) => o.lead_id));
+      let queued = 0, skippedProtected = 0, from = 0;
+      while (queued < max) {
+        const { data: candidates, error } = await admin.from("leads").select("id")
+          .eq("company_id", companyId)
+          .or("website.not.is.null,instagram_url.not.is.null,linkedin_url.not.is.null,linkedin_company_url.not.is.null")
+          .order("created_at", { ascending: false })
+          .range(from, from + 499);
+        if (error) throw new Error(error.message);
+        if (!candidates?.length) break;
+        from += candidates.length;
+        const pool = candidates.filter((c: any) => !openSet.has(c.id));
+        const ids: string[] = [];
+        for (let i = 0; i < pool.length; i += 25) {
+          const part = pool.slice(i, i + 25);
+          const res = await Promise.all(part.map((c: any) => admin.rpc("is_lead_protected", { _lead_id: c.id })));
+          part.forEach((c: any, k: number) => {
+            if (res[k].data) skippedProtected++;
+            else if (queued + ids.length < max) ids.push(c.id);
+          });
+        }
+        if (ids.length) {
+          const now = new Date().toISOString();
+          await admin.from("lead_enrichment_jobs").insert(ids.map((lead_id) => ({ lead_id, company_id: companyId })));
+          await admin.from("leads").update({ enrichment_status: "pending", enrichment_updated_at: now }).in("id", ids);
+          queued += ids.length;
+        }
+        if (candidates.length < 500) break;
+      }
+      return { queued, skippedProtected };
+    };
 
-    const { data: candidates, error } = await admin.from("leads").select("id")
-      .eq("company_id", companyId)
-      .or("website.not.is.null,instagram_url.not.is.null,linkedin_url.not.is.null,linkedin_company_url.not.is.null")
-      .order("created_at", { ascending: false })
-      .limit(limit * 3);
-    if (error) return json({ error: error.message }, 500);
-
-    const ids: string[] = [];
-    let skippedProtected = 0;
-    for (const c of candidates || []) {
-      if (ids.length >= limit) break;
-      if (openSet.has(c.id)) continue;
-      const { data: prot } = await admin.rpc("is_lead_protected", { _lead_id: c.id });
-      if (prot) { skippedProtected++; continue; }
-      ids.push(c.id);
+    if (body.all === true) {
+      const { count } = await admin.from("leads").select("id", { count: "exact", head: true })
+        .eq("company_id", companyId)
+        .or("website.not.is.null,instagram_url.not.is.null,linkedin_url.not.is.null,linkedin_company_url.not.is.null");
+      // @ts-ignore EdgeRuntime existe no runtime
+      EdgeRuntime.waitUntil(run(100000).catch((e) => console.error("backfill all", e)));
+      return json({ ok: true, background: true, candidates: count ?? 0 });
     }
-    if (!ids.length) return json({ ok: true, queued: 0, skipped_protected: skippedProtected });
 
-    const now = new Date().toISOString();
-    await admin.from("lead_enrichment_jobs").insert(ids.map((lead_id) => ({ lead_id, company_id: companyId })));
-    await admin.from("leads").update({ enrichment_status: "pending", enrichment_updated_at: now }).in("id", ids);
-    return json({ ok: true, queued: ids.length, skipped_protected: skippedProtected });
+    const r = await run(limit);
+    return json({ ok: true, queued: r.queued, skipped_protected: r.skippedProtected });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
