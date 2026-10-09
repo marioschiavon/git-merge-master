@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ export default function Companies() {
   const [confirmCompany, setConfirmCompany] = useState<Company | null>(null);
   const [detailsCompany, setDetailsCompany] = useState<Company | null>(null);
   const { data: usageMap } = useCompanyUsageMap(30);
+  const navigate = useNavigate();
 
   const [municipia, setMunicipia] = useState<Record<string, { enabled: boolean; last_import_at: string | null; last_import_count: number }>>({});
   const [memberCounts, setMemberCounts] = useState<Record<string, number>>({});
@@ -195,7 +197,7 @@ export default function Companies() {
                   const members = memberCounts[c.id] ?? 0;
                   return (
                   <TableRow key={c.id}>
-                    <TableCell className="font-medium">{c.name}</TableCell>
+                    <TableCell className="font-medium"><button className="hover:underline" onClick={() => navigate(`/master/companies/${c.id}`)}>{c.name}</button></TableCell>
                     <TableCell>{c.slug}</TableCell>
                     <TableCell><Badge variant={statusColor(c.status)}>{statusLabel(c.status)}</Badge></TableCell>
                     <TableCell className="text-right">
@@ -229,8 +231,8 @@ export default function Companies() {
                         <span className="text-xs text-muted-foreground">
                           {c.status !== "inactive" ? "Ativa" : "Inativa"}
                         </span>
-                        <Button variant="outline" size="sm" onClick={() => setDetailsCompany(c)}>
-                          <Eye className="mr-1 h-3.5 w-3.5" /> Detalhes
+                        <Button variant="outline" size="sm" onClick={() => navigate(`/master/companies/${c.id}`)}>
+                          <Eye className="mr-1 h-3.5 w-3.5" /> Gerenciar
                         </Button>
                       </div>
                     </TableCell>
