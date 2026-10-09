@@ -508,6 +508,20 @@ async function runJob(job_id: string) {
       });
 
       await Promise.allSettled(tasks);
+
+      // Rede que falhou de forma definitiva (perfil sumiu, sem resultado): apaga perfil e resumo antigos
+      const staleNets = Object.entries(socialSteps)
+        .filter(([, v]) => String(v).startsWith("falhou") && !socialRetry)
+        .map(([k]) => k);
+      if (staleNets.length) {
+        await supabase.from("lead_social_profiles").delete().eq("lead_id", lead.id).in("network", staleNets);
+        const clear: any = {};
+        if (staleNets.includes("instagram")) clear.instagram_summary = null;
+        const { data: liLeft } = await supabase.from("lead_social_profiles").select("id")
+          .eq("lead_id", lead.id).in("network", ["linkedin_person", "linkedin_company"]).limit(1);
+        if (!liLeft?.length && staleNets.some((n) => n.startsWith("linkedin"))) clear.linkedin_summary = null;
+        if (Object.keys(clear).length) await supabase.from("lead_insights").update(clear).eq("lead_id", lead.id);
+      }
       steps.social = socialSteps;
       steps.apify_scrape = `ran ${tasks.length}`;
 
