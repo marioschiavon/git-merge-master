@@ -458,25 +458,33 @@ async function runJob(job_id: string) {
 
       const igHandle = lead.instagram_url ? handleFromUrl(lead.instagram_url, "instagram\\.com") : null;
       runNet("instagram", igHandle ? lead.instagram_url : null, async () => {
+        // "details": uma chamada traz bio, seguidores, categoria e os últimos 12 posts
         const r = await runApifyActorDetailed(apifyToken, actorFor("instagram"), {
-          directUrls: [lead.instagram_url], resultsType: "posts", resultsLimit: 12, addParentData: true,
+          directUrls: [lead.instagram_url], resultsType: "details", resultsLimit: 1,
         });
+        const p: any = r.items?.[0];
+        if (p && (p.error || !p.username)) {
+          const why = p.error === "not_found" ? "perfil não existe mais (link do site desatualizado)" : (p.error || "perfil indisponível");
+          return { items: [], error: why, retryable: false };
+        }
         return {
           ...r,
           save: async () => {
-            const items = r.items!;
-            const posts = normalizeInstagramPosts(items);
-            const first: any = items[0] || {};
-            const owner: any = first.owner || {};
+            const posts = normalizeInstagramPosts(p.latestPosts || []);
             await supabase.from("lead_social_profiles").upsert({
               lead_id: lead.id, company_id: lead.company_id, network: "instagram",
-              handle: first.ownerUsername || owner.username || igHandle,
+              handle: p.username || igHandle,
               url: lead.instagram_url,
-              bio: owner.biography || first.ownerFullName || null,
-              followers: owner.followersCount || first.ownerFollowersCount || null,
+              bio: [p.biography, p.businessCategoryName && p.businessCategoryName !== "None" ? `(${p.businessCategoryName})` : null].filter(Boolean).join(" ") || p.fullName || null,
+              followers: p.followersCount ?? null,
               recent_posts: posts,
               posts_summary: summarizePosts(posts),
-              raw: { sampleSize: items.length, owner, firstPost: first },
+              raw: {
+                fullName: p.fullName, biography: p.biography, followersCount: p.followersCount,
+                businessCategoryName: p.businessCategoryName, externalUrl: p.externalUrl,
+                businessEmail: p.businessEmail, businessPhoneNumber: p.businessPhoneNumber,
+                postsCount: p.postsCount, private: p.private, verified: p.verified,
+              },
               scraped_at: new Date().toISOString(),
             }, { onConflict: "lead_id,network" });
           },
