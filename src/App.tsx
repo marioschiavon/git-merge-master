@@ -45,6 +45,7 @@ import NotFound from "@/pages/NotFound";
 import ApolloSearch from "@/pages/ApolloSearch";
 import InviteAccept from "@/pages/InviteAccept";
 import Municipia from "@/pages/Municipia";
+import GmailReturn from "@/pages/oauth/GmailReturn";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -72,6 +73,7 @@ const App = () => (
             <Route path="/termos" element={<LegalPage kind="termos" />} />
             <Route path="/privacidade" element={<LegalPage kind="privacidade" />} />
             <Route path="/invite/:token" element={<InviteAccept />} />
+            <Route path="/oauth/gmail/return" element={<GmailReturn />} />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route element={<AppLayout />}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />

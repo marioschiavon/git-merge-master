@@ -84,7 +84,53 @@ export function PersonalEmailCard() {
     },
   });
 
+  const connectGmail = async () => {
+    const popup = window.open("", "leaderei-gmail-oauth", "width=600,height=720");
+    if (!popup) {
+      toast({ title: "Pop-up bloqueado", description: "Permita pop-ups e tente novamente.", variant: "destructive" });
+      return;
+    }
+    setConnecting("google");
+    try {
+      const { data, error } = await supabase.functions.invoke("gmail-oauth-start", {
+        body: { origin: window.location.origin },
+      });
+      if (error) throw error;
+      const done = new Promise<void>((resolve, reject) => {
+        let poll: number | undefined;
+        const cleanup = () => {
+          window.removeEventListener("message", onMsg);
+          if (poll !== undefined) window.clearInterval(poll);
+        };
+        const onMsg = (ev: MessageEvent) => {
+          const t = ev.data?.type;
+          if (ev.origin !== window.location.origin || ev.source !== popup || ev.data?.connectorId !== "google_mail") return;
+          if (t !== "appUserConnectorOAuthComplete" && t !== "appUserConnectorOAuthFailed") return;
+          cleanup();
+          if (t === "appUserConnectorOAuthComplete") resolve();
+          else { popup.close(); reject(new Error(ev.data?.reason ?? "Falha na conexão.")); }
+        };
+        window.addEventListener("message", onMsg);
+        poll = window.setInterval(() => {
+          if (!popup.closed) return;
+          cleanup();
+          reject(new Error("Janela fechada antes de concluir."));
+        }, 500);
+      });
+      popup.location.href = (data as any).authorizationUrl;
+      await done;
+      toast({ title: "Gmail conectado", description: "Sua caixa já pode enviar pelas cadências." });
+      qc.invalidateQueries({ queryKey: ["personal-email-grants"] });
+    } catch (e: any) {
+      popup.close();
+      toast({ title: "Falha ao conectar Gmail", description: String(e?.message || e), variant: "destructive" });
+    } finally {
+      setConnecting(null);
+    }
+  };
+
   const connect = async (provider: "google" | "microsoft" | "imap") => {
+    if (provider === "google") return connectGmail();
     setConnecting(provider);
     try {
       const { data, error } = await supabase.functions.invoke("email-connect-start", {
@@ -228,7 +274,7 @@ export function PersonalEmailCard() {
       </div>
 
       <p className="text-[10px] text-muted-foreground pt-2 border-t">
-        Integração de email via Nylas.
+        Gmail conectado diretamente com o Google. Status "expired" = clique em Conectar Gmail para renovar.
       </p>
     </div>
   );
