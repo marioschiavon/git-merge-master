@@ -35,8 +35,10 @@ Deno.serve(async (req) => {
     const email = String((await prof.json()).emailAddress || "").toLowerCase();
 
     const admin = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const { data: profile } = await admin.from("profiles").select("company_id, full_name").eq("id", user.id).maybeSingle();
-    if (!profile?.company_id) return json({ error: "Usuário sem empresa" }, 400);
+    const { data: companyId } = await admin.rpc("get_user_company_id", { _user_id: user.id });
+    const { data: prof2 } = await admin.from("profiles").select("full_name").eq("user_id", user.id).maybeSingle();
+    const profile = { company_id: companyId as string | null, full_name: prof2?.full_name ?? null };
+    if (!profile.company_id) return json({ error: "Usuário sem empresa" }, 400);
 
     const { error } = await admin.from("user_email_grants").upsert({
       user_id: user.id,
