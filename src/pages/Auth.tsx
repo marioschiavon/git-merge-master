@@ -240,6 +240,11 @@ export default function Auth() {
             </>
           )}
         </CardContent>
+        <p className="px-6 pb-6 text-center text-xs text-muted-foreground">
+          Ao continuar, você concorda com os{" "}
+          <a href="/termos" target="_blank" rel="noreferrer" className="underline hover:text-foreground">Termos de Uso</a> e a{" "}
+          <a href="/privacidade" target="_blank" rel="noreferrer" className="underline hover:text-foreground">Política de Privacidade</a>.
+        </p>
       </Card>
     </div>
   );

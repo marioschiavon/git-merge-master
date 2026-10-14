@@ -38,6 +38,7 @@ import Bookings from "@/pages/Bookings";
 import WhatsAppBestPractices from "@/pages/WhatsAppBestPractices";
 import Manual from "@/pages/Manual";
 import Unsubscribe from "@/pages/Unsubscribe";
+import LegalPage from "@/pages/LegalPage";
 import ResetPassword from "@/pages/ResetPassword";
 import Onboarding from "@/pages/Onboarding";
 import NotFound from "@/pages/NotFound";
@@ -68,6 +69,8 @@ const App = () => (
             <Route path="/auth" element={<Auth />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/unsubscribe" element={<Unsubscribe />} />
+            <Route path="/termos" element={<LegalPage kind="termos" />} />
+            <Route path="/privacidade" element={<LegalPage kind="privacidade" />} />
             <Route path="/invite/:token" element={<InviteAccept />} />
             <Route path="/onboarding" element={<Onboarding />} />
             <Route element={<AppLayout />}>
