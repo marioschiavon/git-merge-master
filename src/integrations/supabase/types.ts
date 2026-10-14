@@ -105,6 +105,36 @@ export type Database = {
           },
         ]
       }
+      app_user_connections: {
+        Row: {
+          connection_key_ciphertext: string
+          connector_id: string
+          created_at: string
+          id: string
+          reconnect_required: boolean
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          connection_key_ciphertext: string
+          connector_id: string
+          created_at?: string
+          id?: string
+          reconnect_required?: boolean
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          connection_key_ciphertext?: string
+          connector_id?: string
+          created_at?: string
+          id?: string
+          reconnect_required?: boolean
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       approval_requests: {
         Row: {
           action: string
@@ -3617,6 +3647,7 @@ export type Database = {
           provider: Database["public"]["Enums"]["email_grant_provider"]
           scopes: string[] | null
           status: Database["public"]["Enums"]["email_grant_status"]
+          transport: string
           updated_at: string
           user_id: string
           warmup_paused: boolean
@@ -3636,6 +3667,7 @@ export type Database = {
           provider: Database["public"]["Enums"]["email_grant_provider"]
           scopes?: string[] | null
           status?: Database["public"]["Enums"]["email_grant_status"]
+          transport?: string
           updated_at?: string
           user_id: string
           warmup_paused?: boolean
@@ -3655,6 +3687,7 @@ export type Database = {
           provider?: Database["public"]["Enums"]["email_grant_provider"]
           scopes?: string[] | null
           status?: Database["public"]["Enums"]["email_grant_status"]
+          transport?: string
           updated_at?: string
           user_id?: string
           warmup_paused?: boolean
