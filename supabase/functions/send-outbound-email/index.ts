@@ -3,6 +3,8 @@
 // para RECEBIMENTO (MX/inbound webhook).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { sendMessage as nylasSendMessage } from "../_shared/nylas.ts";
+import { gmailSend, GmailReconnectError } from "../_shared/gmail.ts";
+import { getConnectionKeyForUser } from "../_shared/appUserConnections.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,7 +80,7 @@ Deno.serve(async (req) => {
       if (!id) return null;
       const { data } = await supabase
         .from("user_email_grants")
-        .select("id, grant_id, email, display_name, status, company_id")
+        .select("id, grant_id, email, display_name, status, company_id, transport, user_id")
         .eq("id", id)
         .maybeSingle();
       if (data && data.status === "active" && data.company_id === companyId) return data;
@@ -117,7 +119,7 @@ Deno.serve(async (req) => {
     if (!grant) {
       const { data } = await supabase
         .from("user_email_grants")
-        .select("id, grant_id, email, display_name, status, company_id")
+        .select("id, grant_id, email, display_name, status, company_id, transport, user_id")
         .eq("company_id", companyId)
         .eq("status", "active")
         .order("created_at", { ascending: true })
@@ -153,9 +155,36 @@ Deno.serve(async (req) => {
       ? (extra_metadata as any).nylas_reply_to_message_id ?? null
       : null;
 
+    const viaGmail = grant.transport === "gmail";
     let sendResult;
     try {
-      sendResult = await nylasSendMessage({
+      if (viaGmail) {
+        const key = await getConnectionKeyForUser(grant.user_id, "google_mail");
+        if (!key) throw new GmailReconnectError("Conexão do Gmail não encontrada (reconectar).");
+        // Mantém a conversa na mesma thread do Gmail quando houver
+        let gThread: string | null = null;
+        let inReplyTo: string | null = null;
+        if (conversation_id) {
+          const { data: last } = await supabase.from("messages")
+            .select("provider_thread_id, rfc_message_id, email_provider")
+            .eq("conversation_id", conversation_id)
+            .not("rfc_message_id", "is", null)
+            .order("created_at", { ascending: false }).limit(1).maybeSingle();
+          inReplyTo = last?.rfc_message_id ?? null;
+          if (last?.email_provider === "gmail") gThread = last.provider_thread_id ?? null;
+        }
+        sendResult = await gmailSend({
+          connectionAPIKey: key,
+          fromEmail: grant.email,
+          fromName: grant.display_name || undefined,
+          to: String(to),
+          subject,
+          html: html || `<p>${escapeHtml(text)}</p>`,
+          text,
+          threadId: gThread,
+          inReplyTo,
+        });
+      } else sendResult = await nylasSendMessage({
         grantId: grant.grant_id,
         to: String(to),
         fromName: grant.display_name || undefined,
@@ -166,9 +195,12 @@ Deno.serve(async (req) => {
       });
     } catch (e) {
       const msg = (e as Error).message;
-      console.error("nylas send failed:", msg);
+      console.error("email send failed:", msg);
       await supabase.from("user_email_grants")
-        .update({ last_error: msg.slice(0, 500) })
+        .update({
+          last_error: msg.slice(0, 500),
+          ...(e instanceof GmailReconnectError ? { status: "expired" } : {}),
+        })
         .eq("id", grant.id);
       await logDelivery(supabase, {
         company_id: companyId,
@@ -176,7 +208,7 @@ Deno.serve(async (req) => {
         conversation_id: conversation_id ?? null,
         recipient_email: String(to),
         subject: subject ?? null,
-        provider: "nylas",
+        provider: viaGmail ? "gmail" : "nylas",
         from_email: grant.email,
         status: "failed",
         error_message: msg.slice(0, 500),
@@ -184,7 +216,7 @@ Deno.serve(async (req) => {
       });
       return jsonResponse({
         error: "Falha ao enviar via email pessoal",
-        code: "nylas_send_failed",
+        code: viaGmail ? (e instanceof GmailReconnectError ? "gmail_reconnect_required" : "gmail_send_failed") : "nylas_send_failed",
         details: msg,
       }, 502);
     }
@@ -217,9 +249,9 @@ Deno.serve(async (req) => {
         provider_message_id: sendResult.id,
         provider_thread_id: sendResult.thread_id || threadId,
         rfc_message_id: sendResult.message_id_header,
-        email_provider: "nylas",
+        email_provider: viaGmail ? "gmail" : "nylas",
         metadata: {
-          subject, channel: "email", via: "nylas",
+          subject, channel: "email", via: viaGmail ? "gmail" : "nylas",
           sender_email: grant.email,
           grant_id: grant.id,
           ...(extra_metadata && typeof extra_metadata === "object" ? extra_metadata : {}),
@@ -241,7 +273,7 @@ Deno.serve(async (req) => {
       conversation_id: conversationId ?? null,
       recipient_email: String(to),
       subject: subject ?? null,
-      provider: "nylas",
+      provider: viaGmail ? "gmail" : "nylas",
       from_email: grant.email,
       status: "sent",
       provider_message_id: sendResult.id,
@@ -265,7 +297,7 @@ Deno.serve(async (req) => {
 
     return jsonResponse({
       success: true,
-      provider: "nylas",
+      provider: viaGmail ? "gmail" : "nylas",
       provider_message_id: sendResult.id,
       gmail_message_id: sendResult.id, // alias legado
       provider_thread_id: sendResult.thread_id || threadId,
