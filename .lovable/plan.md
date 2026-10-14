@@ -17,7 +17,7 @@ Publicar o documento enviado (v1.0, vigente a partir de 01/10/2026) em páginas 
 ## Ajustes necessários no texto (preciso da sua confirmação)
 ## Ajustes aprovados no texto
 1. **Google (obrigatório para aprovação):** nova seção "Uso de dados do Google" na Política: dados do Gmail usados só para enviar e ler respostas das cadências, não vendidos, não usados para treinar IA, seguindo a "Google API Services User Data Policy, incluindo os requisitos de Uso Limitado".
-2. **Suboperadores:** "Resend e Nylas" vira "Google (Gmail API)"; "UpEvolution" vira "S7" (infraestrutura de envio por WhatsApp).
+2. **Suboperadores:** "Resend e Nylas" vira "Google (Gmail API)". A linha de infraestrutura de envio por WhatsApp passa a citar "Hook7". Qualquer outra menção a "UpEvolution" no texto vira "S7".
 3. Demais textos serão publicados exatamente como estão no documento.
 
 ## Detalhes técnicos
