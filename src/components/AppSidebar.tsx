@@ -242,6 +242,12 @@ export function AppSidebar() {
           <LogOut className="mr-2 h-4 w-4" />
           {!collapsed && "Sair"}
         </Button>
+        {!collapsed && (
+          <div className="mt-2 flex gap-3 text-[10px] text-sidebar-foreground/50">
+            <a href="/termos" target="_blank" rel="noreferrer" className="hover:underline">Termos</a>
+            <a href="/privacidade" target="_blank" rel="noreferrer" className="hover:underline">Privacidade</a>
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );
