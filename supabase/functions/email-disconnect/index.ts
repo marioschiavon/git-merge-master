@@ -1,6 +1,8 @@
 // Revokes a connected email grant and deletes the row.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { revokeGrant } from "../_shared/nylas.ts";
+import { disconnectAppUser, GATEWAY_BASE_URL } from "../_shared/appUserConnector.ts";
+import { getConnectionKeyForUser, deleteConnectionForUser } from "../_shared/appUserConnections.ts";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -42,7 +44,7 @@ Deno.serve(async (req) => {
 
     const { data: row } = await admin
       .from("user_email_grants")
-      .select("id, user_id, grant_id")
+      .select("id, user_id, grant_id, transport")
       .eq("id", grant_row_id)
       .maybeSingle();
     if (!row) {
@@ -66,7 +68,15 @@ Deno.serve(async (req) => {
       }
     }
 
-    try {
+    if (row.transport === "gmail") {
+      try {
+        const key = await getConnectionKeyForUser(row.user_id, "google_mail");
+        if (key) await disconnectAppUser({ gatewayBaseUrl: GATEWAY_BASE_URL, connectionAPIKey: key, connectorId: "google_mail" });
+      } catch (e) {
+        console.warn("gmail disconnect warning", e);
+      }
+      await deleteConnectionForUser(row.user_id, "google_mail");
+    } else try {
       await revokeGrant(row.grant_id);
     } catch (e) {
       console.warn("nylas revoke warning (continuing to delete row)", e);
