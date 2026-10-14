@@ -15,8 +15,9 @@ Publicar o documento enviado (v1.0, vigente a partir de 01/10/2026) em páginas 
 - Links "Termos de Uso" e "Política de Privacidade" na tela de login/cadastro e no rodapé do menu lateral do app.
 
 ## Ajustes necessários no texto (preciso da sua confirmação)
-1. **Google (obrigatório para aprovação):** incluir na Política de Privacidade a seção "Uso de dados do Google", dizendo que dados do Gmail são usados só para enviar e ler as respostas das cadências, não são vendidos, não treinam IA e seguem a "Google API Services User Data Policy, incluindo os requisitos de Uso Limitado". Sem esse trecho o Google costuma recusar a verificação.
-2. **Lista de suboperadores:** o documento cita "Resend e Nylas" e "UpEvolution". Como o e-mail passa a ser direto com o Google, sugiro trocar a linha de e-mail por "Google (Gmail API)" e confirmar se "UpEvolution" deve aparecer com esse nome (pela nossa regra, o motor de WhatsApp é sempre apresentado como Hook7).
+## Ajustes aprovados no texto
+1. **Google (obrigatório para aprovação):** nova seção "Uso de dados do Google" na Política: dados do Gmail usados só para enviar e ler respostas das cadências, não vendidos, não usados para treinar IA, seguindo a "Google API Services User Data Policy, incluindo os requisitos de Uso Limitado".
+2. **Suboperadores:** "Resend e Nylas" vira "Google (Gmail API)"; "UpEvolution" vira "S7" (infraestrutura de envio por WhatsApp).
 3. Demais textos serão publicados exatamente como estão no documento.
 
 ## Detalhes técnicos
