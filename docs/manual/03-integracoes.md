@@ -14,7 +14,8 @@ Você conecta uma vez e o Leaderei cuida do resto.
 | Integração | Serve para | É obrigatória? |
 |---|---|---|
 | [WhatsApp (Hook7)](./03a-whatsapp-hook7.md) | Enviar e receber mensagens no WhatsApp | Sim, se sua cadência tem passo de WhatsApp |
-| [Email (domínio próprio)](./03b-email-resend.md) | Enviar e receber emails com o **seu** domínio (`atendimento@suaempresa.com.br`) | Sim, se sua cadência tem passo de email |
+| Gmail | Enviar emails das cadências, respostas e aprovações pela **sua** caixa Gmail (botão **Conectar Gmail** no card) | Sim, se sua cadência tem passo de email |
+| [Domínio próprio (opcional)](./03b-email-resend.md) | Endereço institucional com seu domínio (`atendimento@suaempresa.com.br`) | Não |
 | [Apollo](./03c-apollo.md) | Buscar e importar leads B2B (nome, cargo, empresa, LinkedIn, telefone) | Recomendada |
 | [Pipedrive](./03d-pipedrive.md) | Sincronizar leads e negócios com seu CRM | Opcional |
 | [Bitrix24](./03f-bitrix24.md) | Criar negócios no Bitrix24 quando leads são abordados e avançar etapas no handoff | Opcional |

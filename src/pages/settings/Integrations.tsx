@@ -44,6 +44,7 @@ import { WhatsAppManagerDialog } from "@/components/WhatsAppManagerDialog";
 import { ApolloConnectDialog } from "@/components/ApolloConnectDialog";
 import { Bitrix24Dialog } from "@/components/Bitrix24Dialog";
 import { useBitrix24Integration } from "@/hooks/useBitrix24";
+import { useGmailConnection } from "@/hooks/useGmailConnection";
 
 import { useApolloStatus } from "@/hooks/useApollo";
 import { useCalcomConnection, useCalcomConnect, useCalcomDisconnect, useCalcomTestConnection } from "@/hooks/useCalcom";
@@ -639,6 +640,10 @@ export default function Integrations() {
         ? "pending"
         : "disconnected";
   const { data: calcomConn } = useCalcomConnection();
+  const gmail = useGmailConnection();
+  const gmailStatus: StatusKey = gmail.mine
+    ? gmail.mine.status === "active" ? "connected" : "pending"
+    : "disconnected";
   const calcomStatus: StatusKey = calcomConn?.connected ? "connected" : "disconnected";
 
   const providers: Array<ProviderCardProps & { key: string }> = [
@@ -668,13 +673,45 @@ export default function Integrations() {
     },
 
     {
-      key: "email",
-      name: "Email",
+      key: "gmail",
+      name: "Gmail",
       category: "Email",
       description:
-        "Cada empresa envia com seu próprio domínio (mail.suaempresa.com). Reputação isolada por cliente.",
+        "Conecte sua caixa Gmail para que cadências, respostas e aprovações sejam enviadas pelo seu próprio email.",
       icon: Mail,
       iconTint: "text-primary",
+      status: gmailStatus,
+      operationalLabel: gmail.mine?.email,
+      readinessLabel:
+        gmailStatus === "pending"
+          ? "Renovar acesso"
+          : gmail.gmailGrants.length > 0
+            ? `${gmail.gmailGrants.length} caixa${gmail.gmailGrants.length > 1 ? "s" : ""} da equipe`
+            : undefined,
+      actionLabel: gmail.connecting
+        ? "Conectando…"
+        : gmailStatus === "connected"
+          ? "Desconectar"
+          : gmailStatus === "pending"
+            ? "Reconectar Gmail"
+            : "Conectar Gmail",
+      disabled: gmail.connecting || gmail.disconnect.isPending,
+      onAction: () => {
+        if (gmailStatus === "connected" && gmail.mine) {
+          if (confirm(`Desconectar ${gmail.mine.email}?`)) gmail.disconnect.mutate(gmail.mine.id);
+        } else {
+          gmail.connect();
+        }
+      },
+    },
+    {
+      key: "email",
+      name: "Domínio próprio (opcional)",
+      category: "Email",
+      description:
+        "Opcional: endereço institucional com seu próprio domínio (mail.suaempresa.com). Não é necessário para enviar pelo Gmail.",
+      icon: Mail,
+      iconTint: "text-muted-foreground",
       status: emailStatus,
       operationalLabel: emailDomain?.from_email ?? emailDomain?.sending_domain ?? undefined,
       readinessLabel:
