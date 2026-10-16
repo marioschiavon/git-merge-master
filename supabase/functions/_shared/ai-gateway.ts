@@ -134,9 +134,11 @@ export async function chatCompletion(
 
   // 2) Try OpenAI if configured.
   const keys = await getFallbackKeys();
+  // Gateway reasoning controls must not leak into the unchanged native fallback contracts.
+  const { reasoning_effort: _gatewayReasoning, ...fallbackClean } = clean;
   if (keys.openai) {
     const oaModel = mapModel(requestedModel, "openai");
-    const oaBody = { ...clean, model: oaModel };
+    const oaBody = { ...fallbackClean, model: oaModel };
     try {
       const r = await callChat(OPENAI_URL, keys.openai, "bearer", oaBody);
       if (r.ok && r.data) {
@@ -160,7 +162,7 @@ export async function chatCompletion(
   // 3) Try Gemini if configured.
   if (keys.gemini) {
     const gmModel = mapModel(requestedModel, "gemini");
-    const gmBody = { ...clean, model: gmModel };
+    const gmBody = { ...fallbackClean, model: gmModel };
     try {
       const r = await callChat(GEMINI_URL, keys.gemini, "bearer", gmBody);
       if (r.ok && r.data) {

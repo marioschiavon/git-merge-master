@@ -6,6 +6,7 @@ Cada arquivo cobre um dia e segue o mesmo formato: **Novidades**, **Melhorias** 
 
 ## Índice
 
+- [16/10/2026](./2026-10-16.md) — beta 0.83 → beta 0.84
 - [19/08/2026](./2026-08-19.md) — beta 0.33 → beta 0.38
 
 ## Como manter
