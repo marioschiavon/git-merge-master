@@ -5,7 +5,7 @@
 **Financeiro / Preços** passa a ter duas seções:
 
 1. **Planos** (substitui a "Assinatura base")
-   - Começa com 3 planos: Plano 1 (R$ 700), Plano 2 (R$ 1.000), Plano 3 (R$ 2.000).
+   - Começa com 3 planos: Prospect (R$ 700), Pipeline (R$ 1.000), Accelerate (R$ 2.000).
    - Tudo editável: criar plano novo, renomear, mudar valor, descrição, ordem e desativar.
    - Por enquanto os planos só diferem no preço (mesmas funções).
 
@@ -18,8 +18,6 @@
 - Valores vêm de Financeiro / Preços; total mensal = plano + módulos.
 - Passa a ser salvo de verdade (deixa de ser só prévia). Cobrança pelo Asaas continua na próxima etapa.
 
-## Sugestão de nomes (opcional)
-Essencial / Profissional / Enterprise — ou Start / Growth / Scale. Fica "Plano 1, 2, 3" até você decidir; dá para renomear no painel.
 
 ## Detalhes técnicos
 - Nova tabela `billing_plans` (id, name, description, price_cents, active, sort_order), RLS só master_admin, seed com os 3 planos.
