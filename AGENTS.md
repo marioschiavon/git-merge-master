@@ -1,2 +1,5 @@
 - Organizações protegidas (protected_organizations): toda nova fonte de importação ou disparo frio deve checar lead_protection/is_lead_protected — evita prospectar clientes ou negociações por engano.
 - Social enrichment (Instagram/LinkedIn) discovers profiles only from the lead's own website and is gated per company by `companies.social_enrichment` (master-only, trigger-guarded) plus the global platform toggle — avoids noisy name-based matches and lets credit use vary per client.
+- Gateway model migrations keep historical pricing and explicit native-provider fallback mappings; provider-native availability must be verified separately because Gateway lifecycle metadata does not establish direct-provider support.
+- SDR reasoning effort is explicit in both normal and forced-tool requests so the Gateway does not select an unsupported implicit reasoning level.
+- Server-boundary tests live in root `tests/` and are included by Vitest outside the frontend TypeScript source tree, preventing Deno dependencies from entering browser compilation.

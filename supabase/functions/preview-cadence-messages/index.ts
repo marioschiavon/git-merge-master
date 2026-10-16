@@ -179,7 +179,7 @@ Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"g
         method: "POST",
         headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: "google/gemini-3.8-flash",
           messages: [
             { role: "system", content: variationsSystem },
             { role: "user", content: `Lead: ${lead.name} (${lead.title || "cargo n/d"}) — ${lead.company_name || "empresa n/d"}.\nEmail: ${lead.email || "N/A"}.\n\nGere ${variationCount} variações distintas.` },
@@ -268,7 +268,7 @@ Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"g
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "google/gemini-2.5-flash",
+          model: "google/gemini-3.8-flash",
           messages: [
             {
               role: "system",

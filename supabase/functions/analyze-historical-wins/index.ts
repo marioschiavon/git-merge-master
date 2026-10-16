@@ -57,7 +57,7 @@ async function analyzeCompany(supabase: any, companyId: string): Promise<{ updat
     method: "POST",
     headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "google/gemini-3.8-flash",
       messages: [
         { role: "system", content: "Você analisa mensagens de prospecção que resultaram em reuniões agendadas. Extraia padrões em PT-BR e responda com 6-10 bullets objetivos cobrindo: tom, tipo de gancho, tamanho ideal, tipo de CTA e o que evitar. Não invente — só use o que aparece nos exemplos." },
         { role: "user", content: `Mensagens vencedoras (que resultaram em reunião):\n\n${sampleMessages}` },

@@ -10,7 +10,7 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const SUMMARY_MODEL = "google/gemini-2.5-flash-lite";
+const SUMMARY_MODEL = "google/gemini-3.1-flash-lite";
 const REFRESH_EVERY = 10; // re-summarize after N new messages
 
 interface Msg {

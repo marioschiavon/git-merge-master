@@ -10,6 +10,9 @@ interface ModelPrice {
 }
 
 const PRICE_TABLE: Record<string, ModelPrice> = {
+  "openai/gpt-6.1-sol": { inputPer1M: 2.0, outputPer1M: 10.0 },
+  "google/gemini-4-argon": { inputPer1M: 2.0, outputPer1M: 10.0 },
+  "google/gemini-3.8-flash": { inputPer1M: 0.75, outputPer1M: 3.75 },
   "openai/gpt-5": { inputPer1M: 1.25, outputPer1M: 10.0 },
   "openai/gpt-5-mini": { inputPer1M: 0.25, outputPer1M: 2.0 },
   "openai/gpt-5-nano": { inputPer1M: 0.05, outputPer1M: 0.4 },
@@ -23,7 +26,7 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
   "google/gemini-2.5-flash-lite": { inputPer1M: 0.1, outputPer1M: 0.4 },
   "google/gemini-3-flash-preview": { inputPer1M: 0.3, outputPer1M: 2.5 },
   "google/gemini-3.5-flash": { inputPer1M: 0.3, outputPer1M: 2.5 },
-  "google/gemini-3.1-flash-lite": { inputPer1M: 0.1, outputPer1M: 0.4 },
+  "google/gemini-3.1-flash-lite": { inputPer1M: 0.25, outputPer1M: 1.5 },
   "google/gemini-3.1-pro-preview": { inputPer1M: 1.25, outputPer1M: 10.0 },
 };
 

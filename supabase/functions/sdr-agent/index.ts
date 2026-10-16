@@ -53,7 +53,7 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const MODEL = "google/gemini-2.5-pro";
+const MODEL = "google/gemini-4-argon";
 const MAX_STEPS = 8;
 const HISTORY_LIMIT = 120; // ~3-5 turnos completos por conversa longa
 
@@ -2147,6 +2147,7 @@ Deno.serve(async (req) => {
       const t0 = Date.now();
       const res = await chatCompletion({
         model: MODEL,
+        reasoning_effort: "low",
         messages,
         tools: TOOLS_ALLOWED,
         tool_choice: "auto",
@@ -2199,6 +2200,7 @@ Deno.serve(async (req) => {
           const tRetry0 = Date.now();
           const retry = await chatCompletion({
             model: MODEL,
+            reasoning_effort: "low",
             messages: [
               ...messages,
               {

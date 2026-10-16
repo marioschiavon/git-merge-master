@@ -82,7 +82,7 @@ async function buildOutreach(admin: any, companyId: string, sourceLead: any, c: 
       .limit(6);
     const kbText = (kb || []).map((k: any) => `- ${k.title}: ${String(k.content || "").slice(0, 400)}`).join("\n");
     const res = await chatCompletion({
-      model: "google/gemini-2.5-flash",
+      model: "google/gemini-3.8-flash",
       temperature: 0.4,
       messages: [
         {

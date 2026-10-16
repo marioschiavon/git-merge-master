@@ -67,7 +67,7 @@ Analise a última mensagem do prospect e sugira a resposta ideal.`;
     let data;
     try {
       data = await chatCompletion({
-        model: "openai/gpt-5",
+        model: "openai/gpt-6.1-sol",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },

@@ -60,6 +60,10 @@ export async function getFallbackKeys(): Promise<FallbackKeys> {
 // OpenAI direct: uses vendor-native names (no `openai/` prefix).
 // Gemini via OpenAI-compat endpoint: uses vendor-native `gemini-*`.
 const MODEL_MAP: Record<string, { openai: string; gemini: string }> = {
+  // Preserve existing native-provider routes until their availability is verified separately.
+  "openai/gpt-6.1-sol":           { openai: "gpt-4o",       gemini: "gemini-2.5-pro" },
+  "google/gemini-4-argon":        { openai: "gpt-4o",       gemini: "gemini-2.5-pro" },
+  "google/gemini-3.8-flash":      { openai: "gpt-4o-mini",  gemini: "gemini-2.5-flash" },
   "openai/gpt-5.5":                { openai: "gpt-4o",       gemini: "gemini-2.5-pro" },
   "openai/gpt-5":                  { openai: "gpt-4o",       gemini: "gemini-2.5-pro" },
   "openai/gpt-5.2":                { openai: "gpt-4o",       gemini: "gemini-2.5-pro" },
