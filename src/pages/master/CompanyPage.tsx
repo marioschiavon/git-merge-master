@@ -19,16 +19,8 @@ import { SocialEnrichmentBlock } from "@/components/master/SocialEnrichmentBlock
 
 const roleLabel: Record<string, string> = { master_admin: "Master admin", company_admin: "Admin", user: "Usuário" };
 
-// Catálogo provisório (assinatura em construção — valores ilustrativos, não salvos).
-const MODULES = [
-  { key: "core", label: "Leaderei (base)", price: 0 },
-  { key: "whatsapp", label: "WhatsApp (Hook7)", price: 0 },
-  { key: "email", label: "E-mail", price: 0 },
-  { key: "municipia", label: "MunicipIA", price: 0 },
-  { key: "social", label: "Enriquecimento de redes", price: 0 },
-  { key: "bitrix", label: "Bitrix24", price: 0 },
-  { key: "calcom", label: "Cal.com", price: 0 },
-];
+const db = supabase as any;
+const cents = (c: number) => formatBrl(c / 100);
 
 export default function CompanyPage() {
   const { id } = useParams<{ id: string }>();
@@ -51,9 +43,22 @@ export default function CompanyPage() {
     },
   });
 
-  const [active, setActive] = useState<string[]>(["core", "whatsapp"]);
+  const { data: billing } = useQuery({
+    queryKey: ["company-billing", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const [p, m, s] = await Promise.all([
+        db.from("billing_plans").select("*").order("sort_order"),
+        db.from("billing_catalog").select("*").eq("kind", "module").order("sort_order"),
+        db.from("company_subscriptions").select("*").eq("company_id", id!).maybeSingle(),
+      ]);
+      return { plans: (p.data ?? []) as any[], modules: (m.data ?? []) as any[], sub: s.data as any };
+    },
+  });
   const [editing, setEditing] = useState(false);
+  const [draftPlan, setDraftPlan] = useState<string | null>(null);
   const [draft, setDraft] = useState<string[]>([]);
+  const [savingSub, setSavingSub] = useState(false);
 
   if (isLoading) return <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Carregando…</p>;
   const company = data?.company;
@@ -82,7 +87,28 @@ export default function CompanyPage() {
     toast.success("Link do convite copiado");
   };
 
-  const total = MODULES.filter((m) => active.includes(m.key)).reduce((s, m) => s + m.price, 0);
+  const plans = billing?.plans ?? [];
+  const sellable = (billing?.modules ?? []).filter((m: any) => !m.included_in_plans);
+  const included = (billing?.modules ?? []).filter((m: any) => m.included_in_plans);
+  const sub = billing?.sub;
+  const plan = plans.find((p: any) => p.id === sub?.plan_id);
+  const activeMods = sellable.filter((m: any) => sub?.module_keys?.includes(m.key));
+  const total = (plan?.price_cents ?? 0) + activeMods.reduce((s: number, m: any) => s + m.price_cents, 0);
+  const draftTotal = (plans.find((p: any) => p.id === draftPlan)?.price_cents ?? 0) +
+    sellable.filter((m: any) => draft.includes(m.key)).reduce((s: number, m: any) => s + m.price_cents, 0);
+
+  const saveSub = async () => {
+    if (!draftPlan) return toast.error("Escolha um plano");
+    setSavingSub(true);
+    const { error } = await db.from("company_subscriptions").upsert({
+      company_id: company.id, plan_id: draftPlan, module_keys: draft, updated_at: new Date().toISOString(),
+    });
+    setSavingSub(false);
+    if (error) return toast.error(error.message);
+    toast.success("Assinatura salva");
+    setEditing(false);
+    qc.invalidateQueries({ queryKey: ["company-billing", id] });
+  };
   const cadActive = data!.cadences.filter((c: any) => c.status === "active").length;
 
   return (
@@ -198,22 +224,30 @@ export default function CompanyPage() {
             <CardHeader className="flex flex-row items-start justify-between space-y-0">
               <div>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  Assinatura <Badge variant="secondary" className="gap-1"><Construction className="h-3 w-3" /> Em construção</Badge>
+                  Assinatura <Badge variant="secondary" className="gap-1"><Construction className="h-3 w-3" /> Cobrança em breve</Badge>
                 </CardTitle>
-                <CardDescription>Módulos contratados e valor mensal. Ainda não é salvo nem cobrado.</CardDescription>
+                <CardDescription>Plano e módulos contratados. Valores de Financeiro / Preços; ainda não cobrado.</CardDescription>
               </div>
-              <Button size="sm" variant="outline" onClick={() => { setDraft(active); setEditing(true); }}>
-                <Pencil className="mr-1 h-3.5 w-3.5" /> Editar módulos
+              <Button size="sm" variant="outline" onClick={() => { setDraftPlan(sub?.plan_id ?? null); setDraft(sub?.module_keys ?? []); setEditing(true); }}>
+                <Pencil className="mr-1 h-3.5 w-3.5" /> Editar assinatura
               </Button>
             </CardHeader>
             <CardContent className="space-y-3">
-              {MODULES.filter((m) => active.includes(m.key)).map((m) => (
+              {!plan ? <p className="text-sm text-muted-foreground">Nenhum plano definido.</p> : (
+                <div className="flex justify-between rounded-md border p-2 text-sm font-medium">
+                  <span>Plano {plan.name}</span><span>{cents(plan.price_cents)}/mês</span>
+                </div>
+              )}
+              {activeMods.map((m: any) => (
                 <div key={m.key} className="flex justify-between rounded-md border p-2 text-sm">
-                  <span>{m.label}</span><span className="text-muted-foreground">{formatBrl(m.price)}/mês</span>
+                  <span>{m.name}</span><span className="text-muted-foreground">{cents(m.price_cents)}/mês</span>
                 </div>
               ))}
+              {plan && included.length > 0 && (
+                <p className="text-xs text-muted-foreground">Inclusos no plano: {included.map((m: any) => m.name).join(", ")}.</p>
+              )}
               <div className="flex justify-between border-t pt-3 font-semibold">
-                <span>Total mensal</span><span>{formatBrl(total)}</span>
+                <span>Total mensal</span><span>{cents(total)}</span>
               </div>
             </CardContent>
           </Card>
@@ -222,23 +256,36 @@ export default function CompanyPage() {
 
       <Dialog open={editing} onOpenChange={setEditing}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Editar módulos</DialogTitle></DialogHeader>
-          <div className="space-y-2">
-            {MODULES.map((m) => (
-              <label key={m.key} className="flex items-center gap-3 rounded-md border p-2 text-sm">
-                <Checkbox
-                  checked={draft.includes(m.key)}
-                  disabled={m.key === "core"}
-                  onCheckedChange={(v) => setDraft((d) => (v ? [...d, m.key] : d.filter((x) => x !== m.key)))}
-                />
-                <span className="flex-1">{m.label}</span>
-                <span className="text-muted-foreground">{formatBrl(m.price)}</span>
-              </label>
-            ))}
+          <DialogHeader><DialogTitle>Editar assinatura</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Plano</p>
+              {plans.filter((p: any) => p.active || p.id === sub?.plan_id).map((p: any) => (
+                <label key={p.id} className="flex items-center gap-3 rounded-md border p-2 text-sm">
+                  <input type="radio" name="plan" checked={draftPlan === p.id} onChange={() => setDraftPlan(p.id)} />
+                  <span className="flex-1">{p.name}</span>
+                  <span className="text-muted-foreground">{cents(p.price_cents)}</span>
+                </label>
+              ))}
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-medium">Módulos adicionais</p>
+              {sellable.filter((m: any) => m.active || draft.includes(m.key)).map((m: any) => (
+                <label key={m.key} className="flex items-center gap-3 rounded-md border p-2 text-sm">
+                  <Checkbox
+                    checked={draft.includes(m.key)}
+                    onCheckedChange={(v) => setDraft((d) => (v ? [...d, m.key] : d.filter((x) => x !== m.key)))}
+                  />
+                  <span className="flex-1">{m.name}</span>
+                  <span className="text-muted-foreground">{cents(m.price_cents)}</span>
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-between border-t pt-3 font-semibold"><span>Total mensal</span><span>{cents(draftTotal)}</span></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditing(false)}>Cancelar</Button>
-            <Button onClick={() => { setActive(draft); setEditing(false); toast.info("Prévia atualizada — a assinatura ainda está em construção"); }}>Aplicar</Button>
+            <Button onClick={saveSub} disabled={savingSub}>{savingSub ? "Salvando..." : "Salvar"}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
