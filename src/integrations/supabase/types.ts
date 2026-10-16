@@ -306,6 +306,7 @@ export type Database = {
         Row: {
           active: boolean
           description: string | null
+          included_in_plans: boolean
           key: string
           kind: string
           name: string
@@ -316,6 +317,7 @@ export type Database = {
         Insert: {
           active?: boolean
           description?: string | null
+          included_in_plans?: boolean
           key: string
           kind?: string
           name: string
@@ -326,8 +328,42 @@ export type Database = {
         Update: {
           active?: boolean
           description?: string | null
+          included_in_plans?: boolean
           key?: string
           kind?: string
+          name?: string
+          price_cents?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      billing_plans: {
+        Row: {
+          active: boolean
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          price_cents: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          price_cents?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          created_at?: string
+          description?: string | null
+          id?: string
           name?: string
           price_cents?: number
           sort_order?: number
@@ -1632,6 +1668,45 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      company_subscriptions: {
+        Row: {
+          company_id: string
+          module_keys: string[]
+          plan_id: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          module_keys?: string[]
+          plan_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          module_keys?: string[]
+          plan_id?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_subscriptions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "company_subscriptions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "billing_plans"
             referencedColumns: ["id"]
           },
         ]
