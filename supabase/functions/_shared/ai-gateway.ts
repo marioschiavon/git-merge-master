@@ -50,6 +50,7 @@ export interface ChatCompletionOptions {
   tools?: ToolDef[];
   tool_choice?: "auto" | "none" | "required" | { type: "function"; function: { name: string } };
   temperature?: number;
+  reasoning_effort?: "low" | "medium" | "high";
   response_format?: { type: "json_object" } | { type: "text" };
   /** Optional label used in audit logs when the fallback triggers. */
   _edgeName?: string;
