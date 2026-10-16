@@ -27,6 +27,7 @@ import Companies from "@/pages/master/Companies";
 import PlatformSettings from "@/pages/master/PlatformSettings";
 import AuditLogs from "@/pages/master/AuditLogs";
 import CompanyPage from "@/pages/master/CompanyPage";
+import Pricing from "@/pages/master/Pricing";
 import Team from "@/pages/settings/Team";
 import Integrations from "@/pages/settings/Integrations";
 import SettingsPage from "@/pages/settings/Settings";
@@ -100,6 +101,7 @@ const App = () => (
                 <Route path="/master/companies/:id" element={<CompanyPage />} />
                 <Route path="/master/platform-settings" element={<PlatformSettings />} />
                 <Route path="/master/logs" element={<AuditLogs />} />
+                <Route path="/master/pricing" element={<Pricing />} />
               </Route>
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/settings/team" element={<Team />} />

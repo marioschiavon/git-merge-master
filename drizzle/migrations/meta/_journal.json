@@ -8,6 +8,13 @@
       "when": 1791485859018,
       "tag": "0000_social_enrichment_per_company",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792185098295,
+      "tag": "0001_billing_catalog",
+      "breakpoints": true
     }
   ]
 }

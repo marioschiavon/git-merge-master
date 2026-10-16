@@ -302,6 +302,39 @@ export type Database = {
           },
         ]
       }
+      billing_catalog: {
+        Row: {
+          active: boolean
+          description: string | null
+          key: string
+          kind: string
+          name: string
+          price_cents: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          active?: boolean
+          description?: string | null
+          key: string
+          kind?: string
+          name: string
+          price_cents?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          active?: boolean
+          description?: string | null
+          key?: string
+          kind?: string
+          name?: string
+          price_cents?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       bitrix_deals: {
         Row: {
           bitrix_company_id: number | null
