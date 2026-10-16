@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../supabase/functions/_shared/ai-fallback.ts", () => ({
+vi.mock("../supabase/functions/_shared/ai-fallback.ts", () => ({
   getFallbackKeys: vi.fn(async () => ({ openai: "test-key", gemini: null })),
   mapModel: vi.fn(() => "gpt-4o"),
   isFallbackable: vi.fn((status: number) => status === 500),
@@ -8,7 +8,7 @@ vi.mock("../../supabase/functions/_shared/ai-fallback.ts", () => ({
   EMBEDDING_MAP: {},
 }));
 
-import { chatCompletion } from "../../supabase/functions/_shared/ai-gateway";
+import { chatCompletion } from "../supabase/functions/_shared/ai-gateway";
 
 const answer = { choices: [{ index: 0, finish_reason: "stop", message: { role: "assistant", content: "ok" } }] };
 afterEach(() => vi.unstubAllGlobals());
