@@ -102,7 +102,7 @@ Gere a próxima mensagem.`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "openai/gpt-5",
+        model: "openai/gpt-6.1-sol",
         messages: [
           { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },

@@ -484,7 +484,7 @@ Decida a próxima ação.`;
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-3.8-flash",
         messages: [
           { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },
@@ -566,7 +566,7 @@ Decida a próxima ação.`;
 
     // === EXECUTE ===
     if (decision.action === "stop") {
-      await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+      await persistDecision(decision, { model: "google/gemini-3.8-flash" });
       await supabase
         .from("cadence_enrollments")
         .update({
@@ -577,7 +577,7 @@ Decida a próxima ação.`;
         } as any)
         .eq("id", enrollment_id);
     } else if (decision.action === "handoff_human") {
-      await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+      await persistDecision(decision, { model: "google/gemini-3.8-flash" });
       await supabase
         .from("cadence_enrollments")
         .update({
@@ -604,7 +604,7 @@ Decida a próxima ação.`;
 
       // === Human takeover: operator owns the thread — pause & skip ===
       if (!isSimulation && !bypass_hitl && await isLeadUnderHumanTakeover(supabase, { lead_id: lead.id })) {
-        await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+        await persistDecision(decision, { model: "google/gemini-3.8-flash" });
         await supabase
           .from("cadence_enrollments")
           .update({ status: "paused", paused_reason: "human_takeover", next_execution_at: null })
@@ -625,7 +625,7 @@ Decida a próxima ação.`;
       const scope = isFirstAttempt ? "first_message" : "cadence_step";
       if (!isSimulation && !bypass_hitl && await shouldGate(supabase, cadence.company_id, scope as any, { lead_id: lead.id })) {
         // Persist the decision so it shows up in the cadence timeline
-        await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+        await persistDecision(decision, { model: "google/gemini-3.8-flash" });
         // Create approval request for the operator
         await createApprovalRequest(supabase, {
           company_id: cadence.company_id,
@@ -754,7 +754,7 @@ Decida a próxima ação.`;
         metadata: { source: "cadence_agent", cadence_id: cadence.id, enrollment_id, action: sendAction, hook: decision.hook, simulated: isSimulation, ...deliveryMeta },
       });
 
-      await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+      await persistDecision(decision, { model: "google/gemini-3.8-flash" });
       (globalThis as any).__lastSendAction = { action: sendAction, error: (deliveryMeta as any).delivery_error || (deliveryMeta as any).zapi_error || null };
 
       if (noContactFailure && !isSimulation) {
@@ -791,7 +791,7 @@ Decida a próxima ação.`;
       }
     } else {
       // wait
-      await persistDecision(decision, { model: "google/gemini-2.5-flash" });
+      await persistDecision(decision, { model: "google/gemini-3.8-flash" });
       const nextTick = nextAllowedSlot(
         new Date(Date.now() + 24 * 3600 * 1000),
         policy.business_hours,
