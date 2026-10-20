@@ -166,8 +166,8 @@ serve(async (req) => {
           lead_id,
           cadence_id: cadenceId,
           status: "active",
-          current_step: 0,
-          first_message_status: "pending_generation",
+          current_step: 1,
+          next_execution_at: new Date().toISOString(),
           enrolled_at: new Date().toISOString(),
         }));
         const { error: insErr } = await supabase.from("cadence_enrollments").insert(rows);
