@@ -92,8 +92,8 @@ serve(async (req) => {
         lead_id: ld.id,
         cadence_id,
         status: "active",
-        first_message_status: "pending_generation",
-        current_step: 0,
+        current_step: 1,
+        next_execution_at: new Date().toISOString(),
         enrolled_at: enrolledAt,
       });
       if (!insErr) { enrolled++; enrolledLeadIds.push(ld.id); }
