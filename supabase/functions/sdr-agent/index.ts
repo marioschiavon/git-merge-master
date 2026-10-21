@@ -1756,6 +1756,28 @@ Deno.serve(async (req) => {
       console.warn("sdr-agent referral name llm fallback error:", e);
     }
 
+    // ── Troca de canal: o próprio lead pediu para seguir no WhatsApp ──
+    if (entities.channel_switch?.phone) {
+      if (mode !== "live") {
+        console.log("sdr-agent channel_switch (shadow):", entities.channel_switch);
+      } else {
+        try {
+          let fromChannel = "email";
+          if (conversation_id) {
+            const { data: cv } = await supabase.from("conversations").select("channel").eq("id", conversation_id).maybeSingle();
+            fromChannel = cv?.channel ?? "email";
+          }
+          const r = await handleChannelSwitch(supabase, { lead: ctx.lead, phone: entities.channel_switch.phone, fromChannel });
+          console.log("sdr-agent channel_switch:", r);
+          if (!r.handled) entities.channel_switch = null;
+        } catch (e) {
+          console.error("sdr-agent channel_switch failed:", e);
+          entities.channel_switch = null;
+        }
+      }
+    }
+
+
 
     // ── Fallback: herdar emails de convidados do histórico recente ──
     // Quando o lead já passou emails em turnos anteriores (intent=add_guests)
