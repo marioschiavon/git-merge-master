@@ -88,7 +88,7 @@ export async function buildOutreach(admin: any, companyId: string, sourceLead: a
         {
           role: "system",
           content:
-            `Você é um SDR em pt-BR escrevendo a PRIMEIRA mensagem de ${channel === "email" ? "e-mail (sem assunto, sem assinatura)" : "WhatsApp"} para` uma pessoa que foi indicada por outro contato. ` +
+            `Você é um SDR em pt-BR escrevendo a PRIMEIRA mensagem de ${channel === "email" ? "e-mail (sem assunto, sem assinatura)" : "WhatsApp"} para uma pessoa que foi indicada por outro contato. ` +
             "Cite a indicação de forma natural, apresente em 1 frase o que a empresa oferece (use a base), e termine com pergunta leve. " +
             "Máximo 3 frases curtas. Nunca sugira dia/hora. Responda só com o texto da mensagem.",
         },
