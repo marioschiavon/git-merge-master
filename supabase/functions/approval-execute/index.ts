@@ -327,8 +327,9 @@ serve(async (req) => {
           // Preferência de caixa: se a cadência tem email_grant_id, usa;
           // caso contrário, o send-outbound-email resolve automaticamente
           // com o primeiro grant Nylas ativo da empresa.
-          let emailGrantId: string | null = null;
-          if (approval.enrollment_id) {
+          // Caixa definida na própria aprovação (ex.: indicado abordado pela caixa do indicante).
+          let emailGrantId: string | null = (finalPayload as any)?.email_grant_id ?? null;
+          if (!emailGrantId && approval.enrollment_id) {
             const { data: enr } = await supabase
               .from("cadence_enrollments").select("cadence_id").eq("id", approval.enrollment_id).maybeSingle();
             if (enr?.cadence_id) {
