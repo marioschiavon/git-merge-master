@@ -328,3 +328,15 @@ Deno.test("add_guests + selected_slot + sem booking → forced book_slot com gue
   assertEquals((d.forced_args as any)?.guest_emails?.[0], "eduardo@x.com");
   assertEquals(d.reason, "add_guests_with_selected_slot");
 });
+
+Deno.test("channel_switch → não cria contato nem oferece horários", () => {
+  const d = decidePolicy({
+    intent: "referral",
+    confidence: 0.9,
+    entities: { ...baseEntities, channel_switch: { channel: "whatsapp", phone: "31988887777" } },
+    state: baseState,
+  });
+  assertEquals(d.stage, "channel_switch");
+  assertEquals(d.forced_tool, null);
+  assertEquals(d.allowed_tools.includes("create_new_contact"), false);
+});

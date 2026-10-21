@@ -25,6 +25,7 @@ import { assertCanBook } from "../_shared/booking-guards.ts";
 import { computeState, renderStateBlock, type StructuredState } from "../_shared/state-machine.ts";
 import { classifyIntent } from "../_shared/intent-classifier.ts";
 import { extractEntities } from "../_shared/entity-extractor.ts";
+import { handleChannelSwitch } from "../_shared/channel-switch.ts";
 import { decidePolicy, renderPolicyBlock, type Tool as PolicyTool } from "../_shared/policy-engine.ts";
 
 // Parse a slot_start ISO string. If no timezone offset is present, assume BRT (America/Sao_Paulo, UTC-3).
@@ -1755,6 +1756,28 @@ Deno.serve(async (req) => {
     } catch (e) {
       console.warn("sdr-agent referral name llm fallback error:", e);
     }
+
+    // ── Troca de canal: o próprio lead pediu para seguir no WhatsApp ──
+    if (entities.channel_switch?.phone) {
+      if (mode !== "live") {
+        console.log("sdr-agent channel_switch (shadow):", entities.channel_switch);
+      } else {
+        try {
+          let fromChannel = "email";
+          if (conversation_id) {
+            const { data: cv } = await supabase.from("conversations").select("channel").eq("id", conversation_id).maybeSingle();
+            fromChannel = cv?.channel ?? "email";
+          }
+          const r = await handleChannelSwitch(supabase, { lead: ctx.lead, phone: entities.channel_switch.phone, fromChannel });
+          console.log("sdr-agent channel_switch:", r);
+          if (!r.handled) entities.channel_switch = null;
+        } catch (e) {
+          console.error("sdr-agent channel_switch failed:", e);
+          entities.channel_switch = null;
+        }
+      }
+    }
+
 
 
     // ── Fallback: herdar emails de convidados do histórico recente ──

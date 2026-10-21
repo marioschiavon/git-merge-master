@@ -198,3 +198,30 @@ Deno.test("referral_contact: sem contexto nominal NÃO marca name_needs_llm", ()
   assertEquals(r.referral_contact, null);
 });
 
+
+const ex = (t: string) => extractEntities({ lastInbound: t, offeredSlots: [], heldSlots: [], activeBookingAt: null, matchesSlotRef: makeMatcher() });
+
+Deno.test("troca de canal: 'me chama no whats' é o próprio lead, não indicação", () => {
+  const r = ex("Prefiro falar pelo WhatsApp, me chama no 31 98888-7777");
+  assertEquals(r.channel_switch?.phone, "31988887777");
+  assertEquals(r.referral_contact, null);
+});
+
+Deno.test("indicação de sócio por telefone vira referral, não troca de canal", () => {
+  const r = ex("Quem cuida disso é meu sócio Pedro, fala com ele no whats 31 97777-6666");
+  assertEquals(r.channel_switch ?? null, null);
+  assertEquals(r.referral_contact?.phone, "31977776666");
+  assertEquals(r.referral_contact?.name, "Pedro");
+});
+
+Deno.test("indicação por e-mail continua funcionando", () => {
+  const r = ex("Não sou eu, quem cuida disso é o João, joao@empresa.com");
+  assertEquals(r.referral_contact?.email, "joao@empresa.com");
+  assertEquals(r.channel_switch ?? null, null);
+});
+
+Deno.test("telefone da assinatura do e-mail é ignorado", () => {
+  const r = ex("Obrigado pelo contato, vou analisar.\n\nAtenciosamente,\nMaria Souza\n(31) 99999-1234");
+  assertEquals(r.referral_contact, null);
+  assertEquals(r.channel_switch ?? null, null);
+});

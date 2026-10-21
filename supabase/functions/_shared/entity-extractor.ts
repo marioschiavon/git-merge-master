@@ -32,9 +32,33 @@ export interface EntityResult {
   referral_contact: ReferralContact | null;
   /** Extra invitees the lead asked to include in the meeting invite (NOT a referral). */
   guest_emails: string[];
+  /** O PRÓPRIO lead pediu para continuar em outro canal (ex.: "me chama no whats 31 9..."). */
+  channel_switch?: { channel: "whatsapp"; phone: string } | null;
 }
 
 export type SlotMatcher = (text: string, isos: string[]) => { iso: string | null; ambiguous: boolean };
+
+// Corta o bloco de assinatura do e-mail: telefones/e-mails do rodapé não são
+// indicação nem pedido de troca de canal.
+const SIGNATURE_LINE_RE = /^\s*(--\s*$|_{3,}|att\.?,?\s*$|atenciosamente|abra[çc]os?,?\s*$|cordialmente|sauda[çc][õo]es|enviado do meu|sent from my|obrigad[oa],?\s*$)/i;
+export function stripEmailSignature(text: string): string {
+  const lines = String(text || "").split(/\r?\n/);
+  const idx = lines.findIndex((l, i) => i > 0 && SIGNATURE_LINE_RE.test(l));
+  return (idx > 0 ? lines.slice(0, idx) : lines).join("\n").trim();
+}
+
+const WA_WORD_RE = /\b(whats(?:app)?|wpp|zap|zapzap|celular|telefone|n[uú]mero)\b/i;
+const SELF_CHANNEL_RE = /\b(me\s+(?:chama|chame|liga|ligue|manda|mande|procura|procure|add|adiciona)|prefiro|pode\s+(?:me\s+)?(?:chamar|ligar|mandar|falar)|fal(?:a|e|ar)\s+comigo|meu\s+(?:whats(?:app)?|wpp|zap|n[uú]mero|celular|telefone)|mais\s+f[áa]cil\s+(?:pelo|no))\b/i;
+const THIRD_PARTY_RE = /\b(?:meu|minha|nosso|nossa)\s+(?:s[óo]ci[oa]|colega|gerente|diretor(?:a)?|chefe|coordenador(?:a)?|respons[áa]vel|secret[áa]ri[oa])\b|\bs[óo]ci[oa]\b/i;
+
+function detectChannelSwitch(text: string): EntityResult["channel_switch"] {
+  if (!WA_WORD_RE.test(text) || !SELF_CHANNEL_RE.test(text)) return null;
+  if (THIRD_PARTY_RE.test(text) || REDIRECT_SIGNAL_RE.test(text)) return null;
+  const m = text.match(PHONE_RE)?.[0];
+  const d = m ? m.replace(/\D/g, "") : "";
+  if (d.length < 10) return null;
+  return { channel: "whatsapp", phone: d };
+}
 
 export function extractEntities(args: {
   lastInbound: string;
@@ -43,7 +67,7 @@ export function extractEntities(args: {
   activeBookingAt: string | null;
   matchesSlotRef: SlotMatcher;
 }): EntityResult {
-  const text = (args.lastInbound || "").trim();
+  const text = stripEmailSignature((args.lastInbound || "").trim());
   if (!text) {
     return {
       selected_slot_iso: null,
@@ -95,6 +119,14 @@ export function extractEntities(args: {
     }
   }
 
+  // Mesmo lead pedindo outro canal → não é indicação.
+  const channel_switch = detectChannelSwitch(text);
+  if (channel_switch) referral_contact = null;
+  // "meu sócio / minha gerente ... <contato>" → é indicação de terceiro.
+  if (!channel_switch && referral_contact && THIRD_PARTY_RE.test(text) && (referral_contact.phone || referral_contact.email)) {
+    referral_contact = { ...referral_contact, redirect_signal: true };
+  }
+
   return {
     selected_slot_iso: ref.iso,
     ambiguous_slot: ref.ambiguous,
@@ -102,6 +134,7 @@ export function extractEntities(args: {
     prefers_period,
     referral_contact,
     guest_emails,
+    channel_switch,
   };
 }
 
@@ -120,6 +153,8 @@ const PERMISSION_RE = /\b(pode\s+(?:dizer|falar|mencionar|usar)|use\s+meu\s+nome
 // Captura nome do indicado em frases comuns do PT-BR. Ordem importa:
 // padrões mais específicos primeiro. O grupo capturador é sempre o nome.
 const NAME_HINT_PATTERNS: RegExp[] = [
+  // "meu sócio Pedro", "minha gerente é a Ana", "meu sócio, o Pedro Alves"
+  /\b(?:meu|minha|nosso|nossa)\s+(?:s[óo]ci[oa]|colega|gerente|diretor(?:a)?|chefe|coordenador(?:a)?|secret[áa]ri[oa])[\s,]+(?:[ée]\s+)?(?:(?:o|a)\s+)?([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})/,
   // "quem cuida disso é o Carlos", "quem trata desse assunto seria a Andreia"
   /\bquem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)\s+(?:disso|desse\s+assunto|isso)?\s*(?:[ée]|seria)\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/i,
   // "não sou eu, é o Carlos Vilagran" / "nao sou eu é a Andreia"

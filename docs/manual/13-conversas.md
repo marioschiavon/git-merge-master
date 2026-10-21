@@ -29,3 +29,9 @@ Cada mensagem mostra o dia e a hora do envio (horário de Brasília) e, nas envi
 - **[Inbox humana](./14-inbox-humana.md)** = onde você **responde manualmente** quando precisa assumir o controle.
 
 **Próximo passo →** [14. Inbox humana](./14-inbox-humana.md)
+
+## Indicações e troca de canal
+
+- **Lead indicou outra pessoa** (por e-mail ou telefone): o indicado vira um novo lead com origem "Indicação" e recebe a primeira mensagem citando quem indicou — WhatsApp se houver telefone, senão e-mail pela mesma caixa da conversa original. Quem indicou recebe um agradecimento e sai da cadência.
+- **Lead pediu para seguir no WhatsApp**: o número é salvo no cadastro dele e a conversa continua no WhatsApp. Sem WhatsApp conectado, fica uma nota no histórico para você chamar manualmente.
+- Telefones da assinatura do e-mail são ignorados. Indicados já cadastrados ou da lista "Não prospectar" não são abordados.

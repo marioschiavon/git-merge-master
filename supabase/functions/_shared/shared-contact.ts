@@ -70,7 +70,7 @@ function digits(s: string | null | undefined) {
 }
 
 // deno-lint-ignore no-explicit-any
-async function buildOutreach(admin: any, companyId: string, sourceLead: any, c: SharedContact, contextText: string): Promise<string> {
+export async function buildOutreach(admin: any, companyId: string, sourceLead: any, c: SharedContact, contextText: string, channel: "whatsapp" | "email" = "whatsapp"): Promise<string> {
   const first = (c.name || "").split(" ")[0] || "";
   const source = sourceLead.company_name || sourceLead.name || "sua equipe";
   const fallback = `Olá${first ? ` ${first}` : ""}! A equipe ${source} me passou seu contato como responsável pelo assunto. Posso te explicar rapidinho do que se trata?`;
@@ -88,7 +88,7 @@ async function buildOutreach(admin: any, companyId: string, sourceLead: any, c: 
         {
           role: "system",
           content:
-            "Você é um SDR em pt-BR escrevendo a PRIMEIRA mensagem de WhatsApp para uma pessoa que foi indicada por outro contato. " +
+            `Você é um SDR em pt-BR escrevendo a PRIMEIRA mensagem de ${channel === "email" ? "e-mail (sem assunto, sem assinatura)" : "WhatsApp"} para uma pessoa que foi indicada por outro contato. ` +
             "Cite a indicação de forma natural, apresente em 1 frase o que a empresa oferece (use a base), e termine com pergunta leve. " +
             "Máximo 3 frases curtas. Nunca sugira dia/hora. Responda só com o texto da mensagem.",
         },
@@ -109,7 +109,7 @@ async function buildOutreach(admin: any, companyId: string, sourceLead: any, c: 
   }
 }
 
-async function sendOrGate(
+export async function sendOrGate(
   // deno-lint-ignore no-explicit-any
   admin: any,
   args: { companyId: string; leadId: string; conversationId: string; phone: string; message: string; kind: "first_message" | "sdr_reply"; context: Record<string, unknown> },
