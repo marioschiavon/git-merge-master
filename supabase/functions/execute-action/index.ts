@@ -4,6 +4,8 @@ import { getZApiConfig, sendWhatsAppViaZApi } from "../_shared/hook7-whatsapp.ts
 import { enqueueWhatsAppSend } from "../_shared/whatsapp-pacer.ts";
 import { shouldGate, createApprovalRequest, isLeadUnderHumanTakeover } from "../_shared/hitl-gate.ts";
 import { getEmailReplyContext } from "../_shared/email-thread.ts";
+import { normalizePhoneBR } from "../_shared/phone-br.ts";
+import { buildOutreach, sendOrGate } from "../_shared/shared-contact.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -575,12 +577,34 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
   },
 
   async create_new_contact(ctx) {
-    const { name, email, phone, role, context, company_name, website, address, linkedin_company_url } = ctx.params;
+    const { name, role, context, company_name, website, address, linkedin_company_url } = ctx.params;
+    const email: string | null = ctx.params.email ? String(ctx.params.email).trim().toLowerCase() : null;
+    const phone: string | null = ctx.params.phone ? normalizePhoneBR(String(ctx.params.phone)) : null;
     if (!name && !email && !phone) {
       await logActivity(ctx, "note", `⚠️ Tentou criar novo contato por indicação, mas faltaram nome, e-mail e telefone — ação ignorada.`, { params: ctx.params });
       return { skipped: "missing name, email and phone" };
     }
     const referrer = await loadLead(ctx);
+
+    // Não duplica: indicado que já é lead da empresa só fica registrado.
+    {
+      const d = phone ? phone.replace(/\D/g, "") : "";
+      const ors: string[] = [];
+      if (email) ors.push(`email.ilike.${email}`);
+      if (d) ors.push(`whatsapp.ilike.%${d.slice(-8)}`, `phone.ilike.%${d.slice(-8)}`);
+      if (ors.length) {
+        const { data: cands } = await ctx.supabase.from("leads").select("id, name, email, whatsapp, phone")
+          .eq("company_id", ctx.company_id).neq("id", ctx.lead_id).or(ors.join(",")).limit(10);
+        const dig = (s: any) => String(s ?? "").replace(/\D/g, "");
+        const existing = (cands || []).find((l: any) =>
+          (email && String(l.email || "").toLowerCase() === email) ||
+          (d && [dig(l.whatsapp), dig(l.phone)].some((x) => x && x.slice(-10) === d.slice(-10))));
+        if (existing) {
+          await logActivity(ctx, "referral" as any, `🔁 Indicou ${existing.name || email || phone}, que já é um lead cadastrado — sem nova abordagem`, { existing_lead_id: existing.id });
+          return { skipped: "duplicate", existing_lead_id: existing.id };
+        }
+      }
+    }
 
     // Nome inteligente: jamais coloca o e-mail bruto no campo nome.
     const deriveNameFromEmail = (e?: string | null) => {
