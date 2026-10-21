@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 
 export default function GmailReturn() {
   const [message, setMessage] = useState("Finalizando conexão com o Gmail…");
