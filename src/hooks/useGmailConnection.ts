@@ -57,7 +57,7 @@ export function useGmailConnection() {
         body: { origin: window.location.origin },
       });
       if (error) throw error;
-      const done = new Promise<void>((resolve, reject) => {
+      const done = new Promise<string>((resolve, reject) => {
         let poll: number | undefined;
         const cleanup = () => {
           window.removeEventListener("message", onMsg);
@@ -66,10 +66,11 @@ export function useGmailConnection() {
         const onMsg = (ev: MessageEvent) => {
           const t = ev.data?.type;
           if (ev.origin !== window.location.origin || ev.source !== popup || ev.data?.connectorId !== "google_mail") return;
-          if (t !== "appUserConnectorOAuthComplete" && t !== "appUserConnectorOAuthFailed") return;
+          if (t !== "gmailOAuthCode" && t !== "appUserConnectorOAuthFailed") return;
           cleanup();
-          if (t === "appUserConnectorOAuthComplete") resolve();
-          else { popup.close(); reject(new Error(ev.data?.reason ?? "Falha na conexão.")); }
+          popup.close();
+          if (t === "gmailOAuthCode") resolve(String(ev.data.code));
+          else reject(new Error(ev.data?.reason ?? "Falha na conexão."));
         };
         window.addEventListener("message", onMsg);
         poll = window.setInterval(() => {
@@ -79,7 +80,14 @@ export function useGmailConnection() {
         }, 500);
       });
       popup.location.href = (data as any).authorizationUrl;
-      await done;
+      const code = await done;
+      // Conclui na janela principal, onde a sessão do usuário existe.
+      const { error: cErr } = await supabase.functions.invoke("gmail-oauth-complete", { body: { code } });
+      if (cErr) {
+        let details = cErr.message;
+        try { details = (JSON.parse(await (cErr as any).context.text()).error) || details; } catch { /* ignore */ }
+        throw new Error(details);
+      }
       toast({
         title: mine ? "Gmail reconectado" : "Gmail conectado",
         description: "Sua caixa já pode enviar pelas cadências.",

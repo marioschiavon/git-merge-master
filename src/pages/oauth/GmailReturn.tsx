@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
 
 export default function GmailReturn() {
   const [message, setMessage] = useState("Finalizando conexão com o Gmail…");
@@ -24,15 +23,9 @@ export default function GmailReturn() {
       window.opener?.postMessage({ type: "appUserConnectorOAuthFailed", connectorId: "google_mail", reason }, window.location.origin);
       return;
     }
-    supabase.functions.invoke("gmail-oauth-complete", { body: { code } })
-      .then(({ error }) => {
-        if (error) throw error;
-        notify("appUserConnectorOAuthComplete");
-      })
-      .catch(() => {
-        setMessage("Não foi possível concluir a conexão.");
-        notify("appUserConnectorOAuthFailed", "Não foi possível concluir a conexão.");
-      });
+    // Envia o código para a janela principal, que tem a sessão do usuário.
+    setMessage("Concluindo… pode fechar esta janela se ela não fechar sozinha.");
+    window.opener?.postMessage({ type: "gmailOAuthCode", connectorId: "google_mail", code }, window.location.origin);
   }, []);
 
   return (
