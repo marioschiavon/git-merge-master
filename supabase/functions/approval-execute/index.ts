@@ -285,7 +285,8 @@ serve(async (req) => {
                 lead_id: approval.lead_id,
                 company_id: approval.company_id,
                 conversation_id: approval.conversation_id,
-                extra_metadata: { approval_id, hitl_approved: true },
+                extra_metadata: { approval_id, hitl_approved: true, ...(approval.context || {}) },
+                email_grant_id: (finalPayload as any)?.email_grant_id ?? null,
               },
             });
             if (se) throw new Error(se.message);
