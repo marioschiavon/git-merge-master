@@ -660,9 +660,100 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       .single();
     if (error) throw error;
 
+    // ── Abordagem do indicado ──────────────────────────────────────────
+    // 1) Organização protegida ("Não prospectar") → não aborda.
+    // 2) Telefone + WhatsApp conectado → primeira mensagem no WhatsApp.
+    // 3) Só e-mail → cadência de indicações (se houver) ou e-mail direto
+    //    pela MESMA caixa que conversava com quem indicou.
+    let outreachDone = false;
+    let outreachResult: string | null = null;
+    try {
+      const { data: isProt } = await ctx.supabase.rpc("is_lead_protected", { _lead_id: newLead.id });
+      if (isProt) {
+        outreachDone = true;
+        outreachResult = "protected";
+        await logActivity(ctx, "note", `🛡️ Indicado ${finalName} pertence a uma organização da lista "Não prospectar" — sem abordagem`, { new_lead_id: newLead.id });
+      }
+    } catch (e) {
+      console.error("[create_new_contact] protection check failed:", e);
+    }
+
+    if (!outreachDone && !(await isLeadUnderHumanTakeover(ctx.supabase, { lead_id: ctx.lead_id }).catch(() => false))) {
+      const contextText = (await loadRecentMessages(ctx))
+        .map((m: any) => `${m.direction === "inbound" ? "LEAD" : "SDR"}: ${m.content || ""}`).join("\n");
+      const contact = { name: finalName, phone, email, org: payload.company_name, title: role || null };
+      try {
+        const { data: inst } = phone
+          ? await ctx.supabase.from("hook7_instances").select("id").eq("company_id", ctx.company_id)
+              .eq("status", "connected").is("archived_at", null).limit(1).maybeSingle()
+          : { data: null } as any;
+        if (phone && inst) {
+          await ctx.supabase.from("leads").update({ whatsapp: phone, preferred_channel: "whatsapp" } as any).eq("id", newLead.id);
+          const { data: conv } = await ctx.supabase.from("conversations")
+            .insert({ company_id: ctx.company_id, lead_id: newLead.id, channel: "whatsapp" } as any).select("id").single();
+          const msg = await buildOutreach(ctx.supabase, ctx.company_id, referrer || {}, contact as any, contextText, "whatsapp");
+          outreachResult = await sendOrGate(ctx.supabase, {
+            companyId: ctx.company_id, leadId: newLead.id, conversationId: (conv as any).id, phone, message: msg,
+            kind: "first_message", context: { referral_outreach: true, referral_source_lead_id: ctx.lead_id },
+          });
+          outreachDone = true;
+        } else if (email) {
+          const { data: refCad } = await ctx.supabase.from("cadences").select("id")
+            .eq("company_id", ctx.company_id).eq("kind", "referral").eq("status", "active").limit(1).maybeSingle();
+          if (!refCad) {
+            // Caixa dona da conversa com o indicante (stickiness).
+            let grantId: string | null = null;
+            const { data: refConvs } = await ctx.supabase.from("conversations").select("id")
+              .eq("lead_id", ctx.lead_id).eq("channel", "email").limit(1);
+            if (refConvs?.[0]?.id) {
+              const { data: lastOut } = await ctx.supabase.from("messages").select("metadata")
+                .eq("conversation_id", refConvs[0].id).eq("direction", "outbound")
+                .not("metadata->>grant_id", "is", null).order("sent_at", { ascending: false }).limit(1).maybeSingle();
+              grantId = (lastOut as any)?.metadata?.grant_id ?? null;
+            }
+            await ctx.supabase.from("leads").update({ preferred_channel: "email" } as any).eq("id", newLead.id);
+            const { data: conv } = await ctx.supabase.from("conversations")
+              .insert({ company_id: ctx.company_id, lead_id: newLead.id, channel: "email" } as any).select("id").single();
+            const msg = await buildOutreach(ctx.supabase, ctx.company_id, referrer || {}, contact as any, contextText, "email");
+            const subject = `Indicação de ${referrer?.name?.split(" ")[0] || "um colega"}${referrer?.company_name ? ` (${referrer.company_name})` : ""}`;
+            const gated = await shouldGate(ctx.supabase, ctx.company_id, "first_message", { lead_id: newLead.id, conversation_id: (conv as any).id });
+            if (gated) {
+              await createApprovalRequest(ctx.supabase, {
+                company_id: ctx.company_id, lead_id: newLead.id, conversation_id: (conv as any).id,
+                kind: "first_message", channel: "email", action: "send",
+                payload: { message: msg, subject, email_grant_id: grantId },
+                context: { referral_outreach: true, referral_source_lead_id: ctx.lead_id },
+              } as any);
+              outreachResult = "pending_approval";
+            } else {
+              const { error: se } = await ctx.supabase.functions.invoke("send-outbound-email", {
+                body: {
+                  to: email, subject, text: msg, html: msg.replace(/\n/g, "<br/>"),
+                  lead_id: newLead.id, company_id: ctx.company_id, conversation_id: (conv as any).id,
+                  email_grant_id: grantId, extra_metadata: { referral_outreach: true, referral_source_lead_id: ctx.lead_id },
+                },
+              });
+              outreachResult = se ? `failed: ${se.message}` : "sent";
+            }
+            outreachDone = true;
+          }
+        }
+      } catch (e) {
+        console.error("[create_new_contact] outreach failed:", e);
+        outreachResult = `failed: ${(e as Error).message}`;
+      }
+    }
+    if (outreachResult) {
+      await logActivity(ctx, "referral", `📨 Abordagem do indicado ${finalName}: ${
+        outreachResult === "pending_approval" ? "aguardando em Aprovações" :
+        outreachResult === "queued" ? "na fila do WhatsApp" :
+        outreachResult === "sent" ? "e-mail enviado" :
+        outreachResult === "protected" ? "bloqueada (Não prospectar)" : outreachResult}`, { new_lead_id: newLead.id });
+    }
+
     // Auto-enroll na cadência de indicações ativa (kind='referral') da empresa.
     let referralEnrollmentId: string | null = null;
-    try {
+    if (!outreachDone) try {
       const { data: refCadence } = await ctx.supabase
         .from("cadences")
         .select("id")
