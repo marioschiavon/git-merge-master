@@ -678,8 +678,8 @@ const HANDLERS: Record<string, (ctx: ActionContext) => Promise<any>> = {
       console.error("[create_new_contact] protection check failed:", e);
     }
 
-    if (!outreachDone && !(await isLeadUnderHumanTakeover(ctx.supabase, { lead_id: ctx.lead_id }).catch(() => false))) {
-      const contextText = (await loadRecentMessages(ctx))
+    if (!outreachDone) {
+      const contextText = (await loadHistory(ctx))
         .map((m: any) => `${m.direction === "inbound" ? "LEAD" : "SDR"}: ${m.content || ""}`).join("\n");
       const contact = { name: finalName, phone, email, org: payload.company_name, title: role || null };
       try {
