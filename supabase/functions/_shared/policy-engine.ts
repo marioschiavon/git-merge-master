@@ -36,6 +36,7 @@ export type Stage =
   | "no_op_already_booked"
   | "add_guests_request"
   | "referral_provided"
+  | "channel_switch"
   | "closed_lost"
   | "general";
 
@@ -77,6 +78,8 @@ export interface PolicyInputs {
     } | null;
     /** Emails que o lead pediu pra incluir como convidados no invite. */
     guest_emails?: string[];
+    /** O próprio lead pediu para seguir em outro canal (já tratado no agente). */
+    channel_switch?: { channel: "whatsapp"; phone: string } | null;
   };
   state: {
     has_active_booking: boolean;
@@ -105,6 +108,21 @@ export function decidePolicy(input: PolicyInputs): PolicyDecision {
   const candidates = Array.from(new Set([...state.offered_slots, ...state.held_slots]));
   const guests = Array.isArray((entities as any).guest_emails) ? (entities as any).guest_emails as string[] : [];
   const withGuests = (a: Record<string, unknown>) => guests.length > 0 ? { ...a, guest_emails: guests } : a;
+
+  // ── Troca de canal pedida pelo próprio lead ────────────────────────
+  if (entities.channel_switch?.phone) {
+    return {
+      stage: "channel_switch",
+      allowed_tools: ["update_lead_facts", "finalize"],
+      forced_tool: null,
+      forced_args: null,
+      response_directive:
+        `O lead pediu para continuar a conversa pelo WhatsApp (${entities.channel_switch.phone}). ` +
+        `A mensagem no WhatsApp JÁ foi preparada pelo sistema. Responda aqui em UMA frase curta e cordial ` +
+        `confirmando que vai chamá-lo(a) no WhatsApp. NÃO ofereça horários nem repita a apresentação.`,
+      reason: "channel_switch_whatsapp",
+    };
+  }
 
   // ── 0. Confirmação implícita de slot único ─────────────────────────
   // Se o SDR estreitou a oferta para 1 slot no último outbound e o lead
