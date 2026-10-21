@@ -119,6 +119,14 @@ export function extractEntities(args: {
     }
   }
 
+  // Mesmo lead pedindo outro canal → não é indicação.
+  const channel_switch = detectChannelSwitch(text);
+  if (channel_switch) referral_contact = null;
+  // "meu sócio / minha gerente ... <contato>" → é indicação de terceiro.
+  if (!channel_switch && referral_contact && THIRD_PARTY_RE.test(text) && (referral_contact.phone || referral_contact.email)) {
+    referral_contact = { ...referral_contact, redirect_signal: true };
+  }
+
   return {
     selected_slot_iso: ref.iso,
     ambiguous_slot: ref.ambiguous,
@@ -126,6 +134,7 @@ export function extractEntities(args: {
     prefers_period,
     referral_contact,
     guest_emails,
+    channel_switch,
   };
 }
 
@@ -144,6 +153,8 @@ const PERMISSION_RE = /\b(pode\s+(?:dizer|falar|mencionar|usar)|use\s+meu\s+nome
 // Captura nome do indicado em frases comuns do PT-BR. Ordem importa:
 // padrões mais específicos primeiro. O grupo capturador é sempre o nome.
 const NAME_HINT_PATTERNS: RegExp[] = [
+  // "meu sócio Pedro", "minha gerente é a Ana", "meu sócio, o Pedro Alves"
+  /\b(?:meu|minha|nosso|nossa)\s+(?:s[óo]ci[oa]|colega|gerente|diretor(?:a)?|chefe|coordenador(?:a)?|secret[áa]ri[oa])[\s,]+(?:[ée]\s+)?(?:(?:o|a)\s+)?([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})/,
   // "quem cuida disso é o Carlos", "quem trata desse assunto seria a Andreia"
   /\bquem\s+(?:cuida|v[eê]|trata|cuidaria|faz|resolve)\s+(?:disso|desse\s+assunto|isso)?\s*(?:[ée]|seria)\s+(?:o|a)\s+([A-ZÀ-Ý][\wÀ-ÿ'-]+\.?(?:\s+[A-ZÀ-Ý][\wÀ-ÿ'-]+\.?){0,2})\b/i,
   // "não sou eu, é o Carlos Vilagran" / "nao sou eu é a Andreia"
