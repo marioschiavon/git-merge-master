@@ -145,8 +145,11 @@ export default function Pricing() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Cobrança (Asaas)</CardTitle>
-          <CardDescription>Conexão com o Asaas ainda não configurada — próxima etapa.</CardDescription>
+          <CardTitle className="flex items-center gap-2">
+            Cobrança (Asaas)
+            <Badge variant="secondary" className="gap-1 font-normal"><Construction className="h-3 w-3" /> Em desenvolvimento</Badge>
+          </CardTitle>
+          <CardDescription>Em desenvolvimento: a integração de cobrança com o Asaas está em fase de testes e ainda não foi ativada.</CardDescription>
         </CardHeader>
       </Card>
     </div>
