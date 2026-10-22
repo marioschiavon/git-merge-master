@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Construction, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 type Mod = { key: string; name: string; description: string | null; kind: string; price_cents: number; active: boolean; sort_order: number; included_in_plans: boolean };
@@ -80,6 +81,16 @@ export default function Pricing() {
         </div>
         <Button onClick={save} disabled={saving || isLoading}>{saving ? "Salvando..." : "Salvar alterações"}</Button>
       </div>
+
+      <Alert className="border-amber-300/60 bg-amber-50 text-amber-900 dark:border-amber-400/30 dark:bg-amber-950/30 dark:text-amber-200">
+        <Construction className="h-4 w-4" />
+        <AlertTitle>Em desenvolvimento</AlertTitle>
+        <AlertDescription>
+          A cobrança automática pelo Asaas ainda está em testes e ainda não foi ativada. Os valores
+          definidos aqui são usados como referência nas assinaturas das empresas; nenhum valor é
+          cobrado automaticamente por enquanto.
+        </AlertDescription>
+      </Alert>
 
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
