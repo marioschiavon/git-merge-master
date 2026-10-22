@@ -31,6 +31,7 @@ export function useBulkLeadActions() {
         enrolled: 0,
         skipped: 0,
         skipped_no_channel: 0,
+        skipped_protected: 0,
         discarded: 0,
         deleted: 0,
         cadence_type: undefined as string | undefined,
@@ -47,6 +48,7 @@ export function useBulkLeadActions() {
         totals.enrolled += d?.enrolled ?? 0;
         totals.skipped += d?.skipped ?? 0;
         totals.skipped_no_channel += d?.skipped_no_channel ?? 0;
+        totals.skipped_protected += d?.skipped_protected ?? 0;
         totals.discarded += d?.discarded ?? 0;
         totals.deleted += d?.deleted ?? 0;
         if (d?.cadence_type) totals.cadence_type = d.cadence_type;
@@ -68,7 +70,12 @@ export function useBulkLeadActions() {
           const label = data.cadence_type === "whatsapp" ? "sem WhatsApp" : data.cadence_type === "email" ? "sem e-mail" : "sem canal";
           parts.push(`${data.skipped_no_channel} ${label}`);
         }
-        toast.success(parts.join(" · "));
+        if (data?.skipped_protected) {
+          parts.push(`${data.skipped_protected} bloqueado(s) por organização protegida`);
+          toast.warning(parts.join(" · "), { description: "Leads protegidos não podem ser associados. Remova em Configurações → Não prospectar se quiser prospectar." });
+        } else {
+          toast.success(parts.join(" · "));
+        }
       } else if (args.action === "delete") {
         qc.invalidateQueries({ queryKey: ["lead-lists"] });
         toast.success(`${data?.deleted ?? 0} lead(s) excluídos.`);

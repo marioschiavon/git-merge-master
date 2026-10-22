@@ -180,6 +180,16 @@ export function useEnrollLeads() {
     mutationFn: async ({ cadenceId, leadIds }: { cadenceId: string; leadIds: string[] }) => {
       if (!companyId) throw new Error("Sem empresa vinculada");
 
+      // Leads de organizações protegidas são barrados no banco; separa-os antes para avisar.
+      const { data: prot } = await (supabase as any).rpc("protected_lead_ids", { _company_id: companyId });
+      const protectedLabels = new Map<string, string>();
+      for (const r of (prot ?? []) as any[]) protectedLabels.set(r.lead_id, r.label);
+      const blocked = leadIds.filter((id) => protectedLabels.has(id));
+      const allowed = leadIds.filter((id) => !protectedLabels.has(id));
+      const blockedLabels = Array.from(new Set(blocked.map((id) => protectedLabels.get(id)!)));
+
+      if (allowed.length === 0) return { enrolled: 0, blocked: blocked.length, blockedLabels };
+
       // Get first step delay
       const { data: steps } = await supabase
         .from("cadence_steps")
@@ -192,7 +202,7 @@ export function useEnrollLeads() {
       const nextExec = new Date();
       nextExec.setDate(nextExec.getDate() + firstDelay);
 
-      const rows = leadIds.map((lead_id) => ({
+      const rows = allowed.map((lead_id) => ({
         cadence_id: cadenceId,
         lead_id,
         company_id: companyId,
@@ -200,11 +210,21 @@ export function useEnrollLeads() {
       }));
       const { error } = await supabase.from("cadence_enrollments").upsert(rows, { onConflict: "cadence_id,lead_id" });
       if (error) throw error;
+      return { enrolled: allowed.length, blocked: blocked.length, blockedLabels };
     },
-    onSuccess: (_, vars) => {
+    onSuccess: (res, vars) => {
       qc.invalidateQueries({ queryKey: ["cadence_enrollments", vars.cadenceId] });
       qc.invalidateQueries({ queryKey: ["leads"] });
-      toast.success("Leads associados à cadência!");
+      if (res.blocked > 0) {
+        toast.warning(
+          res.enrolled > 0
+            ? `${res.enrolled} lead(s) associado(s). ${res.blocked} bloqueado(s) por organização protegida.`
+            : `Lead não associado: pertence a organização protegida.`,
+          { description: `${res.blockedLabels.join(", ")} — remova em Configurações → Não prospectar se quiser prospectar.` },
+        );
+      } else {
+        toast.success("Leads associados à cadência!");
+      }
     },
     onError: (e: any) => toast.error(e.message),
   });

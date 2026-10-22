@@ -24,6 +24,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { useProtectedLeadMap, PROTECTED_REASON_LABELS } from "@/hooks/useProtectedOrgs";
+import { ShieldAlert } from "lucide-react";
 
 const enrollmentStatusLabels: Record<string, string> = {
   active: "Ativo",
@@ -62,6 +64,7 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
   const [selectedLeadIds, setSelectedLeadIds] = useState<string[]>([]);
   const [previewLead, setPreviewLead] = useState<{ id: string; name: string } | null>(null);
   const toggleSimulation = useToggleSimulation();
+  const { data: protectedMap } = useProtectedLeadMap();
 
   if (!cadence) return null;
 
@@ -339,11 +342,18 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                     {availableLeads.length === 0 ? (
                       <p className="text-sm text-muted-foreground">Nenhum lead disponível com {cadenceType === "whatsapp" ? "WhatsApp" : cadenceType === "email" ? "e-mail" : "canal válido"}.</p>
                     ) : (
-                      availableLeads.map((lead: any) => (
-                        <label key={lead.id} className="flex items-center gap-2 text-sm cursor-pointer hover:bg-muted p-1 rounded">
+                      availableLeads.map((lead: any) => {
+                        const prot = protectedMap?.get(lead.id);
+                        return (
+                        <label
+                          key={lead.id}
+                          title={prot ? `Bloqueado: organização protegida "${prot.label}" (${PROTECTED_REASON_LABELS[prot.reason] ?? prot.reason}). Remova em Configurações → Não prospectar para associar.` : undefined}
+                          className={`flex items-center gap-2 text-sm p-1 rounded ${prot ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-muted"}`}
+                        >
                           <input
                             type="checkbox"
-                            checked={selectedLeadIds.includes(lead.id)}
+                            disabled={!!prot}
+                            checked={!prot && selectedLeadIds.includes(lead.id)}
                             onChange={(e) => {
                               setSelectedLeadIds((prev) =>
                                 e.target.checked ? [...prev, lead.id] : prev.filter((id) => id !== lead.id)
@@ -353,8 +363,14 @@ export function CadenceDetail({ cadenceId, open, onOpenChange }: CadenceDetailPr
                           <span>{lead.name}</span>
                           <ChannelBadges lead={lead} />
                           {lead.email && <span className="text-xs text-muted-foreground">({lead.email})</span>}
+                          {prot && (
+                            <Badge variant="destructive" className="ml-auto gap-1 text-[10px]">
+                              <ShieldAlert className="h-3 w-3" /> Bloqueado · {prot.label}
+                            </Badge>
+                          )}
                         </label>
-                      ))
+                        );
+                      })
                     )}
                   </div>
                   <Button size="sm" onClick={handleEnroll} disabled={selectedLeadIds.length === 0 || enrollLeads.isPending}>
