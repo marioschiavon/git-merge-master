@@ -46,7 +46,7 @@ function useCompanyName(companyId: string | null) {
 }
 
 import { NavLink } from "@/components/NavLink";
-import { useLocation } from "react-router-dom";
+import { useLocation, Link as RouterLink } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import {
   Sidebar,
@@ -276,8 +276,8 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </DropdownMenuTrigger>
               <DropdownMenuContent side="right" align="end" className="w-56">
-                <DropdownMenuItem asChild><a href="/guides/manual">Manual do sistema</a></DropdownMenuItem>
-                <DropdownMenuItem asChild><a href="/guides/whatsapp">Boas práticas WhatsApp</a></DropdownMenuItem>
+                <DropdownMenuItem asChild><RouterLink to="/guides/manual">Manual do sistema</RouterLink></DropdownMenuItem>
+                <DropdownMenuItem asChild><RouterLink to="/guides/whatsapp">Boas práticas WhatsApp</RouterLink></DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild><a href="/termos" target="_blank" rel="noreferrer">Termos de uso</a></DropdownMenuItem>
                 <DropdownMenuItem asChild><a href="/privacidade" target="_blank" rel="noreferrer">Privacidade</a></DropdownMenuItem>
@@ -310,9 +310,9 @@ export function AppSidebar() {
               <DropdownMenuContent side="right" align="end" className="w-56">
                 <DropdownMenuLabel className="truncate">{profile?.full_name || "Minha conta"}</DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem asChild><a href="/settings/team"><Users className="mr-2 h-4 w-4" />Equipe</a></DropdownMenuItem>
-                <DropdownMenuItem asChild><a href="/settings/integrations"><Link className="mr-2 h-4 w-4" />Integrações</a></DropdownMenuItem>
-                <DropdownMenuItem asChild><a href="/settings/nao-prospectar"><ShieldBan className="mr-2 h-4 w-4" />Não prospectar</a></DropdownMenuItem>
+                <DropdownMenuItem asChild><RouterLink to="/settings/team"><Users className="mr-2 h-4 w-4" />Equipe</RouterLink></DropdownMenuItem>
+                <DropdownMenuItem asChild><RouterLink to="/settings/integrations"><Link className="mr-2 h-4 w-4" />Integrações</RouterLink></DropdownMenuItem>
+                <DropdownMenuItem asChild><RouterLink to="/settings/nao-prospectar"><ShieldBan className="mr-2 h-4 w-4" />Não prospectar</RouterLink></DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={signOut}><LogOut className="mr-2 h-4 w-4" />Sair</DropdownMenuItem>
               </DropdownMenuContent>
