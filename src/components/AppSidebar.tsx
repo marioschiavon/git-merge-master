@@ -97,7 +97,7 @@ const groups: Group[] = [
     ],
   },
   {
-    id: "cadence", title: "Cadências & Automação", icon: Zap, items: [
+    id: "cadence", title: "Cadências", icon: Zap, items: [
       { title: "Cadências", url: "/cadences", icon: MessageSquare },
       { title: "Acompanhamento", url: "/cadences/dashboard", icon: Activity },
       { title: "Aprovações", url: "/approvals", icon: ShieldCheck, badge: "approvals" },
@@ -105,7 +105,7 @@ const groups: Group[] = [
     ],
   },
   {
-    id: "comms", title: "Comunicação & Vendas", icon: Inbox, items: [
+    id: "comms", title: "Comunicação", icon: Inbox, items: [
       { title: "Conversas", url: "/conversations", icon: MessageSquare },
       { title: "Inbox humana", url: "/inbox", icon: Inbox, badge: "inbox" },
       { title: "Reuniões", url: "/bookings", icon: Calendar },
@@ -113,7 +113,7 @@ const groups: Group[] = [
     ],
   },
   {
-    id: "intel", title: "Inteligência & Scripts", icon: Workflow, items: [
+    id: "intel", title: "Inteligência", icon: Workflow, items: [
       { title: "Scripts IA", url: "/scripts", icon: FileText },
       { title: "Base de Conhecimento", url: "/knowledge", icon: BookOpen },
       { title: "Relatórios", url: "/reports", icon: BarChart3 },
@@ -214,7 +214,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Operação</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
+            <SidebarMenu className="gap-2">
               <SidebarMenuItem>
                 <SidebarMenuButton asChild isActive={isActive("/dashboard")} tooltip="Dashboard">
                   <NavLink to="/dashboard" end activeClassName={activeCls}>
@@ -243,10 +243,10 @@ export function AppSidebar() {
                         </SidebarMenuButton>
                       </CollapsibleTrigger>
                       <CollapsibleContent>
-                        <SidebarMenuSub>
+                        <SidebarMenuSub className="mt-1 gap-1.5 py-1">
                           {g.items.map((item) => (
                             <SidebarMenuSubItem key={item.url}>
-                              <SidebarMenuSubButton asChild isActive={isActive(item.url)}>
+                              <SidebarMenuSubButton asChild isActive={isActive(item.url)} className="h-8">
                                 <NavLink to={item.url} end activeClassName={activeCls}>
                                   <span className="flex-1">{item.title}</span>
                                   {badgeFor(item.badge)}
