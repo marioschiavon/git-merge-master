@@ -145,8 +145,12 @@ serve(async (req) => {
       if (cadType === "email") return !!l.email;
       return !!(l.email || l.whatsapp || l.phone);
     };
-    const eligible = validLeads.filter(hasChannel);
-    const skippedNoChannelIds = validLeads.filter((l: any) => !hasChannel(l)).map((l: any) => l.id);
+    // Leads de organizações protegidas ("Não prospectar") não entram em cadência.
+    const { data: protRows } = await admin.rpc("protected_lead_ids", { _company_id: companyId });
+    const protectedSet = new Set<string>(((protRows ?? []) as any[]).map((r) => r.lead_id));
+    const skippedProtectedIds = validLeads.filter((l: any) => protectedSet.has(l.id)).map((l: any) => l.id);
+    const eligible = validLeads.filter((l: any) => hasChannel(l) && !protectedSet.has(l.id));
+    const skippedNoChannelIds = validLeads.filter((l: any) => !hasChannel(l) && !protectedSet.has(l.id)).map((l: any) => l.id);
     const eligibleIds = eligible.map((l: any) => l.id);
 
     // Evita duplicar enrollments (em lotes)
@@ -187,6 +191,7 @@ serve(async (req) => {
       enrolled: toInsert.length,
       skipped: alreadyIn.size,
       skipped_no_channel: skippedNoChannelIds.length,
+      skipped_protected: skippedProtectedIds.length,
       cadence_type: cadType,
     });
   } catch (e) {
