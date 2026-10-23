@@ -33,9 +33,6 @@ import { FaLinkedin } from "react-icons/fa";
 import type { IconType } from "react-icons";
 import {
   useIntegration,
-  useConnectPipedrive,
-  useDisconnectPipedrive,
-  useSyncLeads,
 } from "@/hooks/usePipedrive";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
