@@ -1,3 +1,4 @@
+import { chatCompletionResponse } from "../_shared/ai-gateway.ts";
 // Sugere uma resposta para o operador humano usando o histórico da conversa.
 // Reusa o gateway de IA (mesmo da ai-reply) com contexto enriquecido.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
@@ -101,17 +102,14 @@ ${historyFormatted || "(sem histórico)"}
 
 Sugira a resposta ideal para o SDR enviar agora.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const response = await chatCompletionResponse({
+          _edgeName: "human-suggest-reply",
         model: "google/gemini-3.8-flash",
         messages: [
           { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },
         ],
-      }),
-    });
+      });
 
     if (!response.ok) {
       const status = response.status;

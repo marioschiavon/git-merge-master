@@ -1,3 +1,4 @@
+import { chatCompletionResponse } from "../_shared/ai-gateway.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { enqueueWhatsAppSend } from "../_shared/whatsapp-pacer.ts";
@@ -614,13 +615,8 @@ REGRAS OBRIGATÓRIAS PARA REFERRAL:
         });
 
         // Generate personalized message with AI
-        const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${LOVABLE_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
+        const aiRes = await chatCompletionResponse({
+          _edgeName: "cadence-executor",
             model: "google/gemini-3.8-flash",
             messages: [
               {
@@ -683,8 +679,7 @@ Responda APENAS com JSON:
 Gere a mensagem personalizada para o step ${currentStep.step_order}.`,
               },
             ],
-          }),
-        });
+          });
 
         if (!aiRes.ok) {
           console.error(`AI error for enrollment ${enrollment.id}: ${aiRes.status}`);

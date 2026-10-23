@@ -1,3 +1,4 @@
+import { chatCompletionResponse } from "../_shared/ai-gateway.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -175,17 +176,14 @@ REGRAS:
 
 Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"gancho usado"}]}`;
 
-      const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const aiRes = await chatCompletionResponse({
+          _edgeName: "preview-cadence-messages",
           model: "google/gemini-3.8-flash",
           messages: [
             { role: "system", content: variationsSystem },
             { role: "user", content: `Lead: ${lead.name} (${lead.title || "cargo n/d"}) — ${lead.company_name || "empresa n/d"}.\nEmail: ${lead.email || "N/A"}.\n\nGere ${variationCount} variações distintas.` },
           ],
-        }),
-      });
+        });
 
       let variationsOut: any[] = [];
       if (aiRes.ok) {
@@ -261,13 +259,8 @@ Responda APENAS JSON: {"variations":[{"subject":"...","message":"...","angle":"g
         continue;
       }
 
-      const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
+      const aiRes = await chatCompletionResponse({
+          _edgeName: "preview-cadence-messages",
           model: "google/gemini-3.8-flash",
           messages: [
             {
@@ -334,8 +327,7 @@ Responda APENAS com JSON:
 Gere a mensagem personalizada para o step ${step.step_order}.`,
             },
           ],
-        }),
-      });
+        });
 
       let subject = step.subject || null;
       let message = step.template || "";
