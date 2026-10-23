@@ -3,3 +3,4 @@
 - Gateway model migrations keep historical pricing and explicit native-provider fallback mappings; provider-native availability must be verified separately because Gateway lifecycle metadata does not establish direct-provider support.
 - SDR reasoning effort is explicit in both normal and forced-tool requests so the Gateway does not select an unsupported implicit reasoning level.
 - Server-boundary tests live in root `tests/` and are included by Vitest outside the frontend TypeScript source tree, preventing Deno dependencies from entering browser compilation.
+- CRM integrations (Bitrix24, Pipedrive) push one-way Leaderei → CRM through DB triggers that only enqueue plus a cron worker with stage_rank no-regression; Pipedrive contact import stays manual-only — avoids sync loops and keeps the CRM card from moving backwards.
