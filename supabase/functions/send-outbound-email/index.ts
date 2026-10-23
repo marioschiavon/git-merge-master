@@ -161,28 +161,21 @@ Deno.serve(async (req) => {
       if (viaGmail) {
         const key = await getConnectionKeyForUser(grant.user_id, "google_mail");
         if (!key) throw new GmailReconnectError("Conexão do Gmail não encontrada (reconectar).");
-        // Mantém a conversa na mesma thread do Gmail quando houver
-        let gThread: string | null = null;
-        let inReplyTo: string | null = null;
-        if (conversation_id) {
-          const { data: last } = await supabase.from("messages")
-            .select("provider_thread_id, rfc_message_id, email_provider")
-            .eq("conversation_id", conversation_id)
-            .not("rfc_message_id", "is", null)
-            .order("created_at", { ascending: false }).limit(1).maybeSingle();
-          inReplyTo = last?.rfc_message_id ?? null;
-          if (last?.email_provider === "gmail") gThread = last.provider_thread_id ?? null;
-        }
+        // Mantém a conversa na mesma thread (Gmail + cabeçalhos RFC)
+        const ctx = await getEmailReplyContext(supabase, conversation_id);
+        const gThread = threadId || ctx.provider_thread_id;
+        const inReplyTo = ctx.in_reply_to_rfc_id;
         sendResult = await gmailSend({
           connectionAPIKey: key,
           fromEmail: grant.email,
           fromName: grant.display_name || undefined,
           to: String(to),
-          subject,
+          subject: inReplyTo ? (ctx.reply_subject || subject) : subject,
           html: html || `<p>${escapeHtml(text)}</p>`,
           text,
           threadId: gThread,
           inReplyTo,
+          references: ctx.references,
         });
       } else sendResult = await nylasSendMessage({
         grantId: grant.grant_id,
