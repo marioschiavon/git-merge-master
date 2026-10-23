@@ -5,6 +5,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 import { sendMessage as nylasSendMessage } from "../_shared/nylas.ts";
 import { gmailSend, GmailReconnectError } from "../_shared/gmail.ts";
 import { getConnectionKeyForUser } from "../_shared/appUserConnections.ts";
+import { getEmailReplyContext } from "../_shared/email-thread.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
