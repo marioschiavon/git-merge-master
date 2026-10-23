@@ -18,6 +18,7 @@ export async function gmailSend(opts: {
   text?: string;
   threadId?: string | null;
   inReplyTo?: string | null;
+  references?: string | null;
 }): Promise<{ id: string; thread_id: string; message_id_header: string }> {
   const domain = opts.fromEmail.split("@")[1] || "leaderei.com.br";
   const messageIdHeader = `<${crypto.randomUUID()}@${domain}>`;
@@ -28,7 +29,7 @@ export async function gmailSend(opts: {
     `To: ${opts.to}`,
     `Subject: ${hdr(subject)}`,
     `Message-ID: ${messageIdHeader}`,
-    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`, `References: ${opts.inReplyTo}`] : []),
+    ...(opts.inReplyTo ? [`In-Reply-To: ${opts.inReplyTo}`, `References: ${opts.references || opts.inReplyTo}`] : []),
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
     "",
