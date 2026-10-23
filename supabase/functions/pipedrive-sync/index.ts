@@ -216,9 +216,16 @@ Deno.serve(async (req) => {
       .eq("source", "pipedrive")
       .not("pipedrive_id", "is", null);
 
+    // Leads que já têm negócio enviado pela esteira nunca são apagados (preserva histórico).
+    const { data: linked } = await supabase
+      .from("pipedrive_deals")
+      .select("lead_id")
+      .eq("company_id", company_id);
+    const linkedIds = new Set((linked || []).map((r: any) => r.lead_id));
+
     let removed = 0;
     for (const lead of existingLeads || []) {
-      if (!pipedriveIds.has(lead.pipedrive_id)) {
+      if (!pipedriveIds.has(lead.pipedrive_id) && !linkedIds.has(lead.id)) {
         await supabase.from("leads").delete().eq("id", lead.id);
         removed++;
       }
