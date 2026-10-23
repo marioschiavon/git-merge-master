@@ -1,6 +1,6 @@
 // Shared helper for calling Lovable AI Gateway from Deno edge functions.
 // Includes an automatic fallback chain (OpenAI → Gemini) triggered when Lovable
-// returns 402 (credits) or persistent 401/403/429/5xx. Fallback keys are stored
+// returns 402 (credits). Denials never redirect. Fallback keys are stored
 // encrypted in platform_settings and managed via the master admin UI.
 
 import {
@@ -81,6 +81,34 @@ export interface ChatCompletionResponse {
   _model_used?: string;
 }
 
+export class AiGatewayError extends Error {
+  constructor(public status: number, public safeMessage: string) {
+    super(`AI Gateway ${status}: ${safeMessage}`);
+  }
+}
+
+function safeError(raw?: string): string {
+  try {
+    const parsed = JSON.parse(raw ?? "{}");
+    return parsed.message || parsed.error?.message || "Falha no serviço de IA.";
+  } catch {
+    return raw?.slice(0, 400) || "Falha no serviço de IA.";
+  }
+}
+
+// Response adapter preserves legacy callers' JSON parsing and error branches.
+export async function chatCompletionResponse(opts: ChatCompletionOptions): Promise<Response> {
+  try {
+    const data = await chatCompletion(opts);
+    return Response.json(data);
+  } catch (error) {
+    if (error instanceof AiGatewayError) {
+      return Response.json({ error: error.safeMessage, message: error.safeMessage }, { status: error.status || 503 });
+    }
+    throw error;
+  }
+}
+
 async function callChat(
   url: string,
   key: string,
@@ -126,10 +154,10 @@ export async function chatCompletion(
     return primary.data;
   }
 
-  const shouldFallback = isFallbackable(primary.status) || primary.status === 0;
+  const shouldFallback = isFallbackable(primary.status);
   if (!shouldFallback) {
     // Terminal error (e.g. 400) — don't try fallback.
-    throw new Error(`AI Gateway ${primary.status}: ${primary.error ?? ""}`);
+    throw new AiGatewayError(primary.status, safeError(primary.error));
   }
 
   // 2) Try OpenAI if configured.
@@ -193,7 +221,7 @@ export async function chatCompletion(
     edgeFunction: _edgeName,
     severity: "critical",
   });
-  throw new Error(`AI Gateway ${primary.status}: ${primary.error ?? "all providers failed"}`);
+  throw new AiGatewayError(primary.status, safeError(primary.error));
 }
 
 export interface EmbeddingOptions {
@@ -255,7 +283,7 @@ export async function createEmbedding(
     return primary.data;
   }
 
-  if (!isFallbackable(primary.status) && primary.status !== 0) {
+  if (!isFallbackable(primary.status)) {
     throw new Error(`AI Gateway embeddings ${primary.status}: ${primary.error ?? ""}`);
   }
 

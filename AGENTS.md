@@ -4,3 +4,4 @@
 - SDR reasoning effort is explicit in both normal and forced-tool requests so the Gateway does not select an unsupported implicit reasoning level.
 - Server-boundary tests live in root `tests/` and are included by Vitest outside the frontend TypeScript source tree, preventing Deno dependencies from entering browser compilation.
 - CRM integrations (Bitrix24, Pipedrive) push one-way Leaderei → CRM through DB triggers that only enqueue plus a cron worker with stage_rank no-regression; Pipedrive contact import stays manual-only — avoids sync loops and keeps the CRM card from moving backwards.
+- Cadence decisions, first-message generation, previews and reply suggestions use the shared AI dispatcher; only exhausted-credit HTTP 402 activates configured master contingency keys, never provider denials — preserves request contracts without bypassing access restrictions.

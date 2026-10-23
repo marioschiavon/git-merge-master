@@ -3,6 +3,7 @@
 // Output: { rendered_body, slot_values }
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { chatCompletionResponse } from "../_shared/ai-gateway.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -59,20 +60,14 @@ serve(async (req) => {
       const sys = `Você gera trechos curtos e específicos para serem encaixados em uma mensagem de prospecção em português brasileiro. Tom consultivo. Responda APENAS com JSON {"values":{"<key>":"<texto>"}}. Texto curto, 1 frase, sem emojis, sem aspas externas, sem repetir o nome.`;
       const slotsDesc = slots.map(s => `- ${s.key}: ${s.prompt}`).join("\n");
       const prompt = `LEAD: ${leadCtx}\n${extra ? `CONTEXTO: ${extra}\n` : ""}\nGere os seguintes trechos:\n${slotsDesc}`;
-      const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Lovable-API-Key": LOVABLE_API_KEY,
-        },
-        body: JSON.stringify({
+      const r = await chatCompletionResponse({
+          _edgeName: "render-template-slots",
           model: "google/gemini-3-flash-preview",
           response_format: { type: "json_object" },
           messages: [
             { role: "system", content: sys },
             { role: "user", content: prompt },
           ],
-        }),
       });
       if (!r.ok) {
         const t = await r.text();
