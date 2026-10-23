@@ -12,6 +12,14 @@ import { logFallback } from "../supabase/functions/_shared/ai-fallback";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 describe("master credit contingency", () => {
+  it("does not redirect a provider refusal returned with HTTP 200", async () => {
+    vi.stubGlobal("Deno", { env: { get: () => "synthetic-key" } });
+    const fetchMock = vi.fn().mockResolvedValueOnce(Response.json({ choices: [{ message: { content: null, refusal: "Refused" } }] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const response = await chatCompletionResponse({ model: "google/gemini-3.8-flash", messages: [{ role: "user", content: "Teste" }] });
+    expect(response.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
   it("routes exhausted Lovable credits to the master OpenAI with the same prompt", async () => {
     vi.stubGlobal("Deno", { env: { get: () => "synthetic-key" } });
     const messages = [{ role: "user" as const, content: "Teste sintético" }];

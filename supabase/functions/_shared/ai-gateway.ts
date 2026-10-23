@@ -131,7 +131,11 @@ async function callChat(
     const text = await res.text();
     return { ok: false, status: res.status, error: text };
   }
-  return { ok: true, status: res.status, data: await res.json() };
+  const data = await res.json();
+  if (data.choices?.some((choice: { message?: { refusal?: string }; finish_reason?: string }) => choice.message?.refusal || choice.finish_reason === "content_filter")) {
+    throw new AiGatewayError(403, "O provedor de IA recusou esta solicitação.");
+  }
+  return { ok: true, status: res.status, data };
 }
 
 export async function chatCompletion(
@@ -146,6 +150,7 @@ export async function chatCompletion(
   try {
     primary = await callChat(GATEWAY_URL, getLovableApiKey(), "lovable", lovableBody);
   } catch (e) {
+    if (e instanceof AiGatewayError) throw e;
     primary = { ok: false, status: 0, error: e instanceof Error ? e.message : String(e) };
   }
   if (primary.ok && primary.data) {
@@ -182,7 +187,9 @@ export async function chatCompletion(
         });
         return r.data;
       }
-    } catch (_) {
+      if ([401, 403, 404].includes(r.status)) throw new AiGatewayError(r.status, safeError(r.error));
+    } catch (error) {
+      if (error instanceof AiGatewayError) throw error;
       // fall through to Gemini
     }
   }
@@ -206,7 +213,9 @@ export async function chatCompletion(
         });
         return r.data;
       }
-    } catch (_) {
+      if ([401, 403, 404].includes(r.status)) throw new AiGatewayError(r.status, safeError(r.error));
+    } catch (error) {
+      if (error instanceof AiGatewayError) throw error;
       // fall through
     }
   }

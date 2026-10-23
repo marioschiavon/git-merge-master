@@ -8,7 +8,7 @@
 
 # Master AI credit contingency
 
-- [ ] Route cadence decisions, first messages and reply generation through the shared contingency dispatcher.
-- [ ] Test exhausted-credit routing and terminal denials without real sends.
-- [ ] Deploy affected functions and verify the configured OpenAI key with a synthetic request.
-- [ ] Record beta notes; do not publish.
+- [x] Route cadence decisions, first messages and reply generation through the shared contingency dispatcher.
+- [x] Test exhausted-credit routing and terminal denials without real sends.
+- [x] Deploy affected functions and verify the configured OpenAI key with a synthetic request.
+- [x] Record beta notes; do not publish.
