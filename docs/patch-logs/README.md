@@ -7,6 +7,7 @@ Cada arquivo cobre um dia e segue o mesmo formato: **Novidades**, **Melhorias** 
 ## Índice
 
 - [23/10/2026](./2026-10-23.md) — beta 0.92
+- [Beta 0.94](2026-10-23c.md)
 - [Beta 0.93](2026-10-23b.md)
 - [22/10/2026](./2026-10-22c.md) — beta 0.91
 - [22/10/2026](./2026-10-22b.md) — beta 0.90
