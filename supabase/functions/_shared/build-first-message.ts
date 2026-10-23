@@ -3,6 +3,7 @@
 // (company knowledge + highlights + ai_instructions + lead insights + social).
 //
 // Returns { subject, message }. Does NOT send — caller is responsible for delivery.
+import { chatCompletionResponse } from "./ai-gateway.ts";
 
 export type FirstMessageInput = {
   supabase: any;
@@ -207,16 +208,13 @@ Gere a PRIMEIRA mensagem seguindo as regras do MODO CANAL CORPORATIVO.`
 
 Gere a PRIMEIRA mensagem (abertura da cadência).`;
 
-  const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${lovableApiKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
+  const aiRes = await chatCompletionResponse({
+      _edgeName: "build-first-message",
       model: "google/gemini-3.8-flash",
       messages: [
         { role: "system", content: systemPromptWithNotes },
         { role: "user", content: userPrompt },
       ],
-    }),
   });
 
   let subject: string | null = null;

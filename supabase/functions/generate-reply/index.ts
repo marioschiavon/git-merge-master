@@ -1,3 +1,4 @@
+import { chatCompletionResponse } from "../_shared/ai-gateway.ts";
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
@@ -95,21 +96,15 @@ ${historyText}
 
 Gere a próxima mensagem.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const response = await chatCompletionResponse({
+          _edgeName: "generate-reply",
         model: "openai/gpt-6.1-sol",
         messages: [
           { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },
         ],
         response_format: { type: "json_object" },
-      }),
-    });
+      });
 
     if (!response.ok) {
       const status = response.status;

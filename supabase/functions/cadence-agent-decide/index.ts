@@ -1,3 +1,4 @@
+import { chatCompletionResponse } from "../_shared/ai-gateway.ts";
 // Cadence Agent Decider — for cadences with mode='agentic'.
 // Decides next action per enrollment: send / wait / stop / handoff_human.
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
@@ -477,21 +478,15 @@ ${prevDecisionsText || "(primeira tentativa)"}
 
 Decida a próxima ação.`;
 
-    const aiRes = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    const aiRes = await chatCompletionResponse({
+          _edgeName: "cadence-agent-decide",
         model: "google/gemini-3.8-flash",
         messages: [
           { role: "system", content: systemPromptWithNotes },
           { role: "user", content: userPrompt },
         ],
         response_format: { type: "json_object" },
-      }),
-    });
+      });
 
     if (!aiRes.ok) {
       const status = aiRes.status;

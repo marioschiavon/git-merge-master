@@ -96,11 +96,10 @@ export const EMBEDDING_MAP = {
 
 // Decide whether a failure should trigger a fallback attempt.
 // - 402: credits exhausted (primary reason)
-// - 401/403: gateway rejected the request (bad key/scope)
-// - 429/5xx: rate limit or transient upstream failure
-// Everything else (400, etc.) is terminal.
+// Only exhausted credits authorize the owner's external contingency.
+// Denials, configuration errors and unavailable models must never rotate providers.
 export function isFallbackable(status: number): boolean {
-  return status === 402 || status === 401 || status === 403 || status === 429 || (status >= 500 && status < 600);
+  return status === 402;
 }
 
 export function logFallback(params: {
