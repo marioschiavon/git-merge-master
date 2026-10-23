@@ -33,15 +33,13 @@ import { FaLinkedin } from "react-icons/fa";
 import type { IconType } from "react-icons";
 import {
   useIntegration,
-  useConnectPipedrive,
-  useDisconnectPipedrive,
-  useSyncLeads,
 } from "@/hooks/usePipedrive";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { EnrichmentSettingsCard } from "@/components/EnrichmentSettingsCard";
 import { WhatsAppManagerDialog } from "@/components/WhatsAppManagerDialog";
 import { ApolloConnectDialog } from "@/components/ApolloConnectDialog";
+import { PipedriveDialog } from "@/components/PipedriveDialog";
 import { Bitrix24Dialog } from "@/components/Bitrix24Dialog";
 import { useBitrix24Integration } from "@/hooks/useBitrix24";
 import { useGmailConnection } from "@/hooks/useGmailConnection";
@@ -248,102 +246,6 @@ function ProviderCard(props: ProviderCardProps) {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Pipedrive dialog
-// ---------------------------------------------------------------------------
-
-function PipedriveDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-}) {
-  const [apiToken, setApiToken] = useState("");
-  const { data: integration } = useIntegration("pipedrive");
-  const connectMutation = useConnectPipedrive();
-  const disconnectMutation = useDisconnectPipedrive();
-  const syncMutation = useSyncLeads();
-  const isConnected = integration?.status === "active";
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>Pipedrive</DialogTitle>
-          <DialogDescription>
-            Importe leads e sincronize atividades do Pipedrive.
-          </DialogDescription>
-        </DialogHeader>
-
-        {!isConnected ? (
-          <div className="space-y-3 py-2">
-            <div className="space-y-1.5">
-              <Label htmlFor="pd-token">API Token</Label>
-              <Input
-                id="pd-token"
-                type="password"
-                placeholder="Cole seu API Token do Pipedrive"
-                value={apiToken}
-                onChange={(e) => setApiToken(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">
-                <a
-                  href="https://app.pipedrive.com/settings/api"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-primary hover:underline"
-                >
-                  Onde encontrar meu API Token? <ExternalLink className="h-3 w-3" />
-                </a>
-              </p>
-            </div>
-            <Button
-              className="w-full"
-              onClick={() => connectMutation.mutate(apiToken)}
-              disabled={!apiToken || connectMutation.isPending}
-            >
-              <Plug className="mr-2 h-4 w-4" />
-              {connectMutation.isPending ? "Conectando..." : "Conectar"}
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3 py-2">
-            {integration?.last_synced_at && (
-              <p className="text-xs text-muted-foreground">
-                Última sincronização:{" "}
-                {new Date(integration.last_synced_at).toLocaleString("pt-BR")}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => syncMutation.mutate()}
-                disabled={syncMutation.isPending}
-              >
-                <RefreshCw
-                  className={`mr-2 h-4 w-4 ${
-                    syncMutation.isPending ? "animate-spin" : ""
-                  }`}
-                />
-                {syncMutation.isPending ? "Sincronizando..." : "Sincronizar agora"}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => disconnectMutation.mutate()}
-                disabled={disconnectMutation.isPending}
-              >
-                <Unplug className="mr-2 h-4 w-4" />
-                Desconectar
-              </Button>
-            </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Email (Resend) — status hook
@@ -651,7 +553,7 @@ export default function Integrations() {
       key: "pipedrive",
       name: "Pipedrive",
       category: "CRM",
-      description: "Importe leads e sincronize atividades do Pipedrive.",
+      description: "Importe contatos e envie negócios automaticamente para o Pipedrive.",
       icon: PipedriveIcon,
       iconTint: "text-foreground",
       status: pipedriveStatus,
