@@ -22,6 +22,13 @@
       "when": 1792190122984,
       "tag": "0002_billing_plans_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792766355153,
+      "tag": "0003_pipedrive_push_pipeline",
+      "breakpoints": true
     }
   ]
 }

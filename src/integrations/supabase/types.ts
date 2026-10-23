@@ -3198,6 +3198,117 @@ export type Database = {
         }
         Relationships: []
       }
+      pipedrive_deals: {
+        Row: {
+          company_id: string
+          created_at: string
+          current_stage: string | null
+          deal_id: number
+          id: string
+          lead_id: string
+          org_id: number | null
+          person_id: number | null
+          stage_rank: number
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          current_stage?: string | null
+          deal_id: number
+          id?: string
+          lead_id: string
+          org_id?: number | null
+          person_id?: number | null
+          stage_rank?: number
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          current_stage?: string | null
+          deal_id?: number
+          id?: string
+          lead_id?: string
+          org_id?: number | null
+          person_id?: number | null
+          stage_rank?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipedrive_deals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipedrive_deals_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pipedrive_sync_queue: {
+        Row: {
+          attempts: number
+          company_id: string
+          created_at: string
+          event: string
+          id: string
+          last_error: string | null
+          lead_id: string
+          next_attempt_at: string
+          payload: Json
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          company_id: string
+          created_at?: string
+          event: string
+          id?: string
+          last_error?: string | null
+          lead_id: string
+          next_attempt_at?: string
+          payload?: Json
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          company_id?: string
+          created_at?: string
+          event?: string
+          id?: string
+          last_error?: string | null
+          lead_id?: string
+          next_attempt_at?: string
+          payload?: Json
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pipedrive_sync_queue_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pipedrive_sync_queue_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       platform_settings: {
         Row: {
           apify_actors: Json
@@ -4073,6 +4184,10 @@ export type Database = {
         Args: { _email: string; _website: string }
         Returns: string
       }
+      pipedrive_push_enabled: {
+        Args: { _company_id: string }
+        Returns: boolean
+      }
       protected_lead_ids: {
         Args: { _company_id: string }
         Returns: {
@@ -4094,6 +4209,7 @@ export type Database = {
         Returns: string
       }
       remove_company_member: { Args: { _user_id: string }; Returns: undefined }
+      retry_pipedrive_failed: { Args: never; Returns: number }
       set_calcom_api_key: {
         Args: {
           _api_key: string
